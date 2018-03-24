@@ -134,7 +134,7 @@ var defaultSendTestCases = []ChannelSendTestCase{
 			"Accept":        "application/json",
 			"Authorization": "Basic enYtdXNlcm5hbWU6enYtcGFzc3dvcmQ=",
 		},
-		RequestBody: `{"sendSmsRequest":{"from":"Sender","to":"250788383383","schedule":"","msg":"Simple Message ☺","callbackOption":"1","id":"10","aggregateId":""}}`,
+		RequestBody: `{"sendSmsRequest":{"from":"Sender","to":"250788383383","schedule":"","msg":"Simple Message ","callbackOption":"1","id":"10","aggregateId":""}}`,
 		SendPrep:    setSendURL},
 	{Label: "Long Send",
 		Text:           "This is a longer message than 160 characters and will cause us to split it into two separate parts, isn't that right but it is even longer than before I say, I need to keep adding more things to make it work",
@@ -163,7 +163,7 @@ var defaultSendTestCases = []ChannelSendTestCase{
 			"Accept":        "application/json",
 			"Authorization": "Basic enYtdXNlcm5hbWU6enYtcGFzc3dvcmQ=",
 		},
-		RequestBody: `{"sendSmsRequest":{"from":"Sender","to":"250788383383","schedule":"","msg":"My pic!\nhttps://foo.bar/image.jpg","callbackOption":"1","id":"10","aggregateId":""}}`,
+		RequestBody: `{"sendSmsRequest":{"from":"Sender","to":"250788383383","schedule":"","msg":"My pic!https://foo.bar/image.jpg","callbackOption":"1","id":"10","aggregateId":""}}`,
 		SendPrep:    setSendURL},
 	{Label: "No External Id",
 		Text:           "No External ID",
@@ -187,6 +187,20 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		ResponseStatus: 401,
 		RequestBody:    `{"sendSmsRequest":{"from":"Sender","to":"250788383383","schedule":"","msg":"Error Message","callbackOption":"1","id":"10","aggregateId":""}}`,
 		SendPrep:       setSendURL},
+	{Label: "Not Accepted Characters Send",
+		Text:           "É uma mensagem de açúcar para você!",
+		URN:            "tel:+250788383383",
+		Status:         "W",
+		ExternalID:     "",
+		ResponseBody:   `{"sendSmsResponse":{"statusCode":"00","statusDescription":"Ok","detailCode":"000","detailDescription":"Message Sent"}}`,
+		ResponseStatus: 200,
+		Headers: map[string]string{
+			"Content-Type":  "application/json",
+			"Accept":        "application/json",
+			"Authorization": "Basic enYtdXNlcm5hbWU6enYtcGFzc3dvcmQ=",
+		},
+		RequestBody: `{"sendSmsRequest":{"from":"Sender","to":"250788383383","schedule":"","msg":"E uma mensagem de acucar para voce!","callbackOption":"1","id":"10","aggregateId":""}}`,
+		SendPrep:    setSendURL},
 }
 
 func TestSending(t *testing.T) {

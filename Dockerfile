@@ -1,4 +1,4 @@
-FROM golang:1.8-alpine
+FROM golang:1.10-alpine
 
 # Prepare app source directory
 ENV APP_PATH /go/src/github.com/nyaruka/courier

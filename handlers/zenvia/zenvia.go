@@ -19,7 +19,7 @@ import (
 
 var (
 	maxMsgLength = 1152
-	sendURL      = "https://api-rest.zenvia360.com.br/services"
+	sendURL      = "https://api-rest.zenvia360.com.br/services/send-sms"
 )
 
 func init() {
@@ -85,7 +85,6 @@ type statusPayload struct {
 
 // {
 //     "sendSmsRequest": {
-//         "from": "Sender",
 //         "to": "555199999999",
 //         "schedule": "2014-08-22T14:55:00",
 //         "msg": "Test message.",
@@ -96,7 +95,6 @@ type statusPayload struct {
 // }
 type mtPayload struct {
 	SendSMSRequest struct {
-		From           string `json:"from"`
 		To             string `json:"to"`
 		Schedule       string `json:"schedule"`
 		Msg            string `json:"msg"`
@@ -184,7 +182,6 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	parts := handlers.SplitMsg(handlers.GetTextAndAttachments(msg), maxMsgLength)
 	for _, part := range parts {
 		zvMsg := mtPayload{}
-		zvMsg.SendSMSRequest.From = "Sender"
 		zvMsg.SendSMSRequest.To = strings.TrimLeft(msg.URN().Path(), "+")
 		zvMsg.SendSMSRequest.Msg = utils.ToAscii(part)
 		zvMsg.SendSMSRequest.ID = msg.ID().String()

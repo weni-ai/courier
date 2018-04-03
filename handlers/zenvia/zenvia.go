@@ -61,7 +61,7 @@ type moPayload struct {
 		From       string `json:"mobile"                  validate:"required" `
 		Text       string `json:"body"`
 		Date       string `json:"received"                validate:"required" `
-		ExternalID string `json:"correlatedMessageSmsId"  validate:"required" `
+		ExternalID string `json:"correlatedMessageSmsId"`
 	} `json:"callbackMoRequest"`
 }
 
@@ -141,7 +141,7 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 	}
 
 	// build our msg
-	msg := h.Backend().NewIncomingMsg(channel, urn, payload.CallbackMORequest.Text).WithExternalID(payload.CallbackMORequest.ExternalID).WithReceivedOn(date.UTC())
+	msg := h.Backend().NewIncomingMsg(channel, urn, payload.CallbackMORequest.Text).WithExternalID(payload.CallbackMORequest.ID).WithReceivedOn(date.UTC())
 	// and finally write our message
 	return handlers.WriteMsgAndResponse(ctx, h, msg, w, r)
 }
@@ -185,7 +185,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		zvMsg.SendSMSRequest.To = strings.TrimLeft(msg.URN().Path(), "+")
 		zvMsg.SendSMSRequest.Msg = utils.ToAscii(part)
 		zvMsg.SendSMSRequest.ID = msg.ID().String()
-		zvMsg.SendSMSRequest.CallbackOption = "1"
+		zvMsg.SendSMSRequest.CallbackOption = "FINAL"
 
 		requestBody := new(bytes.Buffer)
 		json.NewEncoder(requestBody).Encode(zvMsg)

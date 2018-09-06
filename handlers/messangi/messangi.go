@@ -2,19 +2,14 @@ package messangi
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"fmt"
 	"net/http"
 	"strings"
 
-	"encoding/base64"
-	"encoding/hex"
-	"encoding/xml"
-
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
+	"encoding/xml"
 )
 
 const (
@@ -85,12 +80,12 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
 	parts := handlers.SplitMsg(handlers.GetTextAndAttachments(msg), maxMsgLength)
 	for _, part := range parts {
-		shortcode := strings.TrimPrefix(msg.Channel().Address(), "+")
-		to := strings.TrimPrefix(msg.URN().Path(), "+")
+		shortcode  := strings.TrimPrefix(msg.Channel().Address(), "+")
+		to         := strings.TrimPrefix(msg.URN().Path(), "+")
 		textBase64 := base64.RawURLEncoding.EncodeToString([]byte(part))
-		params := fmt.Sprintf("%d/%s/%d/%s/%s", instanceId, shortcode, carrierId, to, textBase64)
-		signature := signHMAC256(privateKey, params)
-		fullURL := fmt.Sprintf("%s/%s/%s/%s", sendURL, params, publicKey, signature)
+		params     := fmt.Sprintf("%d/%s/%d/%s/%s", instanceId, shortcode, carrierId, to, textBase64)
+		signature  := utils.SignHMAC256(privateKey, params)
+		fullURL    := fmt.Sprintf("%s/%s/%s/%s", sendURL, params, publicKey, signature)
 
 		req, _ := http.NewRequest(http.MethodGet, fullURL, nil)
 		rr, err := utils.MakeHTTPRequest(req)
@@ -121,12 +116,4 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 
 	return status, nil
-}
-
-func signHMAC256(privateKey string, params string) string {
-	hash := hmac.New(sha256.New, []byte(privateKey))
-	hash.Write([]byte(params))
-
-	signedParams := hex.EncodeToString(hash.Sum(nil))
-	return signedParams
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
+	"encoding/base64"
 	"github.com/nyaruka/courier/utils"
 	"encoding/xml"
 )

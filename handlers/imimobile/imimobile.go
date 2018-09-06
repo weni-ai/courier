@@ -47,11 +47,10 @@ type sendMessage struct {
 }
 
 type incomingMessage struct {
-	ID                string `json:"id" validate:"required" `
-	To                string `json:"mobile" validate:"required" `
-	Message           string `json:"message" validate:"required"`
-	ReceivedTimestamp string `json:"received" validate:"required"`
-	ExternalID        string `json:"correlatedMessageSmsId"`
+	MobileNumber    string `name:"msisdn" validate:"required"`
+	Message         string `name:"sms" validate:"required"`
+	TransactionId   string `name:"tid" validate:"required" `
+	Shortcode 		string `name:"src" validate:"required"`
 }
 
 func init() {
@@ -71,21 +70,21 @@ func (h *handler) Initialize(s courier.Server) error {
 
 // receiveMessage is our HTTP handler function for incoming messages
 func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
-	payload := &incomingMessage{}
-	err := handlers.DecodeAndValidateJSON(payload, r)
+	form := &incomingMessage{}
+	err := handlers.DecodeAndValidateForm(form, r)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
 	// create our URN
-	urn, err := handlers.StrictTelForCountry(payload.To, channel.Country())
+	urn, err := handlers.StrictTelForCountry(form.MobileNumber, channel.Country())
 	if err != nil {
 		fmt.Println("Error when validating phone number")
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
 	// build our msg
-	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Message)
+	msg := h.Backend().NewIncomingMsg(channel, urn, form.Message)
 	// and finally write our message
 	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
 }

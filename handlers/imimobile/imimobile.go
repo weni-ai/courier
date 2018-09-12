@@ -120,7 +120,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			{
 				Msisdn:      []string{msisdn},
 				Msg:         handlers.GetTextAndAttachments(msg),
-				CountryCode: "55", // TODO: extract this information from msisdn
+				CountryCode: "91", // TODO: extract this information from msisdn
 			},
 		},
 	}

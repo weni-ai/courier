@@ -117,7 +117,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		SenderName: "UNICEF", // TODO: get this information(where???)
 		Priority:   0,
 		SendMessage: []sendMessage{
-			sendMessage{
+			{
 				Msisdn:      []string{msisdn},
 				Msg:         handlers.GetTextAndAttachments(msg),
 				CountryCode: "55", // TODO: extract this information from msisdn

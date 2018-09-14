@@ -9,8 +9,10 @@ import (
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
+	"github.com/nyaruka/phonenumbers"
 	"github.com/pkg/errors"
 	"net/http"
+	"strconv"
 )
 
 var sendURL = "https://cm.cloudev.com/entapi/SMS/sendMessage"
@@ -96,7 +98,11 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	apiKey := msg.Channel().StringConfigForKey(courier.ConfigAPIKey, "")
 	msisdn := msg.URN().Path()
 	transId := msg.ID().String()
+	campaignId := msg.Channel().StringConfigForKey("campaign_id", "")
+	senderName := msg.Channel().StringConfigForKey("sender_name", "")
+	phoneNumber, _ := phonenumbers.Parse(msisdn, msg.Channel().Country())
 	authorizationBase64 := base64.URLEncoding.EncodeToString([]byte(username + ":" + password))
+	countryCode := ""
 
 	if username == "" {
 		return nil, fmt.Errorf("no username set for IMI channel")
@@ -110,17 +116,21 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		return nil, fmt.Errorf("no api key set for IMI channel")
 	}
 
+	if phoneNumber.CountryCode != nil {
+		countryCode = strconv.FormatInt(int64(*phoneNumber.CountryCode), 10)
+	}
+
 	// build our request
 	imiMsg := imiPayload{
-		CampaignId: "camp_002", // TODO: get this information(where???)
+		CampaignId: campaignId,
 		TransId:    transId,
-		SenderName: "UNICEF", // TODO: get this information(where???)
+		SenderName: senderName,
 		Priority:   0,
 		SendMessage: []sendMessage{
 			{
 				Msisdn:      []string{msisdn},
 				Msg:         handlers.GetTextAndAttachments(msg),
-				CountryCode: "91", // TODO: extract this information from msisdn
+				CountryCode: countryCode,
 			},
 		},
 	}

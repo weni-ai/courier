@@ -4,6 +4,7 @@ import (
 	"github.com/nyaruka/courier"
 	. "github.com/nyaruka/courier/handlers"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -57,9 +58,40 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		URN:            "tel:+250788383383",
 		Status:         "W",
 		ExternalID:     "",
-		ResponseBody:   `{"campaignId":"camp_002","transId":"10","senderName":"UNICEF","priority":0,"sendMessage":[{"msisdn":["+250788383383"],"msg":"Simple Message ☺","countryCode":"91"}]}`,
+		ResponseBody:   `{"transid": "001_1235","status_code": "000","status_desc": "Success","refId": "636725493361935289_35"}`,
 		ResponseStatus: 200,
 		SendPrep:    setSendURL},
+	{Label: "Long Send",
+		Text: strings.Repeat("This is a very long message", 10),
+		URN: "tel:+250788383383",
+		Status: "W",
+		ExternalID: "",
+		ResponseBody: `{"transid": "001_1235","status_code": "000","status_desc": "Success","refId": "636725493361935289_35"}`,
+		ResponseStatus: 200,
+		SendPrep:    setSendURL},
+	{Label: "Send Attachment",
+		Text: "MMS is not supported",
+		URN: "tel:+250788383383",
+		Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
+		Status: "E",
+		ExternalID: "",
+		ResponseBody: "",
+		ResponseStatus: 400,
+		SendPrep: setSendURL},
+	{Label: "Invalid Parameters",
+		Text: "Invalid Parameters",
+		URN: "tel:+250788383383",
+		Status: "E",
+		ResponseBody: "",
+		ResponseStatus: 400,
+		SendPrep: setSendURL},
+	{Label: "Error Response",
+		Text: "Error Response",
+		URN: "tel:+250788383383",
+		Status: "E",
+		ResponseBody: "",
+		ResponseStatus: 400,
+		SendPrep: setSendURL},
 }
 
 func TestSending(t *testing.T) {

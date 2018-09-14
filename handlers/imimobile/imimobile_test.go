@@ -95,6 +95,17 @@ var defaultSendTestCases = []ChannelSendTestCase{
 }
 
 func TestSending(t *testing.T) {
-	var defaultChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "IMI", "2020", "IN", map[string]interface{}{"username": "imi-username", "password": "imi-password", "api_key": "123456"})
+	var defaultChannel = courier.NewMockChannel(
+		"8eb23e93-5ecb-45ba-b726-3b064e0c56ab",
+		"IMI",
+		"2020",
+		"IN",
+		map[string]interface{}{
+			"username": "imi-username",
+			"password": "imi-password",
+			"api_key": "123456",
+			"sender_name": "foo sender",
+			"campaign_id": "foo campaign",
+		})
 	RunChannelSendTestCases(t, defaultChannel, newHandler(), defaultSendTestCases, nil)
 }

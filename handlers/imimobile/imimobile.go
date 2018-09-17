@@ -15,6 +15,11 @@ import (
 	"strconv"
 )
 
+const (
+	configCampaignId = "campaign_id"
+	configSenderName = "sender_name"
+)
+
 var sendURL = "https://cm.cloudev.com/entapi/SMS/sendMessage"
 
 type handler struct {
@@ -98,8 +103,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	apiKey := msg.Channel().StringConfigForKey(courier.ConfigAPIKey, "")
 	msisdn := msg.URN().Path()
 	transId := msg.ID().String()
-	campaignId := msg.Channel().StringConfigForKey("campaign_id", "")
-	senderName := msg.Channel().StringConfigForKey("sender_name", "")
+	campaignId := msg.Channel().StringConfigForKey(configCampaignId, "")
+	senderName := msg.Channel().StringConfigForKey(configSenderName, "")
 	phoneNumber, _ := phonenumbers.Parse(msisdn, msg.Channel().Country())
 	authorizationBase64 := base64.URLEncoding.EncodeToString([]byte(username + ":" + password))
 	countryCode := ""

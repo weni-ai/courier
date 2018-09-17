@@ -13,6 +13,7 @@ import (
 	"github.com/pkg/errors"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -101,11 +102,11 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	username   := msg.Channel().StringConfigForKey(courier.ConfigUsername, "")
 	password   := msg.Channel().StringConfigForKey(courier.ConfigPassword, "")
 	apiKey     := msg.Channel().StringConfigForKey(courier.ConfigAPIKey, "")
-	msisdn     := msg.URN().Path()
+	msisdn     := strings.TrimPrefix(msg.URN().Path(), "+")
 	transId    := msg.ID().String()
 	campaignId := msg.Channel().StringConfigForKey(configCampaignId, "")
 	senderName := msg.Channel().StringConfigForKey(configSenderName, "")
-	phoneNumber, _ := phonenumbers.Parse(msisdn, msg.Channel().Country())
+	phoneNumber, _ := phonenumbers.Parse(msg.URN().Path(), msg.Channel().Country())
 	authorizationBase64 := base64.URLEncoding.EncodeToString([]byte(username + ":" + password))
 	countryCode := ""
 
@@ -123,6 +124,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	if phoneNumber.CountryCode != nil {
 		countryCode = strconv.FormatInt(int64(*phoneNumber.CountryCode), 10)
+		msisdn = strings.Replace(msisdn, countryCode, "", 1)
 	}
 
 	// build our request

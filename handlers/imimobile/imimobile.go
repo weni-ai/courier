@@ -40,16 +40,16 @@ type handler struct {
 }*/
 
 type imiPayload struct {
-	CampaignId string `json:"campaignId" validate:"required"`
-	TransId string `json:"transId" validate:"required"`
-	SenderName string `json:"senderName" validate:"required"`
-	Priority int `json:"priority"`
+	CampaignId  string `json:"campaignId" validate:"required"`
+	TransId     string `json:"transId" validate:"required"`
+	SenderName  string `json:"senderName" validate:"required"`
+	Priority    int `json:"priority"`
 	SendMessage []sendMessage `json:"sendMessage" validate:"required"`
 }
 
 type sendMessage struct {
-	Msisdn []string `json:"msisdn" validate:"required"`
-	Msg string `json:"msg" validate:"required"`
+	Msisdn      []string `json:"msisdn" validate:"required"`
+	Msg         string `json:"msg" validate:"required"`
 	CountryCode string `json:"countryCode" validate:"required"`
 }
 
@@ -98,11 +98,11 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 
 // SendMsg sends the passed in message, returning any error
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
-	username := msg.Channel().StringConfigForKey(courier.ConfigUsername, "")
-	password := msg.Channel().StringConfigForKey(courier.ConfigPassword, "")
-	apiKey := msg.Channel().StringConfigForKey(courier.ConfigAPIKey, "")
-	msisdn := msg.URN().Path()
-	transId := msg.ID().String()
+	username   := msg.Channel().StringConfigForKey(courier.ConfigUsername, "")
+	password   := msg.Channel().StringConfigForKey(courier.ConfigPassword, "")
+	apiKey     := msg.Channel().StringConfigForKey(courier.ConfigAPIKey, "")
+	msisdn     := msg.URN().Path()
+	transId    := msg.ID().String()
 	campaignId := msg.Channel().StringConfigForKey(configCampaignId, "")
 	senderName := msg.Channel().StringConfigForKey(configSenderName, "")
 	phoneNumber, _ := phonenumbers.Parse(msisdn, msg.Channel().Country())

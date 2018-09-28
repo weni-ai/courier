@@ -117,9 +117,9 @@ func newMsg(direction MsgDirection, channel courier.Channel, urn urns.URN, text 
 }
 
 const insertMsgSQL = `
-INSERT INTO msgs_msg(org_id, uuid, direction, text, attachments, msg_count, error_count, high_priority, status, 
+INSERT INTO msgs_msg(org_id, uuid, direction, text, attachments, msg_count, error_count, high_priority, status,
                      visibility, external_id, channel_id, contact_id, contact_urn_id, created_on, modified_on, next_attempt, queued_on, sent_on)
-              VALUES(:org_id, :uuid, :direction, :text, :attachments, :msg_count, :error_count, :high_priority, :status, 
+              VALUES(:org_id, :uuid, :direction, :text, :attachments, :msg_count, :error_count, :high_priority, :status,
                      :visibility, :external_id, :channel_id, :contact_id, :contact_urn_id, :created_on, :modified_on, :next_attempt, :queued_on, :sent_on)
 RETURNING id
 `
@@ -164,7 +164,7 @@ func writeMsgToDB(ctx context.Context, b *backend, m *DBMsg) error {
 }
 
 const selectMsgSQL = `
-SELECT org_id, direction, text, attachments, msg_count, error_count, high_priority, status, 
+SELECT org_id, direction, text, attachments, msg_count, error_count, high_priority, status,
        visibility, external_id, channel_id, contact_id, contact_urn_id, created_on, modified_on, next_attempt, queued_on, sent_on
 FROM msgs_msg
 WHERE id = $1
@@ -195,7 +195,7 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 	if handler != nil {
 		builder, isBuilder := handler.(courier.MediaDownloadRequestBuilder)
 		if isBuilder {
-			req, err = builder.BuildDownloadMediaRequest(ctx, channel, parsedURL.String())
+			req, err = builder.BuildDownloadMediaRequest(ctx, b, channel, parsedURL.String())
 
 			// in the case of errors, we log the error but move onwards anyways
 			if err != nil {
@@ -308,17 +308,17 @@ func (b *backend) flushMsgFile(filename string, contents []byte) error {
 // Deduping utility methods
 //-----------------------------------------------------------------------------
 
-var luaMsgSeen = redis.NewScript(3, `-- KEYS: [Window, PrevWindow, Fingerprint]
+var luaMsgSeen = redis.NewScript(3, `-- KEYS: [Window, PrevWindow, URNFingerprint]
 	-- try to look up in window
-	local uuid = redis.call("hget", KEYS[1], KEYS[3])
+	local found = redis.call("hget", KEYS[1], KEYS[3])
 
 	-- didn't find it, try in our previous window
-	if not uuid then 
-		uuid = redis.call("hget", KEYS[2], KEYS[3])
+	if not found then
+		found = redis.call("hget", KEYS[2], KEYS[3])
 	end
-	
-	-- return the uuid found if any
-	return uuid
+
+	-- return the fingerprint found
+	return found
 `)
 
 // checkMsgSeen tries to look up whether a msg with the fingerprint passed in was seen in window or prevWindow. If
@@ -327,24 +327,31 @@ func checkMsgSeen(b *backend, msg *DBMsg) courier.MsgUUID {
 	r := b.redisPool.Get()
 	defer r.Close()
 
-	fingerprint := msg.fingerprint()
+	urnFingerprint := msg.urnFingerprint()
 
 	now := time.Now().In(time.UTC)
 	prev := now.Add(time.Second * -2)
 	windowKey := fmt.Sprintf("seen:msgs:%s:%02d", now.Format("2006-01-02-15:04"), now.Second()/2*2)
 	prevWindowKey := fmt.Sprintf("seen:msgs:%s:%02d", prev.Format("2006-01-02-15:04"), prev.Second()/2*2)
 
-	// try to look up our UUID from either window or prev window
-	foundUUID, _ := redis.String(luaMsgSeen.Do(r, windowKey, prevWindowKey, fingerprint))
-	if foundUUID != "" {
-		return courier.NewMsgUUIDFromString(foundUUID)
+	// see if there were any messages received in the past 4 seconds
+	found, _ := redis.String(luaMsgSeen.Do(r, windowKey, prevWindowKey, urnFingerprint))
+
+	// if so, test whether the text it the same
+	if found != "" {
+		prevText := found[37:]
+
+		// if it is the same, return the UUID
+		if prevText == msg.Text() {
+			return courier.NewMsgUUIDFromString(found[:36])
+		}
 	}
 	return courier.NilMsgUUID
 }
 
-var luaWriteMsgSeen = redis.NewScript(3, `-- KEYS: [Window, Fingerprint, UUID]
+var luaWriteMsgSeen = redis.NewScript(3, `-- KEYS: [Window, URNFingerprint, UUIDText]
 	redis.call("hset", KEYS[1], KEYS[2], KEYS[3])
-	redis.call("pexpire", KEYS[1], 5000)
+	redis.call("expire", KEYS[1], 5)
 `)
 
 // writeMsgSeen writes that the message with the passed in fingerprint and UUID was seen in the
@@ -353,11 +360,25 @@ func writeMsgSeen(b *backend, msg *DBMsg) {
 	r := b.redisPool.Get()
 	defer r.Close()
 
-	fingerprint := msg.fingerprint()
+	urnFingerprint := msg.urnFingerprint()
+	uuidText := fmt.Sprintf("%s|%s", msg.UUID().String(), msg.Text_)
 	now := time.Now().In(time.UTC)
 	windowKey := fmt.Sprintf("seen:msgs:%s:%02d", now.Format("2006-01-02-15:04"), now.Second()/2*2)
 
-	luaWriteMsgSeen.Do(r, windowKey, fingerprint, msg.UUID().String())
+	luaWriteMsgSeen.Do(r, windowKey, urnFingerprint, uuidText)
+}
+
+// clearMsgSeen clears our seen incoming messages for the passed in channel and URN
+func clearMsgSeen(rc redis.Conn, msg *DBMsg) {
+	urnFingerprint := msg.urnFingerprint()
+
+	now := time.Now().In(time.UTC)
+	prev := now.Add(time.Second * -2)
+	windowKey := fmt.Sprintf("seen:msgs:%s:%02d", now.Format("2006-01-02-15:04"), now.Second()/2*2)
+	prevWindowKey := fmt.Sprintf("seen:msgs:%s:%02d", prev.Format("2006-01-02-15:04"), prev.Second()/2*2)
+
+	rc.Send("hdel", windowKey, urnFingerprint)
+	rc.Do("hdel", prevWindowKey, urnFingerprint)
 }
 
 //-----------------------------------------------------------------------------
@@ -441,8 +462,8 @@ func (m *DBMsg) QuickReplies() []string {
 }
 
 // fingerprint returns a fingerprint for this msg, suitable for figuring out if this is a dupe
-func (m *DBMsg) fingerprint() string {
-	return fmt.Sprintf("%s:%s:%s", m.ChannelUUID_, m.URN_, m.Text_)
+func (m *DBMsg) urnFingerprint() string {
+	return fmt.Sprintf("%s:%s", m.ChannelUUID_, m.URN_)
 }
 
 // WithContactName can be used to set the contact name on a msg

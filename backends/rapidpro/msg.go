@@ -117,10 +117,11 @@ func newMsg(direction MsgDirection, channel courier.Channel, urn urns.URN, text 
 }
 
 const insertMsgSQL = `
-INSERT INTO msgs_msg(org_id, uuid, direction, text, attachments, msg_count, error_count, high_priority, status,
-                     visibility, external_id, channel_id, contact_id, contact_urn_id, created_on, modified_on, next_attempt, queued_on, sent_on)
-              VALUES(:org_id, :uuid, :direction, :text, :attachments, :msg_count, :error_count, :high_priority, :status,
-                     :visibility, :external_id, :channel_id, :contact_id, :contact_urn_id, :created_on, :modified_on, :next_attempt, :queued_on, :sent_on)
+INSERT INTO 
+	msgs_msg(org_id, uuid, direction, text, attachments, msg_count, error_count, high_priority, status,
+             visibility, external_id, channel_id, contact_id, contact_urn_id, created_on, modified_on, next_attempt, queued_on, sent_on)
+    VALUES(:org_id, :uuid, :direction, :text, :attachments, :msg_count, :error_count, :high_priority, :status,
+           :visibility, :external_id, :channel_id, :contact_id, :contact_urn_id, :created_on, :modified_on, :next_attempt, :queued_on, :sent_on)
 RETURNING id
 `
 
@@ -152,7 +153,7 @@ func writeMsgToDB(ctx context.Context, b *backend, m *DBMsg) error {
 	// queue this up to be handled by RapidPro
 	rc := b.redisPool.Get()
 	defer rc.Close()
-	err = queueMsgHandling(rc, m.OrgID_, m.ContactID_, m.ID_, contact.IsNew_)
+	err = queueMsgHandling(rc, contact, m)
 
 	// if we had a problem queueing the handling, log it, but our message is written, it'll
 	// get picked up by our rapidpro catch-all after a period
@@ -164,10 +165,29 @@ func writeMsgToDB(ctx context.Context, b *backend, m *DBMsg) error {
 }
 
 const selectMsgSQL = `
-SELECT org_id, direction, text, attachments, msg_count, error_count, high_priority, status,
-       visibility, external_id, channel_id, contact_id, contact_urn_id, created_on, modified_on, next_attempt, queued_on, sent_on
-FROM msgs_msg
-WHERE id = $1
+SELECT 
+	org_id, 
+	direction, 
+	text, 
+	attachments, 
+	msg_count, 
+	error_count, 
+	high_priority, 
+	status,
+	visibility, 
+	external_id, 
+	channel_id, 
+	contact_id, 
+	contact_urn_id, 
+	created_on, 
+	modified_on, 
+	next_attempt, 
+	queued_on, 
+	sent_on
+FROM 
+	msgs_msg
+WHERE 
+	id = $1
 `
 
 // for testing only, returned DBMsg object is not fully populated
@@ -463,7 +483,7 @@ func (m *DBMsg) QuickReplies() []string {
 
 // fingerprint returns a fingerprint for this msg, suitable for figuring out if this is a dupe
 func (m *DBMsg) urnFingerprint() string {
-	return fmt.Sprintf("%s:%s", m.ChannelUUID_, m.URN_)
+	return fmt.Sprintf("%s:%s", m.ChannelUUID_, m.URN_.Identity())
 }
 
 // WithContactName can be used to set the contact name on a msg

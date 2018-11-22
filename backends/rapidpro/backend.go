@@ -110,6 +110,10 @@ func (b *backend) PopNextOutgoingMsg(ctx context.Context) (courier.Msg, error) {
 		}
 		dbMsg.channel = channel.(*DBChannel)
 		dbMsg.workerToken = token
+
+		// clear out our seen incoming messages
+		clearMsgSeen(rc, dbMsg)
+
 		return dbMsg, nil
 	}
 
@@ -143,7 +147,6 @@ func (b *backend) MarkOutgoingMsgComplete(ctx context.Context, msg courier.Msg, 
 
 	dbMsg := msg.(*DBMsg)
 
-	clearMsgSeen(rc, dbMsg)
 	queue.MarkComplete(rc, msgQueueName, dbMsg.workerToken)
 
 	// mark as sent in redis as well if this was actually wired or sent
@@ -166,15 +169,6 @@ func (b *backend) MarkOutgoingMsgComplete(ctx context.Context, msg courier.Msg, 
 			logrus.WithError(err).WithField("chatbase_api_key", chatKey).WithField("chatbase_version", chatVersion).WithField("msg_id", dbMsg.ID().String()).Error("unable to write chatbase message")
 		}
 	}
-}
-
-// StopMsgContact marks the contact for the passed in msg as stopped, that is they no longer want to receive messages
-func (b *backend) StopMsgContact(ctx context.Context, m courier.Msg) {
-	rc := b.redisPool.Get()
-	defer rc.Close()
-
-	dbMsg := m.(*DBMsg)
-	queueStopContact(rc, dbMsg.OrgID_, dbMsg.ContactID_)
 }
 
 // WriteMsg writes the passed in message to our store

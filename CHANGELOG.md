@@ -1,3 +1,47 @@
+v1.2.115
+----------
+ * do not return errors from whatsapp send during client errors
+
+v1.2.114
+----------
+ * Better channel logs support for WA channels
+
+v1.2.113
+----------
+ * prevent races in dupe detection by clearing before sending
+ * use URN identity for URN fingerprint
+
+v1.2.112
+----------
+ * return empty content when receiving i2sms messages
+
+v1.2.111
+----------
+ * add i2sms channel
+
+v1.2.110
+----------
+ * allow setting kannel dlr mask
+
+v1.2.109
+----------
+ * Support receiving MO msgs in XML format
+
+v1.2.108
+----------
+ * Add channel log for when we fail to get the response expected
+ * Support checking configured response content for EX channels
+ * Add stopped event handler for EX channels
+
+v1.2.107
+----------
+ * queue tasks to mailroom for flow_server_enabled orgs, requires newest rapidpro
+
+v1.2.106
+----------
+ * flush to librato every second
+ * Add authorization token requirement to receive messages on Novo Channel
+
 v1.2.105
 ----------
  * optimize writing message status for external case

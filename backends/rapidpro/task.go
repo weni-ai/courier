@@ -80,10 +80,21 @@ func queueChannelEvent(rc redis.Conn, c *DBContact, e *DBChannelEvent) error {
 			}
 			return queueMailroomTask(rc, "stop_event", e.OrgID_, e.ContactID_, body)
 
+		case courier.WelcomeMessage:
+			body := map[string]interface{}{
+				"org_id":      e.OrgID_.Int64,
+				"contact_id":  e.ContactID_.Int64,
+				"urn_id":      e.ContactURNID_.Int64,
+				"channel_id":  e.ChannelID_.Int64,
+				"new_contact": c.IsNew_,
+			}
+			return queueMailroomTask(rc, "welcome_message", e.OrgID_, e.ContactID_, body)
+
 		case courier.Referral:
 			body := map[string]interface{}{
 				"org_id":      e.OrgID_.Int64,
 				"contact_id":  e.ContactID_.Int64,
+				"urn_id":      e.ContactURNID_.Int64,
 				"channel_id":  e.ChannelID_.Int64,
 				"extra":       e.Extra(),
 				"new_contact": c.IsNew_,
@@ -94,6 +105,7 @@ func queueChannelEvent(rc redis.Conn, c *DBContact, e *DBChannelEvent) error {
 			body := map[string]interface{}{
 				"org_id":      e.OrgID_.Int64,
 				"contact_id":  e.ContactID_.Int64,
+				"urn_id":      e.ContactURNID_.Int64,
 				"channel_id":  e.ChannelID_.Int64,
 				"extra":       e.Extra(),
 				"new_contact": c.IsNew_,
@@ -119,9 +131,10 @@ func queueChannelEvent(rc redis.Conn, c *DBContact, e *DBChannelEvent) error {
 func queueMailroomTask(rc redis.Conn, taskType string, orgID OrgID, contactID ContactID, body map[string]interface{}) (err error) {
 	// create our event task
 	eventTask := mrTask{
-		Type:  taskType,
-		OrgID: orgID.Int64,
-		Task:  body,
+		Type:     taskType,
+		OrgID:    orgID.Int64,
+		Task:     body,
+		QueuedOn: time.Now(),
 	}
 
 	eventJSON, err := json.Marshal(eventTask)
@@ -131,11 +144,12 @@ func queueMailroomTask(rc redis.Conn, taskType string, orgID OrgID, contactID Co
 
 	// create our org task
 	contactTask := mrTask{
-		Type:  "handle_event",
+		Type:  "handle_contact_event",
 		OrgID: orgID.Int64,
 		Task: mrContactTask{
 			ContactID: contactID.Int64,
 		},
+		QueuedOn: time.Now(),
 	}
 
 	contactJSON, err := json.Marshal(contactTask)
@@ -162,7 +176,8 @@ type mrContactTask struct {
 }
 
 type mrTask struct {
-	Type  string      `json:"type"`
-	OrgID int64       `json:"org_id"`
-	Task  interface{} `json:"task"`
+	Type     string      `json:"type"`
+	OrgID    int64       `json:"org_id"`
+	Task     interface{} `json:"task"`
+	QueuedOn time.Time   `json:"queued_on"`
 }

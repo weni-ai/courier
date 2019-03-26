@@ -1,3 +1,11 @@
+v1.2.142
+----------
+ * normalize TEL urns with the country
+
+v1.2.141
+----------
+ * latest phonenumbers
+
 v1.2.140
 ----------
  * Queue welcome message event to be handle by mailroom

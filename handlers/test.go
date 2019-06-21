@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -80,6 +81,7 @@ type ChannelSendTestCase struct {
 	HighPriority         bool
 	ResponseToID         int64
 	ResponseToExternalID string
+	Metadata             json.RawMessage
 
 	ResponseStatus int
 	ResponseBody   string
@@ -199,6 +201,9 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 			if testCase.URNAuth != "" {
 				msg.WithURNAuth(testCase.URNAuth)
 			}
+			if len(testCase.Metadata) > 0 {
+				msg.WithMetadata(testCase.Metadata)
+			}
 
 			var testRequest *http.Request
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -244,7 +249,7 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 			}
 
 			if testCase.Path != "" {
-				require.NotNil(testRequest)
+				require.NotNil(testRequest, "path should not be nil")
 				require.Equal(testCase.Path, testRequest.URL.Path)
 			}
 
@@ -257,7 +262,7 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 			}
 
 			if testCase.PostParams != nil {
-				require.NotNil(testRequest)
+				require.NotNil(testRequest, "post body should not be nil")
 				for k, v := range testCase.PostParams {
 					value := testRequest.PostFormValue(k)
 					require.Equal(v, value)
@@ -265,7 +270,7 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 			}
 
 			if testCase.RequestBody != "" {
-				require.NotNil(testRequest)
+				require.NotNil(testRequest, "request body should not be nil")
 				value, _ := ioutil.ReadAll(testRequest.Body)
 				require.Equal(testCase.RequestBody, strings.Trim(string(value), "\n"))
 			}
@@ -275,7 +280,7 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 			}
 
 			if testCase.Headers != nil {
-				require.NotNil(testRequest)
+				require.NotNil(testRequest, "headers should not be nil")
 				for k, v := range testCase.Headers {
 					value := testRequest.Header.Get(k)
 					require.Equal(v, value)
@@ -287,7 +292,7 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 			}
 
 			if testCase.Status != "" {
-				require.NotNil(status)
+				require.NotNil(status, "status should not be nil")
 				require.Equal(testCase.Status, string(status.Status()))
 			}
 
@@ -333,6 +338,7 @@ func RunChannelTestCases(t *testing.T, channels []courier.Channel, handler couri
 			require := require.New(t)
 
 			mb.ClearQueueMsgs()
+			mb.ClearSeenExternalIDs()
 
 			testHandlerRequest(t, s, testCase.URL, testCase.Headers, testCase.Data, testCase.Status, &testCase.Response, testCase.PrepRequest)
 
@@ -386,7 +392,7 @@ func RunChannelTestCases(t *testing.T, channels []courier.Channel, handler couri
 				}
 				if testCase.ID != 0 {
 					if status != nil {
-						require.Equal(testCase.ID, status.ID().Int64)
+						require.Equal(testCase.ID, int64(status.ID()))
 					} else {
 						require.Equal(testCase.ID, -1)
 					}
@@ -437,6 +443,7 @@ func RunChannelBenchmarks(b *testing.B, channels []courier.Channel, handler cour
 
 	for _, testCase := range testCases {
 		mb.ClearQueueMsgs()
+		mb.ClearSeenExternalIDs()
 
 		b.Run(testCase.Label, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {

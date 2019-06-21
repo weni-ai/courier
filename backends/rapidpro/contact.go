@@ -6,16 +6,17 @@ import (
 	"time"
 	"unicode/utf8"
 
-	null "gopkg.in/guregu/null.v3"
+	"github.com/nyaruka/courier/utils"
+	"github.com/nyaruka/null"
 
 	"database/sql"
+	"database/sql/driver"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/gocommon/urns"
 	"github.com/nyaruka/librato"
-	uuid "github.com/satori/go.uuid"
 	"github.com/sirupsen/logrus"
 )
 
@@ -23,25 +24,43 @@ import (
 var urnSleep bool
 
 // ContactID is our representation of our database contact id
-type ContactID struct {
-	null.Int
-}
+type ContactID null.Int
 
 // NilContactID represents our nil value for ContactID
-var NilContactID = ContactID{null.NewInt(0, false)}
+var NilContactID = ContactID(0)
 
-// String returns a string representation of this ContactID
-func (c *ContactID) String() string {
-	if c.Valid {
-		strconv.FormatInt(c.Int64, 10)
+// MarshalJSON marshals into JSON. 0 values will become null
+func (i ContactID) MarshalJSON() ([]byte, error) {
+	return null.Int(i).MarshalJSON()
+}
+
+// UnmarshalJSON unmarshals from JSON. null values become 0
+func (i *ContactID) UnmarshalJSON(b []byte) error {
+	return null.UnmarshalInt(b, (*null.Int)(i))
+}
+
+// Value returns the db value, null is returned for 0
+func (i ContactID) Value() (driver.Value, error) {
+	return null.Int(i).Value()
+}
+
+// Scan scans from the db value. null values become 0
+func (i *ContactID) Scan(value interface{}) error {
+	return null.ScanInt(value, (*null.Int)(i))
+}
+
+// String returns a string representation of the id
+func (i ContactID) String() string {
+	if i != NilContactID {
+		return strconv.FormatInt(int64(i), 10)
 	}
 	return "null"
 }
 
 const insertContactSQL = `
 INSERT INTO 
-	contacts_contact(org_id, is_active, is_blocked, is_test, is_stopped, uuid, created_on, modified_on, created_by_id, modified_by_id, name) 
-              VALUES(:org_id, TRUE, FALSE, FALSE, FALSE, :uuid, :created_on, :modified_on, :created_by_id, :modified_by_id, :name)
+	contacts_contact(org_id, is_active, is_blocked, is_stopped, uuid, created_on, modified_on, created_by_id, modified_by_id, name) 
+              VALUES(:org_id, TRUE, FALSE, FALSE, :uuid, :created_on, :modified_on, :created_by_id, :modified_by_id, :name)
 RETURNING id
 `
 
@@ -74,8 +93,7 @@ WHERE
 	u.identity = $1 AND 
 	u.contact_id = c.id AND 
 	u.org_id = $2 AND 
-	c.is_active = TRUE AND 
-	c.is_test = FALSE
+	c.is_active = TRUE
 `
 
 // contactForURN first tries to look up a contact for the passed in URN, if not finding one then creating one
@@ -108,7 +126,7 @@ func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChanne
 
 	// didn't find it, we need to create it instead
 	contact.OrgID_ = org
-	contact.UUID_, _ = courier.NewContactUUID(uuid.NewV4().String())
+	contact.UUID_, _ = courier.NewContactUUID(utils.NewUUID())
 	contact.CreatedOn_ = time.Now()
 	contact.ModifiedOn_ = time.Now()
 	contact.IsNew_ = true
@@ -138,7 +156,7 @@ func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChanne
 				name = string([]rune(name)[:127])
 			}
 
-			contact.Name_ = null.StringFrom(name)
+			contact.Name_ = null.String(name)
 		}
 	}
 

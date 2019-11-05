@@ -26,17 +26,55 @@ var helloMsg = `{
 	"entry": [{
 	  "id": "208685479508187",
 	  "messaging": [{
-		"message": {
-		  "text": "Hello World",
-		  "mid": "external_id"
-		},
-		"recipient": {
-		  "id": "1234"
-		},
-		"sender": {
-		  "id": "5678"
-		},
-		"timestamp": 1459991487970
+			"message": {
+			  "text": "Hello World",
+			  "mid": "external_id"
+			},
+			"recipient": {
+			  "id": "1234"
+			},
+			"sender": {
+			  "id": "5678"
+			},
+			"timestamp": 1459991487970
+	  }],
+	  "time": 1459991487970
+	}]
+}`
+
+var duplicateMsg = `{
+	"object":"page",
+	"entry": [{
+	  "id": "208685479508187",
+	  "messaging": [{
+			"message": {
+			  "text": "Hello World",
+			  "mid": "external_id"
+			},
+			"recipient": {
+			  "id": "1234"
+			},
+			"sender": {
+			  "id": "5678"
+			},
+			"timestamp": 1459991487970
+	  }],
+	  "time": 1459991487970
+	},
+	{
+	  "id": "208685479508187",
+	  "messaging": [{
+			"message": {
+			  "text": "Hello World",
+			  "mid": "external_id"
+			},
+			"recipient": {
+			  "id": "1234"
+			},
+			"sender": {
+			  "id": "5678"
+			},
+			"timestamp": 1459991487970
 	  }],
 	  "time": 1459991487970
 	}]
@@ -47,17 +85,17 @@ var invalidURN = `{
 	"entry": [{
 	  "id": "208685479508187",
 	  "messaging": [{
-		"message": {
-		  "text": "Hello World",
-		  "mid": "external_id"
-		},
-		"recipient": {
-		  "id": "1234"
-		},
-		"sender": {
-		  "id": "abc5678"
-		},
-		"timestamp": 1459991487970
+			"message": {
+			  "text": "Hello World",
+			  "mid": "external_id"
+			},
+			"recipient": {
+			  "id": "1234"
+			},
+			"sender": {
+			  "id": "abc5678"
+			},
+			"timestamp": 1459991487970
 	  }],
 	  "time": 1459991487970
 	}]
@@ -68,22 +106,22 @@ var attachment = `{
 	"entry": [{
 	  	"id": "208685479508187",
 	  	"messaging": [{
-			"message": {
-		  		"mid": "external_id",
-		  		"attachments":[{
-            		"type":"image",
-            		"payload":{
-					   "url":"https://image-url/foo.png"
-					}
-				}]
-			},
-			"recipient": {
-				"id": "1234"
-			},
-			"sender": {
-				"id": "5678"
-			},
-			"timestamp": 1459991487970
+				"message": {
+		  			"mid": "external_id",
+		  			"attachments":[{
+      	      		"type":"image",
+      	      		"payload":{
+						   "url":"https://image-url/foo.png"
+						}
+					}]
+				},
+				"recipient": {
+					"id": "1234"
+				},
+				"sender": {
+					"id": "5678"
+				},
+				"timestamp": 1459991487970
 	    }],
 	  	"time": 1459991487970
 	}]
@@ -94,17 +132,17 @@ var differentPage = `{
 	"entry": [{
 	  "id": "208685479508187",
 	  "messaging": [{
-		"message": {
-		  "text": "Hello World",
-		  "mid": "external_id"
-		},
-		"recipient": {
-		  "id": "1235"
-		},
-		"sender": {
-		  "id": "5678"
-		},
-		"timestamp": 1459991487970
+			"message": {
+			  "text": "Hello World",
+			  "mid": "external_id"
+			},
+			"recipient": {
+			  "id": "1235"
+			},
+			"sender": {
+			  "id": "5678"
+			},
+			"timestamp": 1459991487970
 	  }],
 	  "time": 1459991487970
 	}]
@@ -134,17 +172,17 @@ var optInUserRef = `{
 	"entry": [{
 	  "id": "208685479508187",
 	  "messaging": [{
-		"optin": {
-		  "ref": "optin_ref",
-		  "user_ref": "optin_user_ref"
-		},
-		"recipient": {
-		  "id": "1234"
-		},
-		"sender": {
-		  "id": "5678"
-		},
-		"timestamp": 1459991487970
+			"optin": {
+		  	"ref": "optin_ref",
+		  	"user_ref": "optin_user_ref"
+			},
+			"recipient": {
+		  	"id": "1234"
+			},
+			"sender": {
+		  	"id": "5678"
+			},
+			"timestamp": 1459991487970
 	  }],
 	  "time": 1459991487970
 	}]
@@ -155,16 +193,16 @@ var optIn = `{
 	"entry": [{
 	  "id": "208685479508187",
 	  "messaging": [{
-		"optin": {
-		  "ref": "optin_ref"
-		},
-		"recipient": {
-		  "id": "1234"
-		},
-		"sender": {
-		  "id": "5678"
-		},
-		"timestamp": 1459991487970
+			"optin": {
+		 		"ref": "optin_ref"
+			},
+			"recipient": {
+		  	"id": "1234"
+			},
+			"sender": {
+		  	"id": "5678"
+			},
+			"timestamp": 1459991487970
 	  }],
 	  "time": 1459991487970
 	}]
@@ -175,22 +213,22 @@ var postback = `{
 	"entry": [{
 	  "id": "208685479508187",
 	  "messaging": [{
-		"postback": {
-			"title": "postback title",  
-			"payload": "postback payload",
-			"referral": {
-			  "ref": "postback ref",
-			  "source": "postback source",
-			  "type": "postback type"
-			}
-		},
-		"recipient": {
-		  "id": "1234"
-		},
-		"sender": {
-		  "id": "5678"
-		},
-		"timestamp": 1459991487970
+			"postback": {
+				"title": "postback title",  
+				"payload": "postback payload",
+				"referral": {
+				  "ref": "postback ref",
+				  "source": "postback source",
+				  "type": "postback type"
+				}
+			},
+			"recipient": {
+			  "id": "1234"
+			},
+			"sender": {
+			  "id": "5678"
+			},
+			"timestamp": 1459991487970
 	  }],
 	  "time": 1459991487970
 	}]
@@ -201,22 +239,22 @@ var postbackReferral = `{
 	"entry": [{
 	  "id": "208685479508187",
 	  "messaging": [{
-		"postback": {
-			"title": "postback title",  
-			"payload": "get_started",
-			"referral": {
-			  "ref": "postback ref",
-			  "source": "postback source",
-			  "type": "postback type"
-			}
-		},
-		"recipient": {
-		  "id": "1234"
-		},
-		"sender": {
-		  "id": "5678"
-		},
-		"timestamp": 1459991487970
+			"postback": {
+				"title": "postback title",  
+				"payload": "get_started",
+				"referral": {
+				  "ref": "postback ref",
+				  "source": "postback source",
+				  "type": "postback type"
+				}
+			},
+			"recipient": {
+			  "id": "1234"
+			},
+			"sender": {
+			  "id": "5678"
+			},
+			"timestamp": 1459991487970
 	  }],
 	  "time": 1459991487970
 	}]
@@ -227,17 +265,17 @@ var postbackGetStarted = `{
 	"entry": [{
 	  "id": "208685479508187",
 	  "messaging": [{
-		"postback": {
-			"title": "postback title",  
-			"payload": "get_started"
-		},
-		"recipient": {
-		  "id": "1234"
-		},
-		"sender": {
-		  "id": "5678"
-		},
-		"timestamp": 1459991487970
+			"postback": {
+				"title": "postback title",  
+				"payload": "get_started"
+			},
+			"recipient": {
+			  "id": "1234"
+			},
+			"sender": {
+			  "id": "5678"
+			},
+			"timestamp": 1459991487970
 	  }],
 	  "time": 1459991487970
 	}]
@@ -248,19 +286,19 @@ var referral = `{
 	"entry": [{
 	  "id": "208685479508187",
 	  "messaging": [{
-		"referral": {
-			"ref": "referral id",
-			"ad_id": "ad id",
-			"source": "referral source",
-			"type": "referral type"
-		},
-		"recipient": {
-		  "id": "1234"
-		},
-		"sender": {
-		  "id": "5678"
-		},
-		"timestamp": 1459991487970
+			"referral": {
+				"ref": "referral id",
+				"ad_id": "ad id",
+				"source": "referral source",
+				"type": "referral type"
+			},
+			"recipient": {
+			  "id": "1234"
+			},
+			"sender": {
+			  "id": "5678"
+			},
+			"timestamp": 1459991487970
 	  }],
 	  "time": 1459991487970
 	}]
@@ -271,20 +309,20 @@ var dlr = `{
 	"entry": [{
 	  "id": "208685479508187",
 	  "messaging": [{
-		"delivery":{
-			"mids":[
-			   "mid.1458668856218:ed81099e15d3f4f233"
-			],
-			"watermark":1458668856253,
-			"seq":37
-		},
-		"recipient": {
-		  "id": "1234"
-		},
-		"sender": {
-		  "id": "5678"
-		},
-		"timestamp": 1459991487970
+			"delivery":{
+				"mids":[
+				   "mid.1458668856218:ed81099e15d3f4f233"
+				],
+				"watermark":1458668856253,
+				"seq":37
+			},
+			"recipient": {
+			  "id": "1234"
+			},
+			"sender": {
+			  "id": "5678"
+			},
+			"timestamp": 1459991487970
 	  }],
 	  "time": 1459991487970
 	}]
@@ -326,6 +364,8 @@ var notJSON = `blargh`
 var testCases = []ChannelHandleTestCase{
 	{Label: "Receive Message", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: helloMsg, Status: 200, Response: "Handled",
 		Text: Sp("Hello World"), URN: Sp("facebook:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC))},
+	{Label: "No Duplicate Receive Message", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: duplicateMsg, Status: 200, Response: "Handled",
+		Text: Sp("Hello World"), URN: Sp("facebook:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC))},
 	{Label: "Receive Attachment", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: attachment, Status: 200, Response: "Handled",
 		Text: Sp(""), Attachments: []string{"https://image-url/foo.png"}, URN: Sp("facebook:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC))},
 
@@ -346,7 +386,7 @@ var testCases = []ChannelHandleTestCase{
 		URN: Sp("facebook:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)), ChannelEvent: Sp(courier.Referral),
 		ChannelEventExtra: map[string]interface{}{"title": "postback title", "payload": "get_started", "referrer_id": "postback ref", "source": "postback source", "type": "postback type"}},
 
-	{Label: "Receive Referral", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: referral, Status: 200, Response: "Handled",
+	{Label: "Receive Referral", URL: "/c/fb/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive", Data: referral, Status: 200, Response: `"referrer_id":"referral id"`,
 		URN: Sp("facebook:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)), ChannelEvent: Sp(courier.Referral),
 		ChannelEventExtra: map[string]interface{}{"referrer_id": "referral id", "source": "referral source", "type": "referral type", "ad_id": "ad id"}},
 
@@ -467,6 +507,13 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
 		RequestBody: `{"messaging_type":"NON_PROMOTIONAL_SUBSCRIPTION","recipient":{"id":"12345"},"message":{"text":"Simple Message"}}`,
 		SendPrep:    setSendURL},
+	{Label: "Plain Send using ref URN",
+		Text: "Simple Message", URN: "facebook:ref:67890",
+		ContactURNs: map[string]bool{"facebook:12345": true, "ext:67890": true, "facebook:ref:67890": false},
+		Status:      "W", ExternalID: "mid.133",
+		ResponseBody: `{"message_id": "mid.133", "recipient_id": "12345"}`, ResponseStatus: 200,
+		RequestBody: `{"messaging_type":"NON_PROMOTIONAL_SUBSCRIPTION","recipient":{"user_ref":"67890"},"message":{"text":"Simple Message"}}`,
+		SendPrep:    setSendURL},
 	{Label: "Quick Reply",
 		Text: "Are you happy?", URN: "facebook:12345", QuickReplies: []string{"Yes", "No"},
 		Status: "W", ExternalID: "mid.133",
@@ -478,13 +525,21 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		URN:  "facebook:12345", QuickReplies: []string{"Yes", "No"},
 		Status: "W", ExternalID: "mid.133",
 		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
-		RequestBody: `{"messaging_type":"NON_PROMOTIONAL_SUBSCRIPTION","recipient":{"id":"12345"},"message":{"text":"we exceed the max length?"}}`,
+		RequestBody: `{"messaging_type":"NON_PROMOTIONAL_SUBSCRIPTION","recipient":{"id":"12345"},"message":{"text":"we exceed the max length?","quick_replies":[{"title":"Yes","payload":"Yes","content_type":"text"},{"title":"No","payload":"No","content_type":"text"}]}}`,
 		SendPrep:    setSendURL},
 	{Label: "Send Photo",
 		URN: "facebook:12345", Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
 		Status: "W", ExternalID: "mid.133",
 		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
 		RequestBody: `{"messaging_type":"NON_PROMOTIONAL_SUBSCRIPTION","recipient":{"id":"12345"},"message":{"attachment":{"type":"image","payload":{"url":"https://foo.bar/image.jpg","is_reusable":true}}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Send caption and photo with Quick Reply",
+		Text: "This is some text.",
+		URN:  "facebook:12345", Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
+		QuickReplies: []string{"Yes", "No"},
+		Status:       "W", ExternalID: "mid.133",
+		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
+		RequestBody: `{"messaging_type":"NON_PROMOTIONAL_SUBSCRIPTION","recipient":{"id":"12345"},"message":{"text":"This is some text.","quick_replies":[{"title":"Yes","payload":"Yes","content_type":"text"},{"title":"No","payload":"No","content_type":"text"}]}}`,
 		SendPrep:    setSendURL},
 	{Label: "ID Error",
 		Text: "ID Error", URN: "facebook:12345",

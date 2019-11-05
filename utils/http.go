@@ -135,13 +135,11 @@ func newRRFromResponse(method string, requestTrace string, r *http.Response) (*R
 	}
 	rr.Response = string(response)
 
-	if isText {
-		bodyBytes, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			return &rr, err
-		}
-		rr.Body = bodyBytes
+	bodyBytes, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		return &rr, err
 	}
+	rr.Body = bodyBytes
 
 	// return an error if we got a non-200 status
 	if err == nil && rr.Status != RRStatusSuccess {
@@ -156,11 +154,11 @@ func GetHTTPClient() *http.Client {
 	once.Do(func() {
 		transport = &http.Transport{
 			MaxIdleConns:    10,
-			IdleConnTimeout: 30 * time.Second,
+			IdleConnTimeout: 60 * time.Second,
 		}
 		client = &http.Client{
 			Transport: transport,
-			Timeout:   30 * time.Second,
+			Timeout:   60 * time.Second,
 		}
 	})
 
@@ -172,12 +170,12 @@ func GetInsecureHTTPClient() *http.Client {
 	insecureOnce.Do(func() {
 		insecureTransport = &http.Transport{
 			MaxIdleConns:    10,
-			IdleConnTimeout: 30 * time.Second,
+			IdleConnTimeout: 60 * time.Second,
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		}
 		insecureClient = &http.Client{
 			Transport: insecureTransport,
-			Timeout:   30 * time.Second,
+			Timeout:   60 * time.Second,
 		}
 	})
 

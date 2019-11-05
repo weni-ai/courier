@@ -24,8 +24,8 @@ import (
 	"github.com/nyaruka/courier/queue"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/urns"
+	"github.com/nyaruka/null"
 	"github.com/sirupsen/logrus"
-	null "gopkg.in/guregu/null.v3"
 	filetype "gopkg.in/h2non/filetype.v1"
 )
 
@@ -74,12 +74,15 @@ func writeMsg(ctx context.Context, b *backend, msg courier.Msg) error {
 	// try to write it our db
 	err := writeMsgToDB(ctx, b, m)
 
-	// fail? spool for later
+	// fail? log
 	if err != nil {
 		logrus.WithError(err).WithField("msg", m.UUID().String()).Error("error writing to db")
-		return courier.WriteToSpool(b.config.SpoolDir, "msgs", m)
 	}
 
+	// if we failed write to spool
+	if err != nil {
+		err = courier.WriteToSpool(b.config.SpoolDir, "msgs", m)
+	}
 	// mark this msg as having been seen
 	writeMsgSeen(b, m)
 	return err
@@ -96,7 +99,7 @@ func newMsg(direction MsgDirection, channel courier.Channel, urn urns.URN, text 
 		Direction_:    direction,
 		Status_:       courier.MsgPending,
 		Visibility_:   MsgVisible,
-		HighPriority_: null.NewBool(false, false),
+		HighPriority_: false,
 		Text_:         text,
 
 		ChannelID_:   dbChannel.ID(),
@@ -117,10 +120,11 @@ func newMsg(direction MsgDirection, channel courier.Channel, urn urns.URN, text 
 }
 
 const insertMsgSQL = `
-INSERT INTO msgs_msg(org_id, uuid, direction, text, attachments, msg_count, error_count, high_priority, status, 
-                     visibility, external_id, channel_id, contact_id, contact_urn_id, created_on, modified_on, next_attempt, queued_on, sent_on)
-              VALUES(:org_id, :uuid, :direction, :text, :attachments, :msg_count, :error_count, :high_priority, :status, 
-                     :visibility, :external_id, :channel_id, :contact_id, :contact_urn_id, :created_on, :modified_on, :next_attempt, :queued_on, :sent_on)
+INSERT INTO
+	msgs_msg(org_id, uuid, direction, text, attachments, msg_count, error_count, high_priority, status,
+             visibility, external_id, channel_id, contact_id, contact_urn_id, created_on, modified_on, next_attempt, queued_on, sent_on)
+    VALUES(:org_id, :uuid, :direction, :text, :attachments, :msg_count, :error_count, :high_priority, :status,
+           :visibility, :external_id, :channel_id, :contact_id, :contact_urn_id, :created_on, :modified_on, :next_attempt, :queued_on, :sent_on)
 RETURNING id
 `
 
@@ -152,22 +156,41 @@ func writeMsgToDB(ctx context.Context, b *backend, m *DBMsg) error {
 	// queue this up to be handled by RapidPro
 	rc := b.redisPool.Get()
 	defer rc.Close()
-	err = queueMsgHandling(rc, m.OrgID_, m.ContactID_, m.ID_, contact.IsNew_)
+	err = queueMsgHandling(rc, contact, m)
 
 	// if we had a problem queueing the handling, log it, but our message is written, it'll
 	// get picked up by our rapidpro catch-all after a period
 	if err != nil {
-		logrus.WithError(err).WithField("msg_id", m.ID_.Int64).Error("error queueing msg handling")
+		logrus.WithError(err).WithField("msg_id", m.ID_).Error("error queueing msg handling")
 	}
 
 	return nil
 }
 
 const selectMsgSQL = `
-SELECT org_id, direction, text, attachments, msg_count, error_count, high_priority, status, 
-       visibility, external_id, channel_id, contact_id, contact_urn_id, created_on, modified_on, next_attempt, queued_on, sent_on
-FROM msgs_msg
-WHERE id = $1
+SELECT
+	org_id,
+	direction,
+	text,
+	attachments,
+	msg_count,
+	error_count,
+	high_priority,
+	status,
+	visibility,
+	external_id,
+	channel_id,
+	contact_id,
+	contact_urn_id,
+	created_on,
+	modified_on,
+	next_attempt,
+	queued_on,
+	sent_on
+FROM
+	msgs_msg
+WHERE
+	id = $1
 `
 
 // for testing only, returned DBMsg object is not fully populated
@@ -195,7 +218,7 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 	if handler != nil {
 		builder, isBuilder := handler.(courier.MediaDownloadRequestBuilder)
 		if isBuilder {
-			req, err = builder.BuildDownloadMediaRequest(ctx, channel, parsedURL.String())
+			req, err = builder.BuildDownloadMediaRequest(ctx, b, channel, parsedURL.String())
 
 			// in the case of errors, we log the error but move onwards anyways
 			if err != nil {
@@ -260,7 +283,7 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 	if extension != "" {
 		filename = fmt.Sprintf("%s.%s", msgUUID, extension)
 	}
-	path := filepath.Join(b.config.S3MediaPrefix, strconv.FormatInt(orgID.Int64, 10), filename[:4], filename[4:8], filename)
+	path := filepath.Join(b.config.S3MediaPrefix, strconv.FormatInt(int64(orgID), 10), filename[:4], filename[4:8], filename)
 	if !strings.HasPrefix(path, "/") {
 		path = fmt.Sprintf("/%s", path)
 	}
@@ -308,17 +331,17 @@ func (b *backend) flushMsgFile(filename string, contents []byte) error {
 // Deduping utility methods
 //-----------------------------------------------------------------------------
 
-var luaMsgSeen = redis.NewScript(3, `-- KEYS: [Window, PrevWindow, Fingerprint]
+var luaMsgSeen = redis.NewScript(3, `-- KEYS: [Window, PrevWindow, URNFingerprint]
 	-- try to look up in window
-	local uuid = redis.call("hget", KEYS[1], KEYS[3])
+	local found = redis.call("hget", KEYS[1], KEYS[3])
 
 	-- didn't find it, try in our previous window
-	if not uuid then 
-		uuid = redis.call("hget", KEYS[2], KEYS[3])
+	if not found then
+		found = redis.call("hget", KEYS[2], KEYS[3])
 	end
-	
-	-- return the uuid found if any
-	return uuid
+
+	-- return the fingerprint found
+	return found
 `)
 
 // checkMsgSeen tries to look up whether a msg with the fingerprint passed in was seen in window or prevWindow. If
@@ -327,24 +350,31 @@ func checkMsgSeen(b *backend, msg *DBMsg) courier.MsgUUID {
 	r := b.redisPool.Get()
 	defer r.Close()
 
-	fingerprint := msg.fingerprint()
+	urnFingerprint := msg.urnFingerprint()
 
 	now := time.Now().In(time.UTC)
 	prev := now.Add(time.Second * -2)
 	windowKey := fmt.Sprintf("seen:msgs:%s:%02d", now.Format("2006-01-02-15:04"), now.Second()/2*2)
 	prevWindowKey := fmt.Sprintf("seen:msgs:%s:%02d", prev.Format("2006-01-02-15:04"), prev.Second()/2*2)
 
-	// try to look up our UUID from either window or prev window
-	foundUUID, _ := redis.String(luaMsgSeen.Do(r, windowKey, prevWindowKey, fingerprint))
-	if foundUUID != "" {
-		return courier.NewMsgUUIDFromString(foundUUID)
+	// see if there were any messages received in the past 4 seconds
+	found, _ := redis.String(luaMsgSeen.Do(r, windowKey, prevWindowKey, urnFingerprint))
+
+	// if so, test whether the text it the same
+	if found != "" {
+		prevText := found[37:]
+
+		// if it is the same, return the UUID
+		if prevText == msg.Text() {
+			return courier.NewMsgUUIDFromString(found[:36])
+		}
 	}
 	return courier.NilMsgUUID
 }
 
-var luaWriteMsgSeen = redis.NewScript(3, `-- KEYS: [Window, Fingerprint, UUID]
+var luaWriteMsgSeen = redis.NewScript(3, `-- KEYS: [Window, URNFingerprint, UUIDText]
 	redis.call("hset", KEYS[1], KEYS[2], KEYS[3])
-	redis.call("pexpire", KEYS[1], 5000)
+	redis.call("expire", KEYS[1], 5)
 `)
 
 // writeMsgSeen writes that the message with the passed in fingerprint and UUID was seen in the
@@ -353,11 +383,82 @@ func writeMsgSeen(b *backend, msg *DBMsg) {
 	r := b.redisPool.Get()
 	defer r.Close()
 
-	fingerprint := msg.fingerprint()
+	urnFingerprint := msg.urnFingerprint()
+	uuidText := fmt.Sprintf("%s|%s", msg.UUID().String(), msg.Text_)
 	now := time.Now().In(time.UTC)
 	windowKey := fmt.Sprintf("seen:msgs:%s:%02d", now.Format("2006-01-02-15:04"), now.Second()/2*2)
 
-	luaWriteMsgSeen.Do(r, windowKey, fingerprint, msg.UUID().String())
+	luaWriteMsgSeen.Do(r, windowKey, urnFingerprint, uuidText)
+}
+
+// clearMsgSeen clears our seen incoming messages for the passed in channel and URN
+func clearMsgSeen(rc redis.Conn, msg *DBMsg) {
+	urnFingerprint := msg.urnFingerprint()
+
+	now := time.Now().In(time.UTC)
+	prev := now.Add(time.Second * -2)
+	windowKey := fmt.Sprintf("seen:msgs:%s:%02d", now.Format("2006-01-02-15:04"), now.Second()/2*2)
+	prevWindowKey := fmt.Sprintf("seen:msgs:%s:%02d", prev.Format("2006-01-02-15:04"), prev.Second()/2*2)
+
+	rc.Send("hdel", windowKey, urnFingerprint)
+	rc.Do("hdel", prevWindowKey, urnFingerprint)
+}
+
+var luaExternalIDSeen = redis.NewScript(3, `-- KEYS: [Window, PrevWindow, ExternalID]
+	-- try to look up in window
+	local found = redis.call("hget", KEYS[1], KEYS[3])
+
+	-- didn't find it, try in our previous window
+	if not found then
+		found = redis.call("hget", KEYS[2], KEYS[3])
+	end
+
+	-- return the fingerprint found
+	return found
+`)
+
+func checkExternalIDSeen(b *backend, msg courier.Msg) courier.MsgUUID {
+	r := b.redisPool.Get()
+	defer r.Close()
+
+	urnFingerprint := fmt.Sprintf("%s:%s|%s", msg.Channel().UUID(), msg.URN().Identity(), msg.ExternalID())
+
+	now := time.Now().In(time.UTC)
+	prev := now.Add(time.Hour * -24)
+	windowKey := fmt.Sprintf("seen:externalid:%s", now.Format("2006-01-02"))
+	prevWindowKey := fmt.Sprintf("seen:externalid:%s", prev.Format("2006-01-02"))
+
+	// see if there were any messages received in the past 24 hours
+	found, _ := redis.String(luaExternalIDSeen.Do(r, windowKey, prevWindowKey, urnFingerprint))
+
+	// if so, test whether the text it the same
+	if found != "" {
+		prevText := found[37:]
+
+		// if it is the same, return the UUID
+		if prevText == msg.Text() {
+			return courier.NewMsgUUIDFromString(found[:36])
+		}
+	}
+	return courier.NilMsgUUID
+}
+
+var luaWriteExternalIDSeen = redis.NewScript(3, `-- KEYS: [Window, ExternalID, Seen]
+	redis.call("hset", KEYS[1], KEYS[2], KEYS[3])
+	redis.call("expire", KEYS[1], 86400)
+`)
+
+func writeExternalIDSeen(b *backend, msg courier.Msg) {
+	r := b.redisPool.Get()
+	defer r.Close()
+
+	urnFingerprint := fmt.Sprintf("%s:%s|%s", msg.Channel().UUID(), msg.URN().Identity(), msg.ExternalID())
+	uuidText := fmt.Sprintf("%s|%s", msg.UUID().String(), msg.Text())
+
+	now := time.Now().In(time.UTC)
+	windowKey := fmt.Sprintf("seen:externalid:%s", now.Format("2006-01-02"))
+
+	luaWriteExternalIDSeen.Do(r, windowKey, urnFingerprint, uuidText)
 }
 
 //-----------------------------------------------------------------------------
@@ -372,7 +473,7 @@ type DBMsg struct {
 	Direction_            MsgDirection           `json:"direction"       db:"direction"`
 	Status_               courier.MsgStatusValue `json:"status"          db:"status"`
 	Visibility_           MsgVisibility          `json:"visibility"      db:"visibility"`
-	HighPriority_         null.Bool              `json:"high_priority"   db:"high_priority"`
+	HighPriority_         bool                   `json:"high_priority"   db:"high_priority"`
 	URN_                  urns.URN               `json:"urn"`
 	URNAuth_              string                 `json:"urn_auth"`
 	Text_                 string                 `json:"text"            db:"text"`
@@ -398,6 +499,12 @@ type DBMsg struct {
 	QueuedOn_    time.Time `json:"queued_on"     db:"queued_on"`
 	SentOn_      time.Time `json:"sent_on"       db:"sent_on"`
 
+	// fields used only for mailroom enabled orgs.. these allow courier to update a session's timeout when
+	// a message is sent for correct and efficient timeout behavior
+	SessionID_            SessionID  `json:"session_id,omitempty"`
+	SessionTimeout_       int        `json:"session_timeout,omitempty"`
+	SessionWaitStartedOn_ *time.Time `json:"session_wait_started_on,omitempty"`
+
 	channel        *DBChannel
 	workerToken    queue.WorkerToken
 	alreadyWritten bool
@@ -405,15 +512,15 @@ type DBMsg struct {
 }
 
 func (m *DBMsg) ID() courier.MsgID            { return m.ID_ }
-func (m *DBMsg) EventID() int64               { return m.ID_.Int64 }
+func (m *DBMsg) EventID() int64               { return int64(m.ID_) }
 func (m *DBMsg) UUID() courier.MsgUUID        { return m.UUID_ }
 func (m *DBMsg) Text() string                 { return m.Text_ }
 func (m *DBMsg) Attachments() []string        { return []string(m.Attachments_) }
-func (m *DBMsg) ExternalID() string           { return m.ExternalID_.String }
+func (m *DBMsg) ExternalID() string           { return string(m.ExternalID_) }
 func (m *DBMsg) URN() urns.URN                { return m.URN_ }
 func (m *DBMsg) URNAuth() string              { return m.URNAuth_ }
 func (m *DBMsg) ContactName() string          { return m.ContactName_ }
-func (m *DBMsg) HighPriority() bool           { return m.HighPriority_.Valid && m.HighPriority_.Bool }
+func (m *DBMsg) HighPriority() bool           { return m.HighPriority_ }
 func (m *DBMsg) ReceivedOn() *time.Time       { return &m.SentOn_ }
 func (m *DBMsg) SentOn() *time.Time           { return &m.SentOn_ }
 func (m *DBMsg) ResponseToID() courier.MsgID  { return m.ResponseToID_ }
@@ -440,9 +547,14 @@ func (m *DBMsg) QuickReplies() []string {
 	return m.quickReplies
 }
 
+// Metadata returns the metadata for this message
+func (m *DBMsg) Metadata() json.RawMessage {
+	return m.Metadata_
+}
+
 // fingerprint returns a fingerprint for this msg, suitable for figuring out if this is a dupe
-func (m *DBMsg) fingerprint() string {
-	return fmt.Sprintf("%s:%s:%s", m.ChannelUUID_, m.URN_, m.Text_)
+func (m *DBMsg) urnFingerprint() string {
+	return fmt.Sprintf("%s:%s", m.ChannelUUID_, m.URN_.Identity())
 }
 
 // WithContactName can be used to set the contact name on a msg
@@ -452,13 +564,16 @@ func (m *DBMsg) WithContactName(name string) courier.Msg { m.ContactName_ = name
 func (m *DBMsg) WithReceivedOn(date time.Time) courier.Msg { m.SentOn_ = date; return m }
 
 // WithExternalID can be used to set the external id on a msg in a chained call
-func (m *DBMsg) WithExternalID(id string) courier.Msg { m.ExternalID_ = null.StringFrom(id); return m }
+func (m *DBMsg) WithExternalID(id string) courier.Msg { m.ExternalID_ = null.String(id); return m }
 
 // WithID can be used to set the id on a msg in a chained call
 func (m *DBMsg) WithID(id courier.MsgID) courier.Msg { m.ID_ = id; return m }
 
 // WithUUID can be used to set the id on a msg in a chained call
 func (m *DBMsg) WithUUID(uuid courier.MsgUUID) courier.Msg { m.UUID_ = uuid; return m }
+
+// WithMetadata can be used to add metadata to a Msg
+func (m *DBMsg) WithMetadata(metadata json.RawMessage) courier.Msg { m.Metadata_ = metadata; return m }
 
 // WithAttachment can be used to append to the media urls for a message
 func (m *DBMsg) WithAttachment(url string) courier.Msg {

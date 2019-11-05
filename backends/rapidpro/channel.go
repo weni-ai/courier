@@ -14,7 +14,7 @@ import (
 	"github.com/nyaruka/courier/utils"
 )
 
-// getChannelFromUUID will look up the channel with the passed in UUID and channel type.
+// getChannel will look up the channel with the passed in UUID and channel type.
 // It will return an error if the channel does not exist or is not active.
 func getChannel(ctx context.Context, db *sqlx.DB, channelType courier.ChannelType, channelUUID courier.ChannelUUID) (*DBChannel, error) {
 	// look for the channel locally
@@ -50,9 +50,24 @@ func getChannel(ctx context.Context, db *sqlx.DB, channelType courier.ChannelTyp
 }
 
 const lookupChannelFromUUIDSQL = `
-SELECT org_id, ch.id as id, ch.uuid as uuid, ch.name as name, channel_type, schemes, address, ch.country as country, ch.config as config, org.config as org_config, org.is_anon as org_is_anon
-FROM channels_channel ch, orgs_org org
-WHERE ch.uuid = $1 AND ch.is_active = true AND ch.org_id IS NOT NULL and ch.org_id = org.id`
+SELECT 
+	org_id, 
+	ch.id as id, 
+	ch.uuid as uuid, 
+	ch.name as name, 
+	channel_type, schemes, 
+	address, 
+	ch.country as country, 
+	ch.config as config, 
+	org.config as org_config, 
+	org.is_anon as org_is_anon
+FROM 
+	channels_channel ch
+	JOIN orgs_org org on ch.org_id = org.id
+WHERE 
+	ch.uuid = $1 AND 
+	ch.is_active = true AND 
+	ch.org_id IS NOT NULL`
 
 // ChannelForUUID attempts to look up the channel with the passed in UUID, returning it
 func loadChannelFromDB(ctx context.Context, db *sqlx.DB, channelType courier.ChannelType, uuid courier.ChannelUUID) (*DBChannel, error) {
@@ -173,6 +188,11 @@ func (c *DBChannel) Address() string { return c.Address_.String }
 // Country returns the country code for this channel if any
 func (c *DBChannel) Country() string { return c.Country_.String }
 
+// IsScheme returns whether this channel serves only the passed in scheme
+func (c *DBChannel) IsScheme(scheme string) bool {
+	return len(c.Schemes_) == 1 && c.Schemes_[0] == scheme
+}
+
 // ConfigForKey returns the config value for the passed in key, or defaultValue if it isn't found
 func (c *DBChannel) ConfigForKey(key string, defaultValue interface{}) interface{} {
 	// no value, return our default value
@@ -219,6 +239,16 @@ func (c *DBChannel) StringConfigForKey(key string, defaultValue string) string {
 		return defaultValue
 	}
 	return str
+}
+
+// BoolConfigForKey returns the config value for the passed in key, or defaultValue if it isn't found
+func (c *DBChannel) BoolConfigForKey(key string, defaultValue bool) bool {
+	val := c.ConfigForKey(key, defaultValue)
+	b, isBool := val.(bool)
+	if !isBool {
+		return defaultValue
+	}
+	return b
 }
 
 // IntConfigForKey returns the config value for the passed in key

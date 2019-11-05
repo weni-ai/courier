@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -54,6 +55,20 @@ type ChannelHandleTestCase struct {
 // SendPrepFunc allows test cases to modify the channel, msg or server before a message is sent
 type SendPrepFunc func(*httptest.Server, courier.ChannelHandler, courier.Channel, courier.Msg)
 
+// MockedRequest is a fake HTTP request
+type MockedRequest struct {
+	Method       string
+	Path         string
+	Body         string
+	BodyContains string
+}
+
+// MockedResponse is a fake HTTP response
+type MockedResponse struct {
+	Status int
+	Body   string
+}
+
 // ChannelSendTestCase defines the test values for a particular test case
 type ChannelSendTestCase struct {
 	Label string
@@ -66,9 +81,11 @@ type ChannelSendTestCase struct {
 	HighPriority         bool
 	ResponseToID         int64
 	ResponseToExternalID string
+	Metadata             json.RawMessage
 
 	ResponseStatus int
 	ResponseBody   string
+	Responses      map[MockedRequest]MockedResponse
 
 	Path        string
 	URLParams   map[string]string
@@ -81,6 +98,8 @@ type ChannelSendTestCase struct {
 	ExternalID string
 
 	Stopped bool
+
+	ContactURNs map[string]bool
 
 	SendPrep SendPrepFunc
 }
@@ -170,6 +189,7 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 	handler.Initialize(s)
 
 	for _, testCase := range testCases {
+		mockRRCount := 0
 		t.Run(testCase.Label, func(t *testing.T) {
 			require := require.New(t)
 
@@ -181,14 +201,31 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 			if testCase.URNAuth != "" {
 				msg.WithURNAuth(testCase.URNAuth)
 			}
+			if len(testCase.Metadata) > 0 {
+				msg.WithMetadata(testCase.Metadata)
+			}
 
 			var testRequest *http.Request
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				body, _ := ioutil.ReadAll(r.Body)
 				testRequest = httptest.NewRequest(r.Method, r.URL.String(), bytes.NewBuffer(body))
 				testRequest.Header = r.Header
-				w.WriteHeader(testCase.ResponseStatus)
-				w.Write([]byte(testCase.ResponseBody))
+				if (len(testCase.Responses)) == 0 {
+					w.WriteHeader(testCase.ResponseStatus)
+					w.Write([]byte(testCase.ResponseBody))
+				} else {
+					require.Zero(testCase.ResponseStatus, "ResponseStatus should not be used when using testcase.Responses")
+					require.Zero(testCase.ResponseBody, "ResponseBody should not be used when using testcase.Responses")
+					for mockRequest, mockResponse := range testCase.Responses {
+						bodyStr := string(body)[:]
+						if mockRequest.Method == r.Method && mockRequest.Path == r.URL.Path && (mockRequest.Body == bodyStr || (mockRequest.BodyContains != "" && strings.Contains(bodyStr, mockRequest.BodyContains))) {
+							w.WriteHeader(mockResponse.Status)
+							w.Write([]byte(mockResponse.Body))
+							mockRRCount++
+							break
+						}
+					}
+				}
 			}))
 			defer server.Close()
 
@@ -212,7 +249,7 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 			}
 
 			if testCase.Path != "" {
-				require.NotNil(testRequest)
+				require.NotNil(testRequest, "path should not be nil")
 				require.Equal(testCase.Path, testRequest.URL.Path)
 			}
 
@@ -225,7 +262,7 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 			}
 
 			if testCase.PostParams != nil {
-				require.NotNil(testRequest)
+				require.NotNil(testRequest, "post body should not be nil")
 				for k, v := range testCase.PostParams {
 					value := testRequest.PostFormValue(k)
 					require.Equal(v, value)
@@ -233,13 +270,17 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 			}
 
 			if testCase.RequestBody != "" {
-				require.NotNil(testRequest)
+				require.NotNil(testRequest, "request body should not be nil")
 				value, _ := ioutil.ReadAll(testRequest.Body)
 				require.Equal(testCase.RequestBody, strings.Trim(string(value), "\n"))
 			}
 
+			if (len(testCase.Responses)) != 0 {
+				require.Equal(mockRRCount, len(testCase.Responses))
+			}
+
 			if testCase.Headers != nil {
-				require.NotNil(testRequest)
+				require.NotNil(testRequest, "headers should not be nil")
 				for k, v := range testCase.Headers {
 					value := testRequest.Header.Get(k)
 					require.Equal(v, value)
@@ -251,13 +292,32 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 			}
 
 			if testCase.Status != "" {
-				require.NotNil(status)
+				require.NotNil(status, "status should not be nil")
 				require.Equal(testCase.Status, string(status.Status()))
 			}
 
 			if testCase.Stopped {
-				require.Equal(msg, mb.GetLastStoppedMsgContact())
+				evt, err := mb.GetLastChannelEvent()
+				require.NoError(err)
+				require.Equal(courier.StopContact, evt.EventType())
 			}
+
+			if testCase.ContactURNs != nil {
+				var contactUUID courier.ContactUUID
+				for urn, shouldBePresent := range testCase.ContactURNs {
+					contact, _ := mb.GetContact(ctx, channel, urns.URN(urn), "", "")
+					if contactUUID == courier.NilContactUUID && shouldBePresent {
+						contactUUID = contact.UUID()
+					}
+					if shouldBePresent {
+						require.Equal(contactUUID, contact.UUID())
+					} else {
+						require.NotEqual(contactUUID, contact.UUID())
+					}
+
+				}
+			}
+
 		})
 	}
 
@@ -278,6 +338,7 @@ func RunChannelTestCases(t *testing.T, channels []courier.Channel, handler couri
 			require := require.New(t)
 
 			mb.ClearQueueMsgs()
+			mb.ClearSeenExternalIDs()
 
 			testHandlerRequest(t, s, testCase.URL, testCase.Headers, testCase.Data, testCase.Status, &testCase.Response, testCase.PrepRequest)
 
@@ -331,7 +392,7 @@ func RunChannelTestCases(t *testing.T, channels []courier.Channel, handler couri
 				}
 				if testCase.ID != 0 {
 					if status != nil {
-						require.Equal(testCase.ID, status.ID().Int64)
+						require.Equal(testCase.ID, int64(status.ID()))
 					} else {
 						require.Equal(testCase.ID, -1)
 					}
@@ -382,6 +443,7 @@ func RunChannelBenchmarks(b *testing.B, channels []courier.Channel, handler cour
 
 	for _, testCase := range testCases {
 		mb.ClearQueueMsgs()
+		mb.ClearSeenExternalIDs()
 
 		b.Run(testCase.Label, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {

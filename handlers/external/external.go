@@ -7,17 +7,20 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"time"
 
 	"strings"
 
+	"github.com/antchfx/xmlquery"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/gsm7"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/urns"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -25,10 +28,25 @@ const (
 	contentJSON       = "json"
 	contentXML        = "xml"
 
-	configEncoding  = "encoding"
-	encodingDefault = "D"
-	encodingSmart   = "S"
+	configFromXPath = "from_xpath"
+	configTextXPath = "text_xpath"
+
+	configMOFromField = "mo_from_field"
+	configMOTextField = "mo_text_field"
+	configMODateField = "mo_date_field"
+
+	configMOResponseContentType = "mo_response_content_type"
+	configMOResponse            = "mo_response"
+
+	configMTResponseCheck = "mt_response_check"
+	configEncoding        = "encoding"
+	encodingDefault       = "D"
+	encodingSmart         = "S"
 )
+
+var defaultFromFields = []string{"from", "sender"}
+var defaultTextFields = []string{"text"}
+var defaultDateFields = []string{"date", "time"}
 
 var contentTypeMappings = map[string]string{
 	contentURLEncoded: "application/x-www-form-urlencoded",
@@ -66,40 +84,111 @@ func (h *handler) Initialize(s courier.Server) error {
 	s.AddHandlerRoute(h, http.MethodGet, "failed", failedHandler)
 	s.AddHandlerRoute(h, http.MethodPost, "failed", failedHandler)
 
+	s.AddHandlerRoute(h, http.MethodPost, "stopped", h.receiveStopContact)
+	s.AddHandlerRoute(h, http.MethodGet, "stopped", h.receiveStopContact)
+
 	return nil
 }
 
-type moForm struct {
-	From   string `name:"from"`
-	Sender string `name:"sender"`
-	Text   string `validate:"required" name:"text"`
-	Date   string `name:"date"`
-	Time   string `name:"time"`
+type stopContactForm struct {
+	From string `validate:"required" name:"from"`
 }
 
-// receiveMessage is our HTTP handler function for incoming messages
-func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
-	form := &moForm{}
+func (h *handler) receiveStopContact(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+	form := &stopContactForm{}
 	err := handlers.DecodeAndValidateForm(form, r)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
-	// must have one of from or sender set, error if neither
-	sender := form.Sender
-	if sender == "" {
-		sender = form.From
+	// create our URN
+	urn := urns.NilURN
+	if channel.Schemes()[0] == urns.TelScheme {
+		urn, err = handlers.StrictTelForCountry(form.From, channel.Country())
+	} else {
+		urn, err = urns.NewURNFromParts(channel.Schemes()[0], form.From, "", "")
 	}
-	if sender == "" {
+	if err != nil {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+	urn = urn.Normalize("")
+
+	// create a stop channel event
+	channelEvent := h.Backend().NewChannelEvent(channel, courier.StopContact, urn)
+	err = h.Backend().WriteChannelEvent(ctx, channelEvent)
+	if err != nil {
+		return nil, err
+	}
+	return []courier.Event{channelEvent}, courier.WriteChannelEventSuccess(ctx, w, r, channelEvent)
+}
+
+// utility function to grab the form value for either the passed in name (if non-empty) or the first set
+// value from defaultNames
+func getFormField(form url.Values, defaultNames []string, name string) string {
+	if name != "" {
+		values, found := form[name]
+		if found {
+			return values[0]
+		}
+	}
+
+	for _, name := range defaultNames {
+		values, found := form[name]
+		if found {
+			return values[0]
+		}
+	}
+
+	return ""
+}
+
+// receiveMessage is our HTTP handler function for incoming messages
+func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+	var err error
+
+	var from, dateString, text string
+
+	fromXPath := channel.StringConfigForKey(configFromXPath, "")
+	textXPath := channel.StringConfigForKey(configTextXPath, "")
+
+	if fromXPath != "" && textXPath != "" {
+		// we are reading from an XML body, pull out our fields
+		body, err := ioutil.ReadAll(io.LimitReader(r.Body, 100000))
+		defer r.Body.Close()
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("unable to read request body: %s", err))
+		}
+
+		doc, err := xmlquery.Parse(strings.NewReader(string(body)))
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("unable to parse request XML: %s", err))
+		}
+		fromNode := xmlquery.FindOne(doc, fromXPath)
+		textNode := xmlquery.FindOne(doc, textXPath)
+		if fromNode == nil || textNode == nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("missing from at: %s or text at: %s node", fromXPath, textXPath))
+		}
+
+		from = fromNode.InnerText()
+		text = textNode.InnerText()
+	} else {
+		// parse our form
+		err := r.ParseForm()
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.Wrapf(err, "invalid request"))
+		}
+
+		from = getFormField(r.Form, defaultFromFields, channel.StringConfigForKey(configMOFromField, ""))
+		text = getFormField(r.Form, defaultTextFields, channel.StringConfigForKey(configMOTextField, ""))
+		dateString = getFormField(r.Form, defaultDateFields, channel.StringConfigForKey(configMODateField, ""))
+	}
+
+	// must have from field
+	if from == "" {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("must have one of 'sender' or 'from' set"))
 	}
 
 	// if we have a date, parse it
-	dateString := form.Date
-	if dateString == "" {
-		dateString = form.Time
-	}
-
 	date := time.Now()
 	if dateString != "" {
 		date, err = time.Parse(time.RFC3339Nano, dateString)
@@ -111,20 +200,35 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 	// create our URN
 	urn := urns.NilURN
 	if channel.Schemes()[0] == urns.TelScheme {
-		urn, err = handlers.StrictTelForCountry(sender, channel.Country())
+		urn, err = handlers.StrictTelForCountry(from, channel.Country())
 	} else {
-		urn, err = urns.NewURNFromParts(channel.Schemes()[0], sender, "", "")
+		urn, err = urns.NewURNFromParts(channel.Schemes()[0], from, "", "")
 	}
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
-	urn = urn.Normalize("")
+	urn = urn.Normalize(channel.Country())
 
 	// build our msg
-	msg := h.Backend().NewIncomingMsg(channel, urn, form.Text).WithReceivedOn(date)
+	msg := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date)
 
 	// and finally write our message
 	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
+}
+
+// WriteMsgSuccessResponse writes our response in TWIML format
+func (h *handler) WriteMsgSuccessResponse(ctx context.Context, w http.ResponseWriter, r *http.Request, msgs []courier.Msg) error {
+	moResponse := msgs[0].Channel().StringConfigForKey(configMOResponse, "")
+	if moResponse == "" {
+		return courier.WriteMsgSuccess(ctx, w, r, msgs)
+	}
+	moResponseContentType := msgs[0].Channel().StringConfigForKey(configMOResponseContentType, "")
+	if moResponseContentType != "" {
+		w.Header().Set("Content-Type", moResponseContentType)
+	}
+	w.WriteHeader(200)
+	_, err := fmt.Fprint(w, moResponse)
+	return err
 }
 
 // buildStatusHandler deals with building a handler that takes what status is received in the URL
@@ -172,11 +276,13 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	// figure out what encoding to tell kannel to send as
 	encoding := msg.Channel().StringConfigForKey(configEncoding, encodingDefault)
+	responseContent := msg.Channel().StringConfigForKey(configMTResponseCheck, "")
 	sendMethod := msg.Channel().StringConfigForKey(courier.ConfigSendMethod, http.MethodPost)
 	sendBody := msg.Channel().StringConfigForKey(courier.ConfigSendBody, "")
 	contentType := msg.Channel().StringConfigForKey(courier.ConfigContentType, contentURLEncoded)
-	if contentTypeMappings[contentType] == "" {
-		return nil, fmt.Errorf("unknown content type: %s", contentType)
+	contentTypeHeader := contentTypeMappings[contentType]
+	if contentTypeHeader == "" {
+		contentTypeHeader = contentType
 	}
 
 	maxLength := msg.Channel().IntConfigForKey(courier.ConfigMaxLength, 160)
@@ -195,7 +301,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		}
 
 		// if we are smart, first try to convert to GSM7 chars
-		if encoding == encodingSmart && sendMethod == http.MethodGet {
+		if encoding == encodingSmart {
 			replaced := gsm7.ReplaceSubstitutions(part)
 			if gsm7.IsValid(replaced) {
 				form["text"] = replaced
@@ -212,7 +318,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		if err != nil {
 			return nil, err
 		}
-		req.Header.Set("Content-Type", contentTypeMappings[contentType])
+		req.Header.Set("Content-Type", contentTypeHeader)
 
 		authorization := msg.Channel().StringConfigForKey(courier.ConfigSendAuthorization, "")
 		if authorization != "" {
@@ -222,12 +328,17 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		rr, err := utils.MakeHTTPRequest(req)
 
 		// record our status and log
-		status.AddLog(courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err))
+		log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
+		status.AddLog(log)
 		if err != nil {
 			return status, nil
 		}
 
-		status.SetStatus(courier.MsgWired)
+		if responseContent == "" || strings.Contains(string(rr.Body), responseContent) {
+			status.SetStatus(courier.MsgWired)
+		} else {
+			log.WithError("Message Send Error", fmt.Errorf("Received invalid response content: %s", string(rr.Body)))
+		}
 	}
 
 	return status, nil

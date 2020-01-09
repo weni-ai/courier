@@ -1,3 +1,13 @@
+v5.3.1
+----------
+ * update changelog for v5.3
+
+v5.3.0
+----------
+ * Send WhatsApp media via URL
+ * Log Zenvia errors to ChannelLog instead of Sentry
+ * Ignore status updates for incoming messages	
+
 v5.2.0
 ----------
  * Sync version with RapidPro 5.2

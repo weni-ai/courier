@@ -1,3 +1,85 @@
+v5.5.22
+----------
+ * User reply endpoint when possible for LINE messages
+
+v5.5.21
+----------
+ * Fix FB location attachment to be handled at geo attachment
+
+v5.5.20
+----------
+ * TS expects national numbers only
+
+v5.5.19
+----------
+ * Upgrade FB graph API to 3.3
+
+v5.5.18
+----------
+ * TS sends should use mobile instead of from
+
+v5.5.17
+----------
+ * Support sending document attachments for Telegram
+
+v5.5.16
+----------
+ * Add option for Telesom Send URL
+ * Ignore received message request in Telegram handler when a file cannot be resolved
+
+v5.5.15
+----------
+ * Support using national number for EX channel if configured so
+
+v5.5.14
+----------
+ * Add Telesom channel type support
+
+v5.5.13
+----------
+ * Use Channel specific max_length config value if set
+
+v5.5.12
+----------
+ * Increase ArabiaCell max length to 1530
+
+v5.5.11
+----------
+ * Retry WhatsApp channel messaging after contact check with returned WhatsApp ID
+
+v5.5.10
+----------
+ * Fix sending WA template messages on new WhatsApp docker
+
+v5.5.9
+----------
+ * Add option for Kannel channels to ignore duplicative sent status
+
+v5.5.8
+----------
+ * More tweaks to slowing down batching of status commits when approaching max queue size
+
+v5.5.7
+----------
+ * slow queuing before reaching our max batch size
+
+v5.5.6
+----------
+ * Slow queuing into a batch when batches are full
+
+v5.5.5
+----------
+ * Increase buffer size
+ * Add support for Viber stickers as image attachments for incoming messages
+
+v5.5.4
+----------
+ * handle error cases for whatsapp callbacks
+
+v5.5.3
+----------
+ * add native panic handling
+
 v5.5.2
 ----------
  * Send msg in batches and add image msg type in the LINE channel

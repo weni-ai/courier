@@ -139,6 +139,134 @@ const localTTL = 60 * time.Second
 var cacheMutex sync.RWMutex
 var channelCache = make(map[courier.ChannelUUID]*DBChannel)
 
+// getChannelByAddress will look up the channel with the passed in address and channel type.
+// It will return an error if the channel does not exist or is not active.
+func getChannelByAddress(ctx context.Context, db *sqlx.DB, channelType courier.ChannelType, address courier.ChannelAddress) (*DBChannel, error) {
+	// look for the channel locally
+	cachedChannel, localErr := getCachedChannelByAddress(channelType, address)
+
+	// found it? return it
+	if localErr == nil {
+		return cachedChannel, nil
+	}
+
+	// look in our database instead
+	channel, dbErr := loadChannelByAddressFromDB(ctx, db, channelType, address)
+
+	// if it wasn't found in the DB, clear our cache and return that it wasn't found
+	if dbErr == courier.ErrChannelNotFound {
+		clearLocalChannelByAddress(address)
+		return cachedChannel, fmt.Errorf("unable to find channel with type: %s and address: %s", channelType.String(), address.String())
+	}
+
+	// if we had some other db error, return it if our cached channel was only just expired
+	if dbErr != nil && localErr == courier.ErrChannelExpired {
+		return cachedChannel, nil
+	}
+
+	// no cached channel, oh well, we fail
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	// we found it in the db, cache it locally
+	cacheChannel(channel)
+	return channel, nil
+}
+
+const lookupChannelFromAddressSQL = `
+SELECT
+       org_id,
+       ch.id as id,
+       ch.uuid as uuid,
+       ch.name as name,
+       channel_type, schemes,
+       address,
+       ch.country as country,
+       ch.config as config,
+       org.config as org_config,
+       org.is_anon as org_is_anon
+FROM
+       channels_channel ch
+       JOIN orgs_org org on ch.org_id = org.id
+WHERE
+       ch.address = $1 AND
+       ch.is_active = true AND
+       ch.org_id IS NOT NULL`
+
+// loadChannelByAddressFromDB get the channel with the passed in channel type and address from the DB, returning it
+func loadChannelByAddressFromDB(ctx context.Context, db *sqlx.DB, channelType courier.ChannelType, address courier.ChannelAddress) (*DBChannel, error) {
+	channel := &DBChannel{Address_: sql.NullString{String: address.String(), Valid: address == courier.NilChannelAddress}}
+
+	// select just the fields we need
+	err := db.GetContext(ctx, channel, lookupChannelFromAddressSQL, address)
+
+	// we didn't find a match
+	if err == sql.ErrNoRows {
+		return nil, courier.ErrChannelNotFound
+	}
+
+	// other error
+	if err != nil {
+		return nil, err
+	}
+
+	// is it the right type?
+	if channelType != courier.AnyChannelType && channelType != channel.ChannelType() {
+		return nil, courier.ErrChannelWrongType
+	}
+
+	// found it, return it
+	return channel, nil
+}
+
+// getCachedChannelByAddress returns a Channel object for the passed in type and address.
+func getCachedChannelByAddress(channelType courier.ChannelType, address courier.ChannelAddress) (*DBChannel, error) {
+	// first see if the channel exists in our local cache
+	cacheByAddressMutex.RLock()
+	channel, found := channelByAddressCache[address]
+	cacheByAddressMutex.RUnlock()
+
+	// do not consider the cache for empty addresses
+	if found && address != courier.NilChannelAddress {
+		// if it was found but the type is wrong, that's an error
+		if channelType != courier.AnyChannelType && channel.ChannelType() != channelType {
+			return nil, courier.ErrChannelWrongType
+		}
+
+		// if we've expired, we return it with an error
+		if channel.expiration.Before(time.Now()) {
+			return channel, courier.ErrChannelExpired
+		}
+
+		return channel, nil
+	}
+
+	return nil, courier.ErrChannelNotFound
+}
+
+func cacheChannelByAddress(channel *DBChannel) {
+	channel.expiration = time.Now().Add(localTTL)
+
+	// never cache if the address is nil or empty
+	if channel.ChannelAddress() != courier.NilChannelAddress {
+		return
+	}
+
+	cacheByAddressMutex.Lock()
+	channelByAddressCache[channel.ChannelAddress()] = channel
+	cacheByAddressMutex.Unlock()
+}
+
+func clearLocalChannelByAddress(address courier.ChannelAddress) {
+	cacheByAddressMutex.Lock()
+	delete(channelByAddressCache, address)
+	cacheByAddressMutex.Unlock()
+}
+
+var cacheByAddressMutex sync.RWMutex
+var channelByAddressCache = make(map[courier.ChannelAddress]*DBChannel)
+
 //-----------------------------------------------------------------------------
 // Channel Implementation
 //-----------------------------------------------------------------------------
@@ -182,8 +310,17 @@ func (c *DBChannel) ID() courier.ChannelID { return c.ID_ }
 // UUID returns the UUID of this channel
 func (c *DBChannel) UUID() courier.ChannelUUID { return c.UUID_ }
 
-// Address returns the address of this channel
+// Address returns the address of this channel as a string
 func (c *DBChannel) Address() string { return c.Address_.String }
+
+// ChannelAddress returns the address of this channel
+func (c *DBChannel) ChannelAddress() courier.ChannelAddress {
+	if !c.Address_.Valid {
+		return courier.NilChannelAddress
+	}
+
+	return courier.ChannelAddress(c.Address_.String)
+}
 
 // Country returns the country code for this channel if any
 func (c *DBChannel) Country() string { return c.Country_.String }

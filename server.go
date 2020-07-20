@@ -272,13 +272,7 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 		ctx, cancel := context.WithTimeout(baseCtx, time.Second*30)
 		defer cancel()
 
-		uuid, err := NewChannelUUID(chi.URLParam(r, "uuid"))
-		if err != nil {
-			WriteError(ctx, w, r, err)
-			return
-		}
-
-		channel, err := s.backend.GetChannel(ctx, handler.ChannelType(), uuid)
+		channel, err := handler.GetChannel(ctx, r)
 		if err != nil {
 			WriteError(ctx, w, r, err)
 			return
@@ -323,8 +317,8 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 			writeAndLogRequestError(ctx, ww, r, channel, err)
 		}
 
-		// if no events were created we still want to log this to the channel, do so
-		if len(events) == 0 {
+		// if we have a channel matched but no events were created we still want to log this to the channel, do so
+		if channel != nil && len(events) == 0 {
 			if err != nil {
 				logs = append(logs, NewChannelLog("Channel Error", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
 				librato.Gauge(fmt.Sprintf("courier.channel_error_%s", channel.ChannelType()), secondDuration)
@@ -367,6 +361,10 @@ func (s *server) AddHandlerRoute(handler ChannelHandler, method string, action s
 	channelType := strings.ToLower(string(handler.ChannelType()))
 
 	path := fmt.Sprintf("/%s/{uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}}", channelType)
+	if !handler.UseChannelRouteUUID() {
+		path = fmt.Sprintf("/%s", channelType)
+	}
+
 	if action != "" {
 		path = fmt.Sprintf("%s/%s", path, action)
 	}

@@ -1,3 +1,32 @@
+v5.6.0
+----------
+ * 5.6.0 Candidate Release
+
+v5.5.28 
+----------
+ * Fix FBA signature validation and channel lookup
+
+v5.5.27
+----------
+ * Add country field and support for more template languages on WhatsApp handler
+
+v5.5.26
+----------
+ * Only log channel events when we have a channel matched
+ * HX channel sends MO using ISO 8859-1 encoding
+
+v5.5.25
+----------
+ * Load FBA channel handler package
+
+v5.5.24
+----------
+ * Support loading channels with null address
+
+v5.5.23
+----------
+ * Add support for FBA channel type
+
 v5.5.22
 ----------
  * User reply endpoint when possible for LINE messages

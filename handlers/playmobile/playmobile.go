@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	configBaseURL  = "base_url"
-	configUsername = "username"
-	configPassword = "password"
+	configBaseURL        = "base_url"
+	configUsername       = "username"
+	configPassword       = "password"
+	configIncomingPrefix = "incoming_prefix"
 )
 
 var (
@@ -115,6 +116,12 @@ func (h *handler) receiveMessage(ctx context.Context, c courier.Channel, w http.
 		urn, err := handlers.StrictTelForCountry(pmMsg.MSIDSN, c.Country())
 		if err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, c, w, r, err)
+		}
+
+		// remove incoming prefix for free accounts
+		incomingPrefix := c.StringConfigForKey(configIncomingPrefix, "")
+		if incomingPrefix != "" && strings.HasPrefix(pmMsg.Content.Text, incomingPrefix) {
+			pmMsg.Content.Text = strings.TrimPrefix(pmMsg.Content.Text, incomingPrefix)
 		}
 
 		// build our msg

@@ -1067,6 +1067,28 @@ func (ts *BackendTestSuite) TestWriteMsg() {
 	count, err = redis.Int(rc.Do("LLEN", fmt.Sprintf("c:1:%d", msg.ContactID_)))
 	ts.NoError(err)
 	ts.Equal(1, count)
+
+	data, err := redis.Bytes(rc.Do("LPOP", fmt.Sprintf("c:1:%d", contact.ID_)))
+	ts.NoError(err)
+
+	var body map[string]interface{}
+	err = json.Unmarshal(data, &body)
+	ts.NoError(err)
+	ts.Equal("msg_event", body["type"])
+	ts.Equal(map[string]interface{}{
+		"contact_id":      float64(contact.ID_),
+		"org_id":          float64(1),
+		"channel_id":      float64(10),
+		"msg_id":          float64(msg.ID_),
+		"msg_uuid":        msg.UUID_.String(),
+		"msg_external_id": msg.ExternalID(),
+		"urn":             msg.URN().String(),
+		"urn_id":          float64(msg.ContactURNID_),
+		"text":            msg.Text(),
+		"attachments":     nil,
+		"new_contact":     contact.IsNew_,
+		"created_on":      msg.CreatedOn_.Format(time.RFC3339Nano),
+	}, body["task"])
 }
 
 func (ts *BackendTestSuite) TestChannelEvent() {
@@ -1116,7 +1138,9 @@ func (ts *BackendTestSuite) TestMailroomEvents() {
 
 	channel := ts.getChannel("KN", "dbc126ed-66bc-4e28-b67b-81dc3327c95d")
 	urn, _ := urns.NewTelURNForCountry("12065551616", channel.Country())
-	event := ts.b.NewChannelEvent(channel, courier.Referral, urn).WithExtra(map[string]interface{}{"ref_id": "12345"}).WithContactName("kermit frog")
+	event := ts.b.NewChannelEvent(channel, courier.Referral, urn).WithExtra(map[string]interface{}{"ref_id": "12345"}).
+		WithContactName("kermit frog").
+		WithOccurredOn(time.Date(2020, 8, 5, 13, 30, 0, 123456789, time.UTC))
 	err := ts.b.WriteChannelEvent(ctx, event)
 	ts.NoError(err)
 
@@ -1143,6 +1167,23 @@ func (ts *BackendTestSuite) TestMailroomEvents() {
 	count, err = redis.Int(rc.Do("LLEN", fmt.Sprintf("c:1:%d", contact.ID_)))
 	ts.NoError(err)
 	ts.Equal(1, count)
+
+	data, err := redis.Bytes(rc.Do("LPOP", fmt.Sprintf("c:1:%d", contact.ID_)))
+	ts.NoError(err)
+
+	var body map[string]interface{}
+	err = json.Unmarshal(data, &body)
+	ts.NoError(err)
+	ts.Equal("referral", body["type"])
+	ts.Equal(map[string]interface{}{
+		"channel_id":  float64(10),
+		"contact_id":  float64(contact.ID_),
+		"extra":       map[string]interface{}{"ref_id": "12345"},
+		"new_contact": contact.IsNew_,
+		"occurred_on": "2020-08-05T13:30:00.123456789Z",
+		"org_id":      float64(1),
+		"urn_id":      float64(contact.URNID_),
+	}, body["task"])
 }
 
 func TestMsgSuite(t *testing.T) {

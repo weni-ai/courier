@@ -1,3 +1,20 @@
+v5.7.3
+----------
+ * Include created_on in msg_event
+ * Include occurred_on when queueing channel events for mailroom
+
+v5.7.2
+----------
+ * Deal with Shaqodoon not properly escaping + in from
+
+v5.7.1
+----------
+ * Add ClickMobile channel type
+
+v5.7.0
+----------
+ * Save the Ad ID for Facebook postback referral 
+
 v5.6.0
 ----------
  * 5.6.0 Candidate Release

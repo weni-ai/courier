@@ -25,7 +25,7 @@ func TestS3(s3Client s3iface.S3API, bucket string) error {
 }
 
 // PutS3File writes the passed in file to the bucket with the passed in content type
-func PutS3File(s3Client s3iface.S3API, bucket string, path string, contentType string, contents []byte) (string, error) {
+func PutS3File(s3Client s3iface.S3API, bucket, path, mediaBaseURL, contentType string, contents []byte) (string, error) {
 	params := &s3.PutObjectInput{
 		Bucket:      aws.String(bucket),
 		Body:        bytes.NewReader(contents),
@@ -38,6 +38,11 @@ func PutS3File(s3Client s3iface.S3API, bucket string, path string, contentType s
 		return "", err
 	}
 
-	url := fmt.Sprintf(s3BucketURL, bucket, path)
+	var url string
+	if mediaBaseURL != "" {
+		url = mediaBaseURL + path
+	} else {
+		url = fmt.Sprintf(s3BucketURL, bucket, path)
+	}
 	return url, nil
 }

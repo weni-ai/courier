@@ -133,6 +133,11 @@ type eventPayload struct {
 			MimeType string `json:"mime_type" validate:"required"`
 			Sha256   string `json:"sha256"    validate:"required"`
 		} `json:"voice"`
+		Contacts []struct{
+			Phones []struct{
+				Phone string `json:"phone"`
+			} `json:"phones"`
+		} `json:"contacts"`
 	} `json:"messages"`
 	Statuses []struct {
 		ID          string `json:"id"           validate:"required"`
@@ -195,7 +200,9 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 			mediaURL, err = resolveMediaURL(channel, msg.Video.ID)
 		} else if msg.Type == "voice" && msg.Voice != nil {
 			mediaURL, err = resolveMediaURL(channel, msg.Voice.ID)
-		} else {
+		} else if msg.Type == "contacts" {
+			text = msg.Contacts[0].Phones[0].Phone
+		}else {
 			// we received a message type we do not support.
 			courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
 		}

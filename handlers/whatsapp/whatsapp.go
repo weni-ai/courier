@@ -201,7 +201,16 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		} else if msg.Type == "voice" && msg.Voice != nil {
 			mediaURL, err = resolveMediaURL(channel, msg.Voice.ID)
 		} else if msg.Type == "contacts" {
-			text = msg.Contacts[0].Phones[0].Phone
+			if len(msg.Contacts) == 0 {
+				return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("no shared contact"))
+			}
+
+			// put phones in a comma-separated string
+			var phones []string
+			for _, phone := range msg.Contacts[0].Phones {
+				phones = append(phones, phone.Phone)
+			}
+			text = strings.Join(phones, ", ")
 		}else {
 			// we received a message type we do not support.
 			courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))

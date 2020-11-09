@@ -3,7 +3,9 @@ package whatsapp
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -169,6 +171,38 @@ var voiceMsg = `{
 	}]
 }`
 
+var contactMsg = `{
+	"messages": [{
+		"from": "250788123123",
+		"id": "41",
+		"timestamp": "1454119029",
+		"type": "contacts",
+		"contacts": [{
+			"addresses": [],
+			"emails": [],
+			"ims": [],
+			"name": {
+				"first_name": "John Cruz",
+				"formatted_name": "John Cruz"
+			},
+			"org": {},
+			"phones": [
+				{
+					"phone": "+1 415-858-6273",
+					"type": "CELL",
+					"wa_id": "14158586273"
+				},
+				{
+					"phone": "+1 415-858-6274",
+					"type": "CELL",
+					"wa_id": "14158586274"
+				}
+			],
+			"urls": []
+		}]
+	}]
+}`
+
 var invalidFrom = `{
   "messages": [{
     "from": "notnumber",
@@ -249,6 +283,8 @@ var waTestCases = []ChannelHandleTestCase{
 		Text: Sp(""), Attachment: Sp("https://foo.bar/v1/media/41"), URN: Sp("whatsapp:250788123123"), ExternalID: Sp("41"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC))},
 	{Label: "Receive Valid Voice Message", URL: waReceiveURL, Data: voiceMsg, Status: 200, Response: `"type":"msg"`,
 		Text: Sp(""), Attachment: Sp("https://foo.bar/v1/media/41"), URN: Sp("whatsapp:250788123123"), ExternalID: Sp("41"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC))},
+	{Label: "Receive Valid Contact Message", URL: waReceiveURL, Data: contactMsg, Status: 200, Response: `"type":"msg"`,
+		Text: Sp("+1 415-858-6273, +1 415-858-6274"), URN: Sp("whatsapp:250788123123"), ExternalID: Sp("41"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC))},
 	{Label: "Receive Invalid JSON", URL: waReceiveURL, Data: invalidMsg, Status: 400, Response: "unable to parse"},
 	{Label: "Receive Invalid From", URL: waReceiveURL, Data: invalidFrom, Status: 400, Response: "invalid whatsapp id"},
 	{Label: "Receive Invalid Timestamp", URL: waReceiveURL, Data: invalidTimestamp, Status: 400, Response: "invalid timestamp"},
@@ -277,6 +313,8 @@ var d3TestCases = []ChannelHandleTestCase{
 		Text: Sp(""), Attachment: Sp("https://foo.bar/v1/media/41"), URN: Sp("whatsapp:250788123123"), ExternalID: Sp("41"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC))},
 	{Label: "Receive Valid Voice Message", URL: d3ReceiveURL, Data: voiceMsg, Status: 200, Response: `"type":"msg"`,
 		Text: Sp(""), Attachment: Sp("https://foo.bar/v1/media/41"), URN: Sp("whatsapp:250788123123"), ExternalID: Sp("41"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC))},
+	{Label: "Receive Valid Contact Message", URL: d3ReceiveURL, Data: contactMsg, Status: 200, Response: `"type":"msg"`,
+		Text: Sp("+1 415-858-6273, +1 415-858-6274"), URN: Sp("whatsapp:250788123123"), ExternalID: Sp("41"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC))},
 	{Label: "Receive Invalid JSON", URL: d3ReceiveURL, Data: invalidMsg, Status: 400, Response: "unable to parse"},
 	{Label: "Receive Invalid From", URL: d3ReceiveURL, Data: invalidFrom, Status: 400, Response: "invalid whatsapp id"},
 	{Label: "Receive Invalid Timestamp", URL: d3ReceiveURL, Data: invalidTimestamp, Status: 400, Response: "invalid timestamp"},
@@ -529,6 +567,93 @@ var defaultSendTestCases = []ChannelSendTestCase{
 	},
 }
 
+var mediaCacheSendTestCases = []ChannelSendTestCase{
+	{Label: "Media Upload Error",
+		Text:   "document caption",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"application/pdf:https://foo.bar/document.pdf"},
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/v1/media",
+				Body:   "media bytes",
+			}: MockedResponse{
+				Status: 401,
+				Body:   `{ "errors": [{"code":1005,"title":"Access denied","details":"Invalid credentials."}] }`,
+			},
+			MockedRequest{
+				Method:       "POST",
+				Path:         "/v1/messages",
+				BodyContains: `/document.pdf`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL,
+	},
+	{Label: "Previous Media Upload Error",
+		Text:   "document caption",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"application/pdf:https://foo.bar/document.pdf"},
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method:       "POST",
+				Path:         "/v1/messages",
+				BodyContains: `/document.pdf`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL,
+	},
+	{Label: "Media Upload OK",
+		Text:   "video caption",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"video/mp4:https://foo.bar/video.mp4"},
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/v1/media",
+				Body:   "media bytes",
+			}: MockedResponse{
+				Status: 200,
+				Body:   `{ "media" : [{"id": "36c484d1-1283-4b94-988d-7276bdec4de2"}] }`,
+			},
+			MockedRequest{
+				Method: "POST",
+				Path:   "/v1/messages",
+				Body:   `{"to":"250788123123","type":"video","video":{"id":"36c484d1-1283-4b94-988d-7276bdec4de2","caption":"video caption"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL,
+	},
+	{Label: "Cached Media",
+		Text:   "video caption",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"video/mp4:https://foo.bar/video.mp4"},
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/v1/messages",
+				Body:   `{"to":"250788123123","type":"video","video":{"id":"36c484d1-1283-4b94-988d-7276bdec4de2","caption":"video caption"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL,
+	},
+}
+
 var hsmSupportSendTestCases = []ChannelSendTestCase{
 	{Label: "Template Send",
 		Text:   "templated message",
@@ -539,6 +664,20 @@ var hsmSupportSendTestCases = []ChannelSendTestCase{
 		RequestBody: `{"to":"250788123123","type":"hsm","hsm":{"namespace":"waba_namespace","element_name":"revive_issue","language":{"policy":"deterministic","code":"en"},"localizable_params":[{"default":"Chef"},{"default":"tomorrow"}]}}`,
 		SendPrep:    setSendURL,
 	},
+}
+
+func mockAttachmentURLs(mediaServer *httptest.Server, testCases []ChannelSendTestCase) []ChannelSendTestCase {
+	casesWithMockedUrls := make([]ChannelSendTestCase, len(testCases))
+
+	for i, testCase := range testCases {
+		mockedCase := testCase
+
+		for j, attachment := range testCase.Attachments {
+			mockedCase.Attachments[j] = strings.Replace(attachment, "https://foo.bar", mediaServer.URL, 1)
+		}
+		casesWithMockedUrls[i] = mockedCase
+	}
+	return casesWithMockedUrls
 }
 
 func TestSending(t *testing.T) {
@@ -567,4 +706,14 @@ func TestSending(t *testing.T) {
 	RunChannelSendTestCases(t, defaultChannel, newWAHandler(courier.ChannelType("WA"), "WhatsApp"), defaultSendTestCases, nil)
 	RunChannelSendTestCases(t, hsmSupportChannel, newWAHandler(courier.ChannelType("WA"), "WhatsApp"), hsmSupportSendTestCases, nil)
 	RunChannelSendTestCases(t, d3Channel, newWAHandler(courier.ChannelType("D3"), "360Dialog"), defaultSendTestCases, nil)
+
+	mediaServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		defer req.Body.Close()
+		res.WriteHeader(200)
+		res.Write([]byte("media bytes"))
+	}))
+	defer mediaServer.Close()
+	mediaCacheSendTestCases := mockAttachmentURLs(mediaServer, mediaCacheSendTestCases)
+
+	RunChannelSendTestCases(t, defaultChannel, newWAHandler(courier.ChannelType("WA"), "WhatsApp"), mediaCacheSendTestCases, nil)
 }

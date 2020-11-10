@@ -1,3 +1,13 @@
+v5.7.5
+----------
+ * No longer write contact.is_stopped or is_blocked
+
+v5.7.4
+----------
+ * Support receiving XML for CM channels
+ * Write status on new contacts
+ * Add support for Whatsapp 360dialog
+
 v5.7.3
 ----------
  * Include created_on in msg_event

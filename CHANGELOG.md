@@ -1,3 +1,57 @@
+v6.1.6
+----------
+ * Cache media upload failures localy for 15m
+
+v6.1.5
+----------
+ * include header when sanitizing request/response
+
+v6.1.4
+----------
+ * Cleanup of whatsapp media handling
+ * Detect media type for uploading media
+
+v6.1.3
+----------
+ * Better logging of error cases when uploading WhatsApp media
+
+v6.1.2
+----------
+ * use url.parse to build media URL
+
+v6.1.1
+----------
+ * Add TextIt WhatsApp channel type
+
+v6.1.0
+----------
+ * Check and log errors when building URLs for sending
+
+v6.0.0
+----------
+ * Update README
+
+v5.7.12
+----------
+ * URN channel change only for channels with SEND role
+ * Update to gocommon v1.6.1
+ * Add RocketChat handler
+ * Add discord handler
+
+v5.7.11
+----------
+ * Cache media ids for WhatsApp attachments
+
+v5.7.10
+----------
+ * Support receiving Multipart form data requests for EX channels
+
+v5.7.9
+----------
+ * Update to latest gocommon 1.5.3 and golang 1.15
+ * Add session status from mailroom to MT message sent to external channel API call
+ * Remove incoming message prefix for Play Mobile free accounts
+
 v5.7.8
 ----------
  * deal with empty message in FreshChat incoming requests

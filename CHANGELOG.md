@@ -1,3 +1,23 @@
+v6.2.2
+----------
+ * Handle whatsapp URNs sent to Twiml handler without prefix
+ * Add support for Zenvia SMS
+
+v6.2.1
+----------
+ * Add support for Zenvia WhatsApp
+
+v6.2.0
+----------
+ * Add handling for button whatsapp message type
+ * Bump CI testing to PG 11 and 12
+ * Add Kaleyra channel type
+ * 6.2.0 RC
+
+v6.1.7
+----------
+ * switch id to bigserial
+
 v6.1.6
 ----------
  * Cache media upload failures localy for 15m

@@ -8,11 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/buger/jsonparser"
 	"github.com/nyaruka/courier"
-	"github.com/nyaruka/courier/gsm7"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
+	"github.com/nyaruka/gocommon/gsm7"
+
+	"github.com/buger/jsonparser"
 )
 
 var (
@@ -158,8 +159,12 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		partSendURL, _ := url.Parse(sendURL)
 		partSendURL.RawQuery = form.Encode()
 
-		req, _ := http.NewRequest(http.MethodGet, partSendURL.String(), nil)
+		req, err := http.NewRequest(http.MethodGet, partSendURL.String(), nil)
+		if err != nil {
+			return nil, err
+		}
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
 		rr, err := utils.MakeHTTPRequest(req)
 
 		// record our status and log

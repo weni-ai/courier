@@ -114,11 +114,17 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 	// create our URN
 	var urn urns.URN
 	if channel.IsScheme(urns.WhatsAppScheme) {
-		// Twilio Whatsapp from is in the form: whatsapp:+12211414154
+		// Twilio Whatsapp from is in the form: whatsapp:+12211414154 or +12211414154
+		var fromTel string
 		parts := strings.Split(form.From, ":")
+		if len(parts) > 1 {
+			fromTel = parts[1]
+		} else {
+			fromTel = parts[0]
+		}
 
 		// trim off left +, official whatsapp IDs dont have that
-		urn, err = urns.NewWhatsAppURN(strings.TrimLeft(parts[1], "+"))
+		urn, err = urns.NewWhatsAppURN(strings.TrimLeft(fromTel, "+"))
 	} else {
 		urn, err = urns.NewTelURNForCountry(form.From, form.FromCountry)
 	}
@@ -245,10 +251,14 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			return nil, err
 		}
 
-		req, _ := http.NewRequest(http.MethodPost, sendURL, strings.NewReader(form.Encode()))
+		req, err := http.NewRequest(http.MethodPost, sendURL, strings.NewReader(form.Encode()))
+		if err != nil {
+			return nil, err
+		}
 		req.SetBasicAuth(accountSID, accountToken)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("Accept", "application/json")
+
 		rr, err := utils.MakeHTTPRequest(req)
 
 		// record our status and log

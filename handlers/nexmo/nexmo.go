@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nyaruka/courier/gsm7"
-
-	"github.com/buger/jsonparser"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
+	"github.com/nyaruka/gocommon/gsm7"
+
+	"github.com/buger/jsonparser"
 	"github.com/pkg/errors"
 )
 
@@ -156,7 +156,10 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		var rr *utils.RequestResponse
 		var requestErr error
 		for i := 0; i < 3; i++ {
-			req, _ := http.NewRequest(http.MethodPost, sendURL, strings.NewReader(form.Encode()))
+			req, err := http.NewRequest(http.MethodPost, sendURL, strings.NewReader(form.Encode()))
+			if err != nil {
+				return nil, err
+			}
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 			rr, requestErr = utils.MakeHTTPRequest(req)

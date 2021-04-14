@@ -1,3 +1,146 @@
+v6.2.2
+----------
+ * Handle whatsapp URNs sent to Twiml handler without prefix
+ * Add support for Zenvia SMS
+
+v6.2.1
+----------
+ * Add support for Zenvia WhatsApp
+
+v6.2.0
+----------
+ * Add handling for button whatsapp message type
+ * Bump CI testing to PG 11 and 12
+ * Add Kaleyra channel type
+ * 6.2.0 RC
+
+v6.1.7
+----------
+ * switch id to bigserial
+
+v6.1.6
+----------
+ * Cache media upload failures localy for 15m
+
+v6.1.5
+----------
+ * include header when sanitizing request/response
+
+v6.1.4
+----------
+ * Cleanup of whatsapp media handling
+ * Detect media type for uploading media
+
+v6.1.3
+----------
+ * Better logging of error cases when uploading WhatsApp media
+
+v6.1.2
+----------
+ * use url.parse to build media URL
+
+v6.1.1
+----------
+ * Add TextIt WhatsApp channel type
+
+v6.1.0
+----------
+ * Check and log errors when building URLs for sending
+
+v6.0.0
+----------
+ * Update README
+
+v5.7.12
+----------
+ * URN channel change only for channels with SEND role
+ * Update to gocommon v1.6.1
+ * Add RocketChat handler
+ * Add discord handler
+
+v5.7.11
+----------
+ * Cache media ids for WhatsApp attachments
+
+v5.7.10
+----------
+ * Support receiving Multipart form data requests for EX channels
+
+v5.7.9
+----------
+ * Update to latest gocommon 1.5.3 and golang 1.15
+ * Add session status from mailroom to MT message sent to external channel API call
+ * Remove incoming message prefix for Play Mobile free accounts
+
+v5.7.8
+----------
+ * deal with empty message in FreshChat incoming requests
+
+v5.7.7
+----------
+ * Update to gocommon v1.5.1
+
+v5.7.6
+----------
+ * Remove dummy values for AWS config values so you can use local file system for testing
+ * Use gsm7, storage, dates and uuids packages from gocommon
+
+v5.7.5
+----------
+ * No longer write contact.is_stopped or is_blocked
+
+v5.7.4
+----------
+ * Support receiving XML for CM channels
+ * Write status on new contacts
+ * Add support for Whatsapp 360dialog
+
+v5.7.3
+----------
+ * Include created_on in msg_event
+ * Include occurred_on when queueing channel events for mailroom
+
+v5.7.2
+----------
+ * Deal with Shaqodoon not properly escaping + in from
+
+v5.7.1
+----------
+ * Add ClickMobile channel type
+
+v5.7.0
+----------
+ * Save the Ad ID for Facebook postback referral 
+
+v5.6.0
+----------
+ * 5.6.0 Candidate Release
+
+v5.5.28 
+----------
+ * Fix FBA signature validation and channel lookup
+
+v5.5.27
+----------
+ * Add country field and support for more template languages on WhatsApp handler
+
+v5.5.26
+----------
+ * Only log channel events when we have a channel matched
+ * HX channel sends MO using ISO 8859-1 encoding
+
+v5.5.25
+----------
+ * Load FBA channel handler package
+
+v5.5.24
+----------
+ * Support loading channels with null address
+
+v5.5.23
+----------
+ * Add support for FBA channel type
+
 v5.5.22
 ----------
  * User reply endpoint when possible for LINE messages

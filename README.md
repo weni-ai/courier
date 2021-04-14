@@ -1,4 +1,8 @@
-# Courier [![Build Status](https://github.com/nyaruka/courier/workflows/CI/badge.svg)] [![codecov](https://codecov.io/gh/nyaruka/courier/branch/master/graph/badge.svg)](https://codecov.io/gh/nyaruka/courier) [![Go Report Card](https://goreportcard.com/badge/github.com/nyaruka/courier)](https://goreportcard.com/report/github.com/nyaruka/courier)
+# Courier 
+
+[![Build Status](https://github.com/nyaruka/courier/workflows/CI/badge.svg)](https://github.com/nyaruka/courier/actions?query=workflow%3ACI) 
+[![codecov](https://codecov.io/gh/nyaruka/courier/branch/main/graph/badge.svg)](https://codecov.io/gh/nyaruka/courier)
+[![Go Report Card](https://goreportcard.com/badge/github.com/nyaruka/courier)](https://goreportcard.com/report/github.com/nyaruka/courier)
 
 # About 
 
@@ -9,7 +13,7 @@ Current courier supports over 36 different channel types, ranging for SMS aggreg
 IP channels like Facebook and Telegram messenger. The goal is for Courier to support every popular
 messaging channels and aggregator and we are happy to accept pull requests to help accomplish that.
 
-Courier is currently used to power [RapidPro](https://rapidpro.io) and [TextIt](https://textit.in)
+Courier is currently used to power [RapidPro](https://rapidpro.io) and [TextIt](https://textit.com)
 but the backend is pluggable, so you can add your own backend to read and write messages.
 
 # Deploying
@@ -55,16 +59,10 @@ Recommended settings for error and performance monitoring:
 
 # Development
 
-Install Courier source in your workspace with:
+Once you've checked out the code, you can build Courier with:
 
 ```
-go get github.com/nyaruka/courier
-```
-
-Build Courier with:
-
-```
-go install github.com/nyaruka/courier/cmd/...
+go install github.com/nyaruka/courier/cmd/courier
 ```
 
 This will create a new executable in $GOPATH/bin called `courier`. 
@@ -82,5 +80,5 @@ $ psql -d courier_test -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA publi
 To run all of the tests including benchmarks:
 
 ```
-go test github.com/nyaruka/courier/... -p=1 -bench=.
+go test ./... -p=1 -bench=.
 ```

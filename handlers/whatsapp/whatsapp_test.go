@@ -744,6 +744,7 @@ func TestSending(t *testing.T) {
 			"auth_token":   "token123",
 			"base_url":     "https://foo.bar/",
 			"fb_namespace": "waba_namespace",
+			"version":      "v2.35.2",
 		})
 
 	var hsmSupportChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WA", "250788383383", "US",
@@ -752,6 +753,7 @@ func TestSending(t *testing.T) {
 			"base_url":     "https://foo.bar/",
 			"fb_namespace": "waba_namespace",
 			"hsm_support":  true,
+			"version":      "v2.35.2",
 		})
 
 	var d3Channel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "D3", "250788383383", "US",
@@ -759,6 +761,7 @@ func TestSending(t *testing.T) {
 			"auth_token":   "token123",
 			"base_url":     "https://foo.bar/",
 			"fb_namespace": "waba_namespace",
+			"version":      "v2.35.2",
 		})
 
 	var txwChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "TXW", "250788383383", "US",
@@ -766,6 +769,7 @@ func TestSending(t *testing.T) {
 			"auth_token":   "token123",
 			"base_url":     "https://foo.bar/",
 			"fb_namespace": "waba_namespace",
+			"version":      "v2.35.2",
 		})
 
 	RunChannelSendTestCases(t, defaultChannel, newWAHandler(courier.ChannelType("WA"), "WhatsApp"), defaultSendTestCases, nil)

@@ -114,6 +114,7 @@ type eventPayload struct {
 			MimeType string `json:"mime_type" validate:"required"`
 			Sha256   string `json:"sha256"    validate:"required"`
 			Caption  string `json:"caption"`
+			Filename string `json:"filename"`
 		} `json:"document"`
 		Image *struct {
 			File     string `json:"file"      validate:"required"`
@@ -123,6 +124,18 @@ type eventPayload struct {
 			Sha256   string `json:"sha256"    validate:"required"`
 			Caption  string `json:"caption"`
 		} `json:"image"`
+		Interactive *struct {
+			ButtonReply *struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			} `json:"button_reply"`
+			ListReply *struct {
+				ID          string `json:"id"`
+				Title       string `json:"title"`
+				Description string `json:"description"`
+			} `json:"list_reply"`
+			Type string `json:"type"`
+		}
 		Location *struct {
 			Address   string  `json:"address"   validate:"required"`
 			Latitude  float32 `json:"latitude"  validate:"required"`
@@ -207,6 +220,12 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		} else if msg.Type == "image" && msg.Image != nil {
 			text = msg.Image.Caption
 			mediaURL, err = resolveMediaURL(channel, msg.Image.ID)
+		} else if msg.Type == "interactive" {
+			if msg.Interactive.Type == "button_reply" {
+				text = msg.Interactive.ButtonReply.Title
+			} else {
+				text = msg.Interactive.ListReply.Title
+			}
 		} else if msg.Type == "location" && msg.Location != nil {
 			mediaURL = fmt.Sprintf("geo:%f,%f", msg.Location.Latitude, msg.Location.Longitude)
 		} else if msg.Type == "video" && msg.Video != nil {
@@ -357,10 +376,56 @@ type mtTextPayload struct {
 	} `json:"text"`
 }
 
+type mtInteractivePayload struct {
+	To          string `json:"to" validate:"required"`
+	Type        string `json:"type" validate:"required"`
+	Interactive struct {
+		Type   string `json:"type" validate:"required"` //"text" | "image" | "video" | "document"
+		Header *struct {
+			Type     string `json:"type"`
+			Text     string `json:"text,omitempty"`
+			Video    string `json:"video,omitempty"`
+			Image    string `json:"image,omitempty"`
+			Document string `json:"document,omitempty"`
+		} `json:"header,omitempty"`
+		Body struct {
+			Text string `json:"text"`
+		} `json:"body" validate:"required"`
+		Footer *struct {
+			Text string `json:"text"`
+		} `json:"footer,omitempty"`
+		Action struct {
+			Button   string      `json:"button,omitempty"`
+			Sections []mtSection `json:"sections,omitempty"`
+			Buttons  []mtButton  `json:"buttons,omitempty"`
+		} `json:"action" validate:"required"`
+	} `json:"interactive"`
+}
+
+type mtSection struct {
+	Title string         `json:"title,omitempty"`
+	Rows  []mtSectionRow `json:"rows" validate:"required"`
+}
+
+type mtSectionRow struct {
+	ID          string `json:"id" validate:"required"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+type mtButton struct {
+	Type  string `json:"type" validate:"required"`
+	Reply struct {
+		ID    string `json:"id" validate:"required"`
+		Title string `json:"title" validate:"required"`
+	} `json:"reply" validate:"required"`
+}
+
 type mediaObject struct {
-	ID      string `json:"id,omitempty"`
-	Link    string `json:"link,omitempty"`
-	Caption string `json:"caption,omitempty"`
+	ID       string `json:"id,omitempty"`
+	Link     string `json:"link,omitempty"`
+	Caption  string `json:"caption,omitempty"`
+	Filename string `json:"filename,omitempty"`
 }
 
 type LocalizableParam struct {
@@ -489,6 +554,12 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 				if attachmentCount == 0 {
 					mediaPayload.Caption = msg.Text()
 				}
+				mediaPayload.Filename, err = utils.BasePathForURL(mediaURL)
+
+				// Logging error
+				if err != nil {
+					logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("Error while parsing the media URL")
+				}
 				payload.Document = mediaPayload
 				wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, payload)
 			} else if strings.HasPrefix(mimeType, "image") {
@@ -547,7 +618,10 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		}
 
 		if templating != nil {
-			namespace := msg.Channel().StringConfigForKey(configNamespace, "")
+			namespace := templating.Namespace
+			if namespace == "" {
+				namespace = msg.Channel().StringConfigForKey(configNamespace, "")
+			}
 			if namespace == "" {
 				return nil, errors.Errorf("cannot send template message without Facebook namespace for channel: %s", msg.Channel().UUID())
 			}
@@ -598,25 +672,101 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		} else {
 			parts := handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLength)
 			externalID := ""
-			for i, part := range parts {
-				payload := mtTextPayload{
-					To:   msg.URN().Path(),
-					Type: "text",
-				}
-				payload.Text.Body = part
-				wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, payload)
 
-				// add logs to our status
-				for _, log := range logs {
-					status.AddLog(log)
-				}
-				if err != nil {
-					break
-				}
+			qrs := msg.QuickReplies()
 
-				// if this is our first message, record the external id
-				if i == 0 {
-					status.SetExternalID(externalID)
+			if len(qrs) > 0 {
+				if len(qrs) > 3 {
+					section := mtSection{
+						Rows: make([]mtSectionRow, len(qrs)),
+					}
+
+					for i, qr := range qrs {
+						section.Rows[i] = mtSectionRow{
+							ID:    fmt.Sprint(i),
+							Title: qr,
+						}
+					}
+
+					for i, part := range parts {
+						payload := mtInteractivePayload{
+							To:   msg.URN().Path(),
+							Type: "interactive",
+						}
+						payload.Interactive.Type = "list"
+						payload.Interactive.Body.Text = part
+						payload.Interactive.Action.Button = "Menu"
+						payload.Interactive.Action.Sections = []mtSection{
+							section,
+						}
+
+						wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, payload)
+
+						for _, log := range logs {
+							status.AddLog(log)
+						}
+						if err != nil {
+							break
+						}
+
+						if i == 0 {
+							status.SetExternalID((externalID))
+						}
+					}
+
+				} else {
+					btns := make([]mtButton, len(qrs))
+					for i, qr := range qrs {
+						btns[i] = mtButton{
+							Type: "reply",
+						}
+						btns[i].Reply.ID = fmt.Sprint(i)
+						btns[i].Reply.Title = qr
+					}
+
+					for i, part := range parts {
+						payload := mtInteractivePayload{
+							To:   msg.URN().Path(),
+							Type: "interactive",
+						}
+						payload.Interactive.Type = "button"
+						payload.Interactive.Body.Text = part
+						payload.Interactive.Action.Buttons = btns
+						wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, payload)
+
+						for _, log := range logs {
+							status.AddLog(log)
+						}
+						if err != nil {
+							break
+						}
+
+						if i == 0 {
+							status.SetExternalID((externalID))
+						}
+					}
+				}
+			} else {
+				for i, part := range parts {
+					payload := mtTextPayload{
+						To:   msg.URN().Path(),
+						Type: "text",
+					}
+					payload.Text.Body = part
+					wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, payload)
+
+					// add logs to our status
+					for _, log := range logs {
+						status.AddLog(log)
+					}
+					if err != nil {
+						break
+					}
+
+					// if this is our first message, record the external id
+					if i == 0 {
+						status.SetExternalID(externalID)
+					}
 				}
 			}
 		}
@@ -937,6 +1087,7 @@ type MsgTemplating struct {
 	} `json:"template" validate:"required,dive"`
 	Language  string   `json:"language" validate:"required"`
 	Country   string   `json:"country"`
+	Namespace string   `json:"namespace"`
 	Variables []string `json:"variables"`
 }
 

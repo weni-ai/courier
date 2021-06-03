@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/buger/jsonparser"
-	"github.com/garyburd/redigo/redis"
+	"github.com/gomodule/redigo/redis"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
@@ -175,7 +175,11 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 		msgURL, _ := url.Parse(sendURL)
 		msgURL.RawQuery = params.Encode()
-		req, _ := http.NewRequest(http.MethodPost, msgURL.String(), nil)
+		req, err := http.NewRequest(http.MethodPost, msgURL.String(), nil)
+
+		if err != nil {
+			return nil, err
+		}
 
 		rr, err := utils.MakeHTTPRequest(req)
 		log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)

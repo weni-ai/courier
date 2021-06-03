@@ -20,6 +20,7 @@ CREATE TABLE channels_channel (
     address character varying(64),
     country character varying(2),
     config text,
+    role character varying(4) NOT NULL,
     org_id integer references orgs_org(id) on delete cascade
 );
 
@@ -55,7 +56,7 @@ CREATE TABLE contacts_contacturn (
 
 DROP TABLE IF EXISTS msgs_msg CASCADE;
 CREATE TABLE msgs_msg (
-    id serial primary key,
+    id bigserial primary key,
     uuid character varying(36) NULL,
     text text NOT NULL,
     high_priority boolean NULL,

@@ -13,6 +13,7 @@ import (
 
 	"github.com/buger/jsonparser"
 	"github.com/nyaruka/courier"
+	"github.com/nyaruka/courier/backends/rapidpro"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/rcache"
@@ -159,8 +160,8 @@ type eventPayload struct {
 			MimeType string `json:"mime_type" validate:"required"`
 			Sha256   string `json:"sha256"    validate:"required"`
 		} `json:"voice"`
-		Contacts []struct{
-			Phones []struct{
+		Contacts []struct {
+			Phones []struct {
 				Phone string `json:"phone"`
 			} `json:"phones"`
 		} `json:"contacts"`
@@ -179,6 +180,21 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	err := handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+
+	if len(payload.Contacts) > 0 {
+		if contactURN, err := urns.NewWhatsAppURN(payload.Contacts[0].WaID); err == nil {
+			if contact, err := h.Backend().GetContact(ctx, channel, contactURN, channel.StringConfigForKey(courier.ConfigAuthToken, ""), ""); err == nil {
+				c, _ := json.Marshal(contact)
+				var dbc rapidpro.DBContact
+				err2 := json.Unmarshal(c, &dbc)
+				if err2 == nil {
+					if dbc.Status_ == "B" {
+						return nil, errors.New("blocked contact sending message")
+					}
+				}
+			}
+		}
 	}
 
 	// the list of events we deal with
@@ -245,7 +261,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 				phones = append(phones, phone.Phone)
 			}
 			text = strings.Join(phones, ", ")
-		}else {
+		} else {
 			// we received a message type we do not support.
 			courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
 		}

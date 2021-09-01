@@ -13,6 +13,7 @@ import (
 
 	"github.com/buger/jsonparser"
 	"github.com/nyaruka/courier"
+	"github.com/nyaruka/courier/backends/rapidpro"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/rcache"
@@ -62,7 +63,7 @@ func newWAHandler(channelType courier.ChannelType, name string) courier.ChannelH
 // Initialize is called by the engine once everything is loaded
 func (h *handler) Initialize(s courier.Server) error {
 	h.SetServer(s)
-	s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveEvent)
+	s.AddHandlerRoute(h, http.MethodPost, "receive", h.checkBlockedContact)
 	return nil
 }
 
@@ -159,8 +160,8 @@ type eventPayload struct {
 			MimeType string `json:"mime_type" validate:"required"`
 			Sha256   string `json:"sha256"    validate:"required"`
 		} `json:"voice"`
-		Contacts []struct{
-			Phones []struct{
+		Contacts []struct {
+			Phones []struct {
 				Phone string `json:"phone"`
 			} `json:"phones"`
 		} `json:"contacts"`
@@ -171,6 +172,33 @@ type eventPayload struct {
 		Timestamp   string `json:"timestamp"    validate:"required"`
 		Status      string `json:"status"       validate:"required"`
 	} `json:"statuses"`
+}
+
+// checkBlockedContact is a handler middleware to prevent generate channel log from blocked contact messages
+func (h *handler) checkBlockedContact(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+
+	payload := &eventPayload{}
+	err := handlers.DecodeAndValidateJSON(payload, r)
+	if err != nil {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+
+	if len(payload.Contacts) > 0 {
+		if contactURN, err := urns.NewWhatsAppURN(payload.Contacts[0].WaID); err == nil {
+			if contact, err := h.Backend().GetContact(ctx, channel, contactURN, channel.StringConfigForKey(courier.ConfigAuthToken, ""), ""); err == nil {
+				c, _ := json.Marshal(contact)
+				var dbc rapidpro.DBContact
+				err2 := json.Unmarshal(c, &dbc)
+				if err2 == nil {
+					if dbc.Status_ == "B" {
+						return nil, errors.New("blocked contact sending message")
+					}
+				}
+			}
+		}
+	}
+
+	return h.receiveEvent(ctx, channel, w, r)
 }
 
 // receiveMessage is our HTTP handler function for incoming messages
@@ -245,7 +273,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 				phones = append(phones, phone.Phone)
 			}
 			text = strings.Join(phones, ", ")
-		}else {
+		} else {
 			// we received a message type we do not support.
 			courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
 		}

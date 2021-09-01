@@ -63,7 +63,7 @@ func newWAHandler(channelType courier.ChannelType, name string) courier.ChannelH
 // Initialize is called by the engine once everything is loaded
 func (h *handler) Initialize(s courier.Server) error {
 	h.SetServer(s)
-	s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveEvent)
+	s.AddHandlerRoute(h, http.MethodPost, "receive", h.checkBlockedContact)
 	return nil
 }
 
@@ -174,8 +174,9 @@ type eventPayload struct {
 	} `json:"statuses"`
 }
 
-// receiveMessage is our HTTP handler function for incoming messages
-func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+// checkBlockedContact is a handler middleware to prevent generate channel log from blocked contact messages
+func (h *handler) checkBlockedContact(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+
 	payload := &eventPayload{}
 	err := handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
@@ -195,6 +196,17 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 				}
 			}
 		}
+	}
+
+	return h.receiveEvent(ctx, channel, w, r)
+}
+
+// receiveMessage is our HTTP handler function for incoming messages
+func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+	payload := &eventPayload{}
+	err := handlers.DecodeAndValidateJSON(payload, r)
+	if err != nil {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
 	// the list of events we deal with

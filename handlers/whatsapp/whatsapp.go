@@ -180,7 +180,7 @@ func (h *handler) checkBlockedContact(ctx context.Context, channel courier.Chann
 	payload := &eventPayload{}
 	err := handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
-		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		return nil, errors.New("invalid json received ignoring")
 	}
 
 	if len(payload.Contacts) > 0 {

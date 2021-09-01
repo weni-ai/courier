@@ -314,7 +314,7 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 
 		// if we received an error, write it out and report it
 		if err != nil {
-			if err.Error() != "blocked contact sending message" {
+			if err.Error() != "blocked contact sending message" || err.Error() != "invalid json received ignoring" {
 				logrus.WithError(err).WithField("channel_uuid", channel.UUID()).WithField("url", url).WithField("request", string(request)).Error("error handling request")
 				writeAndLogRequestError(ctx, ww, r, channel, err)
 			}
@@ -323,7 +323,7 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 		// if we have a channel matched but no events were created we still want to log this to the channel, do so
 		if channel != nil && len(events) == 0 {
 			if err != nil {
-				if err.Error() == "blocked contact sending message" {
+				if err.Error() == "blocked contact sending message" || err.Error() != "invalid json received ignoring" {
 					return
 				} else {
 					logs = append(logs, NewChannelLog("Channel Error", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))

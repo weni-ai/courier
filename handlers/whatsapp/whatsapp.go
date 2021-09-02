@@ -185,7 +185,7 @@ func (h *handler) checkBlockedContact(ctx context.Context, channel courier.Chann
 
 	if len(payload.Contacts) > 0 {
 		if contactURN, err := urns.NewWhatsAppURN(payload.Contacts[0].WaID); err == nil {
-			if contact, err := h.Backend().GetContact(ctx, channel, contactURN, channel.StringConfigForKey(courier.ConfigAuthToken, ""), ""); err == nil {
+			if contact, err := h.Backend().GetContact(ctx, channel, contactURN, channel.StringConfigForKey(courier.ConfigAuthToken, ""), payload.Contacts[0].Profile.Name); err == nil {
 				c, _ := json.Marshal(contact)
 				var dbc rapidpro.DBContact
 				err2 := json.Unmarshal(c, &dbc)

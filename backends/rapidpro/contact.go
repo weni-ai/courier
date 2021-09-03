@@ -84,8 +84,7 @@ SELECT
 	c.modified_on, 
 	c.created_on, 
 	c.name, 
-	u.id as "urn_id",
-	c.status
+	u.id as "urn_id"
 FROM 
 	contacts_contact AS c, 
 	contacts_contacturn AS u 
@@ -233,8 +232,7 @@ type DBContact struct {
 	CreatedBy_  int `db:"created_by_id"`
 	ModifiedBy_ int `db:"modified_by_id"`
 
-	IsNew_  bool
-	Status_ string `db:"status"`
+	IsNew_ bool
 }
 
 // UUID returns the UUID for this contact

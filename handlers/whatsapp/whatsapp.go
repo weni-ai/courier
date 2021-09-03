@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -63,7 +64,7 @@ func newWAHandler(channelType courier.ChannelType, name string) courier.ChannelH
 // Initialize is called by the engine once everything is loaded
 func (h *handler) Initialize(s courier.Server) error {
 	h.SetServer(s)
-	s.AddHandlerRoute(h, http.MethodPost, "receive", h.checkBlockedContact)
+	s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveEvent)
 	return nil
 }
 
@@ -174,31 +175,26 @@ type eventPayload struct {
 	} `json:"statuses"`
 }
 
-// checkBlockedContact is a handler middleware to prevent generate channel log from blocked contact messages
-func (h *handler) checkBlockedContact(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
-
-	payload := &eventPayload{}
-	err := handlers.DecodeAndValidateJSON(payload, r)
-	if err != nil {
-		return nil, errors.New("invalid json received ignoring")
-	}
-
+// checkBlockedContact is a function to verify if the contact from msg has status blocked to return an error or not if it is active
+func checkBlockedContact(payload *eventPayload, ctx context.Context, channel courier.Channel, h *handler) error {
 	if len(payload.Contacts) > 0 {
 		if contactURN, err := urns.NewWhatsAppURN(payload.Contacts[0].WaID); err == nil {
 			if contact, err := h.Backend().GetContact(ctx, channel, contactURN, channel.StringConfigForKey(courier.ConfigAuthToken, ""), payload.Contacts[0].Profile.Name); err == nil {
-				c, _ := json.Marshal(contact)
+				c, err := json.Marshal(contact)
+				if err != nil {
+					return err
+				}
 				var dbc rapidpro.DBContact
-				err2 := json.Unmarshal(c, &dbc)
-				if err2 == nil {
-					if dbc.Status_ == "B" {
-						return nil, errors.New("blocked contact sending message")
-					}
+				if err = json.Unmarshal(c, &dbc); err != nil {
+					return err
+				}
+				if dbc.Status_ == "B" {
+					return errors.New("blocked contact sending message")
 				}
 			}
 		}
 	}
-
-	return h.receiveEvent(ctx, channel, w, r)
+	return nil
 }
 
 // receiveMessage is our HTTP handler function for incoming messages
@@ -206,9 +202,17 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	payload := &eventPayload{}
 	err := handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
+		b, _ := ioutil.ReadAll(r.Body)
+		if len(b) > 999999 {
+			err = errors.New("too large body")
+		}
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
+	err = checkBlockedContact(payload, ctx, channel, h)
+	if err != nil {
+		return nil, err
+	}
 	// the list of events we deal with
 	events := make([]courier.Event, 0, 2)
 

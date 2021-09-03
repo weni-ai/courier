@@ -314,8 +314,8 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 
 		// if we received an error, write it out and report it
 		if err != nil {
-			// if error is not from blocked contact message or invalid json received from too large message return nothing
-			if !(err.Error() == "blocked contact sending message" || err.Error() == "invalid json received ignoring") {
+			// if error is from blocked contact message or invalid json received from too large message dont write it
+			if !(err.Error() == "blocked contact sending message" || strings.Contains(err.Error(), "too large body")) {
 				logrus.WithError(err).WithField("channel_uuid", channel.UUID()).WithField("url", url).WithField("request", string(request)).Error("error handling request")
 				writeAndLogRequestError(ctx, ww, r, channel, err)
 			}
@@ -325,7 +325,7 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 		if channel != nil && len(events) == 0 {
 			if err != nil {
 				// if error is from blocked contact message or invalid json received from too large message return nothing
-				if err.Error() == "blocked contact sending message" || err.Error() == "invalid json received ignoring" {
+				if err.Error() == "blocked contact sending message" || strings.Contains(err.Error(), "too large body") {
 					return
 				} else {
 					logs = append(logs, NewChannelLog("Channel Error", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))

@@ -3,6 +3,7 @@ package whatsapp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -258,6 +259,27 @@ var contactMsg = `{
 	}]
 }`
 
+// var contactBomb = "{ " + strings.Repeat(make([]byte, 1000001)) + " }"
+
+var contactBomb = fmt.Sprintf(
+	`{
+	"contacts":[{
+		"profile": {
+			"name": "Jerry Cooney"
+		},
+		"wa_id": "250788123123"
+	}],
+	"messages": [{
+		"from": "250788123123",
+		"id": "41",
+		"timestamp": "1454119029",
+		"text": {
+			"body": " %s "
+		},
+		"type": "text"
+		}]
+}`, strings.Repeat("b", 1000000))
+
 var invalidFrom = `{
   "messages": [{
     "from": "notnumber",
@@ -349,6 +371,7 @@ var waTestCases = []ChannelHandleTestCase{
 	{Label: "Receive Invalid JSON", URL: waReceiveURL, Data: invalidMsg, Status: 400, Response: "unable to parse"},
 	{Label: "Receive Invalid From", URL: waReceiveURL, Data: invalidFrom, Status: 400, Response: "invalid whatsapp id"},
 	{Label: "Receive Invalid Timestamp", URL: waReceiveURL, Data: invalidTimestamp, Status: 400, Response: "invalid timestamp"},
+	{Label: "Receive Contact Bomb", URL: waReceiveURL, Data: contactBomb, Status: 400, Response: "too large body"},
 
 	{Label: "Receive Valid Status", URL: waReceiveURL, Data: validStatus, Status: 200, Response: `"type":"status"`,
 		MsgStatus: Sp("S"), ExternalID: Sp("9712A34B4A8B6AD50F")},

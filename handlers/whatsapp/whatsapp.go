@@ -435,23 +435,23 @@ type LocalizableParam struct {
 }
 
 type mmtImage struct{
-	Link string `json:"link"`
+	Link string `json:"link,omitempty"`
 }
 
 type mmtDocument struct{
-	Link string `json:"link"`
+	Link string `json:"link,omitempty"`
 }
 
 type mmtVideo struct{
-	Link string `json:"link"`
+	Link string `json:"link,omitempty"`
 }
 
 type Param struct {
 	Type     string      `json:"type"`
 	Text     string      `json:"text"`
-	Image    mmtImage    `json:"image"`
-	Document mmtDocument `json:"document"`
-	Video    mmtVideo    `json:"video"`
+	Image    mmtImage    `json:"image,omitempty"`
+	Document mmtDocument `json:"document,omitempty"`
+	Video    mmtVideo    `json:"video,omitempty"`
 }
 
 type Component struct {

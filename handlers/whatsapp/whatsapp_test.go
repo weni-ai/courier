@@ -633,6 +633,14 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"to":"250788123123","type":"interactive","interactive":{"type":"list","body":{"text":"Interactive List Msg"},"action":{"button":"Menu","sections":[{"rows":[{"id":"0","title":"ROW1"},{"id":"1","title":"ROW2"},{"id":"2","title":"ROW3"},{"id":"3","title":"ROW4"}]}]}}}`,
 		SendPrep:    setSendURL},
+	{Label: "Media Message Template Send",
+		Text: "Media Message Msg", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "namespace": "wa_template_namespace", "language": "eng", "country": "US", "variables": ["Chef", "tomorrow"]}}`),
+		Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"to":"250788123123","type":"template","template":{"namespace":"wa_template_namespace","name":"revive_issue","language":{"policy":"deterministic","code":"en_US"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef","image":{"link":""},"document":{"link":""},"video":{"link":""}},{"type":"text","text":"tomorrow","image":{"link":""},"document":{"link":""},"video":{"link":""}}]},{"type":"header","parameters":[{"type":"image","text":"","image":{"link":"https://foo.bar/image.jpg"},"document":{"link":""},"video":{"link":""}}]}]}}`,
+		SendPrep:    setSendURL},
 }
 
 var mediaCacheSendTestCases = []ChannelSendTestCase{

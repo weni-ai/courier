@@ -447,11 +447,11 @@ type mmtVideo struct{
 }
 
 type Param struct {
-	Type     string      `json:"type"`
-	Text     string      `json:"text"`
-	Image    mmtImage    `json:"image,omitempty"`
-	Document mmtDocument `json:"document,omitempty"`
-	Video    mmtVideo    `json:"video,omitempty"`
+	Type     string       `json:"type"`
+	Text     string       `json:"text,omitempty"`
+	Image    *mmtImage    `json:"image,omitempty"`
+	Document *mmtDocument `json:"document,omitempty"`
+	Video    *mmtVideo    `json:"video,omitempty"`
 }
 
 type Component struct {
@@ -611,19 +611,19 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 							mediaURL = ""
 						}
 						if strings.HasPrefix(mimeType, "image"){
-							image := mmtImage{
+							image := &mmtImage{
 								Link: mediaURL,
 							}
 							header.Parameters = append(header.Parameters, Param{Type: "image", Image: image})
 							payload.Template.Components = append(payload.Template.Components, *header)
 						}else if strings.HasPrefix(mimeType, "application"){
-							document := mmtDocument{
+							document := &mmtDocument{
 								Link: mediaURL,
 							}
 							header.Parameters = append(header.Parameters, Param{Type: "document", Document: document})
 							payload.Template.Components = append(payload.Template.Components, *header)
 						}else if strings.HasPrefix(mimeType, "video") {
-							video := mmtVideo{
+							video := &mmtVideo{
 								Link: mediaURL,
 							}
 							header.Parameters = append(header.Parameters, Param{Type: "video", Video: video})

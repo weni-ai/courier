@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -202,9 +201,8 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	payload := &eventPayload{}
 	err := handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
-		b, _ := ioutil.ReadAll(r.Body)
-		if len(b) > 999999 {
-			err = errors.New("too large body")
+		if r.ContentLength > 999999 {
+			return nil, errors.New("too large body")
 		}
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}

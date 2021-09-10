@@ -259,8 +259,6 @@ var contactMsg = `{
 	}]
 }`
 
-// var contactBomb = "{ " + strings.Repeat(make([]byte, 1000001)) + " }"
-
 var contactBomb = fmt.Sprintf(
 	`{
 	"contacts":[{
@@ -371,7 +369,7 @@ var waTestCases = []ChannelHandleTestCase{
 	{Label: "Receive Invalid JSON", URL: waReceiveURL, Data: invalidMsg, Status: 400, Response: "unable to parse"},
 	{Label: "Receive Invalid From", URL: waReceiveURL, Data: invalidFrom, Status: 400, Response: "invalid whatsapp id"},
 	{Label: "Receive Invalid Timestamp", URL: waReceiveURL, Data: invalidTimestamp, Status: 400, Response: "invalid timestamp"},
-	{Label: "Receive Contact Bomb", URL: waReceiveURL, Data: contactBomb, Status: 400, Response: "too large body"},
+	{Label: "Receive Contact Bomb", URL: waReceiveURL, Data: contactBomb, Status: 200},
 
 	{Label: "Receive Valid Status", URL: waReceiveURL, Data: validStatus, Status: 200, Response: `"type":"status"`,
 		MsgStatus: Sp("S"), ExternalID: Sp("9712A34B4A8B6AD50F")},

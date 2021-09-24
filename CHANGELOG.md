@@ -1,3 +1,30 @@
+v6.5.8
+----------
+ * Fix Facebook document attachment
+ * Update to latest gocommon and phonenumbers
+
+v6.5.7
+----------
+ * Fix to only set the quick replies keyboard for the last message
+ * Update to latest gocommon
+
+v6.5.6
+----------
+ * Fix FB signing checks by trimming prefix instead of stripping
+ * Improve layout of Telegram keyboards
+
+v6.5.5
+----------
+ * Send WhatsApp buttons and list buttons when supported (thanks Weni)
+
+v6.5.4
+----------
+ * trim prefix instead of strip when comparing FB sigs
+
+v6.5.3
+----------
+ * log body when calculating signatures, include expected and calculated
+
 v6.5.2
 ----------
  * Add ticket_count column to contact and set to zero when creating new contacts

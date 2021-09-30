@@ -314,15 +314,23 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 
 		// if we received an error, write it out and report it
 		if err != nil {
-			logrus.WithError(err).WithField("channel_uuid", channel.UUID()).WithField("url", url).WithField("request", string(request)).Error("error handling request")
-			writeAndLogRequestError(ctx, ww, r, channel, err)
+			// if error is from blocked contact message or invalid json received from too large message dont write it
+			if !(err.Error() == "blocked contact sending message" || strings.Contains(err.Error(), "too large body")) {
+				logrus.WithError(err).WithField("channel_uuid", channel.UUID()).WithField("url", url).WithField("request", string(request)).Error("error handling request")
+				writeAndLogRequestError(ctx, ww, r, channel, err)
+			}
 		}
 
 		// if we have a channel matched but no events were created we still want to log this to the channel, do so
 		if channel != nil && len(events) == 0 {
 			if err != nil {
-				logs = append(logs, NewChannelLog("Channel Error", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
-				librato.Gauge(fmt.Sprintf("courier.channel_error_%s", channel.ChannelType()), secondDuration)
+				// if error is from blocked contact message or invalid json received from too large message return nothing
+				if err.Error() == "blocked contact sending message" || strings.Contains(err.Error(), "too large body") {
+					return
+				} else {
+					logs = append(logs, NewChannelLog("Channel Error", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
+					librato.Gauge(fmt.Sprintf("courier.channel_error_%s", channel.ChannelType()), secondDuration)
+				}
 			} else {
 				logs = append(logs, NewChannelLog("Request Ignored", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
 				librato.Gauge(fmt.Sprintf("courier.channel_ignored_%s", channel.ChannelType()), secondDuration)

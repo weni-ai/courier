@@ -156,8 +156,24 @@ type moPayload struct {
 				MIDs      []string `json:"mids"`
 				Watermark int64    `json:"watermark"`
 			} `json:"delivery"`
+
+			MessagingFeedback *struct {
+				FeedbackScreens []struct {
+					ScreenID  int                         `json:"screen_id"`
+					Questions map[string]FeedbackQuestion `json:"questions"`
+				} `json:"feedback_screens"`
+			} `json:"messaging_feedback"`
 		} `json:"messaging"`
 	} `json:"entry"`
+}
+
+type FeedbackQuestion struct {
+	Type     string `json:"type"`
+	Payload  string `json:"payload"`
+	FollowUp *struct {
+		Type    string `json:"type"`
+		Payload string `json:"payload"`
+	} `json:"follow_up"`
 }
 
 // GetChannel returns the channel
@@ -424,6 +440,26 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 				events = append(events, event)
 				data = append(data, courier.NewStatusData(event))
 			}
+
+		} else if msg.MessagingFeedback != nil {
+
+			payloads := []string{}
+			for _, v := range msg.MessagingFeedback.FeedbackScreens[0].Questions {
+				payloads = append(payloads, v.Payload)
+			}
+			text := strings.Join(payloads[:], ", ")
+
+			ev := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date)
+			event := h.Backend().CheckExternalIDSeen(ev)
+
+			err := h.Backend().WriteMsg(ctx, event)
+			if err != nil {
+				return nil, err
+			}
+
+			h.Backend().WriteExternalIDSeen(event)
+			events = append(events, event)
+			data = append(data, courier.NewMsgReceiveData(event))
 
 		} else {
 			data = append(data, courier.NewInfoData("ignoring unknown entry type"))

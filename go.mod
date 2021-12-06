@@ -37,6 +37,8 @@ require (
 	gopkg.in/h2non/filetype.v1 v1.0.5
 )
 
+replace github.com/nyaruka/gocommon v1.14.1 => github.com/Ilhasoft/gocommon v1.14.2
+
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fatih/structs v1.0.0 // indirect

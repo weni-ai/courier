@@ -446,8 +446,12 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 			payloads := []string{}
 			for _, v := range msg.MessagingFeedback.FeedbackScreens[0].Questions {
 				payloads = append(payloads, v.Payload)
+				if v.FollowUp != nil {
+					payloads = append(payloads, v.FollowUp.Payload)
+				}
 			}
-			text := strings.Join(payloads[:], ", ")
+
+			text := strings.Join(payloads[:], "|")
 
 			ev := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date)
 			event := h.Backend().CheckExternalIDSeen(ev)
@@ -560,37 +564,78 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 				templateMap[strings.TrimSpace(field[0])] = strings.TrimSpace(field[1])
 			}
 
-			payloadMap := map[string]interface{}{
-				"recipient": map[string]string{
-					"id": msg.URN().Path(),
-				},
-				"message": map[string]interface{}{
-					"attachment": map[string]interface{}{
-						"type": "template",
-						"payload": map[string]interface{}{
-							"template_type": "customer_feedback",
-							"title":         templateMap["title"],
-							"subtitle":      templateMap["subtitle"],
-							"button_title":  templateMap["button_title"],
-							"feedback_screens": []map[string]interface{}{
-								{
-									"questions": []map[string]interface{}{
-										{
-											"id":           templateMap["question_id"],
-											"type":         templateMap["type"],
-											"title":        templateMap["question_title"],
-											"score_label":  templateMap["score_label"],
-											"score_option": templateMap["score_option"],
+			var payloadMap map[string]interface{}
+
+			if templateMap["follow_up"] != "" {
+				payloadMap = map[string]interface{}{
+					"recipient": map[string]string{
+						"id": msg.URN().Path(),
+					},
+					"message": map[string]interface{}{
+						"attachment": map[string]interface{}{
+							"type": "template",
+							"payload": map[string]interface{}{
+								"template_type": "customer_feedback",
+								"title":         templateMap["title"],
+								"subtitle":      templateMap["subtitle"],
+								"button_title":  templateMap["button_title"],
+								"feedback_screens": []map[string]interface{}{
+									{
+										"questions": []map[string]interface{}{
+											{
+												"id":           templateMap["question_id"],
+												"type":         templateMap["type"],
+												"title":        templateMap["question_title"],
+												"score_label":  templateMap["score_label"],
+												"score_option": templateMap["score_option"],
+												"follow_up": map[string]interface{}{
+													"type":        "free_form",
+													"placeholder": templateMap["follow_up_placeholder"],
+												},
+											},
 										},
 									},
 								},
-							},
-							"business_privacy": map[string]string{
-								"url": templateMap["business_privacy"],
+								"business_privacy": map[string]string{
+									"url": templateMap["business_privacy"],
+								},
 							},
 						},
 					},
-				},
+				}
+			} else {
+				payloadMap = map[string]interface{}{
+					"recipient": map[string]string{
+						"id": msg.URN().Path(),
+					},
+					"message": map[string]interface{}{
+						"attachment": map[string]interface{}{
+							"type": "template",
+							"payload": map[string]interface{}{
+								"template_type": "customer_feedback",
+								"title":         templateMap["title"],
+								"subtitle":      templateMap["subtitle"],
+								"button_title":  templateMap["button_title"],
+								"feedback_screens": []map[string]interface{}{
+									{
+										"questions": []map[string]interface{}{
+											{
+												"id":           templateMap["question_id"],
+												"type":         templateMap["type"],
+												"title":        templateMap["question_title"],
+												"score_label":  templateMap["score_label"],
+												"score_option": templateMap["score_option"],
+											},
+										},
+									},
+								},
+								"business_privacy": map[string]string{
+									"url": templateMap["business_privacy"],
+								},
+							},
+						},
+					},
+				}
 			}
 
 			jsonBody, err := json.Marshal(payloadMap)

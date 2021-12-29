@@ -156,8 +156,24 @@ type moPayload struct {
 				MIDs      []string `json:"mids"`
 				Watermark int64    `json:"watermark"`
 			} `json:"delivery"`
+
+			MessagingFeedback *struct {
+				FeedbackScreens []struct {
+					ScreenID  int                         `json:"screen_id"`
+					Questions map[string]FeedbackQuestion `json:"questions"`
+				} `json:"feedback_screens"`
+			} `json:"messaging_feedback"`
 		} `json:"messaging"`
 	} `json:"entry"`
+}
+
+type FeedbackQuestion struct {
+	Type     string `json:"type"`
+	Payload  string `json:"payload"`
+	FollowUp *struct {
+		Type    string `json:"type"`
+		Payload string `json:"payload"`
+	} `json:"follow_up"`
 }
 
 // GetChannel returns the channel
@@ -425,6 +441,30 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 				data = append(data, courier.NewStatusData(event))
 			}
 
+		} else if msg.MessagingFeedback != nil {
+
+			payloads := []string{}
+			for _, v := range msg.MessagingFeedback.FeedbackScreens[0].Questions {
+				payloads = append(payloads, v.Payload)
+				if v.FollowUp != nil {
+					payloads = append(payloads, v.FollowUp.Payload)
+				}
+			}
+
+			text := strings.Join(payloads[:], "|")
+
+			ev := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date)
+			event := h.Backend().CheckExternalIDSeen(ev)
+
+			err := h.Backend().WriteMsg(ctx, event)
+			if err != nil {
+				return nil, err
+			}
+
+			h.Backend().WriteExternalIDSeen(event)
+			events = append(events, event)
+			data = append(data, courier.NewMsgReceiveData(event))
+
 		} else {
 			data = append(data, courier.NewInfoData("ignoring unknown entry type"))
 		}
@@ -510,6 +550,121 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	msgURL.RawQuery = query.Encode()
 
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
+
+	isCustomerFeedbackTemplateMsg := strings.Contains(msg.Text(), "{customer_feedback_template}")
+
+	if isCustomerFeedbackTemplateMsg {
+		if msg.Text() != "" {
+			text := strings.ReplaceAll(strings.ReplaceAll(msg.Text(), "\n", ""), "\t", "")
+
+			splited := strings.Split(text, "|")
+			templateMap := make(map[string]string)
+			for i := 1; i < len(splited); i++ {
+				field := strings.Split(splited[i], ":")
+				templateMap[strings.TrimSpace(field[0])] = strings.TrimSpace(field[1])
+			}
+
+			var payloadMap map[string]interface{}
+
+			if templateMap["follow_up"] != "" {
+				payloadMap = map[string]interface{}{
+					"recipient": map[string]string{
+						"id": msg.URN().Path(),
+					},
+					"message": map[string]interface{}{
+						"attachment": map[string]interface{}{
+							"type": "template",
+							"payload": map[string]interface{}{
+								"template_type": "customer_feedback",
+								"title":         templateMap["title"],
+								"subtitle":      templateMap["subtitle"],
+								"button_title":  templateMap["button_title"],
+								"feedback_screens": []map[string]interface{}{
+									{
+										"questions": []map[string]interface{}{
+											{
+												"id":           templateMap["question_id"],
+												"type":         templateMap["type"],
+												"title":        templateMap["question_title"],
+												"score_label":  templateMap["score_label"],
+												"score_option": templateMap["score_option"],
+												"follow_up": map[string]interface{}{
+													"type":        "free_form",
+													"placeholder": templateMap["follow_up_placeholder"],
+												},
+											},
+										},
+									},
+								},
+								"business_privacy": map[string]string{
+									"url": templateMap["business_privacy"],
+								},
+							},
+						},
+					},
+				}
+			} else {
+				payloadMap = map[string]interface{}{
+					"recipient": map[string]string{
+						"id": msg.URN().Path(),
+					},
+					"message": map[string]interface{}{
+						"attachment": map[string]interface{}{
+							"type": "template",
+							"payload": map[string]interface{}{
+								"template_type": "customer_feedback",
+								"title":         templateMap["title"],
+								"subtitle":      templateMap["subtitle"],
+								"button_title":  templateMap["button_title"],
+								"feedback_screens": []map[string]interface{}{
+									{
+										"questions": []map[string]interface{}{
+											{
+												"id":           templateMap["question_id"],
+												"type":         templateMap["type"],
+												"title":        templateMap["question_title"],
+												"score_label":  templateMap["score_label"],
+												"score_option": templateMap["score_option"],
+											},
+										},
+									},
+								},
+								"business_privacy": map[string]string{
+									"url": templateMap["business_privacy"],
+								},
+							},
+						},
+					},
+				}
+			}
+
+			jsonBody, err := json.Marshal(payloadMap)
+			if err != nil {
+				return status, err
+			}
+
+			msgURL, _ := url.Parse("https://graph.facebook.com/v12.0/me/messages")
+			query := url.Values{}
+			query.Set("access_token", accessToken)
+			msgURL.RawQuery = query.Encode()
+
+			req, err := http.NewRequest(http.MethodPost, msgURL.String(), bytes.NewReader(jsonBody))
+			if err != nil {
+				return nil, err
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Accept", "application/json")
+			rr, err := utils.MakeHTTPRequest(req)
+
+			log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
+			status.AddLog(log)
+			if err != nil {
+				return status, nil
+			}
+			status.SetStatus(courier.MsgWired)
+		}
+		return status, nil
+	}
 
 	msgParts := make([]string, 0)
 	if msg.Text() != "" {

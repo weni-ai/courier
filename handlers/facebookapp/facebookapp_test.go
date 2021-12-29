@@ -415,6 +415,41 @@ var unkownMessagingEntry = `{
 	}]
 }`
 
+var customerFeedbackResponse = `{
+  "object": "page",
+  "entry": [
+    {
+      "id": "1234",
+			"time": 1459991487970,
+      "messaging": [
+        {
+          "recipient": {
+            "id": "1234"
+          },
+          "timestamp": 1459991487970,
+          "sender": {
+            "id": "5678"
+          },
+          "messaging_feedback": {
+            "feedback_screens": [
+              {
+                "screen_id": 0,
+                "questions": {
+                  "test_question": {
+                    "type": "CSAT",
+                    "payload": "4"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
+`
+
 var notJSON = `blargh`
 
 var testCases = []ChannelHandleTestCase{
@@ -477,6 +512,10 @@ var testCases = []ChannelHandleTestCase{
 	{Label: "Unknown Messaging Entry", URL: "/c/fba/receive", Data: unkownMessagingEntry, Status: 200, Response: "Handled", PrepRequest: addValidSignature},
 	{Label: "Not JSON", URL: "/c/fba/receive", Data: notJSON, Status: 400, Response: "Error", PrepRequest: addValidSignature},
 	{Label: "Invalid URN", URL: "/c/fba/receive", Data: invalidURN, Status: 400, Response: "invalid facebook id", PrepRequest: addValidSignature},
+
+	{Label: "Receive Customer Feedback Message", URL: "/c/fba/receive", Data: customerFeedbackResponse, Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("4"), URN: Sp("facebook:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		PrepRequest: addValidSignature},
 }
 
 func addValidSignature(r *http.Request) {

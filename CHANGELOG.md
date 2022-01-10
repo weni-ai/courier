@@ -1,3 +1,39 @@
+v7.1.7
+----------
+ * Use dbutil package from gocommon
+ * Add quick replies for vk
+
+v7.1.6
+----------
+ * Throttle WA queues when we get 429 responses
+
+v7.1.5
+----------
+ * Add Msg.failed_reason and set when msg fails due to reaching error limit
+
+v7.1.4
+----------
+ * Remove loop detection now that mailroom does this
+ * Smarter organization of quick replies for viber keyboards
+
+v7.1.3
+----------
+ * Use response_to_external_id instead of response_to_id
+
+v7.1.2
+----------
+ * External channel handler should use headers config setting if provided
+
+v7.1.1
+----------
+ * Pin to go 1.17.2
+
+v7.1.0
+----------
+ * Remove chatbase support
+ * Test with Redis 3.2.4
+ * Add support for 'Expired' status in the AT handler
+
 v7.0.0
 ----------
  * Tweak README

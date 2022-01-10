@@ -17,6 +17,7 @@ import (
 
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/queue"
+	"github.com/nyaruka/gocommon/dbutil/assertdb"
 	"github.com/nyaruka/gocommon/storage"
 	"github.com/nyaruka/gocommon/urns"
 	"github.com/nyaruka/null"
@@ -120,7 +121,6 @@ func (ts *BackendTestSuite) TestMsgUnmarshal() {
 		"sent_on": null,
 		"high_priority": true,
 		"channel_id": 11,
-		"response_to_id": 15,
 		"response_to_external_id": "external-id",
 		"external_id": null,
 		"is_resend": true,
@@ -137,7 +137,6 @@ func (ts *BackendTestSuite) TestMsgUnmarshal() {
 	ts.Equal(msg.ExternalID(), "")
 	ts.Equal([]string{"Yes", "No"}, msg.QuickReplies())
 	ts.Equal("event", msg.Topic())
-	ts.Equal(courier.NewMsgID(15), msg.ResponseToID())
 	ts.Equal("external-id", msg.ResponseToExternalID())
 	ts.True(msg.HighPriority())
 	ts.True(msg.IsResend())
@@ -162,8 +161,7 @@ func (ts *BackendTestSuite) TestMsgUnmarshal() {
 		"sent_on": null,
 		"high_priority": true,
 		"channel_id": 11,
-		"response_to_id": null,
-		"response_to_external_id": "",
+		"response_to_external_id": null,
 		"external_id": null,
 		"metadata": null
 	}`
@@ -173,7 +171,6 @@ func (ts *BackendTestSuite) TestMsgUnmarshal() {
 	ts.NoError(err)
 	ts.Equal([]string{}, msg.QuickReplies())
 	ts.Equal("", msg.Topic())
-	ts.Equal(courier.NilMsgID, msg.ResponseToID())
 	ts.Equal("", msg.ResponseToExternalID())
 	ts.False(msg.IsResend())
 }
@@ -485,6 +482,7 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	ts.Equal(null.String("ext0"), m.ExternalID_)
 	ts.True(m.ModifiedOn_.After(now))
 	ts.True(m.SentOn_.After(now))
+	ts.Equal(null.NullString, m.FailedReason_)
 
 	sentOn := *m.SentOn_
 
@@ -588,6 +586,7 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	ts.Equal(m.ErrorCount_, 1)
 	ts.True(m.ModifiedOn_.After(now))
 	ts.True(m.NextAttempt_.After(now))
+	ts.Equal(null.NullString, m.FailedReason_)
 
 	// second go
 	status = ts.b.NewMsgStatusForExternalID(channel, "ext1", courier.MsgErrored)
@@ -598,6 +597,7 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	m = readMsgFromDB(ts.b, courier.NewMsgID(10000))
 	ts.Equal(m.Status_, courier.MsgErrored)
 	ts.Equal(m.ErrorCount_, 2)
+	ts.Equal(null.NullString, m.FailedReason_)
 
 	// third go
 	status = ts.b.NewMsgStatusForExternalID(channel, "ext1", courier.MsgErrored)
@@ -608,6 +608,7 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	m = readMsgFromDB(ts.b, courier.NewMsgID(10000))
 	ts.Equal(m.Status_, courier.MsgFailed)
 	ts.Equal(m.ErrorCount_, 3)
+	ts.Equal(null.String("E"), m.FailedReason_)
 
 	// update URN when the new doesn't exist
 	tx, _ := ts.b.db.BeginTxx(ctx, nil)
@@ -750,36 +751,6 @@ func (ts *BackendTestSuite) TestExternalIDDupes() {
 	checkedMsg = ts.b.CheckExternalIDSeen(msg)
 	m2 := checkedMsg.(*DBMsg)
 	ts.True(m2.alreadyWritten)
-}
-
-func (ts *BackendTestSuite) TestLoop() {
-	ctx := context.Background()
-	dbMsg := readMsgFromDB(ts.b, courier.NewMsgID(10000))
-
-	dbMsg.ResponseToID_ = courier.MsgID(5)
-
-	loop, err := ts.b.IsMsgLoop(ctx, dbMsg)
-	ts.NoError(err)
-	ts.False(loop)
-
-	// call it 18 times more, no loop still
-	for i := 0; i < 18; i++ {
-		loop, err = ts.b.IsMsgLoop(ctx, dbMsg)
-		ts.NoError(err)
-		ts.False(loop)
-	}
-
-	// last one should make us a loop
-	loop, err = ts.b.IsMsgLoop(ctx, dbMsg)
-	ts.NoError(err)
-	ts.True(loop)
-
-	// make sure this keeps working even in hundreds of loops
-	for i := 0; i < 100; i++ {
-		loop, err = ts.b.IsMsgLoop(ctx, dbMsg)
-		ts.NoError(err)
-		ts.True(loop)
-	}
 }
 
 func (ts *BackendTestSuite) TestStatus() {
@@ -1202,9 +1173,7 @@ func (ts *BackendTestSuite) TestSessionTimeout() {
 	ts.NoError(err)
 
 	// make sure that took
-	count := 0
-	ts.b.db.Get(&count, "SELECT count(*) from flows_flowsession WHERE timeout_on > NOW()")
-	ts.Equal(1, count)
+	assertdb.Query(ts.T(), ts.b.db, `SELECT count(*) from flows_flowsession WHERE timeout_on > NOW()`).Returns(1)
 }
 
 func (ts *BackendTestSuite) TestMailroomEvents() {

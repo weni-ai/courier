@@ -12,14 +12,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/gomodule/redigo/redis"
 	"github.com/jmoiron/sqlx"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/batch"
-	"github.com/nyaruka/courier/chatbase"
 	"github.com/nyaruka/courier/queue"
 	"github.com/nyaruka/courier/utils"
+	"github.com/nyaruka/gocommon/dbutil"
 	"github.com/nyaruka/gocommon/storage"
 	"github.com/nyaruka/gocommon/urns"
 	"github.com/nyaruka/librato"
@@ -33,16 +32,8 @@ const msgQueueName = "msgs"
 // the name of our set for tracking sends
 const sentSetName = "msgs_sent_%s"
 
-// constants used in org configs for chatbase
-const chatbaseAPIKey = "CHATBASE_API_KEY"
-const chatbaseVersion = "CHATBASE_VERSION"
-const chatbaseMessageType = "agent"
-
 // our timeout for backend operations
 const backendTimeout = time.Second * 20
-
-// number of messages for loop detection
-const msgLoopThreshold = 20
 
 func init() {
 	courier.RegisterBackend("rapidpro", newBackend)
@@ -208,63 +199,6 @@ func (b *backend) ClearMsgSent(ctx context.Context, id courier.MsgID) error {
 	return err
 }
 
-var luaMsgLoop = redis.NewScript(3, `-- KEYS: [key, contact_id, text]
-	local key = KEYS[1]
-	local contact_id = KEYS[2]
-	local text = KEYS[3]
-	local count = 1
-
-    -- try to look up in window
-	local record = redis.call("hget", key, contact_id)
-	if record then
-		local record_count = tonumber(string.sub(record, 1, 2))
-		local record_text = string.sub(record, 4, -1)
-
-		if record_text == text then 
-			count = math.min(record_count + 1, 99)
-		else
-			count = 1
-		end		
-	end
-
-	-- create our new record with our updated count
-	record = string.format("%02d:%s", count, text)
-
-	-- write our new record with updated count
-	redis.call("hset", key, contact_id, record)
-
-	-- sets its expiration
-	redis.call("expire", key, 300)
-
-	return count
-`)
-
-// IsMsgLoop checks whether the passed in message is part of a loop
-func (b *backend) IsMsgLoop(ctx context.Context, msg courier.Msg) (bool, error) {
-	m := msg.(*DBMsg)
-
-	// things that aren't replies can't be loops, neither do we count retries
-	if m.ResponseToID_ == courier.NilMsgID || m.ErrorCount_ > 0 {
-		return false, nil
-	}
-
-	// otherwise run our script to check whether this is a loop in the past 5 minutes
-	rc := b.redisPool.Get()
-	defer rc.Close()
-
-	keyTime := time.Now().UTC().Round(time.Minute * 5)
-	key := fmt.Sprintf(sentSetName, fmt.Sprintf("loop_msgs:%s", keyTime.Format("2006-01-02-15:04")))
-	count, err := redis.Int(luaMsgLoop.Do(rc, key, m.ContactID_, m.Text_))
-	if err != nil {
-		return false, errors.Wrapf(err, "error while checking for msg loop")
-	}
-
-	if count >= msgLoopThreshold {
-		return true, nil
-	}
-	return false, nil
-}
-
 // MarkOutgoingMsgComplete marks the passed in message as having completed processing, freeing up a worker for that channel
 func (b *backend) MarkOutgoingMsgComplete(ctx context.Context, msg courier.Msg, status courier.MsgStatus) {
 	rc := b.redisPool.Get()
@@ -290,16 +224,6 @@ func (b *backend) MarkOutgoingMsgComplete(ctx context.Context, msg courier.Msg, 
 			if err != nil {
 				logrus.WithError(err).WithField("session_id", dbMsg.SessionID_).Error("unable to update session timeout")
 			}
-		}
-	}
-
-	// if this org has chatbase connected, notify chatbase
-	chatKey, _ := msg.Channel().OrgConfigForKey(chatbaseAPIKey, "").(string)
-	if chatKey != "" {
-		chatVersion, _ := msg.Channel().OrgConfigForKey(chatbaseVersion, "").(string)
-		err := chatbase.SendChatbaseMessage(chatKey, chatVersion, chatbaseMessageType, dbMsg.ContactID_.String(), msg.Channel().Name(), msg.Text(), time.Now().UTC())
-		if err != nil {
-			logrus.WithError(err).WithField("chatbase_api_key", chatKey).WithField("chatbase_version", chatVersion).WithField("msg_id", dbMsg.ID().String()).Error("unable to write chatbase message")
 		}
 	}
 }
@@ -513,10 +437,39 @@ func (b *backend) Heartbeat() error {
 		bulkSize += count
 	}
 
-	// log our total
+	// get our DB and redis stats
+	dbStats := b.db.Stats()
+	redisStats := b.redisPool.Stats()
+
+	dbWaitDurationInPeriod := dbStats.WaitDuration - b.dbWaitDuration
+	dbWaitCountInPeriod := dbStats.WaitCount - b.dbWaitCount
+	redisWaitDurationInPeriod := redisStats.WaitDuration - b.redisWaitDuration
+	redisWaitCountInPeriod := redisStats.WaitCount - b.redisWaitCount
+
+	b.dbWaitDuration = dbStats.WaitDuration
+	b.dbWaitCount = dbStats.WaitCount
+	b.redisWaitDuration = redisStats.WaitDuration
+	b.redisWaitCount = redisStats.WaitCount
+
+	librato.Gauge("courier.db_busy", float64(dbStats.InUse))
+	librato.Gauge("courier.db_idle", float64(dbStats.Idle))
+	librato.Gauge("courier.db_wait_ms", float64(dbWaitDurationInPeriod/time.Millisecond))
+	librato.Gauge("courier.db_wait_count", float64(dbWaitCountInPeriod))
+	librato.Gauge("courier.redis_wait_ms", float64(redisWaitDurationInPeriod/time.Millisecond))
+	librato.Gauge("courier.redis_wait_count", float64(redisWaitCountInPeriod))
 	librato.Gauge("courier.bulk_queue", float64(bulkSize))
 	librato.Gauge("courier.priority_queue", float64(prioritySize))
-	logrus.WithField("bulk_queue", bulkSize).WithField("priority_queue", prioritySize).Info("heartbeat queue sizes calculated")
+
+	logrus.WithFields(logrus.Fields{
+		"db_busy":          dbStats.InUse,
+		"db_idle":          dbStats.Idle,
+		"db_wait_time":     dbWaitDurationInPeriod,
+		"db_wait_count":    dbWaitCountInPeriod,
+		"redis_wait_time":  dbWaitDurationInPeriod,
+		"redis_wait_count": dbWaitCountInPeriod,
+		"priority_size":    prioritySize,
+		"bulk_size":        bulkSize,
+	}).Info("current analytics")
 
 	return nil
 }
@@ -639,11 +592,11 @@ func (b *backend) Start() error {
 	// create our pool
 	redisPool := &redis.Pool{
 		Wait:        true,              // makes callers wait for a connection
-		MaxActive:   8,                 // only open this many concurrent connections at once
+		MaxActive:   36,                // only open this many concurrent connections at once
 		MaxIdle:     4,                 // only keep up to this many idle
 		IdleTimeout: 240 * time.Second, // how long to wait before reaping a connection
 		Dial: func() (redis.Conn, error) {
-			conn, err := redis.Dial("tcp", fmt.Sprintf("%s", redisURL.Host))
+			conn, err := redis.Dial("tcp", redisURL.Host)
 			if err != nil {
 				return nil, err
 			}
@@ -727,7 +680,15 @@ func (b *backend) Start() error {
 	// create our status committer and start it
 	b.statusCommitter = batch.NewCommitter("status committer", b.db, bulkUpdateMsgStatusSQL, time.Millisecond*500, b.committerWG,
 		func(err error, value batch.Value) {
-			logrus.WithField("comp", "status committer").WithError(err).Error("error writing status")
+			log := logrus.WithField("comp", "status committer")
+
+			if qerr := dbutil.AsQueryError(err); qerr != nil {
+				query, params := qerr.Query()
+				log = log.WithFields(logrus.Fields{"sql": query, "sql_params": params})
+			}
+
+			log.WithError(err).Error("error writing status")
+
 			err = courier.WriteToSpool(b.config.SpoolDir, "statuses", value)
 			if err != nil {
 				logrus.WithField("comp", "status committer").WithError(err).Error("error writing status to spool")
@@ -738,7 +699,14 @@ func (b *backend) Start() error {
 	// create our log committer and start it
 	b.logCommitter = batch.NewCommitter("log committer", b.db, insertLogSQL, time.Millisecond*500, b.committerWG,
 		func(err error, value batch.Value) {
-			logrus.WithField("comp", "log committer").WithError(err).Error("error writing channel log")
+			log := logrus.WithField("comp", "log committer")
+
+			if qerr := dbutil.AsQueryError(err); qerr != nil {
+				query, params := qerr.Query()
+				log = log.WithFields(logrus.Fields{"sql": query, "sql_params": params})
+			}
+
+			log.WithError(err).Error("error writing channel log")
 		})
 	b.logCommitter.Start()
 
@@ -813,10 +781,13 @@ type backend struct {
 	db        *sqlx.DB
 	redisPool *redis.Pool
 	storage   storage.Storage
-	awsCreds  *credentials.Credentials
-
-	popScript *redis.Script
 
 	stopChan  chan bool
 	waitGroup *sync.WaitGroup
+
+	// both sqlx and redis provide wait stats which are cummulative that we need to convert into increments
+	dbWaitDuration    time.Duration
+	dbWaitCount       int64
+	redisWaitDuration time.Duration
+	redisWaitCount    int64
 }

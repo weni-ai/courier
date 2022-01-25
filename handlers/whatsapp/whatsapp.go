@@ -620,7 +620,6 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		}
 		status.SetStatus(courier.MsgWired)
 	}
-
 	return status, nil
 }
 
@@ -630,14 +629,14 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 	var logs []*courier.ChannelLog
 	var err error
 
-	// do we have a template?
+	//do we have a template?
 	templating, err := h.getTemplate(msg)
-	if templating != nil {
-
-		if err != nil {
+	if err != nil {
 			return nil, nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())
-		}
-		
+	}
+
+	if templating != nil {	
+
 		namespace := templating.Namespace
 		if namespace == "" {
 			namespace = msg.Channel().StringConfigForKey(configNamespace, "")
@@ -849,6 +848,58 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 						}
 					}
 				}
+			}		
+		} else {
+			if isInteractiveMsg {
+				for i, part := range parts {
+					if i < (len(parts) - 1) { //if split into more than one message, the first parts will be text and the last interactive
+						payload := mtTextPayload{
+							To:   msg.URN().Path(),
+							Type: "text",
+						}
+						payload.Text.Body = part
+						payloads = append(payloads, payload)
+
+					} else {
+						payload := mtInteractivePayload{
+							To:   msg.URN().Path(),
+							Type: "interactive",
+						}
+
+						// up to 3 qrs the interactive message will be button type, otherwise it will be list
+						if len(qrs) <= 3 {
+							payload.Interactive.Type = "button"
+							payload.Interactive.Body.Text = part
+							btns := make([]mtButton, len(qrs))
+							for i, qr := range qrs {
+								btns[i] = mtButton{
+									Type: "reply",
+								}
+								btns[i].Reply.ID = fmt.Sprint(i)
+								btns[i].Reply.Title = qr
+							}
+							payload.Interactive.Action.Buttons = btns
+							payloads = append(payloads, payload)
+						} else {
+							payload.Interactive.Type = "list"
+							payload.Interactive.Body.Text = part
+							payload.Interactive.Action.Button = "Menu"
+							section := mtSection{
+								Rows: make([]mtSectionRow, len(qrs)),
+							}
+							for i, qr := range qrs {
+								section.Rows[i] = mtSectionRow{
+									ID:    fmt.Sprint(i),
+									Title: qr,
+								}
+							}
+							payload.Interactive.Action.Sections = []mtSection{
+								section,
+							}
+							payloads = append(payloads, payload)
+						}
+					}
+				}
 			} else {
 				for _, part := range parts {
 					payload := mtTextPayload{
@@ -859,8 +910,10 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					payloads = append(payloads, payload)
 				}
 			}
+			
 		}
-	}
+		
+	}	
 	return payloads, logs, err
 }
 

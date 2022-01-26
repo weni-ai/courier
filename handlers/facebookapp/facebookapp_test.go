@@ -643,12 +643,12 @@ var customerFeedbackResponse = `{
   "object": "page",
   "entry": [
     {
-      "id": "1234",
+      "id": "12345",
 			"time": 1459991487970,
       "messaging": [
         {
           "recipient": {
-            "id": "1234"
+            "id": "12345"
           },
           "timestamp": 1459991487970,
           "sender": {
@@ -759,7 +759,7 @@ var testCasesFBA = []ChannelHandleTestCase{
 	{Label: "No Messaging Entries", URL: "/c/fba/receive", Data: noMessagingEntriesFBA, Status: 200, Response: "Handled", PrepRequest: addValidSignature},
 	{Label: "Unknown Messaging Entry", URL: "/c/fba/receive", Data: unknownMessagingEntryFBA, Status: 200, Response: "Handled", PrepRequest: addValidSignature},
 	{Label: "Not JSON", URL: "/c/fba/receive", Data: notJSON, Status: 400, Response: "Error", PrepRequest: addValidSignature},
-	{Label: "Invalid URN", URL: "/c/fba/receive", Data: invalidURN, Status: 400, Response: "invalid facebook id", PrepRequest: addValidSignature},
+	{Label: "Invalid URN", URL: "/c/fba/receive", Data: invalidURNFBA, Status: 400, Response: "invalid facebook id", PrepRequest: addValidSignature},
 	{Label: "Receive Customer Feedback Message", URL: "/c/fba/receive", Data: customerFeedbackResponse, Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("4"), URN: Sp("facebook:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		PrepRequest: addValidSignature},

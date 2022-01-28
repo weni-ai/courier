@@ -1,3 +1,8 @@
+1.1.1-courier-7.0.0
+----------
+ * Add Instagram Handler
+ * Update gocommon to v1.16.2
+
 1.1.0-courier-7.0.0
 ----------
  * Fix: Gujarati whatsapp language code

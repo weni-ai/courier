@@ -679,6 +679,8 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 				continue
 			}
 
+			has_story_mentions := false
+
 			text := msg.Message.Text
 
 			attachmentURLs := make([]string, 0, 2)
@@ -695,6 +697,7 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 
 				if att.Type == "story_mention" {
 					data = append(data, courier.NewInfoData("ignoring story_mention"))
+					has_story_mentions = true
 					continue
 				}
 
@@ -702,6 +705,11 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 					attachmentURLs = append(attachmentURLs, att.Payload.URL)
 				}
 
+			}
+
+			// if we have a story mention, skip and do not save any message
+			if has_story_mentions {
+				continue
 			}
 
 			// create our message

@@ -819,7 +819,7 @@ func (h *handler) DescribeURN(ctx context.Context, channel courier.Channel, urn 
 	u := base.ResolveReference(path)
 	query := url.Values{}
 
-	if urn.Scheme() == "facebook" {
+	if fmt.Sprint(channel.ChannelType()) == "FBA" {
 		query.Set("fields", "first_name,last_name")
 		query.Set("access_token", accessToken)
 

@@ -1,3 +1,7 @@
+1.1.2-courier-7.0.0
+----------
+ * Fix metadata fetching for new Facebook contacts
+
 1.1.1-courier-7.0.0
 ----------
  * Add Instagram Handler

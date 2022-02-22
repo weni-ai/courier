@@ -802,6 +802,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 				if err != nil {
 					logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("error while uploading media to whatsapp")
 				}
+				fileURL := mediaURL
 				if err == nil && mediaID != "" {
 					mediaURL = ""
 				}
@@ -821,8 +822,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					if attachmentCount == 0 {
 						mediaPayload.Caption = msg.Text()
 					}
-					mediaPayload.Filename, err = utils.BasePathForURL(mediaURL)
-
+					mediaPayload.Filename, err = utils.BasePathForURL(fileURL)
 					// Logging error
 					if err != nil {
 						logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("Error while parsing the media URL")

@@ -1,3 +1,7 @@
+1.1.3-courier-7.0.0
+----------
+ * fix whatsapp uploaded attachment file name
+
 1.1.2-courier-7.0.0
 ----------
  * Fix metadata fetching for new Facebook contacts

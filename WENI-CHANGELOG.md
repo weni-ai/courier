@@ -1,3 +1,7 @@
+1.1.4-courier-7.0.0
+----------
+ * Add Kyrgyzstan language support in whatsapp templates
+
 1.1.3-courier-7.0.0
 ----------
  * fix whatsapp uploaded attachment file name

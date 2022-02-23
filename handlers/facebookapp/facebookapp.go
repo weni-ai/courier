@@ -234,7 +234,7 @@ type moPayload struct {
 				IsEcho      bool   `json:"is_echo"`
 				MID         string `json:"mid"`
 				Text        string `json:"text"`
-				IsDeleted   string `json:"is_deleted"`
+				IsDeleted   bool   `json:"is_deleted"`
 				Attachments []struct {
 					Type    string `json:"type"`
 					Payload *struct {
@@ -673,7 +673,7 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 				continue
 			}
 
-			if msg.Message.IsDeleted == "true" {
+			if msg.Message.IsDeleted {
 				h.Backend().DeleteMsgWithExternalID(ctx, channel, msg.Message.MID)
 				data = append(data, courier.NewInfoData("msg deleted"))
 				continue

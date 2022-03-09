@@ -471,7 +471,8 @@ type mmtImage struct {
 }
 
 type mmtDocument struct {
-	Link string `json:"link,omitempty"`
+	Link     string `json:"link,omitempty"`
+	Filename string `json:"filename,omitempty"`
 }
 
 type mmtVideo struct {
@@ -688,6 +689,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 						if err != nil {
 							logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("error while uploading media to whatsapp")
 						}
+						fileURL := mediaURL
 						if err != nil && mediaID != "" {
 							mediaURL = ""
 						}
@@ -698,8 +700,15 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 							header.Parameters = append(header.Parameters, Param{Type: "image", Image: image})
 							payload.Template.Components = append(payload.Template.Components, *header)
 						} else if strings.HasPrefix(mimeType, "application") {
+
+							filename, err := utils.BasePathForURL(fileURL)
+							if err != nil {
+								logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("Error while parsing the media URL")
+							}
+
 							document := &mmtDocument{
-								Link: mediaURL,
+								Link:     mediaURL,
+								Filename: filename,
 							}
 							header.Parameters = append(header.Parameters, Param{Type: "document", Document: document})
 							payload.Template.Components = append(payload.Template.Components, *header)
@@ -1202,7 +1211,7 @@ var languageMap = map[string]string{
 	"kan":    "kn",    // Kannada
 	"kaz":    "kk",    // Kazakh
 	"kor":    "ko",    // Korean
-	"kir":	  "ky_KG",  // Kyrgyzstan
+	"kir":    "ky_KG", // Kyrgyzstan
 	"lao":    "lo",    // Lao
 	"lav":    "lv",    // Latvian
 	"lit":    "lt",    // Lithuanian

@@ -1,3 +1,7 @@
+1.1.5-courier-7.0.0
+----------
+ * Fix sending document names in whatsapp media message templates
+
 1.1.4-courier-7.0.0
 ----------
  * Add Kyrgyzstan language support in whatsapp templates

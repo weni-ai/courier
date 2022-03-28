@@ -403,9 +403,10 @@ var waIgnoreStatuses = map[string]bool{
 // }
 
 type mtTextPayload struct {
-	To   string `json:"to"    validate:"required"`
-	Type string `json:"type"  validate:"required"`
-	Text struct {
+	To          string `json:"to"    validate:"required"`
+	Type        string `json:"type"  validate:"required"`
+	Preview_URL bool   `json:"preview_url" default:"true"`
+	Text        struct {
 		Body string `json:"body" validate:"required"`
 	} `json:"text"`
 }

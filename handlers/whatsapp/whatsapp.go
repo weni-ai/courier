@@ -405,7 +405,7 @@ var waIgnoreStatuses = map[string]bool{
 type mtTextPayload struct {
 	To          string `json:"to"    validate:"required"`
 	Type        string `json:"type"  validate:"required"`
-	Preview_URL bool   `json:"preview_url" default:"true"`
+	Preview_URL bool   `json:"preview_url,omitempty"`
 	Text        struct {
 		Body string `json:"body" validate:"required"`
 	} `json:"text"`
@@ -742,8 +742,9 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 				for i, part := range parts {
 					if i < (len(parts) - 1) { //if split into more than one message, the first parts will be text and the last interactive
 						payload := mtTextPayload{
-							To:   msg.URN().Path(),
-							Type: "text",
+							To:          msg.URN().Path(),
+							Type:        "text",
+							Preview_URL: true,
 						}
 						payload.Text.Body = part
 						payloads = append(payloads, payload)
@@ -791,8 +792,9 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 			} else {
 				for _, part := range parts {
 					payload := mtTextPayload{
-						To:   msg.URN().Path(),
-						Type: "text",
+						To:          msg.URN().Path(),
+						Type:        "text",
+						Preview_URL: true,
 					}
 					payload.Text.Body = part
 					payloads = append(payloads, payload)

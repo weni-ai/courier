@@ -744,7 +744,6 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 						payload := mtTextPayload{
 							To:          msg.URN().Path(),
 							Type:        "text",
-							Preview_URL: true,
 						}
 						payload.Text.Body = part
 						payloads = append(payloads, payload)
@@ -791,10 +790,19 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 				}
 			} else {
 				for _, part := range parts {
-					payload := mtTextPayload{
-						To:          msg.URN().Path(),
-						Type:        "text",
-						Preview_URL: true,
+					var payload mtTextPayload
+					//check if you have a link
+					if strings.Contains(part, "https://") || strings.Contains(part, "http://") {
+						payload = mtTextPayload{
+							To:          msg.URN().Path(),
+							Type:        "text",
+							Preview_URL: true,
+						}
+					} else {
+						payload = mtTextPayload{
+							To:          msg.URN().Path(),
+							Type:        "text",
+						}
 					}
 					payload.Text.Body = part
 					payloads = append(payloads, payload)

@@ -275,7 +275,7 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 		}
 	}
 
-	if mimeType == "" && extension == "" {
+	if mimeType == "" || extension == "" {
 		// first try getting our mime type from the first 300 bytes of our body
 		fileType, _ := filetype.Match(body[:300])
 		isMIME := filetype.IsMIME(body[:300], resp.Header.Get("Content-Type"))

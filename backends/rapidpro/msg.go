@@ -261,20 +261,6 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 		extension = extension[1:]
 	}
 
-	// first try getting our mime type from the first 300 bytes of our body
-	fileType, err := filetype.Match(body[:300])
-	if fileType != filetype.Unknown {
-		mimeType = fileType.MIME.Value
-		extension = fileType.Extension
-	} else {
-		// if that didn't work, try from our extension
-		fileType = filetype.GetType(extension)
-		if fileType != filetype.Unknown {
-			mimeType = fileType.MIME.Value
-			extension = fileType.Extension
-		}
-	}
-
 	// we still don't know our mime type, use our content header instead
 	if mimeType == "" {
 		mimeType, _, _ = mime.ParseMediaType(resp.Header.Get("Content-Type"))
@@ -282,8 +268,26 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 			extensions, err := mime.ExtensionsByType(mimeType)
 			if extensions == nil || err != nil {
 				extension = ""
+
 			} else {
 				extension = extensions[0][1:]
+			}
+		}
+	}
+
+	if mimeType == "" && extension == "" {
+		// first try getting our mime type from the first 300 bytes of our body
+		fileType, _ := filetype.Match(body[:300])
+		isMIME := filetype.IsMIME(body[:300], resp.Header.Get("Content-Type"))
+		if fileType != filetype.Unknown && isMIME {
+			mimeType = fileType.MIME.Value
+			extension = fileType.Extension
+		} else {
+			// if that didn't work, try from our extension
+			fileType = filetype.GetType(extension)
+			if fileType != filetype.Unknown {
+				mimeType = fileType.MIME.Value
+				extension = fileType.Extension
 			}
 		}
 	}

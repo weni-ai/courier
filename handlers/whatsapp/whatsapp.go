@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/buger/jsonparser"
+	"github.com/gabriel-vasile/mimetype"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/backends/rapidpro"
 	"github.com/nyaruka/courier/handlers"
@@ -403,10 +404,10 @@ var waIgnoreStatuses = map[string]bool{
 // }
 
 type mtTextPayload struct {
-	To   string `json:"to"    validate:"required"`
-	Type string `json:"type"  validate:"required"`
-	PreviewURL bool `json:"preview_url,omitempty"`
-	Text struct {
+	To         string `json:"to"    validate:"required"`
+	Type       string `json:"type"  validate:"required"`
+	PreviewURL bool   `json:"preview_url,omitempty"`
+	Text       struct {
 		Body string `json:"body" validate:"required"`
 	} `json:"text"`
 }
@@ -795,14 +796,14 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					var payload mtTextPayload
 					if strings.Contains(part, "https://") || strings.Contains(part, "http://") {
 						payload = mtTextPayload{
-							To:          msg.URN().Path(),
-							Type:        "text",
+							To:         msg.URN().Path(),
+							Type:       "text",
 							PreviewURL: true,
 						}
 					} else {
 						payload = mtTextPayload{
-							To:          msg.URN().Path(),
-							Type:        "text",
+							To:   msg.URN().Path(),
+							Type: "text",
 						}
 					}
 					payload.Text.Body = part
@@ -934,7 +935,14 @@ func (h *handler) fetchMediaID(msg courier.Msg, mimeType, mediaURL string) (stri
 		return "", logs, errors.Wrapf(err, "error building request to media endpoint")
 	}
 	setWhatsAppAuthHeader(&req.Header, msg.Channel())
-	req.Header.Add("Content-Type", http.DetectContentType(rr.Body))
+	mtype := http.DetectContentType(rr.Body)
+
+	if mtype != mimeType || mtype == "application/octet-stream" || mtype == "application/zip" {
+		mimeT := mimetype.Detect(rr.Body)
+		req.Header.Add("Content-Type", mimeT.String())
+	} else {
+		req.Header.Add("Content-Type", mtype)
+	}
 	rr, err = utils.MakeHTTPRequest(req)
 	log = courier.NewChannelLogFromRR("Uploading media to WhatsApp", msg.Channel(), msg.ID(), rr).WithError("Error uploading media to WhatsApp", err)
 	logs = append(logs, log)

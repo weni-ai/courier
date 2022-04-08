@@ -1,3 +1,7 @@
+1.1.7-courier-7.0.0
+----------
+ * Add library with greater support for detection of mime types in Whatsapp
+
 1.1.6-courier-7.0.0
 ----------
  * Support for viewing sent links in Whatsapp messages

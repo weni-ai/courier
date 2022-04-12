@@ -753,7 +753,7 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 
 			err := h.Backend().WriteMsg(ctx, event)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 
 			h.Backend().WriteExternalIDSeen(event)

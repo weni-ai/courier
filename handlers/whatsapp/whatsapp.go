@@ -609,6 +609,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	// we are wired it there were no errors
 	if err == nil {
+		// so update contact URN if wppID != ""
 		if wppID != "" {
 			newURN, _ := urns.NewWhatsAppURN(wppID)
 			err = status.SetUpdatedURN(msg.URN(), newURN)
@@ -1066,7 +1067,14 @@ func sendWhatsAppMsg(msg courier.Msg, sendPath *url.URL, payload interface{}) (s
 		return wppID, externalID, []*courier.ChannelLog{log, checkLog, retryLog}, err
 	}
 	externalID, err := getSendWhatsAppMsgId(rr)
-	return "", externalID, []*courier.ChannelLog{log}, err
+	if err != nil {
+		return "", "", []*courier.ChannelLog{log}, err
+	}
+	wppID, err := jsonparser.GetString(rr.Body, "contacts", "[0]", "wa_id")
+	if wppID != "" && wppID != msg.URN().Path() {
+		return wppID, externalID, []*courier.ChannelLog{log}, err
+	}
+	return "", externalID, []*courier.ChannelLog{log}, nil
 }
 
 func setWhatsAppAuthHeader(header *http.Header, channel courier.Channel) {

@@ -1,3 +1,7 @@
+1.1.8-courier-7.0.0
+----------
+ * Fix whatsapp handler to update the contact URN if the wa_id returned in the send message request is different from the current URN path, avoiding creating a new contact.
+
 1.1.7-courier-7.0.0
 ----------
  * Add library with greater support for detection of mime types in Whatsapp

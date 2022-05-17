@@ -18,7 +18,7 @@ import (
 var testChannels = []courier.Channel{
 	courier.NewMockChannel(
 		"8eb23e93-5ecb-45ba-b726-3b064e0c568c",
-		"WA",
+		"WAC",
 		"250788383383",
 		"RW",
 		map[string]interface{}{
@@ -336,7 +336,7 @@ var ignoreStatus = `
 `
 
 var (
-	waReceiveURL = "/c/wa/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive"
+	waReceiveURL = "/c/wac/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive"
 	d3ReceiveURL = "/c/d3/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive"
 	txReceiveURL = "/c/txw/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive"
 )
@@ -381,7 +381,7 @@ var waTestCases = []ChannelHandleTestCase{
 func TestBuildMediaRequest(t *testing.T) {
 	mb := courier.NewMockBackend()
 
-	waHandler := &handler{NewBaseHandler(courier.ChannelType("WA"), "WhatsApp")}
+	waHandler := &handler{NewBaseHandler(courier.ChannelType("WAC"), "WhatsApp")}
 	req, _ := waHandler.BuildDownloadMediaRequest(context.Background(), mb, testChannels[0], "https://example.org/v1/media/41")
 	assert.Equal(t, "https://example.org/v1/media/41", req.URL.String())
 	assert.Equal(t, "Bearer the-auth-token", req.Header.Get("Authorization"))
@@ -407,13 +407,13 @@ func replaceTestcaseURLs(tcs []ChannelHandleTestCase, url string) []ChannelHandl
 }
 
 func TestHandler(t *testing.T) {
-	RunChannelTestCases(t, testChannels, newWAHandler(courier.ChannelType("WA"), "WhatsApp"), waTestCases)
+	RunChannelTestCases(t, testChannels, newWAHandler(courier.ChannelType("WAC"), "WhatsApp"), waTestCases)
 	RunChannelTestCases(t, testChannels, newWAHandler(courier.ChannelType("D3"), "360Dialog"), replaceTestcaseURLs(waTestCases, d3ReceiveURL))
 	RunChannelTestCases(t, testChannels, newWAHandler(courier.ChannelType("TXW"), "TextIt"), replaceTestcaseURLs(waTestCases, txReceiveURL))
 }
 
 func BenchmarkHandler(b *testing.B) {
-	RunChannelBenchmarks(b, testChannels, newWAHandler(courier.ChannelType("WA"), "WhatsApp"), waTestCases)
+	RunChannelBenchmarks(b, testChannels, newWAHandler(courier.ChannelType("WAC"), "WhatsApp"), waTestCases)
 	RunChannelBenchmarks(b, testChannels, newWAHandler(courier.ChannelType("D3"), "360Dialog"), replaceTestcaseURLs(waTestCases, d3ReceiveURL))
 	RunChannelBenchmarks(b, testChannels, newWAHandler(courier.ChannelType("TXW"), "TextIt"), replaceTestcaseURLs(waTestCases, txReceiveURL))
 }
@@ -664,7 +664,7 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		Text: "Media Message Msg", URN: "whatsapp:250788123123",
 		Status: "W", ExternalID: "157b5e14568e8",
 		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "namespace": "wa_template_namespace", "language": "eng", "country": "US", "variables": ["Chef", "tomorrow"]}}`),
-		Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
+		Attachments:  []string{"image/jpeg:https://foo.bar/image.jpg"},
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"to":"250788123123","type":"template","template":{"namespace":"wa_template_namespace","name":"revive_issue","language":{"policy":"deterministic","code":"en_US"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]},{"type":"header","parameters":[{"type":"image","image":{"link":"https://foo.bar/image.jpg"}}]}]}}`,
 		SendPrep:    setSendURL},
@@ -672,7 +672,7 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		Text: "Media Message Msg", URN: "whatsapp:250788123123",
 		Status: "W", ExternalID: "157b5e14568e8",
 		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "namespace": "wa_template_namespace", "language": "eng", "country": "US", "variables": ["Chef", "tomorrow"]}}`),
-		Attachments: []string{"video/mp4:https://foo.bar/video.mp4"},
+		Attachments:  []string{"video/mp4:https://foo.bar/video.mp4"},
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"to":"250788123123","type":"template","template":{"namespace":"wa_template_namespace","name":"revive_issue","language":{"policy":"deterministic","code":"en_US"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]},{"type":"header","parameters":[{"type":"video","video":{"link":"https://foo.bar/video.mp4"}}]}]}}`,
 		SendPrep:    setSendURL},
@@ -680,7 +680,7 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		Text: "Media Message Msg", URN: "whatsapp:250788123123",
 		Status: "W", ExternalID: "157b5e14568e8",
 		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "namespace": "wa_template_namespace", "language": "eng", "country": "US", "variables": ["Chef", "tomorrow"]}}`),
-		Attachments: []string{"application/pdf:https://foo.bar/document.pdf"},
+		Attachments:  []string{"application/pdf:https://foo.bar/document.pdf"},
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"to":"250788123123","type":"template","template":{"namespace":"wa_template_namespace","name":"revive_issue","language":{"policy":"deterministic","code":"en_US"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]},{"type":"header","parameters":[{"type":"document","document":{"link":"https://foo.bar/document.pdf","filename":"document.pdf"}}]}]}}`,
 		SendPrep:    setSendURL},
@@ -843,7 +843,7 @@ func mockAttachmentURLs(mediaServer *httptest.Server, testCases []ChannelSendTes
 }
 
 func TestSending(t *testing.T) {
-	var defaultChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WA", "250788383383", "US",
+	var defaultChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WAC", "250788383383", "US",
 		map[string]interface{}{
 			"auth_token":   "token123",
 			"base_url":     "https://foo.bar/",
@@ -851,7 +851,7 @@ func TestSending(t *testing.T) {
 			"version":      "v2.35.2",
 		})
 
-	var hsmSupportChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WA", "250788383383", "US",
+	var hsmSupportChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WAC", "250788383383", "US",
 		map[string]interface{}{
 			"auth_token":   "token123",
 			"base_url":     "https://foo.bar/",
@@ -876,8 +876,8 @@ func TestSending(t *testing.T) {
 			"version":      "v2.35.2",
 		})
 
-	RunChannelSendTestCases(t, defaultChannel, newWAHandler(courier.ChannelType("WA"), "WhatsApp"), defaultSendTestCases, nil)
-	RunChannelSendTestCases(t, hsmSupportChannel, newWAHandler(courier.ChannelType("WA"), "WhatsApp"), hsmSupportSendTestCases, nil)
+	RunChannelSendTestCases(t, defaultChannel, newWAHandler(courier.ChannelType("WAC"), "WhatsApp"), defaultSendTestCases, nil)
+	RunChannelSendTestCases(t, hsmSupportChannel, newWAHandler(courier.ChannelType("WAC"), "WhatsApp"), hsmSupportSendTestCases, nil)
 	RunChannelSendTestCases(t, d3Channel, newWAHandler(courier.ChannelType("D3"), "360Dialog"), defaultSendTestCases, nil)
 	RunChannelSendTestCases(t, txwChannel, newWAHandler(courier.ChannelType("TXW"), "TextIt"), defaultSendTestCases, nil)
 
@@ -889,5 +889,5 @@ func TestSending(t *testing.T) {
 	defer mediaServer.Close()
 	mediaCacheSendTestCases := mockAttachmentURLs(mediaServer, mediaCacheSendTestCases)
 
-	RunChannelSendTestCases(t, defaultChannel, newWAHandler(courier.ChannelType("WA"), "WhatsApp"), mediaCacheSendTestCases, nil)
+	RunChannelSendTestCases(t, defaultChannel, newWAHandler(courier.ChannelType("WAC"), "WhatsApp"), mediaCacheSendTestCases, nil)
 }

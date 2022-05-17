@@ -77,7 +77,7 @@ func newHandler(channelType courier.ChannelType, name string, useUUIDRoutes bool
 func init() {
 	courier.RegisterHandler(newHandler("IG", "Instagram", false))
 	courier.RegisterHandler(newHandler("FBA", "Facebook", false))
-	courier.RegisterHandler(newHandler("WAC", "WhatsApp Cloud", false))
+	courier.RegisterHandler(newHandler("WA", "WhatsApp Cloud", false))
 
 }
 
@@ -311,7 +311,7 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 		if channelAddress == "" {
 			return nil, fmt.Errorf("no channel address found")
 		}
-		return h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WAC"), courier.ChannelAddress(channelAddress))
+		return h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WA"), courier.ChannelAddress(channelAddress))
 	}
 }
 
@@ -815,7 +815,7 @@ type mtQuickReply struct {
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
 	if msg.Channel().ChannelType() == "FBA" || msg.Channel().ChannelType() == "IG" {
 		return h.sendFacebookInstagramMsg(ctx, msg)
-	} else if msg.Channel().ChannelType() == "WAC" {
+	} else if msg.Channel().ChannelType() == "WA" {
 		return h.sendCloudAPIWhatsappMsg(ctx, msg)
 	}
 
@@ -1410,7 +1410,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 // DescribeURN looks up URN metadata for new contacts
 func (h *handler) DescribeURN(ctx context.Context, channel courier.Channel, urn urns.URN) (map[string]string, error) {
-	if channel.ChannelType() == "WAC" {
+	if channel.ChannelType() == "WA" {
 		return map[string]string{}, nil
 
 	}

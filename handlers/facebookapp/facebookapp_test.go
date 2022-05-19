@@ -26,7 +26,7 @@ var testChannelsIG = []courier.Channel{
 }
 
 var testChannelsWAC = []courier.Channel{
-	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "WA", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"}),
+	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "WAC", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"}),
 }
 
 var testCasesFBA = []ChannelHandleTestCase{
@@ -219,7 +219,7 @@ func TestDescribeIG(t *testing.T) {
 }
 
 func TestDescribeWAC(t *testing.T) {
-	handler := newHandler("WA", "Cloud API WhatsApp", false).(courier.URNDescriber)
+	handler := newHandler("WAC", "Cloud API WhatsApp", false).(courier.URNDescriber)
 
 	tcs := []struct {
 		urn      urns.URN
@@ -233,7 +233,7 @@ func TestDescribeWAC(t *testing.T) {
 	}
 }
 
-var wacReceiveURL = "/c/wa/receive"
+var wacReceiveURL = "/c/wac/receive"
 
 var testCasesWAC = []ChannelHandleTestCase{
 	{Label: "Receive Message WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
@@ -320,7 +320,7 @@ func TestHandler(t *testing.T) {
 	}))
 	graphURL = server.URL
 
-	RunChannelTestCases(t, testChannelsWAC, newHandler("WA", "Cloud API WhatsApp", false), testCasesWAC)
+	RunChannelTestCases(t, testChannelsWAC, newHandler("WAC", "Cloud API WhatsApp", false), testCasesWAC)
 	RunChannelTestCases(t, testChannelsFBA, newHandler("FBA", "Facebook", false), testCasesFBA)
 	RunChannelTestCases(t, testChannelsIG, newHandler("IG", "Instagram", false), testCasesIG)
 }
@@ -694,10 +694,10 @@ func TestSending(t *testing.T) {
 	maxMsgLength = 100
 	var ChannelFBA = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "FBA", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
 	var ChannelIG = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "IG", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
-	var ChannelWAC = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WA", "12345_ID", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
+	var ChannelWAC = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WAC", "12345_ID", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
 	RunChannelSendTestCases(t, ChannelFBA, newHandler("FBA", "Facebook", false), SendTestCasesFBA, nil)
 	RunChannelSendTestCases(t, ChannelIG, newHandler("IG", "Instagram", false), SendTestCasesIG, nil)
-	RunChannelSendTestCases(t, ChannelWAC, newHandler("WA", "Cloud API WhatsApp", false), SendTestCasesWAC, nil)
+	RunChannelSendTestCases(t, ChannelWAC, newHandler("WAC", "Cloud API WhatsApp", false), SendTestCasesWAC, nil)
 }
 
 func TestSigning(t *testing.T) {

@@ -18,7 +18,7 @@ import (
 var testChannels = []courier.Channel{
 	courier.NewMockChannel(
 		"8eb23e93-5ecb-45ba-b726-3b064e0c568c",
-		"WAC",
+		"WA",
 		"250788383383",
 		"RW",
 		map[string]interface{}{
@@ -336,7 +336,7 @@ var ignoreStatus = `
 `
 
 var (
-	waReceiveURL = "/c/wac/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive"
+	waReceiveURL = "/c/wa/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive"
 	d3ReceiveURL = "/c/d3/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive"
 	txReceiveURL = "/c/txw/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive"
 )
@@ -381,7 +381,7 @@ var waTestCases = []ChannelHandleTestCase{
 func TestBuildMediaRequest(t *testing.T) {
 	mb := courier.NewMockBackend()
 
-	waHandler := &handler{NewBaseHandler(courier.ChannelType("WAC"), "WhatsApp")}
+	waHandler := &handler{NewBaseHandler(courier.ChannelType("WA"), "WhatsApp")}
 	req, _ := waHandler.BuildDownloadMediaRequest(context.Background(), mb, testChannels[0], "https://example.org/v1/media/41")
 	assert.Equal(t, "https://example.org/v1/media/41", req.URL.String())
 	assert.Equal(t, "Bearer the-auth-token", req.Header.Get("Authorization"))
@@ -407,13 +407,13 @@ func replaceTestcaseURLs(tcs []ChannelHandleTestCase, url string) []ChannelHandl
 }
 
 func TestHandler(t *testing.T) {
-	RunChannelTestCases(t, testChannels, newWAHandler(courier.ChannelType("WAC"), "WhatsApp"), waTestCases)
+	RunChannelTestCases(t, testChannels, newWAHandler(courier.ChannelType("WA"), "WhatsApp"), waTestCases)
 	RunChannelTestCases(t, testChannels, newWAHandler(courier.ChannelType("D3"), "360Dialog"), replaceTestcaseURLs(waTestCases, d3ReceiveURL))
 	RunChannelTestCases(t, testChannels, newWAHandler(courier.ChannelType("TXW"), "TextIt"), replaceTestcaseURLs(waTestCases, txReceiveURL))
 }
 
 func BenchmarkHandler(b *testing.B) {
-	RunChannelBenchmarks(b, testChannels, newWAHandler(courier.ChannelType("WAC"), "WhatsApp"), waTestCases)
+	RunChannelBenchmarks(b, testChannels, newWAHandler(courier.ChannelType("WA"), "WhatsApp"), waTestCases)
 	RunChannelBenchmarks(b, testChannels, newWAHandler(courier.ChannelType("D3"), "360Dialog"), replaceTestcaseURLs(waTestCases, d3ReceiveURL))
 	RunChannelBenchmarks(b, testChannels, newWAHandler(courier.ChannelType("TXW"), "TextIt"), replaceTestcaseURLs(waTestCases, txReceiveURL))
 }
@@ -843,7 +843,7 @@ func mockAttachmentURLs(mediaServer *httptest.Server, testCases []ChannelSendTes
 }
 
 func TestSending(t *testing.T) {
-	var defaultChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WAC", "250788383383", "US",
+	var defaultChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WA", "250788383383", "US",
 		map[string]interface{}{
 			"auth_token":   "token123",
 			"base_url":     "https://foo.bar/",
@@ -851,7 +851,7 @@ func TestSending(t *testing.T) {
 			"version":      "v2.35.2",
 		})
 
-	var hsmSupportChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WAC", "250788383383", "US",
+	var hsmSupportChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WA", "250788383383", "US",
 		map[string]interface{}{
 			"auth_token":   "token123",
 			"base_url":     "https://foo.bar/",
@@ -876,8 +876,8 @@ func TestSending(t *testing.T) {
 			"version":      "v2.35.2",
 		})
 
-	RunChannelSendTestCases(t, defaultChannel, newWAHandler(courier.ChannelType("WAC"), "WhatsApp"), defaultSendTestCases, nil)
-	RunChannelSendTestCases(t, hsmSupportChannel, newWAHandler(courier.ChannelType("WAC"), "WhatsApp"), hsmSupportSendTestCases, nil)
+	RunChannelSendTestCases(t, defaultChannel, newWAHandler(courier.ChannelType("WA"), "WhatsApp"), defaultSendTestCases, nil)
+	RunChannelSendTestCases(t, hsmSupportChannel, newWAHandler(courier.ChannelType("WA"), "WhatsApp"), hsmSupportSendTestCases, nil)
 	RunChannelSendTestCases(t, d3Channel, newWAHandler(courier.ChannelType("D3"), "360Dialog"), defaultSendTestCases, nil)
 	RunChannelSendTestCases(t, txwChannel, newWAHandler(courier.ChannelType("TXW"), "TextIt"), defaultSendTestCases, nil)
 
@@ -889,5 +889,5 @@ func TestSending(t *testing.T) {
 	defer mediaServer.Close()
 	mediaCacheSendTestCases := mockAttachmentURLs(mediaServer, mediaCacheSendTestCases)
 
-	RunChannelSendTestCases(t, defaultChannel, newWAHandler(courier.ChannelType("WAC"), "WhatsApp"), mediaCacheSendTestCases, nil)
+	RunChannelSendTestCases(t, defaultChannel, newWAHandler(courier.ChannelType("WA"), "WhatsApp"), mediaCacheSendTestCases, nil)
 }

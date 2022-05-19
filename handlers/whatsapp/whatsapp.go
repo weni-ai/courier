@@ -31,7 +31,7 @@ const (
 
 	d3AuthorizationKey = "D360-API-KEY"
 
-	channelTypeWa  = "WAC"
+	channelTypeWa  = "WA"
 	channelTypeD3  = "D3"
 	channelTypeTXW = "TXW"
 

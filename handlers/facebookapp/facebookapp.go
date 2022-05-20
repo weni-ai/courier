@@ -309,7 +309,10 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 			return nil, fmt.Errorf("no changes found")
 		}
 		fmt.Println("Pega channelAddress")
+<<<<<<< HEAD
 		fmt.Println(payload)
+=======
+>>>>>>> 2f6725e39e81044f6b49c9dd174b42d873828b3b
 		channelAddress = payload.Entry[0].Changes[0].Value.Metadata.PhoneNumberID
 		if channelAddress == "" {
 			return nil, fmt.Errorf("no channel address found")

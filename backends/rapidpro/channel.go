@@ -203,6 +203,10 @@ func loadChannelByAddressFromDB(ctx context.Context, db *sqlx.DB, channelType co
 
 	// select just the fields we need
 	err := db.GetContext(ctx, channel, lookupChannelFromAddressSQL, address)
+	fmt.Println("Erro: ", err)
+	fmt.Println("GetContext: ", channel)
+	fmt.Println("channeltype: ", channelType)
+	fmt.Println("Address: ", address)
 
 	// we didn't find a match
 	if err == sql.ErrNoRows {
@@ -214,11 +218,11 @@ func loadChannelByAddressFromDB(ctx context.Context, db *sqlx.DB, channelType co
 		return nil, err
 	}
 
-	// // is it the right type?
-	if channelType != courier.AnyChannelType && channelType != channel.ChannelType() {
-		fmt.Println("Func loadChannelByAddressFromDB")
-		return nil, courier.ErrChannelWrongType
-	}
+	// is it the right type?
+	// if channelType != courier.AnyChannelType && channelType != channel.ChannelType() {
+	// 	fmt.Println("Func loadChannelByAddressFromDB")
+	// 	return nil, courier.ErrChannelWrongType
+	// }
 
 	// found it, return it
 	return channel, nil
@@ -231,13 +235,10 @@ func getCachedChannelByAddress(channelType courier.ChannelType, address courier.
 	channel, found := channelByAddressCache[address]
 	cacheByAddressMutex.RUnlock()
 
-	fmt.Println(found)
-
 	// do not consider the cache for empty addresses
 	if found && address != courier.NilChannelAddress {
 		// if it was found but the type is wrong, that's an error
 		if channelType != courier.AnyChannelType && channel.ChannelType() != channelType {
-			fmt.Println("Func getCachedChannelByAddress")
 			return nil, courier.ErrChannelWrongType
 		}
 

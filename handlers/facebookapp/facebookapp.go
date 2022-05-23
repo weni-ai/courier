@@ -273,29 +273,24 @@ type FeedbackQuestion struct {
 
 // GetChannel returns the channel
 func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Channel, error) {
-	fmt.Println("Func Get Channel")
 	if r.Method == http.MethodGet {
 		return nil, nil
 	}
-	fmt.Println("Pega payload")
 	payload := &moPayload{}
 	err := handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("Verifica tipo de payload")
 	// is not a 'page' and 'instagram' object? ignore it
 	if payload.Object != "page" && payload.Object != "instagram" && payload.Object != "whatsapp_business_account" {
 		return nil, fmt.Errorf("object expected 'page', 'instagram' or 'whatsapp_business_account', found %s", payload.Object)
 	}
-	fmt.Println("verifica se possui Entry")
 	// no entries? ignore this request
 	if len(payload.Entry) == 0 {
 		return nil, fmt.Errorf("no entries found")
 	}
 
 	var channelAddress string
-	fmt.Println("Verifica tipo de Object")
 	//if object is 'page' returns type FBA, if object is 'instagram' returns type IG
 	if payload.Object == "page" {
 		channelAddress = payload.Entry[0].ID
@@ -304,14 +299,11 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 		channelAddress = payload.Entry[0].ID
 		return h.Backend().GetChannelByAddress(ctx, courier.ChannelType("IG"), courier.ChannelAddress(channelAddress))
 	} else {
-		fmt.Println("Tipo whatsapp")
 		if len(payload.Entry[0].Changes) == 0 {
 			return nil, fmt.Errorf("no changes found")
 		}
-		fmt.Println("Pega channelAddress")
 		fmt.Println(payload.Entry)
 		channelAddress = payload.Entry[0].Changes[0].Value.Metadata.PhoneNumberID
-		fmt.Println("Channel Address: ", channelAddress)
 		if channelAddress == "" {
 			return nil, fmt.Errorf("no channel address found")
 		}

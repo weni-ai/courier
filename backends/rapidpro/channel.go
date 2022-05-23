@@ -228,6 +228,14 @@ func getCachedChannelByAddress(channelType courier.ChannelType, address courier.
 	channel, found := channelByAddressCache[address]
 	cacheByAddressMutex.RUnlock()
 
+	fmt.Println("Todos os canais em cache: ")
+	for i, channel := range channelByAddressCache {
+		fmt.Println("Address1: ", i)
+		fmt.Println("Channel1: ", channel)
+	}
+
+	fmt.Println("Infos de canal encontrado: ", channel)
+
 	// do not consider the cache for empty addresses
 	if found && address != courier.NilChannelAddress {
 		// if it was found but the type is wrong, that's an error

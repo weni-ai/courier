@@ -274,17 +274,14 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 		defer cancel()
 
 		channel, err := handler.GetChannel(ctx, r)
-		fmt.Println("Channel: ", channel)
 		if err != nil {
 			WriteError(ctx, w, r, err)
 			return
 		}
-		fmt.Println("Pega R")
 		r = r.WithContext(ctx)
 
 		// read the bytes from our body so we can create a channel log for this request
 		response := &bytes.Buffer{}
-		fmt.Println("Trim")
 		// Trim out cookie header, should never be part of authentication and can leak auth to channel logs
 		r.Header.Del("Cookie")
 		request, err := httputil.DumpRequest(r, true)
@@ -292,14 +289,11 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 			writeAndLogRequestError(ctx, w, r, channel, err)
 			return
 		}
-		fmt.Println("URL")
 		url := fmt.Sprintf("https://%s%s", r.Host, r.URL.RequestURI())
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
-		fmt.Println("Passa ww")
 		ww.Tee(response)
 
 		logs := make([]*ChannelLog, 0, 1)
-		fmt.Println("func lambda")
 		defer func() {
 			// catch any panics and recover
 			panicLog := recover()
@@ -309,11 +303,10 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 				writeAndLogRequestError(ctx, ww, r, channel, errors.New("panic handling msg"))
 			}
 		}()
-		fmt.Println("Chama ReceiveEvent")
 		events, err := handlerFunc(ctx, channel, ww, r)
 		duration := time.Now().Sub(start)
 		secondDuration := float64(duration) / float64(time.Second)
-		fmt.Println(events)
+
 		// if we received an error, write it out and report it
 		if err != nil {
 			// if error is from blocked contact message or invalid json received from too large message dont write it

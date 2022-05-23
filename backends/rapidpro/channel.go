@@ -89,6 +89,7 @@ func loadChannelFromDB(ctx context.Context, db *sqlx.DB, channelType courier.Cha
 
 	// is it the right type?
 	if channelType != courier.AnyChannelType && channelType != channel.ChannelType() {
+		fmt.Println("Func loadChannelFromDB")
 		return nil, courier.ErrChannelWrongType
 	}
 
@@ -106,6 +107,7 @@ func getCachedChannel(channelType courier.ChannelType, uuid courier.ChannelUUID)
 	if found {
 		// if it was found but the type is wrong, that's an error
 		if channelType != courier.AnyChannelType && channel.ChannelType() != channelType {
+			fmt.Println("Func getCachedChannel")
 			return nil, courier.ErrChannelWrongType
 		}
 
@@ -212,8 +214,9 @@ func loadChannelByAddressFromDB(ctx context.Context, db *sqlx.DB, channelType co
 		return nil, err
 	}
 
-	// is it the right type?
+	// // is it the right type?
 	if channelType != courier.AnyChannelType && channelType != channel.ChannelType() {
+		fmt.Println("Func loadChannelByAddressFromDB")
 		return nil, courier.ErrChannelWrongType
 	}
 
@@ -228,18 +231,13 @@ func getCachedChannelByAddress(channelType courier.ChannelType, address courier.
 	channel, found := channelByAddressCache[address]
 	cacheByAddressMutex.RUnlock()
 
-	fmt.Println("Todos os canais em cache: ")
-	for i, channel := range channelByAddressCache {
-		fmt.Println("Address1: ", i)
-		fmt.Println("Channel1: ", channel)
-	}
-
-	fmt.Println("Infos de canal encontrado: ", channel)
+	fmt.Println(found)
 
 	// do not consider the cache for empty addresses
 	if found && address != courier.NilChannelAddress {
 		// if it was found but the type is wrong, that's an error
 		if channelType != courier.AnyChannelType && channel.ChannelType() != channelType {
+			fmt.Println("Func getCachedChannelByAddress")
 			return nil, courier.ErrChannelWrongType
 		}
 

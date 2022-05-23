@@ -315,6 +315,13 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 		if channelAddress == "" {
 			return nil, fmt.Errorf("no channel address found")
 		}
+<<<<<<< HEAD
+=======
+		fmt.Println(h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WAC"), courier.ChannelAddress("391394022871610")))
+		fmt.Println(h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WAC"), courier.ChannelAddress("558231420915")))
+		fmt.Println(h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WAC"), courier.ChannelAddress("104590845594278")))
+		fmt.Println(h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WAC"), courier.ChannelAddress("108259001889861")))
+>>>>>>> 70b63e094fce228c76d5445a27d394ca2943d474
 		return h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WAC"), courier.ChannelAddress(channelAddress))
 	}
 }

@@ -315,7 +315,6 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 		if channelAddress == "" {
 			return nil, fmt.Errorf("no channel address found")
 		}
-		fmt.Println("Return")
 		return h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WAC"), courier.ChannelAddress(channelAddress))
 	}
 }

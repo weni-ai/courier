@@ -89,7 +89,6 @@ func loadChannelFromDB(ctx context.Context, db *sqlx.DB, channelType courier.Cha
 
 	// is it the right type?
 	if channelType != courier.AnyChannelType && channelType != channel.ChannelType() {
-		fmt.Println("Func loadChannelFromDB")
 		return nil, courier.ErrChannelWrongType
 	}
 
@@ -107,7 +106,6 @@ func getCachedChannel(channelType courier.ChannelType, uuid courier.ChannelUUID)
 	if found {
 		// if it was found but the type is wrong, that's an error
 		if channelType != courier.AnyChannelType && channel.ChannelType() != channelType {
-			fmt.Println("Func getCachedChannel")
 			return nil, courier.ErrChannelWrongType
 		}
 
@@ -203,10 +201,6 @@ func loadChannelByAddressFromDB(ctx context.Context, db *sqlx.DB, channelType co
 
 	// select just the fields we need
 	err := db.GetContext(ctx, channel, lookupChannelFromAddressSQL, address)
-	fmt.Println("Erro: ", err)
-	fmt.Println("GetContext: ", channel)
-	fmt.Println("channeltype: ", channelType)
-	fmt.Println("Address: ", address)
 
 	// we didn't find a match
 	if err == sql.ErrNoRows {
@@ -219,10 +213,9 @@ func loadChannelByAddressFromDB(ctx context.Context, db *sqlx.DB, channelType co
 	}
 
 	// is it the right type?
-	// if channelType != courier.AnyChannelType && channelType != channel.ChannelType() {
-	// 	fmt.Println("Func loadChannelByAddressFromDB")
-	// 	return nil, courier.ErrChannelWrongType
-	// }
+	if channelType != courier.AnyChannelType && channelType != channel.ChannelType() {
+		return nil, courier.ErrChannelWrongType
+	}
 
 	// found it, return it
 	return channel, nil

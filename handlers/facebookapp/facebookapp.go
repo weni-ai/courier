@@ -302,14 +302,11 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 		if len(payload.Entry[0].Changes) == 0 {
 			return nil, fmt.Errorf("no changes found")
 		}
-		fmt.Println(payload.Entry)
 		channelAddress = payload.Entry[0].Changes[0].Value.Metadata.PhoneNumberID
 		if channelAddress == "" {
 			return nil, fmt.Errorf("no channel address found")
 		}
-		c, erro := h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WAC"), courier.ChannelAddress(channelAddress))
-		fmt.Println(erro, c)
-		return c, erro
+		return h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WAC"), courier.ChannelAddress(channelAddress))
 	}
 }
 
@@ -358,7 +355,6 @@ func resolveMediaURL(channel courier.Channel, mediaID string) (string, error) {
 
 // receiveEvent is our HTTP handler function for incoming messages and status updates
 func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
-	fmt.Println("Receive Event")
 	err := h.validateSignature(r)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
@@ -386,7 +382,6 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	if channel.ChannelType() == "FBA" || channel.ChannelType() == "IG" {
 		events, data, err = h.processFacebookInstagramPayload(ctx, channel, payload, w, r)
 	} else {
-		fmt.Println("Envia para processar payload")
 		events, data, err = h.processCloudWhatsAppPayload(ctx, channel, payload, w, r)
 
 	}
@@ -399,7 +394,6 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 }
 
 func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel courier.Channel, payload *moPayload, w http.ResponseWriter, r *http.Request) ([]courier.Event, []interface{}, error) {
-	fmt.Println("Func CloudWhatsAppPayload")
 	// the list of events we deal with
 	events := make([]courier.Event, 0, 2)
 
@@ -1384,6 +1378,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		req.Header.Set("Accept", "application/json")
 
 		rr, err := utils.MakeHTTPRequest(req)
+		fmt.Println("Erro de envio: ", err)
 
 		// record our status and log
 		log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)

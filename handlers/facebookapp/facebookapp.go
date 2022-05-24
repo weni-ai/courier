@@ -1364,12 +1364,19 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 		}
 
+		fmt.Println("Payload: ", payload)
+		fmt.Println("")
+
 		jsonBody, err := json.Marshal(payload)
 		if err != nil {
 			return status, err
 		}
 
 		req, err := http.NewRequest(http.MethodPost, wacPhoneURL.String(), bytes.NewReader(jsonBody))
+
+		fmt.Println("Req: ", req)
+		fmt.Println("Erro de req: ", err)
+
 		if err != nil {
 			return nil, err
 		}
@@ -1378,6 +1385,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		req.Header.Set("Accept", "application/json")
 
 		rr, err := utils.MakeHTTPRequest(req)
+		fmt.Println("RR: ", rr)
 		fmt.Println("Erro de envio: ", err)
 
 		// record our status and log

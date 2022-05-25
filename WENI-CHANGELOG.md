@@ -1,3 +1,7 @@
+1.2.0-courier-7.1.0
+----------
+  * Merge tag v7.1.0 from nyaruka into our 1.1.8-courier-7.0.0
+
 1.1.8-courier-7.0.0
 ----------
  * Fix whatsapp handler to update the contact URN if the wa_id returned in the send message request is different from the current URN path, avoiding creating a new contact.

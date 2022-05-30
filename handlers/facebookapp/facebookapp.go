@@ -327,9 +327,17 @@ func (h *handler) receiveVerify(ctx context.Context, channel courier.Channel, w 
 
 	// verify the token against our server facebook webhook secret, if the same return the challenge FB sent us
 	secret := r.URL.Query().Get("hub.verify_token")
-	if secret != h.Server().Config().FacebookWebhookSecret {
-		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("token does not match secret"))
+
+	if fmt.Sprint(h.ChannelType()) == "FBA" || fmt.Sprint(h.ChannelType()) == "IG" {
+		if secret != h.Server().Config().FacebookWebhookSecret {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("token does not match secret"))
+		}
+	} else {
+		if secret != h.Server().Config().WhatsappCloudWebhookSecret {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("token does not match secret"))
+		}
 	}
+
 	// and respond with the challenge token
 	_, err := fmt.Fprint(w, r.URL.Query().Get("hub.challenge"))
 	return nil, err
@@ -1480,7 +1488,14 @@ func (h *handler) validateSignature(r *http.Request) error {
 	if headerSignature == "" {
 		return fmt.Errorf("missing request signature")
 	}
-	appSecret := h.Server().Config().FacebookApplicationSecret
+
+	var appSecret string
+
+	if fmt.Sprint(h.ChannelType()) == "FBA" || fmt.Sprint(h.ChannelType()) == "IG" {
+		appSecret = h.Server().Config().FacebookApplicationSecret
+	} else {
+		appSecret = h.Server().Config().WhatsappCloudApplicationSecret
+	}
 
 	body, err := handlers.ReadBody(r, 100000)
 	if err != nil {

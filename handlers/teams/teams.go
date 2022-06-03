@@ -1,17 +1,22 @@
 package teams
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 
+	"github.com/buger/jsonparser"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
-var apiURL = "https://smba.trafficmanager.net/"
+var sendBaseURL = "https://smba.trafficmanager.net/br"
 
 func init() {
 	courier.RegisterHandler(newHandler())
@@ -37,12 +42,12 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 
 type mtPayload struct {
 	Activity    Activity         `json:"activity"`
-	TopicName   string           `json:"topicname"`
-	Bot         ChannelAccount   `json:"bot"`
-	Members     []ChannelAccount `json:"members"`
-	IsGroup     bool             `json:"isGroup"`
-	TenantId    string           `json:"tenantId"`
-	ChannelData ChannelData      `json:"channelData"`
+	TopicName   string           `json:"topicname,omitempty"`
+	Bot         ChannelAccount   `json:"bot,omitempty"`
+	Members     []ChannelAccount `json:"members,omitempty"`
+	IsGroup     bool             `json:"isGroup,omitempty"`
+	TenantId    string           `json:"tenantId,omitempty"`
+	ChannelData ChannelData      `json:"channelData,omitempty"`
 }
 
 type ChannelData struct {
@@ -121,10 +126,12 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		return nil, fmt.Errorf("missing token for TM channel")
 	}
 
-	//status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
+	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
 
 	msgActivity := Activity{}
 	payload := mtPayload{}
+
+	msgURL, _ := url.Parse(sendBaseURL) //isso vai ter q mudar para pegar a serviceURL do contato junto com o ID da conversa e ID da atividade
 
 	for _, attachment := range msg.Attachments() { //verificar envio de attachments
 		attType, attURL := handlers.SplitAttachment(attachment)
@@ -139,8 +146,35 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		msgActivity.Type = "message"
 		msgActivity.Text = msg.Text()
 		payload.Activity = msgActivity
-		payload.IsGroup = false
 	}
 
-	return nil, nil
+	jsonBody, err := json.Marshal(payload)
+	if err != nil {
+		return status, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, msgURL.String(), bytes.NewReader(jsonBody))
+
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	rr, err := utils.MakeHTTPRequest(req)
+
+	// record our status and log
+	log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
+	status.AddLog(log)
+	if err != nil {
+		return status, nil
+	}
+	externalID, err := jsonparser.GetString(rr.Body, "id")
+	if err != nil {
+		log.WithError("Message Send Error", errors.Errorf("unable to get message_id from body"))
+		return status, nil
+	}
+	status.SetExternalID(externalID)
+
+	return status, nil
 }

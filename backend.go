@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gomodule/redigo/redis"
 	"github.com/nyaruka/gocommon/urns"
@@ -31,6 +32,9 @@ type Backend interface {
 
 	// GetContact returns (or creates) the contact for the passed in channel and URN
 	GetContact(context context.Context, channel Channel, urn urns.URN, auth string, name string) (Contact, error)
+
+	// UpdateContactLastSeenOn updates last seen on (and modified on) on the passed in contact
+	UpdateContactLastSeenOn(ctx context.Context, contactUUID ContactUUID, lastSeenOn time.Time) error
 
 	// AddURNtoContact adds a URN to the passed in contact
 	AddURNtoContact(context context.Context, channel Channel, contact Contact, urn urns.URN) (urns.URN, error)

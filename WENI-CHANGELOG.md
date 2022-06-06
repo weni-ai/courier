@@ -1,3 +1,7 @@
+1.2.1-courier-7.1.0
+----------
+  * Update contact last_seen_on on send message to him
+
 1.2.0-courier-7.1.0
 ----------
   * Merge tag v7.1.0 from nyaruka into our 1.1.8-courier-7.0.0

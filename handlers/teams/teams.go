@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/buger/jsonparser"
 	"github.com/nyaruka/courier"
@@ -32,11 +33,24 @@ func newHandler() courier.ChannelHandler {
 
 func (h *handler) Initialize(s courier.Server) error {
 	h.SetServer(s)
-	s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveMessage)
+	s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveEvent)
 	return nil
 }
 
-func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+	payload := &mtPayload{}
+	err := handlers.DecodeAndValidateJSON(payload, r)
+	if err != nil {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+
+	validationToken := channel.ConfigForKey(courier.ConfigAuthToken, "")
+	tokenHeader := strings.Replace(r.Header.Get("authorization"), "Bearer ", "", 1)
+	if validationToken != tokenHeader {
+		w.WriteHeader(http.StatusForbidden)
+		return nil, fmt.Errorf("Wrong validation token for channel: %s", channel.UUID())
+	}
+
 	return nil, nil
 }
 

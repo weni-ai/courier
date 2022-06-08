@@ -227,6 +227,15 @@ func (w *Sender) sendMessage(msg Msg) {
 		} else {
 			log.WithField("elapsed", duration).Info("msg sent")
 			librato.Gauge(fmt.Sprintf("courier.msg_send_%s", msg.Channel().ChannelType()), secondDuration)
+
+			ctt, err := w.foreman.server.Backend().GetContact(context.Background(), msg.Channel(), msg.URN(), "", "")
+			if err != nil {
+				log.WithError(err).Info("error getting contact")
+			}
+			err = w.foreman.server.Backend().UpdateContactLastSeenOn(context.Background(), ctt.UUID(), time.Now())
+			if err != nil {
+				log.WithError(err).Info("error updating contact last seen on")
+			}
 		}
 	}
 

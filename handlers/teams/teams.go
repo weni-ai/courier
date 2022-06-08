@@ -8,8 +8,11 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/buger/jsonparser"
+	"github.com/golang-jwt/jwt/v4"
+	"github.com/lestrrat-go/jwx/jwk"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
@@ -17,7 +20,17 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var sendBaseURL = "https://smba.trafficmanager.net/br"
+var (
+	jv                       = JwtTokenValidator{}
+	AllowedSigningAlgorithms = []string{"RS256", "RS384", "RS512"}
+)
+
+const (
+	fetchTimeout                = 20
+	ToBotFromChannelTokenIssuer = "https://api.botframework.com"
+	sendBaseURL                 = "https://smba.trafficmanager.net/br"
+	metadataURL                 = "https://login.botframework.com/v1/.well-known/openidconfiguration"
+)
 
 func init() {
 	courier.RegisterHandler(newHandler())
@@ -37,6 +50,43 @@ func (h *handler) Initialize(s courier.Server) error {
 	return nil
 }
 
+type metadata struct {
+	JwksURI string `json:"jwks_uri"`
+}
+
+func getJwkURL(metadataURL string) (string, error) {
+
+	response, err := http.NewRequest(http.MethodGet, metadataURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("Error getting metadata document")
+	}
+
+	data := metadata{}
+	err = json.NewDecoder(response.Body).Decode(&data)
+	return data.JwksURI, err
+}
+
+// AuthCache is a general purpose cache
+type AuthCache struct {
+	Keys   interface{}
+	Expiry time.Time
+}
+
+// JwtTokenValidator is the default implementation of TokenValidator.
+type JwtTokenValidator struct {
+	AuthCache
+}
+
+// IsExpired checks if the Keys have expired.
+// Compares Expiry time with current time.
+func (cache *AuthCache) IsExpired() bool {
+
+	if diff := time.Now().Sub(cache.Expiry).Hours(); diff > 0 {
+		return true
+	}
+	return false
+}
+
 func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
 	payload := &mtPayload{}
 	err := handlers.DecodeAndValidateJSON(payload, r)
@@ -44,11 +94,93 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
-	validationToken := channel.ConfigForKey(courier.ConfigAuthToken, "")
+	validationToken := channel.StringConfigForKey(courier.ConfigAuthToken, "")
 	tokenHeader := strings.Replace(r.Header.Get("authorization"), "Bearer ", "", 1)
 	if validationToken != tokenHeader {
 		w.WriteHeader(http.StatusForbidden)
 		return nil, fmt.Errorf("Wrong validation token for channel: %s", channel.UUID())
+	}
+
+	getKey := func(token *jwt.Token) (interface{}, error) {
+
+		jwksURL, err := getJwkURL(metadataURL)
+		if err != nil {
+			return nil, err
+		}
+
+		// Get new JWKs if the cache is expired
+		if jv.AuthCache.IsExpired() {
+			ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout*time.Second)
+			defer cancel()
+			set, err := jwk.Fetch(ctx, jwksURL)
+			if err != nil {
+				return nil, err
+			}
+			// Update the cache
+			// The expiry time is set to be of 5 days
+			jv.AuthCache = AuthCache{
+				Keys:   set,
+				Expiry: time.Now().Add(time.Hour * 24 * 5),
+			}
+		}
+
+		keyID, ok := token.Header["kid"].(string)
+		if !ok {
+			return nil, fmt.Errorf("Expecting JWT header to have string kid")
+		}
+
+		// Return cached JWKs
+		key, ok := jv.AuthCache.Keys.(jwk.Set).LookupKeyID(keyID)
+		if ok {
+			var rawKey interface{}
+			err := key.Raw(&rawKey)
+			if err != nil {
+				return nil, err
+			}
+			return rawKey, nil
+		}
+
+		return nil, fmt.Errorf("Could not find public key")
+	}
+
+	// TODO: Add options verify_aud and verify_exp
+	token, err := jwt.Parse(tokenHeader, getKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check allowed signing algorithms
+	alg := token.Header["alg"]
+	isAllowed := func() bool {
+		for _, allowed := range AllowedSigningAlgorithms {
+			if allowed == alg {
+				return true
+			}
+		}
+		return false
+	}()
+
+	if !isAllowed {
+		return nil, fmt.Errorf("Unauthorized. Invalid signing algorithm")
+	}
+
+	serviceURL := token.Claims.(jwt.MapClaims)["serviceurl"].(string)
+
+	if payload.Members[0].ID != channel.Address() || channel.StringConfigForKey("serviceURL", "") != serviceURL {
+		return nil, fmt.Errorf("Unauthorized, service_url claim is invalid")
+	}
+
+	issuer := token.Claims.(jwt.MapClaims)["iss"].(string)
+
+	if issuer != ToBotFromChannelTokenIssuer {
+		return nil, fmt.Errorf("Unauthorized, invalid token issuer")
+	}
+
+	audience := token.Claims.(jwt.MapClaims)["aud"].(string)
+	appID := channel.StringConfigForKey("appID", "")
+
+	if audience != appID {
+		return nil, fmt.Errorf("Unauthorized: invalid AppId passed on token")
 	}
 
 	return nil, nil

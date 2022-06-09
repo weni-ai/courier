@@ -1,6 +1,7 @@
 1.2.1-courier-7.1.0
 ----------
   * Update contact last_seen_on on send message to him
+  * Slack Bot Channel Handler
 
 1.2.0-courier-7.1.0
 ----------

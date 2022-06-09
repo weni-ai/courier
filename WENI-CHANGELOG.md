@@ -1,3 +1,8 @@
+1.3.0-courier-7.1.0
+----------
+  * Slack Bot Channel Handler
+  * Whatsapp Cloud Handler
+
 1.2.1-courier-7.1.0
 ----------
   * Update contact last_seen_on on send message to him

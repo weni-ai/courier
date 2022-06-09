@@ -16,6 +16,7 @@ import (
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
+	"github.com/nyaruka/gocommon/urns"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -183,7 +184,62 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		return nil, fmt.Errorf("Unauthorized: invalid AppId passed on token")
 	}
 
-	return nil, nil
+	// the list of events we deal with
+	events := make([]courier.Event, 0, 2)
+
+	// the list of data we will return in our response
+	data := make([]interface{}, 0, 2)
+
+	var urn urns.URN
+
+	// create our date from the timestamp (they give us millis, arg is nanos)
+	date := time.Unix(0, payload.Activity.Timestamp*1000000).UTC() //fzr conversão de string para time
+
+	if payload.Activity.Type == "message" {
+
+		sender := payload.Activity.Conversation.ID
+		urn, err = urns.NewTeamsURN(sender) //criar urn teams
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+
+		text := payload.Activity.Text
+		attachmentURLs := make([]string, 0, 2)
+
+		for _, att := range payload.Activity.Attachments {
+			if att.ContentType != "" && att.ContentUrl != "" {
+				attachmentURLs = append(attachmentURLs, att.ContentUrl)
+			}
+		}
+
+		ev := h.Backend().NewIncomingMsg(channel, urn, text).WithExternalID(payload.Activity.Id).WithReceivedOn(date)
+		event := h.Backend().CheckExternalIDSeen(ev)
+
+		// add any attachment URL found
+		for _, attURL := range attachmentURLs {
+			event.WithAttachment(attURL)
+		}
+
+		err := h.Backend().WriteMsg(ctx, event)
+		if err != nil {
+			return nil, err
+		}
+
+		h.Backend().WriteExternalIDSeen(event)
+
+		events = append(events, event)
+		data = append(data, courier.NewMsgReceiveData(event))
+	}
+
+	if payload.Activity.Type == "conversationUpdate" {
+
+	}
+
+	if payload.Activity.Type == "messageReaction" {
+
+	}
+
+	return events, courier.WriteDataResponse(ctx, w, http.StatusOK, "Events Handled", data)
 }
 
 type mtPayload struct {

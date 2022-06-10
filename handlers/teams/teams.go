@@ -192,8 +192,13 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 
 	var urn urns.URN
 
+	timestamp, err := time.Parse("2006-01-02T15:04:05.0000000Z", payload.Activity.Timestamp)
+	if err != nil {
+		return nil, err
+	}
+
 	// create our date from the timestamp (they give us millis, arg is nanos)
-	date := time.Unix(0, payload.Activity.Timestamp*1000000).UTC() //fzr conversão de string para time
+	date := timestamp //fzr conversão de string para time
 
 	if payload.Activity.Type == "message" {
 
@@ -232,11 +237,76 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	}
 
 	if payload.Activity.Type == "conversationUpdate" {
+		userID := payload.Activity.MembersAdded[0].ID
+		if userID == "" {
+			return nil, nil
+		}
 
+		act := Activity{}
+
+		act.Text = "Create Conversation"
+		act.Type = "message"
+
+		bot := ChannelAccount{}
+
+		bot.ID = channel.StringConfigForKey("botID", "") //config channel
+		bot.Role = "bot"
+
+		members := []ChannelAccount{}
+
+		members[0].ID = userID
+		members[0].Role = "user"
+
+		tenantID := channel.StringConfigForKey("tenantID", "")
+
+		ConversationJson := &mtPayload{
+			Activity: act,
+			Bot:      bot,
+			Members:  members,
+			IsGroup:  false,
+			TenantId: tenantID,
+		}
+
+		jsonBody, err := json.Marshal(ConversationJson)
+		if err != nil {
+			return nil, err
+		}
+
+		serviceURL := payload.Activity.ServiceUrl
+		token := channel.StringConfigForKey(courier.ConfigAuthToken, "") //config
+
+		req, err := http.NewRequest(http.MethodPost, serviceURL+"v3/conversations", bytes.NewReader(jsonBody))
+
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		rr, err := utils.MakeHTTPRequest(req)
+		if err != nil {
+			return nil, err
+		}
+
+		var body ConversationAccount
+
+		err = json.Unmarshal(rr.Body, body)
+		if err != nil {
+			return nil, err
+		}
+
+		urn, err = urns.NewTeamsURN(body.ID) //criar urn teams
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+
+		event := h.Backend().NewChannelEvent(channel, courier.NewConversation, urn).WithOccurredOn(date)
+		events = append(events, event)
+		data = append(data, courier.NewEventReceiveData(event))
 	}
-
+	// Ignore activity of type messageReaction
 	if payload.Activity.Type == "messageReaction" {
-
+		return nil, nil
 	}
 
 	return events, courier.WriteDataResponse(ctx, w, http.StatusOK, "Events Handled", data)

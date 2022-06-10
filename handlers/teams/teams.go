@@ -190,13 +190,10 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 
 	var urn urns.URN
 
-	timestamp, err := time.Parse("2006-01-02T15:04:05.0000000Z", payload.Activity.Timestamp)
+	date, err := time.Parse("2006-01-02T15:04:05.0000000Z", payload.Activity.Timestamp)
 	if err != nil {
 		return nil, err
 	}
-
-	// create our date from the timestamp (they give us millis, arg is nanos)
-	date := timestamp //fzr conversão de string para time
 
 	if payload.Activity.Type == "message" {
 

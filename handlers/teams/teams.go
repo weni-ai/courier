@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -29,7 +28,6 @@ var (
 const (
 	fetchTimeout                = 20
 	ToBotFromChannelTokenIssuer = "https://api.botframework.com"
-	sendBaseURL                 = "https://smba.trafficmanager.net/br"
 	metadataURL                 = "https://login.botframework.com/v1/.well-known/openidconfiguration"
 )
 
@@ -203,7 +201,8 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	if payload.Activity.Type == "message" {
 
 		sender := payload.Activity.Conversation.ID
-		urn, err = urns.NewTeamsURN(sender) //criar urn teams
+
+		urn, err = urns.NewTeamsURN(sender + ":" + serviceURL) //criar urn teams
 		if err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 		}
@@ -271,8 +270,6 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		if err != nil {
 			return nil, err
 		}
-
-		serviceURL := payload.Activity.ServiceUrl
 		token := channel.StringConfigForKey(courier.ConfigAuthToken, "") //config
 
 		req, err := http.NewRequest(http.MethodPost, serviceURL+"v3/conversations", bytes.NewReader(jsonBody))
@@ -295,7 +292,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 			return nil, err
 		}
 
-		urn, err = urns.NewTeamsURN(body.ID) //criar urn teams
+		urn, err = urns.NewTeamsURN(body.ID + ":" + serviceURL) //criar urn teams
 		if err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 		}
@@ -403,7 +400,9 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	msgActivity := Activity{}
 	payload := mtPayload{}
 
-	msgURL, _ := url.Parse(sendBaseURL) //isso vai ter q mudar para pegar a serviceURL do contato junto com o ID da conversa e ID da atividade
+	conversationID := msg.URN().Path()
+
+	msgURL, _ := msg.URN().TeamsServiceURL() + "/v3/conversations/" + conversationID + "/activities" // criar na gocommon
 
 	for _, attachment := range msg.Attachments() { //verificar envio de attachments
 		attType, attURL := handlers.SplitAttachment(attachment)

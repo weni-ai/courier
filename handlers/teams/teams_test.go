@@ -17,7 +17,7 @@ var helloMsg = `{
 	}`
 
 func setSendUrl(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
-	sendBaseURL = s.URL
+
 }
 
 var defaultSendTestCases = []ChannelSendTestCase{

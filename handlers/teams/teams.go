@@ -399,7 +399,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	conversationID := msg.URN().Path()
 
-	msgURL, _ := msg.URN().TeamsServiceURL() + "/v3/conversations/" + conversationID + "/activities" // criar na gocommon
+	msgURL := msg.URN().TeamsServiceURL() + "/v3/conversations/" + conversationID + "/activities" // criar na gocommon
 
 	for _, attachment := range msg.Attachments() { //verificar envio de attachments
 		attType, attURL := handlers.SplitAttachment(attachment)
@@ -421,7 +421,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		return status, err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, msgURL.String(), bytes.NewReader(jsonBody))
+	req, err := http.NewRequest(http.MethodPost, msgURL, bytes.NewReader(jsonBody))
 
 	if err != nil {
 		return nil, err

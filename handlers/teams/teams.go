@@ -199,7 +199,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 
 		sender := payload.Activity.Conversation.ID
 
-		urn, err = urns.NewTeamsURN(sender + ":" + serviceURL) //criar urn teams
+		urn, err = urns.NewTeamsURN(sender + ":serviceURL:" + serviceURL) //criar urn teams
 		if err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 		}
@@ -289,7 +289,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 			return nil, err
 		}
 
-		urn, err = urns.NewTeamsURN(body.ID + ":" + serviceURL) //criar urn teams
+		urn, err = urns.NewTeamsURN(body.ID + ":serviceURL:" + serviceURL) //criar urn teams
 		if err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 		}

@@ -1,3 +1,7 @@
+1.3.1-courier-7.1.0
+----------
+  * Fix to ensure update last_seen_on if there is no error and no failure to send the message.
+
 1.3.0-courier-7.1.0
 ----------
   * Slack Bot Channel Handler

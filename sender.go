@@ -227,7 +227,10 @@ func (w *Sender) sendMessage(msg Msg) {
 		} else {
 			log.WithField("elapsed", duration).Info("msg sent")
 			librato.Gauge(fmt.Sprintf("courier.msg_send_%s", msg.Channel().ChannelType()), secondDuration)
+		}
 
+		// update last seen on if message is no error and no fail
+		if status.Status() != MsgErrored && status.Status() != MsgFailed {
 			ctt, err := w.foreman.server.Backend().GetContact(context.Background(), msg.Channel(), msg.URN(), "", "")
 			if err != nil {
 				log.WithError(err).Info("error getting contact")

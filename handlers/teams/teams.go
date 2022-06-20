@@ -267,7 +267,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 
 		var body ConversationAccount
 
-		err = json.Unmarshal(rr.Body, body)
+		err = json.Unmarshal(rr.Body, &body)
 		if err != nil {
 			return nil, err
 		}
@@ -360,9 +360,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	//por enquanto antes de ajustar na gocommon (Trazer via urn serviceURL)
 	conversationID := path[1]
-	url := path[4]
 
-	msgURL := "http:" + url + ":" + path[5] + "/v3/conversations/a:" + conversationID + "/activities"
+	msgURL := msg.URN().TeamsServiceURL() + "/v3/conversations/a:" + conversationID + "/activities"
 
 	for _, attachment := range msg.Attachments() {
 		attType, attURL := handlers.SplitAttachment(attachment)

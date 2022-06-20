@@ -193,22 +193,22 @@ var testCases = []ChannelHandleTestCase{ //fzr testes para cada tipo de payload 
 		Headers:           map[string]string{"Authorization": "Bearer " + access_token},
 		NoQueueErrorCheck: true,
 	},
-	// {
-	// 	Label:             "Receive Conversation Update",
-	// 	URL:               "/c/tm/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive",
-	// 	Data:              conversationUpdate,
-	// 	Response:          "Handled",
-	// 	URN:               Sp("teams:a:2811:serviceURL:https://smba.trafficmanager.net/br/"),
-	// 	Date:              Tp(time.Date(2022, 6, 6, 16, 51, 00, 0000000, time.UTC)),
-	// 	Headers:           map[string]string{"Authorization": "Bearer " + access_token},
-	// 	NoQueueErrorCheck: true,
-	// },
+	{
+		Label:             "Receive Conversation Update",
+		URL:               "/c/tm/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive",
+		Data:              "",
+		Status:            200,
+		Response:          "Handled",
+		Headers:           map[string]string{"Authorization": "Bearer " + access_token},
+		NoQueueErrorCheck: true,
+	},
 }
 
 func TestHandler(t *testing.T) {
 	tmService := buildMockTeams(testCases)
+	newTestCases := newConversationUpdateTC(tmService.URL, testCases)
 	jwks_url := buildMockJwksURL()
-	RunChannelTestCases(t, testChannels, newHandler(), testCases)
+	RunChannelTestCases(t, testChannels, newHandler(), newTestCases)
 	jwks_url.Close()
 	tmService.Close()
 
@@ -239,20 +239,23 @@ func buildMockTeams(testCases []ChannelHandleTestCase) *httptest.Server {
 
 		if r.URL.Path == "/v3/conversations" {
 			w.Header().Add("Content-Type", "application/json")
-			w.Write([]byte(`{"id":"741258963"}`))
+			w.Write([]byte(`{"id":"a:2811"}`))
 		}
 	}))
 
-	for _, tc := range testCases {
-		if *tc.URN != "" {
-			spTC := strings.Split(*tc.URN, ":")
-			newURN := spTC[0] + ":" + spTC[1] + ":" + spTC[2] + ":" + spTC[3] + ":" + server.URL
-			tc.URN = &newURN
-		}
-
-	}
-
 	return server
+}
+
+func newConversationUpdateTC(newUrl string, testCase []ChannelHandleTestCase) []ChannelHandleTestCase {
+	casesWithMockedUrls := make([]ChannelHandleTestCase, len(testCases))
+	for i, tc := range testCases {
+		mockedCase := tc
+		if mockedCase.Label == "Receive Conversation Update" {
+			mockedCase.Data = strings.Replace(conversationUpdate, "https://smba.trafficmanager.net/br/", newUrl, 1)
+		}
+		casesWithMockedUrls[i] = mockedCase
+	}
+	return casesWithMockedUrls
 }
 
 var defaultSendTestCases = []ChannelSendTestCase{

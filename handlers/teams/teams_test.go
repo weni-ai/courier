@@ -127,7 +127,7 @@ var messageReaction = `{
 	}
 }`
 
-var testCases = []ChannelHandleTestCase{ //fzr testes para cada tipo de payload e attachments
+var testCases = []ChannelHandleTestCase{
 	{
 		Label:             "Receive Message",
 		URL:               "/c/tm/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive",
@@ -205,7 +205,7 @@ var testCases = []ChannelHandleTestCase{ //fzr testes para cada tipo de payload 
 }
 
 func TestHandler(t *testing.T) {
-	tmService := buildMockTeams(testCases)
+	tmService := buildMockTeams()
 	newTestCases := newConversationUpdateTC(tmService.URL, testCases)
 	jwks_url := buildMockJwksURL()
 	RunChannelTestCases(t, testChannels, newHandler(), newTestCases)
@@ -225,7 +225,7 @@ func buildMockJwksURL() *httptest.Server {
 	return server
 }
 
-func buildMockTeams(testCases []ChannelHandleTestCase) *httptest.Server {
+func buildMockTeams() *httptest.Server {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		accessToken := r.Header.Get("Authorization")
@@ -240,6 +240,11 @@ func buildMockTeams(testCases []ChannelHandleTestCase) *httptest.Server {
 		if r.URL.Path == "/v3/conversations" {
 			w.Header().Add("Content-Type", "application/json")
 			w.Write([]byte(`{"id":"a:2811"}`))
+		}
+
+		if r.URL.Path == "/v3/conversations/a:2022/activities" {
+			w.Header().Add("Content-Type", "application/json")
+			w.Write([]byte(`{"id":"1234567890"}`))
 		}
 	}))
 
@@ -283,29 +288,11 @@ var defaultSendTestCases = []ChannelSendTestCase{
 	},
 }
 
-func buildMockTeamsSend() *httptest.Server {
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		accessToken := r.Header.Get("Authorization")
-		tokenH := strings.Replace(accessToken, "Bearer ", "", 1)
-		defer r.Body.Close()
-
-		// invalid auth token
-		if tokenH != access_token {
-			http.Error(w, "invalid auth token", 400)
-		}
-		w.Header().Add("Content-Type", "application/json")
-		w.Write([]byte(`{"id":"1234567890"}`))
-	}))
-
-	return server
-}
-
 func newSendTestCases(testSendCases []ChannelSendTestCase, url string) []ChannelSendTestCase {
 	var newtestSendCases []ChannelSendTestCase
 	for _, tc := range testSendCases {
-		spTC := strings.Split(tc.URN, ":")
-		newURN := spTC[0] + ":" + spTC[1] + ":" + spTC[2] + ":" + spTC[3] + ":" + url
+		spTC := strings.Split(tc.URN, ":serviceURL:")
+		newURN := spTC[0] + ":serviceURL:" + url
 		tc.URN = newURN
 		newtestSendCases = append(newtestSendCases, tc)
 	}
@@ -316,7 +303,7 @@ func TestSending(t *testing.T) {
 	var defaultChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "TM", "2022", "US",
 		map[string]interface{}{courier.ConfigAuthToken: access_token, "tenantID": "cba321", "botID": "0123", "appID": "1596"})
 
-	serviceTM := buildMockTeamsSend()
+	serviceTM := buildMockTeams()
 	newSendTestCases := newSendTestCases(defaultSendTestCases, serviceTM.URL)
 	RunChannelSendTestCases(t, defaultChannel, newHandler(), newSendTestCases, nil)
 	serviceTM.Close()

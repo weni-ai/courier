@@ -1254,23 +1254,23 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 					header := &wacComponent{Type: "header"}
 
-					attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
-					attType = strings.Split(attType, "/")[0]
-
-					if attType == "application" {
-						attType = "document"
-					}
-					media := wacMTMedia{Link: attURL}
-
-					if attType == "image" {
-						header.Params = append(header.Params, &wacParam{Type: "image", Image: &media})
-					} else if attType == "video" {
-						header.Params = append(header.Params, &wacParam{Type: "video", Video: &media})
-					} else if attType == "document" {
-						header.Params = append(header.Params, &wacParam{Type: "document", Document: &media})
-					} else {
-						err = fmt.Errorf("unknown attachment mime type: %s", attType)
-						break
+					for _, attachment := range msg.Attachments() {
+						attType, attURL := handlers.SplitAttachment(attachment)
+						attType = strings.Split(attType, "/")[0]
+						if attType == "application" {
+							attType = "document"
+						}
+						media := wacMTMedia{Link: attURL}
+						if attType == "image" {
+							header.Params = append(header.Params, &wacParam{Type: "image", Image: &media})
+						} else if attType == "video" {
+							header.Params = append(header.Params, &wacParam{Type: "video", Video: &media})
+						} else if attType == "document" {
+							header.Params = append(header.Params, &wacParam{Type: "document", Document: &media})
+						} else {
+							err = fmt.Errorf("unknown attachment mime type: %s", attType)
+							break
+						}
 					}
 					payload.Template.Components = append(payload.Template.Components, header)
 				}
@@ -1456,6 +1456,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		// this was wired successfully
 		status.SetStatus(courier.MsgWired)
 
+		if templating != nil && len(msg.Attachments()) > 0 {
+			break
+		}
 	}
 	return status, nil
 }

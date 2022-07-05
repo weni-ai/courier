@@ -1133,8 +1133,11 @@ type wacMTButton struct {
 }
 
 type wacParam struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type     string      `json:"type"`
+	Text     string      `json:"text,omitempty"`
+	Image    *wacMTMedia `json:"image,omitempty"`
+	Document *wacMTMedia `json:"document,omitempty"`
+	Video    *wacMTMedia `json:"video,omitempty"`
 }
 
 type wacComponent struct {
@@ -1225,10 +1228,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 	for i := 0; i < len(msgParts)+len(msg.Attachments()); i++ {
 		payload := wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path()}
 
-		if len(msg.Attachments()) == 0 {
-			// do we have a template?
-			var templating *MsgTemplating
-			templating, err := h.getTemplate(msg)
+		// do we have a template?
+		var templating *MsgTemplating
+		templating, err := h.getTemplate(msg)
+		if templating != nil || len(msg.Attachments()) == 0 {
+
 			if err != nil {
 				return nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())
 			}
@@ -1245,6 +1249,31 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					component.Params = append(component.Params, &wacParam{Type: "text", Text: v})
 				}
 				template.Components = append(payload.Template.Components, component)
+
+				if len(msg.Attachments()) > 0 {
+
+					header := &wacComponent{Type: "header"}
+
+					attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
+					attType = strings.Split(attType, "/")[0]
+
+					if attType == "application" {
+						attType = "document"
+					}
+					media := wacMTMedia{Link: attURL}
+
+					if attType == "image" {
+						header.Params = append(header.Params, &wacParam{Type: "image", Image: &media})
+					} else if attType == "video" {
+						header.Params = append(header.Params, &wacParam{Type: "video", Video: &media})
+					} else if attType == "document" {
+						header.Params = append(header.Params, &wacParam{Type: "document", Document: &media})
+					} else {
+						err = fmt.Errorf("unknown attachment mime type: %s", attType)
+						break
+					}
+					payload.Template.Components = append(payload.Template.Components, header)
+				}
 
 			} else {
 				if i < (len(msgParts) + len(msg.Attachments()) - 1) {

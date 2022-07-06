@@ -84,6 +84,8 @@ func validateToken(channel courier.Channel, payload mtPayload, w http.ResponseWr
 	validationToken := channel.StringConfigForKey(courier.ConfigAuthToken, "")
 	tokenH := r.Header.Get("Authorization")
 	tokenHeader := strings.Replace(tokenH, "Bearer ", "", 1)
+	fmt.Println("tokenHeader: ", tokenHeader)
+	fmt.Println("validationToken: ", validationToken)
 	if validationToken != tokenHeader {
 		w.WriteHeader(http.StatusForbidden)
 		return fmt.Errorf("Wrong validation token for channel: %s", channel.UUID())

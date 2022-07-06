@@ -80,7 +80,7 @@ func (cache *AuthCache) IsExpired() bool {
 	return false
 }
 
-func validateToken(channel courier.Channel, payload mtPayload, w http.ResponseWriter, r *http.Request) error {
+func validateToken(channel courier.Channel, w http.ResponseWriter, r *http.Request) error {
 	tokenH := r.Header.Get("Authorization")
 	tokenHeader := strings.Replace(tokenH, "Bearer ", "", 1)
 	getKey := func(token *jwt.Token) (interface{}, error) {
@@ -152,13 +152,15 @@ func validateToken(channel courier.Channel, payload mtPayload, w http.ResponseWr
 }
 
 func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
-	payload := &mtPayload{}
+	payload := &Activity{}
 	err := handlers.DecodeAndValidateJSON(payload, r)
+	fmt.Println("\nRequest: ", r)
+	fmt.Println("\nPayload: ", payload)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
-	err = validateToken(channel, *payload, w, r)
+	err = validateToken(channel, w, r)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}

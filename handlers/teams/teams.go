@@ -172,7 +172,8 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	// the list of data we will return in our response
 	data := make([]interface{}, 0, 2)
 
-	date, err := time.Parse("2006-01-02T15:04:05.0000000Z", payload.Activity.Timestamp)
+	timestamp := payload.Activity.Timestamp
+	date, err := time.Parse("2006-01-02T15:04:05.0000000Z", timestamp)
 	if err != nil {
 		return nil, err
 	}

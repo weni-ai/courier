@@ -173,6 +173,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	data := make([]interface{}, 0, 2)
 
 	timestamp := payload.Activity.Timestamp
+	fmt.Println("Timestamp: ", timestamp)
 	date, err := time.Parse("2006-01-02T15:04:05.0000000Z", timestamp)
 	if err != nil {
 		return nil, err

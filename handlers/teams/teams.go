@@ -165,7 +165,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
-	serviceURL := payload.Activity.ServiceUrl
+	serviceURL := payload.ServiceUrl
 	var urn urns.URN
 
 	// the list of events we deal with
@@ -174,31 +174,31 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	// the list of data we will return in our response
 	data := make([]interface{}, 0, 2)
 
-	timestamp := payload.Activity.Timestamp
+	timestamp := payload.Timestamp
 	fmt.Println("Timestamp: ", timestamp)
 	date, err := time.Parse("2006-01-02T15:04:05.0000000Z", timestamp)
 	if err != nil {
 		return nil, err
 	}
 
-	if payload.Activity.Type == "message" {
-		sender := payload.Activity.Conversation.ID
+	if payload.Type == "message" {
+		sender := payload.Conversation.ID
 
 		urn, err = urns.NewTeamsURN(sender + ":serviceURL:" + serviceURL)
 		if err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 		}
 
-		text := payload.Activity.Text
+		text := payload.Text
 		attachmentURLs := make([]string, 0, 2)
 
-		for _, att := range payload.Activity.Attachments {
+		for _, att := range payload.Attachments {
 			if att.ContentType != "" && att.ContentUrl != "" {
 				attachmentURLs = append(attachmentURLs, att.ContentUrl)
 			}
 		}
 
-		ev := h.Backend().NewIncomingMsg(channel, urn, text).WithExternalID(payload.Activity.Id).WithReceivedOn(date)
+		ev := h.Backend().NewIncomingMsg(channel, urn, text).WithExternalID(payload.Id).WithReceivedOn(date)
 		event := h.Backend().CheckExternalIDSeen(ev)
 
 		// add any attachment URL found
@@ -217,8 +217,8 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		data = append(data, courier.NewMsgReceiveData(event))
 	}
 
-	if payload.Activity.Type == "conversationUpdate" {
-		userID := payload.Activity.MembersAdded[0].ID
+	if payload.Type == "conversationUpdate" {
+		userID := payload.MembersAdded[0].ID
 
 		if userID == "" {
 			return nil, nil
@@ -236,7 +236,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 
 		members := []ChannelAccount{}
 
-		members = append(members, ChannelAccount{ID: userID, Role: payload.Activity.MembersAdded[0].Role})
+		members = append(members, ChannelAccount{ID: userID, Role: payload.MembersAdded[0].Role})
 		tenantID := channel.StringConfigForKey("tenantID", "")
 
 		ConversationJson := &mtPayload{
@@ -281,7 +281,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		data = append(data, courier.NewEventReceiveData(event))
 	}
 	// Ignore activity of type messageReaction
-	if payload.Activity.Type == "messageReaction" {
+	if payload.Type == "messageReaction" {
 		data = append(data, courier.NewInfoData("ignoring messageReaction"))
 	}
 

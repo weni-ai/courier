@@ -81,15 +81,8 @@ func (cache *AuthCache) IsExpired() bool {
 }
 
 func validateToken(channel courier.Channel, payload mtPayload, w http.ResponseWriter, r *http.Request) error {
-	validationToken := channel.StringConfigForKey(courier.ConfigAuthToken, "")
 	tokenH := r.Header.Get("Authorization")
 	tokenHeader := strings.Replace(tokenH, "Bearer ", "", 1)
-	fmt.Println("tokenHeader: ", tokenHeader)
-	fmt.Println("validationToken: ", validationToken)
-	if validationToken != tokenHeader {
-		w.WriteHeader(http.StatusForbidden)
-		return fmt.Errorf("Wrong validation token for channel: %s", channel.UUID())
-	}
 	getKey := func(token *jwt.Token) (interface{}, error) {
 		// Get new JWKs if the cache is expired
 		if jv.AuthCache.IsExpired() {

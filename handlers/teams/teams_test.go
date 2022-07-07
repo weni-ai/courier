@@ -18,113 +18,102 @@ var testChannels = []courier.Channel{
 }
 
 var helloMsg = `{
-	"activity": {
-		"channelId": "msteams",
-		"conversation": {
-			"converstaionType": "personal",
-			"id": "a:2811",
-			"tenantId": "cba321"
-		},
-		"id": "56834",
-		"timestamp": "2022-06-06T16:51:00.0000000Z",
-		"serviceUrl": "https://smba.trafficmanager.net/br/",
-		"text":"Hello World",
-		"type":"message"
-	}
+	"channelId": "msteams",
+	"conversation": {
+		"converstaionType": "personal",
+		"id": "a:2811",
+		"tenantId": "cba321"
+	},
+	"id": "56834",
+	"timestamp": "2022-06-06T16:51:00.0000000Z",
+	"serviceUrl": "https://smba.trafficmanager.net/br/",
+	"text":"Hello World",
+	"type":"message"
 }`
 
 var attachment = `{
-	"activity": {
-		"channelId": "msteams",
-		"conversation": {
-			"converstaionType": "personal",
-			"id": "a:2811",
-			"tenantId": "cba321"
-		},
-		"id": "56834",
-		"timestamp": "2022-06-06T16:51:00.0000000Z",
-		"serviceUrl": "https://smba.trafficmanager.net/br/",
-		"text":"Hello World",
-		"type":"message",
-		"attachments":[
-			{
-				"contentType": "image",
-				"contentUrl": "https://image-url/foo.png",
-				"name": "foo.png"
-			}
-		]
-	}
+	"channelId": "msteams",
+	"conversation": {
+		"converstaionType": "personal",
+		"id": "a:2811",
+		"tenantId": "cba321"
+	},
+	"id": "56834",
+	"timestamp": "2022-06-06T16:51:00.0000000Z",
+	"serviceUrl": "https://smba.trafficmanager.net/br/",
+	"text":"Hello World",
+	"type":"message",
+	"attachments":[
+		{
+			"contentType": "image",
+			"contentUrl": "https://image-url/foo.png",
+			"name": "foo.png"
+		}
+	]
 }`
 
 var attachmentVideo = `{
-	"activity": {
-		"channelId": "msteams",
-		"conversation": {
-			"converstaionType": "personal",
-			"id": "a:2811",
-			"tenantId": "cba321"
-		},
-		"id": "56834",
-		"timestamp": "2022-06-06T16:51:00.0000000Z",
-		"serviceUrl": "https://smba.trafficmanager.net/br/",
-		"text":"Hello World",
-		"type":"message",
-		"attachments":[
-			{
-				"contentType": "video/mp4",
-				"contentUrl": "https://video-url/foo.mp4",
-				"name": "foo.png"
-			}
-		]
-	}
+	"channelId": "msteams",
+	"conversation": {
+		"converstaionType": "personal",
+		"id": "a:2811",
+		"tenantId": "cba321"
+	},
+	"id": "56834",
+	"timestamp": "2022-06-06T16:51:00.0000000Z",
+	"serviceUrl": "https://smba.trafficmanager.net/br/",
+	"text":"Hello World",
+	"type":"message",
+	"attachments":[
+		{
+			"contentType": "video/mp4",
+			"contentUrl": "https://video-url/foo.mp4",
+			"name": "foo.png"
+		}
+	]
 }`
 
 var attachmentDocument = `{
-	"activity": {
-		"channelId": "msteams",
-		"conversation": {
-			"converstaionType": "personal",
-			"id": "a:2811",
-			"tenantId": "cba321"
-		},
-		"id": "56834",
-		"timestamp": "2022-06-06T16:51:00.0000000Z",
-		"serviceUrl": "https://smba.trafficmanager.net/br/",
-		"text":"Hello World",
-		"type":"message",
-		"attachments":[
-			{
-				"contentType": "application/pdf",
-				"contentUrl": "https://document-url/foo.pdf",
-				"name": "foo.png"
-			}
-		]
-	}
+	"channelId": "msteams",
+	"conversation": {
+		"converstaionType": "personal",
+		"id": "a:2811",
+		"tenantId": "cba321"
+	},
+	"id": "56834",
+	"timestamp": "2022-06-06T16:51:00.0000000Z",
+	"serviceUrl": "https://smba.trafficmanager.net/br/",
+	"text":"Hello World",
+	"type":"message",
+	"attachments":[
+		{
+			"contentType": "application/pdf",
+			"contentUrl": "https://document-url/foo.pdf",
+			"name": "foo.png"
+		}
+	]
 }`
 
 var conversationUpdate = `{
-	"activity": {
-		"channelId": "msteams",
-		"id": "56834",
-		"timestamp": "2022-06-06T16:51:00.0000000Z",
-		"serviceUrl": "https://smba.trafficmanager.net/br/",
-		"type":"conversationUpdate",
-		"membersAdded": [{
-			"id":"4569",
-			"name": "Joe",
-			"role": "user"
-		}]
-	}
+	"channelId": "msteams",
+	"id": "56834",
+	"timestamp": "2022-06-06T16:51:00.0000000Z",
+	"serviceUrl": "https://smba.trafficmanager.net/br/",
+	"type":"conversationUpdate",
+	"membersAdded": [{
+		"id":"4569",
+		"name": "Joe",
+		"role": "user"
+	}]
 }`
 
 var messageReaction = `{
-	"activity": {
-		"channelId": "msteams",
-		"id": "56834",
-		"timestamp": "2022-06-06T16:51:00.0000000Z",
-		"serviceUrl": "https://smba.trafficmanager.net/br/",
-		"type":"messageReaction"
-	}
+	"channelId": "msteams",
+	"id": "56834",
+	"timestamp": "2022-06-06T16:51:00.0000000Z",
+	"serviceUrl": "https://smba.trafficmanager.net/br/",
+	"type":"messageReaction"
+
 }`
 
 var testCases = []ChannelHandleTestCase{

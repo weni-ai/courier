@@ -203,9 +203,12 @@ func (s *server) Stop() error {
 }
 
 func (s *server) SendMsg(ctx context.Context, msg Msg) (MsgStatus, error) {
+	fmt.Println("SendMsg-server com a msg: ", msg)
 	// find the handler for this message type
 	handler, found := activeHandlers[msg.Channel().ChannelType()]
+	fmt.Println(handler.ChannelType().String())
 	if !found {
+		fmt.Println("Error")
 		return nil, fmt.Errorf("unable to find handler for channel type: %s", msg.Channel().ChannelType())
 	}
 

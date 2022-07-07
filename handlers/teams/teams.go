@@ -356,8 +356,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	conversationID := path[1]
 
-	msgURL := msg.URN().TeamsServiceURL() + "/v3/conversations/a:" + conversationID + "/activities"
-	fmt.Println("URL: ", msgURL)
+	msgURL := msg.URN().TeamsServiceURL() + "v3/conversations/a:" + conversationID + "/activities"
 
 	for _, attachment := range msg.Attachments() {
 		attType, attURL := handlers.SplitAttachment(attachment)
@@ -386,10 +385,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
-	fmt.Println(req)
-	fmt.Println("Antes MakeHTTPRequest")
+
 	rr, err := utils.MakeHTTPRequest(req)
-	fmt.Println("Depois MakeHTTPRequest")
 	// record our status and log
 	log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
 	status.AddLog(log)

@@ -281,7 +281,7 @@ func newSendTestCases(testSendCases []ChannelSendTestCase, url string) []Channel
 	var newtestSendCases []ChannelSendTestCase
 	for _, tc := range testSendCases {
 		spTC := strings.Split(tc.URN, ":serviceURL:")
-		newURN := spTC[0] + ":serviceURL:" + url
+		newURN := spTC[0] + ":serviceURL:" + url + "/"
 		tc.URN = newURN
 		newtestSendCases = append(newtestSendCases, tc)
 	}

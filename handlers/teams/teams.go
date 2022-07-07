@@ -350,7 +350,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
 
 	msgActivity := Activity{}
-	payload := mtPayload{}
+	payload := Activity{}
 
 	path := strings.Split(msg.URN().Path(), ":")
 
@@ -370,7 +370,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	if msg.Text() != "" {
 		msgActivity.Type = "message"
 		msgActivity.Text = msg.Text()
-		payload.Activity = msgActivity
+		payload = msgActivity
 	}
 
 	jsonBody, err := json.Marshal(payload)

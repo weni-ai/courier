@@ -144,6 +144,7 @@ func newRRFromResponse(method string, requestTrace string, r *http.Response) (*R
 
 	// return an error if we got a non-200 status
 	if err == nil && rr.Status != RRStatusSuccess {
+		fmt.Println("Error-http")
 		err = fmt.Errorf("received non 200 status: %d", rr.StatusCode)
 	}
 

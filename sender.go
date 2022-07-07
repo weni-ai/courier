@@ -35,9 +35,7 @@ func NewForeman(server Server, maxSenders int) *Foreman {
 
 // Start starts the foreman and all its senders, assigning jobs while there are some
 func (f *Foreman) Start() {
-	fmt.Println("Start()")
 	for _, sender := range f.senders {
-		fmt.Println("Chama Start-sender")
 		sender.Start()
 	}
 	go f.Assign()
@@ -123,7 +121,6 @@ func NewSender(foreman *Foreman, id int) *Sender {
 
 // Start starts our Sender's goroutine and has it start waiting for tasks from the foreman
 func (w *Sender) Start() {
-	fmt.Println("Start")
 	go func() {
 		w.foreman.server.WaitGroup().Add(1)
 		defer w.foreman.server.WaitGroup().Done()
@@ -132,7 +129,6 @@ func (w *Sender) Start() {
 		log.Debug("started")
 
 		for true {
-			fmt.Println("True-Start")
 			// list ourselves as available for work
 			w.foreman.availableSenders <- w
 
@@ -156,7 +152,6 @@ func (w *Sender) Stop() {
 }
 
 func (w *Sender) sendMessage(msg Msg) {
-	fmt.Println("sendMessage-sender")
 	log := logrus.WithField("comp", "sender").WithField("sender_id", w.id).WithField("channel_uuid", msg.Channel().UUID())
 	var status MsgStatus
 	server := w.foreman.server
@@ -211,7 +206,6 @@ func (w *Sender) sendMessage(msg Msg) {
 		status.AddLog(NewChannelLogFromError("Message Loop", msg.Channel(), msg.ID(), 0, fmt.Errorf("message loop detected, failing message without send")))
 		log.Error("message loop detected, failing message")
 	} else {
-		fmt.Println("Envie Mensagem")
 		// send our message
 		status, err = server.SendMsg(sendCTX, msg)
 		duration := time.Now().Sub(start)

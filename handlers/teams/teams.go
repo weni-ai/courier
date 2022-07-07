@@ -341,7 +341,7 @@ type Activity struct {
 }
 
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
-	fmt.Println("Sendmsg")
+
 	token := msg.Channel().StringConfigForKey(courier.ConfigAuthToken, "")
 	if token == "" {
 		return nil, fmt.Errorf("missing token for TM channel")
@@ -354,10 +354,10 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	path := strings.Split(msg.URN().Path(), ":")
 
-	//por enquanto antes de ajustar na gocommon (Trazer via urn serviceURL)
 	conversationID := path[1]
 
 	msgURL := msg.URN().TeamsServiceURL() + "/v3/conversations/a:" + conversationID + "/activities"
+	fmt.Println("URL: ", msgURL)
 
 	for _, attachment := range msg.Attachments() {
 		attType, attURL := handlers.SplitAttachment(attachment)
@@ -386,9 +386,10 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
-
+	fmt.Println(req)
+	fmt.Println("Antes MakeHTTPRequest")
 	rr, err := utils.MakeHTTPRequest(req)
-
+	fmt.Println("Depois MakeHTTPRequest")
 	// record our status and log
 	log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
 	status.AddLog(log)

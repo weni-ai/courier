@@ -84,6 +84,7 @@ func NewServerWithLogger(config *Config, backend Backend, logger *logrus.Logger)
 // if it encounters any unrecoverable (or ignorable) error, though its bias is to move forward despite
 // connection errors
 func (s *server) Start() error {
+	fmt.Println("Start-sender")
 	// set our user agent, needs to happen before we do anything so we don't change have threading issues
 	utils.HTTPUserAgent = fmt.Sprintf("Courier/%s", s.config.Version)
 
@@ -203,9 +204,11 @@ func (s *server) Stop() error {
 }
 
 func (s *server) SendMsg(ctx context.Context, msg Msg) (MsgStatus, error) {
+	fmt.Println("SendMsg-server")
 	// find the handler for this message type
 	handler, found := activeHandlers[msg.Channel().ChannelType()]
 	if !found {
+		fmt.Println("error")
 		return nil, fmt.Errorf("unable to find handler for channel type: %s", msg.Channel().ChannelType())
 	}
 

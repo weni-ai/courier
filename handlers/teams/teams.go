@@ -154,8 +154,6 @@ func validateToken(channel courier.Channel, w http.ResponseWriter, r *http.Reque
 func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
 	payload := &Activity{}
 	err := handlers.DecodeAndValidateJSON(payload, r)
-	fmt.Println("\nRequest: ", r)
-	fmt.Println("\nPayload: ", payload)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
@@ -175,7 +173,6 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	data := make([]interface{}, 0, 2)
 
 	timestamp := payload.Timestamp
-	fmt.Println("Timestamp: ", timestamp)
 	date, err := time.Parse("2006-01-02T15:04:05.0000000Z", timestamp)
 	if err != nil {
 		return nil, err
@@ -344,7 +341,7 @@ type Activity struct {
 }
 
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
-
+	fmt.Println("Sendmsg")
 	token := msg.Channel().StringConfigForKey(courier.ConfigAuthToken, "")
 	if token == "" {
 		return nil, fmt.Errorf("missing token for TM channel")

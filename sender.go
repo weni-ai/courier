@@ -153,7 +153,6 @@ func (w *Sender) Stop() {
 
 func (w *Sender) sendMessage(msg Msg) {
 	log := logrus.WithField("comp", "sender").WithField("sender_id", w.id).WithField("channel_uuid", msg.Channel().UUID())
-	fmt.Println("sendMessage-sender com a msg: ", msg)
 	var status MsgStatus
 	server := w.foreman.server
 	backend := server.Backend()

@@ -421,7 +421,7 @@ func (h *handler) DescribeURN(ctx context.Context, channel courier.Channel, urn 
 		return nil, fmt.Errorf("unable to look up contact data:%s\n%s", err, rr.Response)
 	}
 
-	// read our givenName and surname
+	// read our first and last name
 	givenName, _ := jsonparser.GetString(rr.Body, "[0]", "givenName")
 	surname, _ := jsonparser.GetString(rr.Body, "[0]", "surname")
 

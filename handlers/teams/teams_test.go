@@ -1,6 +1,7 @@
 package teams
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/nyaruka/courier"
 	. "github.com/nyaruka/courier/handlers"
+	"github.com/nyaruka/gocommon/urns"
+	"gopkg.in/go-playground/assert.v1"
 )
 
 var access_token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImFiYzEyMyJ9.eyJpc3MiOiJodHRwczovL2FwaS5ib3RmcmFtZXdvcmsuY29tIiwic2VydmljZXVybCI6Imh0dHBzOi8vc21iYS50cmFmZmljbWFuYWdlci5uZXQvYnIvIiwiYXVkIjoiMTU5NiJ9.hqKdNdlB0NX6jtwkN96jI-kIiWTWPDIA1K7oo56tVsRBmMycyNNHrsGbKrEw7dccLjATmimpk4x0J_umaJZ5mcK5S5F7b4hkGHFIRWc4vaMjxCl6VSJ6E6DTRnQwfrfTF0AerHSO1iABI2YAlbdMV3ahxGzzNkaqnIX496G2IKwiYziOumo4M0gfOt-MqNkOJKvnSRfB7pikSATaSQiaFmrA5A8bH0AbaM9znPIRxHyrKqlFlrpWkPSiUPOS3aHQeD8kVGk7RNEWtOk26sXfUIjHp8ZYExIClBEmc6QPAf2-FAuwsw-S8YDLwsiycJ0gEO8MYPZWn8gXR_sVIwLMMg"
@@ -214,7 +217,6 @@ func buildMockJwksURL() *httptest.Server {
 }
 
 func buildMockTeams() *httptest.Server {
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		accessToken := r.Header.Get("Authorization")
 		tokenH := strings.Replace(accessToken, "Bearer ", "", 1)
@@ -233,6 +235,10 @@ func buildMockTeams() *httptest.Server {
 		if r.URL.Path == "/v3/conversations/a:2022/activities" {
 			w.Header().Add("Content-Type", "application/json")
 			w.Write([]byte(`{"id":"1234567890"}`))
+		}
+
+		if r.URL.Path == "/v3/conversations/a:2022/members" {
+			w.Write([]byte(`[{"givenName": "John","surname": "Doe"}]`))
 		}
 	}))
 
@@ -295,4 +301,20 @@ func TestSending(t *testing.T) {
 	newSendTestCases := newSendTestCases(defaultSendTestCases, serviceTM.URL)
 	RunChannelSendTestCases(t, defaultChannel, newHandler(), newSendTestCases, nil)
 	serviceTM.Close()
+}
+
+func TestDescribe(t *testing.T) {
+	server := buildMockTeams()
+
+	handler := newHandler().(courier.URNDescriber)
+	tcs := []struct {
+		urn      urns.URN
+		metadata map[string]string
+	}{{urns.URN("teams:a:2022:serviceURL:" + string(server.URL) + "/"), map[string]string{"name": "John Doe"}}}
+
+	for _, tc := range tcs {
+		metadata, _ := handler.DescribeURN(context.Background(), testChannels[0], tc.urn)
+		assert.Equal(t, metadata, tc.metadata)
+	}
+	server.Close()
 }

@@ -401,3 +401,29 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	status.SetExternalID(externalID)
 	return status, nil
 }
+
+func (h *handler) DescribeURN(ctx context.Context, channel courier.Channel, urn urns.URN) (map[string]string, error) {
+
+	accessToken := channel.StringConfigForKey(courier.ConfigAuthToken, "")
+	if accessToken == "" {
+		return nil, fmt.Errorf("missing access token")
+	}
+
+	// build a request to lookup the stats for this contact
+	pathSplit := strings.Split(urn.Path(), ":")
+	conversationID := pathSplit[1]
+	url := urn.TeamsServiceURL() + "v3/conversations/a:" + conversationID + "/members"
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	rr, err := utils.MakeHTTPRequest(req)
+	if err != nil {
+		return nil, fmt.Errorf("unable to look up contact data:%s\n%s", err, rr.Response)
+	}
+
+	// read our givenName and surname
+	givenName, _ := jsonparser.GetString(rr.Body, "[0]", "givenName")
+	surname, _ := jsonparser.GetString(rr.Body, "[0]", "surname")
+
+	return map[string]string{"name": utils.JoinNonEmpty(" ", givenName, surname)}, nil
+}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -111,6 +112,11 @@ func (mb *MockBackend) GetLastMsgStatus() (MsgStatus, error) {
 // GetLastContactName returns the contact name set on the last msg or channel event written
 func (mb *MockBackend) GetLastContactName() string {
 	return mb.lastContactName
+}
+
+// DeleteMsgWithExternalID delete a message we receive an event that it should be deleted
+func (mb *MockBackend) DeleteMsgWithExternalID(ctx context.Context, channel Channel, externalID string) error {
+	return nil
 }
 
 // NewIncomingMsg creates a new message from the given params
@@ -288,6 +294,11 @@ func (mb *MockBackend) GetContact(ctx context.Context, channel Channel, urn urns
 		mb.contacts[urn] = contact
 	}
 	return contact, nil
+}
+
+// UpdateContactLastSeenOn updates last seen on (and modified on) on the passed in contact
+func (mb *MockBackend) UpdateContactLastSeenOn(ctx context.Context, contactUUID ContactUUID, lastSeenOn time.Time) error {
+	return nil
 }
 
 // AddURNtoContact adds a URN to the passed in contact
@@ -713,3 +724,11 @@ type mockContact struct {
 }
 
 func (c *mockContact) UUID() ContactUUID { return c.uuid }
+
+func ReadFile(path string) []byte {
+	d, err := os.ReadFile(path)
+	if err != nil {
+		panic(err)
+	}
+	return d
+}

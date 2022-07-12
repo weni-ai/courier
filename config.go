@@ -30,6 +30,10 @@ type Config struct {
 	LogLevel                  string `help:"the logging level courier should use"`
 	Version                   string `help:"the version that will be used in request and response headers"`
 
+	WhatsappAdminSystemUserToken   string `help:"the token of the admin system user for WhatsApp"`
+	WhatsappCloudApplicationSecret string `help:"the Whatsapp Cloud app secret"`
+	WhatsappCloudWebhookSecret     string `help:"the secret for WhatsApp Cloud webhook URL verification"`
+
 	// IncludeChannels is the list of channels to enable, empty means include all
 	IncludeChannels []string
 
@@ -40,26 +44,27 @@ type Config struct {
 // NewConfig returns a new default configuration object
 func NewConfig() *Config {
 	return &Config{
-		Backend:                   "rapidpro",
-		Domain:                    "localhost",
-		Address:                   "",
-		Port:                      8080,
-		DB:                        "postgres://temba:temba@localhost/temba?sslmode=disable",
-		Redis:                     "redis://localhost:6379/15",
-		SpoolDir:                  "/var/spool/courier",
-		S3Endpoint:                "https://s3.amazonaws.com",
-		S3Region:                  "us-east-1",
-		S3MediaBucket:             "courier-media",
-		S3MediaPrefix:             "/media/",
-		S3DisableSSL:              false,
-		S3ForcePathStyle:          false,
-		AWSAccessKeyID:            "",
-		AWSSecretAccessKey:        "",
-		FacebookApplicationSecret: "missing_facebook_app_secret",
-		FacebookWebhookSecret:     "missing_facebook_webhook_secret",
-		MaxWorkers:                32,
-		LogLevel:                  "error",
-		Version:                   "Dev",
+		Backend:                      "rapidpro",
+		Domain:                       "localhost",
+		Address:                      "",
+		Port:                         8080,
+		DB:                           "postgres://temba:temba@localhost/temba?sslmode=disable",
+		Redis:                        "redis://localhost:6379/15",
+		SpoolDir:                     "/var/spool/courier",
+		S3Endpoint:                   "https://s3.amazonaws.com",
+		S3Region:                     "us-east-1",
+		S3MediaBucket:                "courier-media",
+		S3MediaPrefix:                "/media/",
+		S3DisableSSL:                 false,
+		S3ForcePathStyle:             false,
+		AWSAccessKeyID:               "",
+		AWSSecretAccessKey:           "",
+		FacebookApplicationSecret:    "missing_facebook_app_secret",
+		FacebookWebhookSecret:        "missing_facebook_webhook_secret",
+		WhatsappAdminSystemUserToken: "missing_whatsapp_admin_system_user_token",
+		MaxWorkers:                   32,
+		LogLevel:                     "error",
+		Version:                      "Dev",
 	}
 }
 

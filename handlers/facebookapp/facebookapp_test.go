@@ -2,6 +2,7 @@ package facebookapp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -24,784 +25,114 @@ var testChannelsIG = []courier.Channel{
 	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "IG", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"}),
 }
 
-var helloMsgFBA = `{
-	"object":"page",
-	"entry": [{
-	  "id": "12345",
-	  "messaging": [{
-			"message": {
-			  "text": "Hello World",
-			  "mid": "external_id"
-			},
-			"recipient": {
-			  "id": "12345"
-			},
-			"sender": {
-			  "id": "5678"
-			},
-			"timestamp": 1459991487970
-	  }],
-	  "time": 1459991487970
-	}]
-}`
-
-var helloMsgIG = `{
-	"object":"instagram",
-	"entry": [{
-	  "id": "12345",
-	  "messaging": [{
-			"message": {
-			  "text": "Hello World",
-			  "mid": "external_id"
-			},
-			"recipient": {
-			  "id": "12345"
-			},
-			"sender": {
-			  "id": "5678"
-			},
-			"timestamp": 1459991487970
-	  }],
-	  "time": 1459991487970
-	}]
-}`
-
-var duplicateMsgFBA = `{
-	"object":"page",
-	"entry": [{
-	  "id": "12345",
-	  "messaging": [{
-			"message": {
-			  "text": "Hello World",
-			  "mid": "external_id"
-			},
-			"recipient": {
-			  "id": "12345"
-			},
-			"sender": {
-			  "id": "5678"
-			},
-			"timestamp": 1459991487970
-	  }],
-	  "time": 1459991487970
-	},
-	{
-	  "id": "12345",
-	  "messaging": [{
-			"message": {
-			  "text": "Hello World",
-			  "mid": "external_id"
-			},
-			"recipient": {
-			  "id": "12345"
-			},
-			"sender": {
-			  "id": "5678"
-			},
-			"timestamp": 1459991487970
-	  }],
-	  "time": 1459991487970
-	}]
-}`
-
-var duplicateMsgIG = `{
-	"object":"instagram",
-	"entry": [{
-	  "id": "12345",
-	  "messaging": [{
-			"message": {
-			  "text": "Hello World",
-			  "mid": "external_id"
-			},
-			"recipient": {
-			  "id": "12345"
-			},
-			"sender": {
-			  "id": "5678"
-			},
-			"timestamp": 1459991487970
-	  }],
-	  "time": 1459991487970
-	},
-	{
-	  "id": "12345",
-	  "messaging": [{
-			"message": {
-			  "text": "Hello World",
-			  "mid": "external_id"
-			},
-			"recipient": {
-			  "id": "12345"
-			},
-			"sender": {
-			  "id": "5678"
-			},
-			"timestamp": 1459991487970
-	  }],
-	  "time": 1459991487970
-	}]
-}`
-
-var invalidURNFBA = `{
-	"object":"page",
-	"entry": [{
-	  "id": "12345",
-	  "messaging": [{
-			"message": {
-			  "text": "Hello World",
-			  "mid": "external_id"
-			},
-			"recipient": {
-			  "id": "12345"
-			},
-			"sender": {
-			  "id": "abc5678"
-			},
-			"timestamp": 1459991487970
-	  }],
-	  "time": 1459991487970
-	}]
-}`
-
-var invalidURNIG = `{
-	"object":"instagram",
-	"entry": [{
-	  "id": "12345",
-	  "messaging": [{
-			"message": {
-			  "text": "Hello World",
-			  "mid": "external_id"
-			},
-			"recipient": {
-			  "id": "12345"
-			},
-			"sender": {
-			  "id": "abc5678"
-			},
-			"timestamp": 1459991487970
-	  }],
-	  "time": 1459991487970
-	}]
-}`
-
-var attachmentFBA = `{
-	"object":"page",
-	"entry": [{
-	  	"id": "12345",
-	  	"messaging": [{
-				"message": {
-		  			"mid": "external_id",
-		  			"attachments":[{
-      	      		"type":"image",
-      	      		"payload":{
-						   "url":"https://image-url/foo.png"
-						}
-					}]
-				},
-				"recipient": {
-					"id": "12345"
-				},
-				"sender": {
-					"id": "5678"
-				},
-				"timestamp": 1459991487970
-	    }],
-	  	"time": 1459991487970
-	}]
-}`
-
-var attachmentIG = `{
-	"object":"instagram",
-	"entry": [{
-	  	"id": "12345",
-	  	"messaging": [{
-				"message": {
-		  			"mid": "external_id",
-		  			"attachments":[{
-      	      		"type":"image",
-      	      		"payload":{
-						"url":"https://image-url/foo.png"
-						}
-					}]
-				},
-				"recipient": {
-					"id": "12345"
-				},
-				"sender": {
-					"id": "5678"
-				},
-				"timestamp": 1459991487970
-	    }],
-	  	"time": 1459991487970
-	}]
-}`
-
-var locationAttachment = `{
-	"object":"page",
-	"entry": [{
-	  	"id": "12345",
-	  	"messaging": [{
-				"message": {
-		  			"mid": "external_id",
-		  			"attachments":[{
-						"type":"location",
-      	      			"payload":{
-							"coordinates": {
-								"lat": 1.2,
-								"long": -1.3
-							}
-						}
-					}]
-				},
-				"recipient": {
-					"id": "12345"
-				},
-				"sender": {
-					"id": "5678"
-				},
-				"timestamp": 1459991487970
-	    }],
-	  	"time": 1459991487970
-	}]
-}`
-
-var thumbsUp = `{
-	"object":"page",
-	"entry":[{
-		"id":"12345",
-		"time":1459991487970,
-		"messaging":[{
-			"sender":{"id":"5678"},
-			"recipient":{"id":"12345"},
-			"timestamp":1459991487970,
-			"message":{
-				"mid":"external_id",
-				"attachments":[{
-					"type":"image",
-					"payload":{
-						"sticker_id": 369239263222822,
-						"url":"https://scontent.xx.fbcdn.net/v/arst"
-					}
-				}]
-			}
-		}]
-	}]
-}`
-
-var like_heart = `{
-	"object":"instagram",
-	"entry":[{
-		"id":"12345",
-		"messaging":[{
-			"sender":{"id":"5678"},
-			"recipient":{"id":"12345"},
-			"timestamp":1459991487970,
-			"message":{
-				"mid":"external_id",
-				"attachments":[{
-					"type":"like_heart"
-				}]
-			}
-		}],
-		"time":1459991487970
-	}]
-}`
-
-var differentPageIG = `{
-	"object":"instagram",
-	"entry": [{
-	  "id": "12345",
-	  "messaging": [{
-			"message": {
-			  "text": "Hello World",
-			  "mid": "external_id"
-			},
-			"recipient": {
-			  "id": "1235"
-			},
-			"sender": {
-			  "id": "5678"
-			},
-			"timestamp": 1459991487970
-	  }],
-	  "time": 1459991487970
-	}]
-}`
-
-var differentPageFBA = `{
-	"object":"page",
-	"entry": [{
-	  "id": "12345",
-	  "messaging": [{
-			"message": {
-			  "text": "Hello World",
-			  "mid": "external_id"
-			},
-			"recipient": {
-			  "id": "1235"
-			},
-			"sender": {
-			  "id": "5678"
-			},
-			"timestamp": 1459991487970
-	  }],
-	  "time": 1459991487970
-	}]
-}`
-
-var echoFBA = `{
-	"object":"page",
-	"entry": [{
-		"id": "12345",
-		"messaging": [{
-			"recipient": {
-				"id": "12345"
-			},
-			"sender": {
-				"id": "5678"
-			},
-			"timestamp": 1459991487970,
-			"message": {
-				"is_echo": true,
-				"mid": "qT7ywaK"
-			}
-		}]
-	}]
-}`
-
-var echoIG = `{
-	"object":"instagram",
-	"entry": [{
-		"id": "12345",
-		"messaging": [{
-			"recipient": {
-				"id": "12345"
-			},
-			"sender": {
-				"id": "5678"
-			},
-			"timestamp": 1459991487970,
-			"message": {
-				"is_echo": true,
-				"mid": "qT7ywaK"
-			}
-		}]
-	}]
-}`
-
-var icebreakerGetStarted = `{
-	"object":"instagram",
-	"entry": [{
-	  "id": "12345",
-	  "messaging": [{
-			"postback": {
-				"title": "icebreaker question",  
-				"payload": "get_started"
-			},
-			"recipient": {
-			  "id": "12345"
-			},
-			"sender": {
-			  "id": "5678"
-			},
-			"timestamp": 1459991487970
-	  }],
-	  "time": 1459991487970
-	}]
-}`
-
-var optInUserRef = `{
-	"object":"page",
-	"entry": [{
-	  "id": "12345",
-	  "messaging": [{
-		  "optin": {
-		  	"ref": "optin_ref",
-		  	"user_ref": "optin_user_ref"
-		  },
-		  "recipient": {
-		  	"id": "12345"
-		  },
-		  "sender": {
-		  	"id": "5678"
-		  },
-		  "timestamp": 1459991487970
-	  }],
-	  "time": 1459991487970
-	}]
-}`
-
-var optIn = `{
-	"object":"page",
-	"entry": [{
-	  "id": "12345",
-	  "messaging": [{
-			"optin": {
-		 		"ref": "optin_ref"
-			},
-			"recipient": {
-		  	"id": "12345"
-			},
-			"sender": {
-		  	"id": "5678"
-			},
-			"timestamp": 1459991487970
-	  }],
-	  "time": 1459991487970
-	}]
-}`
-
-var postback = `{
-	"object":"page",
-	"entry": [{
-	  "id": "12345",
-	  "messaging": [{
-			"postback": {
-				"title": "postback title",  
-				"payload": "postback payload",
-				"referral": {
-				  "ref": "postback ref",
-				  "source": "postback source",
-				  "type": "postback type"
-				}
-			},
-			"recipient": {
-			  "id": "12345"
-			},
-			"sender": {
-			  "id": "5678"
-			},
-			"timestamp": 1459991487970
-	  }],
-	  "time": 1459991487970
-	}]
-}`
-
-var postbackReferral = `{
-	"object":"page",
-	"entry": [{
-	  "id": "12345",
-	  "messaging": [{
-			"postback": {
-				"title": "postback title",  
-				"payload": "get_started",
-				"referral": {
-				  "ref": "postback ref",
-				  "source": "postback source",
-				  "type": "postback type",
-				  "ad_id": "ad id"
-				}
-			},
-			"recipient": {
-			  "id": "12345"
-			},
-			"sender": {
-			  "id": "5678"
-			},
-			"timestamp": 1459991487970
-	  }],
-	  "time": 1459991487970
-	}]
-}`
-
-var postbackGetStarted = `{
-	"object":"page",
-	"entry": [{
-	  "id": "12345",
-	  "messaging": [{
-			"postback": {
-				"title": "postback title",  
-				"payload": "get_started"
-			},
-			"recipient": {
-			  "id": "12345"
-			},
-			"sender": {
-			  "id": "5678"
-			},
-			"timestamp": 1459991487970
-	  }],
-	  "time": 1459991487970
-	}]
-}`
-
-var referral = `{
-	"object":"page",
-	"entry": [{
-	  "id": "12345",
-	  "messaging": [{
-			"referral": {
-				"ref": "referral id",
-				"ad_id": "ad id",
-				"source": "referral source",
-				"type": "referral type"
-			},
-			"recipient": {
-			  "id": "12345"
-			},
-			"sender": {
-			  "id": "5678",
-			  "user_ref": "5678"
-			},
-			"timestamp": 1459991487970
-	  }],
-	  "time": 1459991487970
-	}]
-}`
-
-var dlr = `{
-	"object":"page",
-	"entry": [{
-	  "id": "12345",
-	  "messaging": [{
-			"delivery":{
-				"mids":[
-				   "mid.1458668856218:ed81099e15d3f4f233"
-				],
-				"watermark":1458668856253,
-				"seq":37
-			},
-			"recipient": {
-			  "id": "12345"
-			},
-			"sender": {
-			  "id": "5678"
-			},
-			"timestamp": 1459991487970
-	  }],
-	  "time": 1459991487970
-	}]
-}`
-
-var notPage = `{
-	"object":"notpage",
-	"entry": [{}]
-}`
-
-var notInstagram = `{
-	"object":"notinstagram",
-	"entry": [{}]
-}`
-
-var noEntriesFBA = `{
-	"object":"page",
-	"entry": []
-}`
-
-var noEntriesIG = `{
-	"object":"instagram",
-	"entry": []
-}`
-
-var noMessagingEntriesFBA = `{
-	"object":"page",
-	"entry": [{
-		"id": "12345"
-	}]
-}`
-
-var noMessagingEntriesIG = `{
-	"object":"instagram",
-	"entry": [{
-		"id": "12345"
-	}]
-}`
-
-var unknownMessagingEntryFBA = `{
-	"object":"page",
-	"entry": [{
-		"id": "12345",
-		"messaging": [{
-			"recipient": {
-				"id": "12345"
-			},
-			"sender": {
-				"id": "5678"
-			},
-			"timestamp": 1459991487970
-		}]
-	}]
-}`
-
-var unknownMessagingEntryIG = `{
-	"object":"instagram",
-	"entry": [{
-		"id": "12345",
-		"messaging": [{
-			"recipient": {
-				"id": "12345"
-			},
-			"sender": {
-				"id": "5678"
-			},
-			"timestamp": 1459991487970
-		}]
-	}]
-}`
-
-var customerFeedbackResponse = `{
-  "object": "page",
-  "entry": [
-    {
-      "id": "12345",
-			"time": 1459991487970,
-      "messaging": [
-        {
-          "recipient": {
-            "id": "12345"
-          },
-          "timestamp": 1459991487970,
-          "sender": {
-            "id": "5678"
-          },
-          "messaging_feedback": {
-            "feedback_screens": [
-              {
-                "screen_id": 0,
-                "questions": {
-                  "test_question": {
-                    "type": "CSAT",
-                    "payload": "4"
-                  }
-                }
-              }
-            ]
-          }
-        }
-      ]
-    }
-  ]
+var testChannelsWAC = []courier.Channel{
+	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "WAC", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"}),
 }
-`
-var storyMentionIG = `{
-	"object":"instagram",
-	"entry": [{
-	  	"id": "12345",
-	  	"messaging": [{
-				"message": {
-		  			"mid": "external_id",
-		  			"attachments":[{
-      	      		"type":"story_mention",
-      	      		"payload":{
-						"url":"https://story-url"
-						}
-					}]
-				},
-				"recipient": {
-					"id": "12345"
-				},
-				"sender": {
-					"id": "5678"
-				},
-				"timestamp": 1459991487970
-	    }],
-	  	"time": 1459991487970
-	}]
-}`
-
-var notJSON = `blargh`
 
 var testCasesFBA = []ChannelHandleTestCase{
-	{Label: "Receive Message FBA", URL: "/c/fba/receive", Data: helloMsgFBA, Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+	{Label: "Receive Message FBA", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/helloMsgFBA.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("Hello World"), URN: Sp("facebook:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		PrepRequest: addValidSignature},
-	{Label: "Receive Invalid Signature", URL: "/c/fba/receive", Data: helloMsgFBA, Status: 400, Response: "invalid request signature", PrepRequest: addInvalidSignature},
+	{Label: "Receive Invalid Signature", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/helloMsgFBA.json")), Status: 400, Response: "invalid request signature", PrepRequest: addInvalidSignature},
 
-	{Label: "No Duplicate Receive Message", URL: "/c/fba/receive", Data: duplicateMsgFBA, Status: 200, Response: "Handled",
+	{Label: "No Duplicate Receive Message", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/duplicateMsgFBA.json")), Status: 200, Response: "Handled",
 		Text: Sp("Hello World"), URN: Sp("facebook:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		PrepRequest: addValidSignature},
-	{Label: "Receive Attachment", URL: "/c/fba/receive", Data: attachmentFBA, Status: 200, Response: "Handled",
+	{Label: "Receive Attachment", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/attachmentFBA.json")), Status: 200, Response: "Handled",
 		Text: Sp(""), Attachments: []string{"https://image-url/foo.png"}, URN: Sp("facebook:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		PrepRequest: addValidSignature},
 
-	{Label: "Receive Location", URL: "/c/fba/receive", Data: locationAttachment, Status: 200, Response: "Handled",
+	{Label: "Receive Location", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/locationAttachment.json")), Status: 200, Response: "Handled",
 		Text: Sp(""), Attachments: []string{"geo:1.200000,-1.300000"}, URN: Sp("facebook:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		PrepRequest: addValidSignature},
-	{Label: "Receive Thumbs Up", URL: "/c/fba/receive", Data: thumbsUp, Status: 200, Response: "Handled",
+	{Label: "Receive Thumbs Up", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/thumbsUp.json")), Status: 200, Response: "Handled",
 		Text: Sp("👍"), URN: Sp("facebook:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		PrepRequest: addValidSignature},
 
-	{Label: "Receive OptIn UserRef", URL: "/c/fba/receive", Data: optInUserRef, Status: 200, Response: "Handled",
+	{Label: "Receive OptIn UserRef", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/optInUserRef.json")), Status: 200, Response: "Handled",
 		URN: Sp("facebook:ref:optin_user_ref"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		ChannelEvent: Sp(courier.Referral), ChannelEventExtra: map[string]interface{}{"referrer_id": "optin_ref"},
 		PrepRequest: addValidSignature},
-	{Label: "Receive OptIn", URL: "/c/fba/receive", Data: optIn, Status: 200, Response: "Handled",
+	{Label: "Receive OptIn", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/optIn.json")), Status: 200, Response: "Handled",
 		URN: Sp("facebook:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		ChannelEvent: Sp(courier.Referral), ChannelEventExtra: map[string]interface{}{"referrer_id": "optin_ref"},
 		PrepRequest: addValidSignature},
 
-	{Label: "Receive Get Started", URL: "/c/fba/receive", Data: postbackGetStarted, Status: 200, Response: "Handled",
+	{Label: "Receive Get Started", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/postbackGetStarted.json")), Status: 200, Response: "Handled",
 		URN: Sp("facebook:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)), ChannelEvent: Sp(courier.NewConversation),
 		ChannelEventExtra: map[string]interface{}{"title": "postback title", "payload": "get_started"},
 		PrepRequest:       addValidSignature},
-	{Label: "Receive Referral Postback", URL: "/c/fba/receive", Data: postback, Status: 200, Response: "Handled",
+	{Label: "Receive Referral Postback", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/postback.json")), Status: 200, Response: "Handled",
 		URN: Sp("facebook:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)), ChannelEvent: Sp(courier.Referral),
 		ChannelEventExtra: map[string]interface{}{"title": "postback title", "payload": "postback payload", "referrer_id": "postback ref", "source": "postback source", "type": "postback type"},
 		PrepRequest:       addValidSignature},
-	{Label: "Receive Referral", URL: "/c/fba/receive", Data: postbackReferral, Status: 200, Response: "Handled",
+	{Label: "Receive Referral", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/postbackReferral.json")), Status: 200, Response: "Handled",
 		URN: Sp("facebook:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)), ChannelEvent: Sp(courier.Referral),
 		ChannelEventExtra: map[string]interface{}{"title": "postback title", "payload": "get_started", "referrer_id": "postback ref", "source": "postback source", "type": "postback type", "ad_id": "ad id"},
 		PrepRequest:       addValidSignature},
 
-	{Label: "Receive Referral", URL: "/c/fba/receive", Data: referral, Status: 200, Response: `"referrer_id":"referral id"`,
+	{Label: "Receive Referral", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/referral.json")), Status: 200, Response: `"referrer_id":"referral id"`,
 		URN: Sp("facebook:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)), ChannelEvent: Sp(courier.Referral),
 		ChannelEventExtra: map[string]interface{}{"referrer_id": "referral id", "source": "referral source", "type": "referral type", "ad_id": "ad id"},
 		PrepRequest:       addValidSignature},
 
-	{Label: "Receive DLR", URL: "/c/fba/receive", Data: dlr, Status: 200, Response: "Handled",
+	{Label: "Receive DLR", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/dlr.json")), Status: 200, Response: "Handled",
 		Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)), MsgStatus: Sp(courier.MsgDelivered), ExternalID: Sp("mid.1458668856218:ed81099e15d3f4f233"),
 		PrepRequest: addValidSignature},
 
-	{Label: "Different Page", URL: "/c/fba/receive", Data: differentPageFBA, Status: 200, Response: `"data":[]`, PrepRequest: addValidSignature},
-	{Label: "Echo", URL: "/c/fba/receive", Data: echoFBA, Status: 200, Response: `ignoring echo`, PrepRequest: addValidSignature},
-	{Label: "Not Page", URL: "/c/fba/receive", Data: notPage, Status: 400, Response: "object expected 'page' or 'instagram', found notpage", PrepRequest: addValidSignature},
-	{Label: "No Entries", URL: "/c/fba/receive", Data: noEntriesFBA, Status: 400, Response: "no entries found", PrepRequest: addValidSignature},
-	{Label: "No Messaging Entries", URL: "/c/fba/receive", Data: noMessagingEntriesFBA, Status: 200, Response: "Handled", PrepRequest: addValidSignature},
-	{Label: "Unknown Messaging Entry", URL: "/c/fba/receive", Data: unknownMessagingEntryFBA, Status: 200, Response: "Handled", PrepRequest: addValidSignature},
-	{Label: "Not JSON", URL: "/c/fba/receive", Data: notJSON, Status: 400, Response: "Error", PrepRequest: addValidSignature},
-	{Label: "Receive Customer Feedback Message", URL: "/c/fba/receive", Data: customerFeedbackResponse, Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
-		Text: Sp("4"), URN: Sp("facebook:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
-		PrepRequest: addValidSignature},
-	{Label: "Invalid URN", URL: "/c/fba/receive", Data: invalidURNFBA, Status: 400, Response: "invalid facebook id", PrepRequest: addValidSignature},
+	{Label: "Different Page", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/differentPageFBA.json")), Status: 200, Response: `"data":[]`, PrepRequest: addValidSignature},
+	{Label: "Echo", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/echoFBA.json")), Status: 200, Response: `ignoring echo`, PrepRequest: addValidSignature},
+	{Label: "Not Page", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/notPage.json")), Status: 400, Response: "object expected 'page', 'instagram' or 'whatsapp_business_account', found notpage", PrepRequest: addValidSignature},
+	{Label: "No Entries", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/noEntriesFBA.json")), Status: 400, Response: "no entries found", PrepRequest: addValidSignature},
+	{Label: "No Messaging Entries", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/noMessagingEntriesFBA.json")), Status: 200, Response: "Handled", PrepRequest: addValidSignature},
+	{Label: "Unknown Messaging Entry", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/unknownMessagingEntryFBA.json")), Status: 200, Response: "Handled", PrepRequest: addValidSignature},
+	{Label: "Not JSON", URL: "/c/fba/receive", Data: "not JSON", Status: 400, Response: "Error", PrepRequest: addValidSignature},
+	{Label: "Invalid URN", URL: "/c/fba/receive", Data: string(courier.ReadFile("./testdata/fba/invalidURNFBA.json")), Status: 400, Response: "invalid facebook id", PrepRequest: addValidSignature},
 }
 var testCasesIG = []ChannelHandleTestCase{
-	{Label: "Receive Message", URL: "/c/ig/receive", Data: helloMsgIG, Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+	{Label: "Receive Message", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/helloMsgIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		PrepRequest: addValidSignature},
 
-	{Label: "Receive Invalid Signature", URL: "/c/ig/receive", Data: helloMsgIG, Status: 400, Response: "invalid request signature", PrepRequest: addInvalidSignature},
+	{Label: "Receive Invalid Signature", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/helloMsgIG.json")), Status: 400, Response: "invalid request signature", PrepRequest: addInvalidSignature},
 
-	{Label: "No Duplicate Receive Message", URL: "/c/ig/receive", Data: duplicateMsgIG, Status: 200, Response: "Handled",
+	{Label: "No Duplicate Receive Message", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/duplicateMsgIG.json")), Status: 200, Response: "Handled",
 		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		PrepRequest: addValidSignature},
 
-	{Label: "Receive Attachment", URL: "/c/ig/receive", Data: attachmentIG, Status: 200, Response: "Handled",
+	{Label: "Receive Attachment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/attachmentIG.json")), Status: 200, Response: "Handled",
 		Text: Sp(""), Attachments: []string{"https://image-url/foo.png"}, URN: Sp("instagram:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		PrepRequest: addValidSignature},
 
-	{Label: "Receive Like Heart", URL: "/c/ig/receive", Data: like_heart, Status: 200, Response: "Handled",
+	{Label: "Receive Like Heart", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/like_heart.json")), Status: 200, Response: "Handled",
 		Text: Sp(""), URN: Sp("instagram:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		PrepRequest: addValidSignature},
 
-	{Label: "Receive Icebreaker Get Started", URL: "/c/ig/receive", Data: icebreakerGetStarted, Status: 200, Response: "Handled",
+	{Label: "Receive Icebreaker Get Started", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/icebreakerGetStarted.json")), Status: 200, Response: "Handled",
 		URN: Sp("instagram:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)), ChannelEvent: Sp(courier.NewConversation),
 		ChannelEventExtra: map[string]interface{}{"title": "icebreaker question", "payload": "get_started"},
 		PrepRequest:       addValidSignature},
-
-	{Label: "Different Page", URL: "/c/ig/receive", Data: differentPageIG, Status: 200, Response: `"data":[]`, PrepRequest: addValidSignature},
-	{Label: "Echo", URL: "/c/ig/receive", Data: echoIG, Status: 200, Response: `ignoring echo`, PrepRequest: addValidSignature},
-	{Label: "No Entries", URL: "/c/ig/receive", Data: noEntriesIG, Status: 400, Response: "no entries found", PrepRequest: addValidSignature},
-	{Label: "Not Instagram", URL: "/c/ig/receive", Data: notInstagram, Status: 400, Response: "object expected 'page' or 'instagram', found notinstagram", PrepRequest: addValidSignature},
-	{Label: "No Messaging Entries", URL: "/c/ig/receive", Data: noMessagingEntriesIG, Status: 200, Response: "Handled", PrepRequest: addValidSignature},
-	{Label: "Unknown Messaging Entry", URL: "/c/ig/receive", Data: unknownMessagingEntryIG, Status: 200, Response: "Handled", PrepRequest: addValidSignature},
-	{Label: "Not JSON", URL: "/c/ig/receive", Data: notJSON, Status: 400, Response: "Error", PrepRequest: addValidSignature},
-	{Label: "Invalid URN", URL: "/c/ig/receive", Data: invalidURNIG, Status: 400, Response: "invalid instagram id", PrepRequest: addValidSignature},
-	{Label: "Story Mention", URL: "/c/ig/receive", Data: storyMentionIG, Status: 200, Response: `ignoring story_mention`, PrepRequest: addValidSignature},
+	{Label: "Different Page", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/differentPageIG.json")), Status: 200, Response: `"data":[]`, PrepRequest: addValidSignature},
+	{Label: "Echo", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/echoIG.json")), Status: 200, Response: `ignoring echo`, PrepRequest: addValidSignature},
+	{Label: "No Entries", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/noEntriesIG.json")), Status: 400, Response: "no entries found", PrepRequest: addValidSignature},
+	{Label: "Not Instagram", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/notInstagram.json")), Status: 400, Response: "object expected 'page', 'instagram' or 'whatsapp_business_account', found notinstagram", PrepRequest: addValidSignature},
+	{Label: "No Messaging Entries", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/noMessagingEntriesIG.json")), Status: 200, Response: "Handled", PrepRequest: addValidSignature},
+	{Label: "Unknown Messaging Entry", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/unknownMessagingEntryIG.json")), Status: 200, Response: "Handled", PrepRequest: addValidSignature},
+	{Label: "Not JSON", URL: "/c/ig/receive", Data: "not JSON", Status: 400, Response: "Error", PrepRequest: addValidSignature},
+	{Label: "Invalid URN", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/invalidURNIG.json")), Status: 400, Response: "invalid instagram id", PrepRequest: addValidSignature},
+	{Label: "Story Mention", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/storyMentionIG.json")), Status: 200, Response: `ignoring story_mention`, PrepRequest: addValidSignature},
+	{Label: "Message unsent", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/unsentMsgIG.json")), Status: 200, Response: `msg deleted`, PrepRequest: addValidSignature},
 }
 
 func addValidSignature(r *http.Request) {
 	body, _ := handlers.ReadBody(r, 100000)
 	sig, _ := fbCalculateSignature("fb_app_secret", body)
+	r.Header.Set(signatureHeader, fmt.Sprintf("sha1=%s", string(sig)))
+}
+
+func addValidSignatureWAC(r *http.Request) {
+	body, _ := handlers.ReadBody(r, 100000)
+	sig, _ := fbCalculateSignature("wac_app_secret", body)
 	r.Header.Set(signatureHeader, fmt.Sprintf("sha1=%s", string(sig)))
 }
 
@@ -893,10 +224,111 @@ func TestDescribeIG(t *testing.T) {
 	}
 }
 
+func TestDescribeWAC(t *testing.T) {
+	handler := newHandler("WAC", "Cloud API WhatsApp", false).(courier.URNDescriber)
+
+	tcs := []struct {
+		urn      urns.URN
+		metadata map[string]string
+	}{{"whatsapp:1337", map[string]string{}},
+		{"whatsapp:4567", map[string]string{}}}
+
+	for _, tc := range tcs {
+		metadata, _ := handler.DescribeURN(context.Background(), testChannelsWAC[0], tc.urn)
+		assert.Equal(t, metadata, tc.metadata)
+	}
+}
+
+var wacReceiveURL = "/c/wac/receive"
+
+var testCasesWAC = []ChannelHandleTestCase{
+	{Label: "Receive Message WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Duplicate Valid Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/duplicateWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
+
+	{Label: "Receive Valid Voice Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/voiceWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp(""), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Attachment: Sp("https://foo.bar/attachmentURL_Voice"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
+
+	{Label: "Receive Valid Button Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/buttonWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("No"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
+
+	{Label: "Receive Valid Document Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/documentWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("80skaraokesonglistartist"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Attachment: Sp("https://foo.bar/attachmentURL_Document"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Valid Image Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/imageWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Check out my new phone!"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Attachment: Sp("https://foo.bar/attachmentURL_Image"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Valid Video Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/videoWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Check out my new phone!"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Attachment: Sp("https://foo.bar/attachmentURL_Video"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Valid Audio Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/audioWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Check out my new phone!"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Attachment: Sp("https://foo.bar/attachmentURL_Audio"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Valid Location Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/locationWAC.json")), Status: 200, Response: `"type":"msg"`,
+		Text: Sp(""), Attachment: Sp("geo:0.000000,1.000000"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
+
+	{Label: "Receive Invalid JSON", URL: wacReceiveURL, Data: "not json", Status: 400, Response: "unable to parse", PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Invalid JSON", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/invalidFrom.json")), Status: 400, Response: "invalid whatsapp id", PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Invalid JSON", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/invalidTimestamp.json")), Status: 400, Response: "invalid timestamp", PrepRequest: addValidSignatureWAC},
+
+	{Label: "Receive Valid Status", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/validStatusWAC.json")), Status: 200, Response: `"type":"status"`,
+		MsgStatus: Sp("S"), ExternalID: Sp("external_id"), PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Invalid Status", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/invalidStatusWAC.json")), Status: 400, Response: `"unknown status: in_orbit"`, PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Ignore Status", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/ignoreStatusWAC.json")), Status: 200, Response: `"ignoring status: deleted"`, PrepRequest: addValidSignatureWAC},
+}
+
 func TestHandler(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		accessToken := r.Header.Get("Authorization")
+		defer r.Body.Close()
+
+		// invalid auth token
+		if accessToken != "Bearer a123" {
+			fmt.Printf("Access token: %s\n", accessToken)
+			http.Error(w, "invalid auth token", 403)
+			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "image") {
+			w.Write([]byte(`{"url": "https://foo.bar/attachmentURL_Image"}`))
+			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "audio") {
+			w.Write([]byte(`{"url": "https://foo.bar/attachmentURL_Audio"}`))
+			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "voice") {
+			w.Write([]byte(`{"url": "https://foo.bar/attachmentURL_Voice"}`))
+			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "video") {
+			w.Write([]byte(`{"url": "https://foo.bar/attachmentURL_Video"}`))
+			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "document") {
+			w.Write([]byte(`{"url": "https://foo.bar/attachmentURL_Document"}`))
+			return
+		}
+
+		// valid token
+		w.Write([]byte(`{"url": "https://foo.bar/attachmentURL"}`))
+
+	}))
+	graphURL = server.URL
+
+	RunChannelTestCases(t, testChannelsWAC, newHandler("WAC", "Cloud API WhatsApp", false), testCasesWAC)
 	RunChannelTestCases(t, testChannelsFBA, newHandler("FBA", "Facebook", false), testCasesFBA)
 	RunChannelTestCases(t, testChannelsIG, newHandler("IG", "Instagram", false), testCasesIG)
-
 }
 
 func BenchmarkHandler(b *testing.B) {
@@ -931,11 +363,20 @@ func TestVerify(t *testing.T) {
 		{Label: "Valid Secret", URL: "/c/ig/receive?hub.mode=subscribe&hub.verify_token=fb_webhook_secret&hub.challenge=yarchallenge", Status: 200, Response: "yarchallenge"},
 	})
 
+	RunChannelTestCases(t, testChannelsWAC, newHandler("WAC", "WhatsApp Cloud", false), []ChannelHandleTestCase{
+		{Label: "Valid Secret", URL: "/c/wac/receive?hub.mode=subscribe&hub.verify_token=wac_webhook_secret&hub.challenge=yarchallenge", Status: 200,
+			Response: "yarchallenge", NoQueueErrorCheck: true, NoInvalidChannelCheck: true},
+		{Label: "Verify No Mode", URL: "/c/wac/receive", Status: 400, Response: "unknown request"},
+		{Label: "Verify No Secret", URL: "/c/wac/receive?hub.mode=subscribe", Status: 400, Response: "token does not match secret"},
+		{Label: "Invalid Secret", URL: "/c/wac/receive?hub.mode=subscribe&hub.verify_token=blah", Status: 400, Response: "token does not match secret"},
+		{Label: "Valid Secret", URL: "/c/wac/receive?hub.mode=subscribe&hub.verify_token=wac_webhook_secret&hub.challenge=yarchallenge", Status: 200, Response: "yarchallenge"},
+	})
 }
 
 // setSendURL takes care of setting the send_url to our test server host
 func setSendURL(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
 	sendURL = s.URL
+	graphURL = s.URL
 }
 
 var SendTestCasesFBA = []ChannelSendTestCase{
@@ -1067,13 +508,210 @@ var SendTestCasesIG = []ChannelSendTestCase{
 		SendPrep: setSendURL},
 }
 
+var SendTestCasesWAC = []ChannelSendTestCase{
+	{Label: "Plain Send",
+		Text: "Simple Message", URN: "whatsapp:250788123123", Path: "/12345_ID/messages",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","preview_url":false,"recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"Simple Message"}}`,
+		SendPrep:    setSendURL},
+	{Label: "Unicode Send",
+		Text: "☺", URN: "whatsapp:250788123123", Path: "/12345_ID/messages",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","preview_url":false,"recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"☺"}}`,
+		SendPrep:    setSendURL},
+	{Label: "Audio Send",
+		Text:   "audio caption",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"audio/mpeg:https://foo.bar/audio.mp3"},
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","preview_url":false,"recipient_type":"individual","to":"250788123123","type":"audio","audio":{"link":"https://foo.bar/audio.mp3"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","preview_url":false,"recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"audio caption"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
+	{Label: "Document Send",
+		Text:   "document caption",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"application/pdf:https://foo.bar/document.pdf"},
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","preview_url":false,"recipient_type":"individual","to":"250788123123","type":"document","document":{"link":"https://foo.bar/document.pdf"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","preview_url":false,"recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"document caption"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
+
+	{Label: "Image Send",
+		Text:   "document caption",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","preview_url":false,"recipient_type":"individual","to":"250788123123","type":"image","image":{"link":"https://foo.bar/image.jpg"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","preview_url":false,"recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"document caption"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
+	{Label: "Video Send",
+		Text:   "video caption",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"video/mp4:https://foo.bar/video.mp4"},
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","preview_url":false,"recipient_type":"individual","to":"250788123123","type":"video","video":{"link":"https://foo.bar/video.mp4"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","preview_url":false,"recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"video caption"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
+
+	{Label: "Template Send",
+		Text:   "templated message",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "variables": ["Chef", "tomorrow"]}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
+		RequestBody: `{"messaging_product":"whatsapp","preview_url":false,"recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"revive_issue","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","sub_type":"","index":"","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]}]}}`,
+		SendPrep:    setSendURL,
+	},
+
+	{Label: "Template Country Language",
+		Text:   "templated message",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "country": "US", "variables": ["Chef", "tomorrow"]}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
+		RequestBody: `{"messaging_product":"whatsapp","preview_url":false,"recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"revive_issue","language":{"policy":"deterministic","code":"en_US"},"components":[{"type":"body","sub_type":"","index":"","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]}]}}`,
+		SendPrep:    setSendURL,
+	},
+	{Label: "Template Invalid Language",
+		Text: "templated message", URN: "whatsapp:250788123123",
+		Error:    `unable to decode template: {"templating": { "template": { "name": "revive_issue", "uuid": "8ca114b4-bee2-4d3b-aaf1-9aa6b48d41e8" }, "language": "bnt", "variables": ["Chef", "tomorrow"]}} for channel: 8eb23e93-5ecb-45ba-b726-3b064e0c56ab: unable to find mapping for language: bnt`,
+		Metadata: json.RawMessage(`{"templating": { "template": { "name": "revive_issue", "uuid": "8ca114b4-bee2-4d3b-aaf1-9aa6b48d41e8" }, "language": "bnt", "variables": ["Chef", "tomorrow"]}}`),
+	},
+	{Label: "Interactive Button Message Send",
+		Text: "Interactive Button Msg", URN: "whatsapp:250788123123", QuickReplies: []string{"BUTTON1"},
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","preview_url":false,"recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"button","body":{"text":"Interactive Button Msg"},"action":{"buttons":[{"type":"reply","reply":{"id":"0","title":"BUTTON1"}}]}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Interactive List Message Send",
+		Text: "Interactive List Msg", URN: "whatsapp:250788123123", QuickReplies: []string{"ROW1", "ROW2", "ROW3", "ROW4"},
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","preview_url":false,"recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"list","body":{"text":"Interactive List Msg"},"action":{"button":"Menu","sections":[{"rows":[{"id":"0","title":"ROW1"},{"id":"1","title":"ROW2"},{"id":"2","title":"ROW3"},{"id":"3","title":"ROW4"}]}]}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Interactive Button Message Send with attachment",
+		Text: "Interactive Button Msg", URN: "whatsapp:250788123123", QuickReplies: []string{"BUTTON1"},
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","preview_url":false,"recipient_type":"individual","to":"250788123123","type":"image","image":{"link":"https://foo.bar/image.jpg"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","preview_url":false,"recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"button","body":{"text":"Interactive Button Msg"},"action":{"buttons":[{"type":"reply","reply":{"id":"0","title":"BUTTON1"}}]}}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
+	{Label: "Interactive List Message Send with attachment",
+		Text: "Interactive List Msg", URN: "whatsapp:250788123123", QuickReplies: []string{"ROW1", "ROW2", "ROW3", "ROW4"},
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","preview_url":false,"recipient_type":"individual","to":"250788123123","type":"image","image":{"link":"https://foo.bar/image.jpg"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","preview_url":false,"recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"list","body":{"text":"Interactive List Msg"},"action":{"button":"Menu","sections":[{"rows":[{"id":"0","title":"ROW1"},{"id":"1","title":"ROW2"},{"id":"2","title":"ROW3"},{"id":"3","title":"ROW4"}]}]}}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
+}
+
 func TestSending(t *testing.T) {
 	// shorter max msg length for testing
 	maxMsgLength = 100
 	var ChannelFBA = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "FBA", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
 	var ChannelIG = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "IG", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
+	var ChannelWAC = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WAC", "12345_ID", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
 	RunChannelSendTestCases(t, ChannelFBA, newHandler("FBA", "Facebook", false), SendTestCasesFBA, nil)
 	RunChannelSendTestCases(t, ChannelIG, newHandler("IG", "Instagram", false), SendTestCasesIG, nil)
+	RunChannelSendTestCases(t, ChannelWAC, newHandler("WAC", "Cloud API WhatsApp", false), SendTestCasesWAC, nil)
 }
 
 func TestSigning(t *testing.T) {

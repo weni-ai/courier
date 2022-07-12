@@ -64,6 +64,12 @@ func (b *backend) GetContact(ctx context.Context, c courier.Channel, urn urns.UR
 	return contactForURN(ctx, b, dbChannel.OrgID_, dbChannel, urn, auth, name)
 }
 
+// UpdateContactLastSeenOn updates last seen on (and modified on) on the passed in contact
+func (b *backend) UpdateContactLastSeenOn(ctx context.Context, contactUUID courier.ContactUUID, lastSeenOn time.Time) error {
+	_, err := b.db.ExecContext(ctx, `UPDATE contacts_contact SET last_seen_on = $2, modified_on = NOW() WHERE uuid = $1`, contactUUID.String(), lastSeenOn)
+	return err
+}
+
 // AddURNtoContact adds a URN to the passed in contact
 func (b *backend) AddURNtoContact(ctx context.Context, c courier.Channel, contact courier.Contact, urn urns.URN) (urns.URN, error) {
 	tx, err := b.db.BeginTxx(ctx, nil)
@@ -102,6 +108,26 @@ func (b *backend) RemoveURNfromContact(ctx context.Context, c courier.Channel, c
 		return urns.NilURN, err
 	}
 	return urn, nil
+}
+
+const updateMsgVisibilityDeleted = `
+UPDATE
+	msgs_msg
+SET
+	visibility = 'D'
+WHERE
+	msgs_msg.id = (SELECT m."id" FROM "msgs_msg" m INNER JOIN "channels_channel" c ON (m."channel_id" = c."id") WHERE (c."uuid" = $1 AND m."external_id" = $2 AND m."direction" = 'I')
+RETURNING
+	msgs_msg.id
+`
+
+// DeleteMsgWithExternalID delete a message we receive an event that it should be deleted
+func (b *backend) DeleteMsgWithExternalID(ctx context.Context, channel courier.Channel, externalID string) error {
+	_, err := b.db.ExecContext(ctx, updateMsgVisibilityDeleted, channel.UUID().String(), externalID)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // NewIncomingMsg creates a new message from the given params

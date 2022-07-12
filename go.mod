@@ -35,8 +35,6 @@ require (
 	gopkg.in/h2non/filetype.v1 v1.0.5
 )
 
-replace github.com/nyaruka/gocommon v1.16.2 => github.com/Ilhasoft/gocommon v1.16.2-weni
-
 require (
 	github.com/gabriel-vasile/mimetype v1.4.0
 	github.com/golang-jwt/jwt/v4 v4.4.1
@@ -72,6 +70,4 @@ require (
 
 go 1.17
 
-replace ( 
-	github.com/nyaruka/gocommon => github.com/Ilhasoft/gocommon v1.16.2-slack-develop
-)
+replace github.com/nyaruka/gocommon => github.com/Ilhasoft/gocommon v1.16.2-weni

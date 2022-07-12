@@ -35,7 +35,7 @@ require (
 	gopkg.in/h2non/filetype.v1 v1.0.5
 )
 
-replace github.com/nyaruka/gocommon v1.16.2 => github.com/Ilhasoft/gocommon v1.16.2-teams-handler
+replace github.com/nyaruka/gocommon v1.16.2 => github.com/Ilhasoft/gocommon v1.16.2-weni
 
 require (
 	github.com/gabriel-vasile/mimetype v1.4.0

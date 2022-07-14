@@ -1,3 +1,7 @@
+1.4.0-courier-7.1.0
+----------  
+  * Integration support with Microsoft Teams
+
 1.3.3-courier-7.1.0
 ----------  
   * Media message template support, link preview and document name correction on WhatsApp Cloud #118

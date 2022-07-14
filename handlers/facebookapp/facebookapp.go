@@ -1142,8 +1142,8 @@ type wacParam struct {
 
 type wacComponent struct {
 	Type    string      `json:"type"`
-	SubType string      `json:"sub_type"`
-	Index   string      `json:"index"`
+	SubType string      `json:"sub_type,omitempty"`
+	Index   string      `json:"index,omitempty"`
 	Params  []*wacParam `json:"parameters"`
 }
 
@@ -1243,34 +1243,33 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				template := wacTemplate{Name: templating.Template.Name, Language: &wacLanguage{Policy: "deterministic", Code: templating.Language}}
 				payload.Template = &template
 
-				component := &wacComponent{Type: "body"}
-
-				for _, v := range templating.Variables {
-					component.Params = append(component.Params, &wacParam{Type: "text", Text: v})
+				if len(templating.Variables) > 0 {
+					component := &wacComponent{Type: "body"}
+					for _, v := range templating.Variables {
+						component.Params = append(component.Params, &wacParam{Type: "text", Text: v})
+					}
+					template.Components = append(payload.Template.Components, component)
 				}
-				template.Components = append(payload.Template.Components, component)
 
 				if len(msg.Attachments()) > 0 {
 
 					header := &wacComponent{Type: "header"}
 
-					for _, attachment := range msg.Attachments() {
-						attType, attURL := handlers.SplitAttachment(attachment)
-						attType = strings.Split(attType, "/")[0]
-						if attType == "application" {
-							attType = "document"
-						}
-						media := wacMTMedia{Link: attURL}
-						if attType == "image" {
-							header.Params = append(header.Params, &wacParam{Type: "image", Image: &media})
-						} else if attType == "video" {
-							header.Params = append(header.Params, &wacParam{Type: "video", Video: &media})
-						} else if attType == "document" {
-							header.Params = append(header.Params, &wacParam{Type: "document", Document: &media})
-						} else {
-							err = fmt.Errorf("unknown attachment mime type: %s", attType)
-							break
-						}
+					attType, attURL := handlers.SplitAttachment(msg.Attachments()[0])
+					attType = strings.Split(attType, "/")[0]
+					if attType == "application" {
+						attType = "document"
+					}
+					media := wacMTMedia{Link: attURL}
+					if attType == "image" {
+						header.Params = append(header.Params, &wacParam{Type: "image", Image: &media})
+					} else if attType == "video" {
+						header.Params = append(header.Params, &wacParam{Type: "video", Video: &media})
+					} else if attType == "document" {
+						header.Params = append(header.Params, &wacParam{Type: "document", Document: &media})
+					} else {
+						err = fmt.Errorf("unknown attachment mime type: %s", attType)
+						break
 					}
 					payload.Template.Components = append(payload.Template.Components, header)
 				}

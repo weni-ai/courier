@@ -1,3 +1,7 @@
+1.3.2-courier-7.1.0
+----------
+  * Fix to prevent create a new contact without extra 9 in wpp number, instead, updating if already has one with the extra 9, handled in whatsapp cloud channels #119
+
 1.3.1-courier-7.1.0
 ----------
   * Fix to ensure update last_seen_on if there is no error and no failure to send the message.

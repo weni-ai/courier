@@ -55,6 +55,7 @@ import (
 	_ "github.com/nyaruka/courier/handlers/slack"
 	_ "github.com/nyaruka/courier/handlers/smscentral"
 	_ "github.com/nyaruka/courier/handlers/start"
+	_ "github.com/nyaruka/courier/handlers/teams"
 	_ "github.com/nyaruka/courier/handlers/telegram"
 	_ "github.com/nyaruka/courier/handlers/telesom"
 	_ "github.com/nyaruka/courier/handlers/thinq"

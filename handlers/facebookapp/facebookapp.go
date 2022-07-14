@@ -1133,19 +1133,23 @@ type wacMTButton struct {
 }
 
 type wacParam struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type     string      `json:"type"`
+	Text     string      `json:"text,omitempty"`
+	Image    *wacMTMedia `json:"image,omitempty"`
+	Document *wacMTMedia `json:"document,omitempty"`
+	Video    *wacMTMedia `json:"video,omitempty"`
 }
 
 type wacComponent struct {
 	Type    string      `json:"type"`
-	SubType string      `json:"sub_type"`
-	Index   string      `json:"index"`
+	SubType string      `json:"sub_type,omitempty"`
+	Index   string      `json:"index,omitempty"`
 	Params  []*wacParam `json:"parameters"`
 }
 
 type wacText struct {
-	Body string `json:"body"`
+	Body       string `json:"body"`
+	PreviewURL bool   `json:"preview_url,omitempty"`
 }
 
 type wacLanguage struct {
@@ -1183,7 +1187,6 @@ type wacInteractive struct {
 
 type wacMTPayload struct {
 	MessagingProduct string `json:"messaging_product"`
-	PreviewURL       bool   `json:"preview_url"`
 	RecipientType    string `json:"recipient_type"`
 	To               string `json:"to"`
 	Type             string `json:"type"`
@@ -1232,10 +1235,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 	for i := 0; i < len(msgParts)+len(msg.Attachments()); i++ {
 		payload := wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path()}
 
-		if len(msg.Attachments()) == 0 {
-			// do we have a template?
-			var templating *MsgTemplating
-			templating, err := h.getTemplate(msg)
+		// do we have a template?
+		var templating *MsgTemplating
+		templating, err := h.getTemplate(msg)
+		if templating != nil || len(msg.Attachments()) == 0 {
+
 			if err != nil {
 				return nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())
 			}
@@ -1246,18 +1250,50 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				template := wacTemplate{Name: templating.Template.Name, Language: &wacLanguage{Policy: "deterministic", Code: templating.Language}}
 				payload.Template = &template
 
-				component := &wacComponent{Type: "body"}
-
-				for _, v := range templating.Variables {
-					component.Params = append(component.Params, &wacParam{Type: "text", Text: v})
+				if len(templating.Variables) > 0 {
+					component := &wacComponent{Type: "body"}
+					for _, v := range templating.Variables {
+						component.Params = append(component.Params, &wacParam{Type: "text", Text: v})
+					}
+					template.Components = append(payload.Template.Components, component)
 				}
-				template.Components = append(payload.Template.Components, component)
+
+				if len(msg.Attachments()) > 0 {
+
+					header := &wacComponent{Type: "header"}
+
+					attType, attURL := handlers.SplitAttachment(msg.Attachments()[0])
+					attType = strings.Split(attType, "/")[0]
+					if attType == "application" {
+						attType = "document"
+					}
+					media := wacMTMedia{Link: attURL}
+					if attType == "image" {
+						header.Params = append(header.Params, &wacParam{Type: "image", Image: &media})
+					} else if attType == "video" {
+						header.Params = append(header.Params, &wacParam{Type: "video", Video: &media})
+					} else if attType == "document" {
+						media.Filename, err = utils.BasePathForURL(attURL)
+						if err != nil {
+							return nil, err
+						}
+						header.Params = append(header.Params, &wacParam{Type: "document", Document: &media})
+					} else {
+						return nil, fmt.Errorf("unknown attachment mime type: %s", attType)
+					}
+					payload.Template.Components = append(payload.Template.Components, header)
+				}
 
 			} else {
 				if i < (len(msgParts) + len(msg.Attachments()) - 1) {
 					// this is still a msg part
+					text := &wacText{}
 					payload.Type = "text"
-					payload.Text = &wacText{Body: msgParts[i-len(msg.Attachments())]}
+					if strings.Contains(msgParts[i-len(msg.Attachments())], "https://") || strings.Contains(msgParts[i-len(msg.Attachments())], "http://") {
+						text.PreviewURL = true
+					}
+					text.Body = msgParts[i-len(msg.Attachments())]
+					payload.Text = text
 				} else {
 					if len(qrs) > 0 {
 						payload.Type = "interactive"
@@ -1310,8 +1346,13 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						}
 					} else {
 						// this is still a msg part
+						text := &wacText{}
 						payload.Type = "text"
-						payload.Text = &wacText{Body: msgParts[i-len(msg.Attachments())]}
+						if strings.Contains(msgParts[i-len(msg.Attachments())], "https://") || strings.Contains(msgParts[i-len(msg.Attachments())], "http://") {
+							text.PreviewURL = true
+						}
+						text.Body = msgParts[i-len(msg.Attachments())]
+						payload.Text = text
 					}
 				}
 			}
@@ -1332,13 +1373,22 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			} else if attType == "video" {
 				payload.Video = &media
 			} else if attType == "document" {
+				media.Filename, err = utils.BasePathForURL(attURL)
+				if err != nil {
+					return nil, err
+				}
 				payload.Document = &media
 			}
 		} else {
 			if i < (len(msgParts) + len(msg.Attachments()) - 1) {
 				// this is still a msg part
+				text := &wacText{}
 				payload.Type = "text"
-				payload.Text = &wacText{Body: msgParts[i-len(msg.Attachments())]}
+				if strings.Contains(msgParts[i-len(msg.Attachments())], "https://") || strings.Contains(msgParts[i-len(msg.Attachments())], "http://") {
+					text.PreviewURL = true
+				}
+				text.Body = msgParts[i-len(msg.Attachments())]
+				payload.Text = text
 			} else {
 				if len(qrs) > 0 {
 					payload.Type = "interactive"
@@ -1392,8 +1442,13 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					}
 				} else {
 					// this is still a msg part
+					text := &wacText{}
 					payload.Type = "text"
-					payload.Text = &wacText{Body: msgParts[i-len(msg.Attachments())]}
+					if strings.Contains(msgParts[i-len(msg.Attachments())], "https://") || strings.Contains(msgParts[i-len(msg.Attachments())], "http://") {
+						text.PreviewURL = true
+					}
+					text.Body = msgParts[i-len(msg.Attachments())]
+					payload.Text = text
 				}
 			}
 
@@ -1449,6 +1504,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				hasNewURN = true
 			}
 		}
+  
+    if templating != nil && len(msg.Attachments()) > 0 {
+			break
+	  }
 
 	}
 	return status, nil

@@ -351,8 +351,6 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	payload := Activity{}
 
 	path := strings.Split(msg.URN().Path(), ":")
-
-	//por enquanto antes de ajustar na gocommon (Trazer via urn serviceURL)
 	conversationID := path[1]
 
 	msgURL := msg.URN().TeamsServiceURL() + "v3/conversations/a:" + conversationID + "/activities"

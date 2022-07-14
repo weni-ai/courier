@@ -1266,10 +1266,13 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					} else if attType == "video" {
 						header.Params = append(header.Params, &wacParam{Type: "video", Video: &media})
 					} else if attType == "document" {
+						media.Filename, err = utils.BasePathForURL(attURL)
+						if err != nil {
+							return nil, err
+						}
 						header.Params = append(header.Params, &wacParam{Type: "document", Document: &media})
 					} else {
-						err = fmt.Errorf("unknown attachment mime type: %s", attType)
-						break
+						return nil, fmt.Errorf("unknown attachment mime type: %s", attType)
 					}
 					payload.Template.Components = append(payload.Template.Components, header)
 				}
@@ -1363,6 +1366,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			} else if attType == "video" {
 				payload.Video = &media
 			} else if attType == "document" {
+				media.Filename, err = utils.BasePathForURL(attURL)
+				if err != nil {
+					return nil, err
+				}
 				payload.Document = &media
 			}
 		} else {

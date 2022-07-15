@@ -175,6 +175,17 @@ type moPayload struct {
 						Text    string `json:"text"`
 						Payload string `json:"payload"`
 					} `json:"button"`
+					Interactive struct {
+						Type        string `json:"type"`
+						ButtonReply struct {
+							ID    string `json:"id"`
+							Title string `json:"title"`
+						} `json:"button_reply,omitempty"`
+						ListReply struct {
+							ID    string `json:"id"`
+							Title string `json:"title"`
+						} `json:"list_reply,omitempty"`
+					} `json:"interactive,omitempty"`
 				} `json:"messages"`
 				Statuses []struct {
 					ID           string `json:"id"`
@@ -343,10 +354,10 @@ func (h *handler) receiveVerify(ctx context.Context, channel courier.Channel, w 
 	return nil, err
 }
 
-func resolveMediaURL(channel courier.Channel, mediaID string) (string, error) {
-	token := channel.StringConfigForKey(courier.ConfigAuthToken, "")
+func resolveMediaURL(channel courier.Channel, mediaID string, token string) (string, error) {
+
 	if token == "" {
-		return "", fmt.Errorf("missing token for WA channel")
+		return "", fmt.Errorf("missing token for WAC channel")
 	}
 
 	base, _ := url.Parse(graphURL)
@@ -411,6 +422,8 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 	// the list of events we deal with
 	events := make([]courier.Event, 0, 2)
 
+	token := h.Server().Config().WhatsappAdminSystemUserToken
+
 	// the list of data we will return in our response
 	data := make([]interface{}, 0, 2)
 
@@ -448,23 +461,27 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					text = msg.Text.Body
 				} else if msg.Type == "audio" && msg.Audio != nil {
 					text = msg.Audio.Caption
-					mediaURL, err = resolveMediaURL(channel, msg.Audio.ID)
+					mediaURL, err = resolveMediaURL(channel, msg.Audio.ID, token)
 				} else if msg.Type == "voice" && msg.Voice != nil {
 					text = msg.Voice.Caption
-					mediaURL, err = resolveMediaURL(channel, msg.Voice.ID)
+					mediaURL, err = resolveMediaURL(channel, msg.Voice.ID, token)
 				} else if msg.Type == "button" && msg.Button != nil {
 					text = msg.Button.Text
 				} else if msg.Type == "document" && msg.Document != nil {
 					text = msg.Document.Caption
-					mediaURL, err = resolveMediaURL(channel, msg.Document.ID)
+					mediaURL, err = resolveMediaURL(channel, msg.Document.ID, token)
 				} else if msg.Type == "image" && msg.Image != nil {
 					text = msg.Image.Caption
-					mediaURL, err = resolveMediaURL(channel, msg.Image.ID)
+					mediaURL, err = resolveMediaURL(channel, msg.Image.ID, token)
 				} else if msg.Type == "video" && msg.Video != nil {
 					text = msg.Video.Caption
-					mediaURL, err = resolveMediaURL(channel, msg.Video.ID)
+					mediaURL, err = resolveMediaURL(channel, msg.Video.ID, token)
 				} else if msg.Type == "location" && msg.Location != nil {
 					mediaURL = fmt.Sprintf("geo:%f,%f", msg.Location.Latitude, msg.Location.Longitude)
+				} else if msg.Type == "interactive" && msg.Interactive.Type == "button_reply" {
+					text = msg.Interactive.ButtonReply.Title
+				} else if msg.Type == "interactive" && msg.Interactive.Type == "list_reply" {
+					text = msg.Interactive.ListReply.Title
 				} else {
 					// we received a message type we do not support.
 					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
@@ -1504,10 +1521,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				hasNewURN = true
 			}
 		}
-  
-    if templating != nil && len(msg.Attachments()) > 0 {
+
+		if templating != nil && len(msg.Attachments()) > 0 {
 			break
-	  }
+		}
 
 	}
 	return status, nil

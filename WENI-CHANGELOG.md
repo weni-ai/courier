@@ -1,3 +1,7 @@
+1.4.1-courier-7.1.0
+----------
+ * Fix receiving attachments and quick replies
+
 1.4.0-courier-7.1.0
 ----------  
   * Integration support with Microsoft Teams

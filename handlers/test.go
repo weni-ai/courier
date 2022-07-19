@@ -204,6 +204,7 @@ func newServer(backend courier.Backend) courier.Server {
 	config.FacebookApplicationSecret = "fb_app_secret"
 	config.WhatsappCloudWebhookSecret = "wac_webhook_secret"
 	config.WhatsappCloudApplicationSecret = "wac_app_secret"
+	config.WhatsappAdminSystemUserToken = "wac_admin_system_user_token"
 
 	return courier.NewServerWithLogger(config, backend, logger)
 

@@ -1281,10 +1281,14 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 					attType, attURL := handlers.SplitAttachment(msg.Attachments()[0])
 					attType = strings.Split(attType, "/")[0]
+					parsedURL, err := url.Parse(attURL)
+					if err != nil {
+						return status, err
+					}
 					if attType == "application" {
 						attType = "document"
 					}
-					media := wacMTMedia{Link: attURL}
+					media := wacMTMedia{Link: parsedURL.String()}
 					if attType == "image" {
 						header.Params = append(header.Params, &wacParam{Type: "image", Image: &media})
 					} else if attType == "video" {

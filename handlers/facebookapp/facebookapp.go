@@ -1382,6 +1382,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			}
 			payload.Type = attType
 			media := wacMTMedia{Link: attURL}
+			if len(msgParts) == 1 && attType != "audio" {
+				fmt.Println("caption " + attType)
+				media.Caption = msgParts[i]
+			}
 
 			if attType == "image" {
 				payload.Image = &media
@@ -1522,7 +1526,8 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			}
 		}
 
-		if templating != nil && len(msg.Attachments()) > 0 {
+		if templating != nil && len(msg.Attachments()) > 0 || len(msg.Attachments()) > 0 && len(msgParts) == 1 && payload.Audio == nil && len(msg.QuickReplies()) == 0 {
+			fmt.Println("entrou")
 			break
 		}
 

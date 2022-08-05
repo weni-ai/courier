@@ -69,6 +69,17 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
+	if payload.Payload.Actions != nil && payload.Event.BotID == "" {
+		path := payload.Payload.Channel.ID
+		urn, err := urns.NewURNFromParts(urns.SlackScheme, path, "", "")
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+		text := payload.Payload.Actions[0].Text.Text
+		msg := h.Backend().NewIncomingMsg(channel, urn, text)
+		return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
+	}
+
 	if payload.Type == "url_verification" {
 		return handleURLVerification(ctx, channel, w, r, payload)
 	}
@@ -186,7 +197,76 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		}
 	}
 
-	if msg.Text() != "" {
+	if msg.QuickReplies() != nil {
+
+		payload := &mtPayload{
+			Channel: msg.URN().Path(),
+			Blocks: []Block{
+				{
+					Type: "section",
+					Text: &Text{
+						Type:  "plain_text",
+						Text:  msg.Text(),
+						Emoji: true,
+					},
+				},
+			},
+		}
+
+		bl := Block{
+			Type: "actions",
+		}
+		payload.Blocks = append(payload.Blocks, bl)
+
+		for _, qr := range msg.QuickReplies() {
+
+			bt := Button{
+				Type: "button",
+				Text: Text{
+					Type:  "plain_text",
+					Emoji: true,
+					Text:  qr,
+				},
+				Value: qr,
+			}
+			payload.Blocks[1].Elements = append(payload.Blocks[1].Elements, bt)
+		}
+
+		sendURL := apiURL + "/chat.postMessage"
+
+		body, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+
+		req, err := http.NewRequest(http.MethodPost, sendURL, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json; charset=utf-8")
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", botToken))
+
+		rr, err := utils.MakeHTTPRequest(req)
+		hasError = err != nil
+		log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
+
+		ok, err := jsonparser.GetBoolean([]byte(rr.Body), "ok")
+		if err != nil {
+			hasError = err != nil
+			status.AddLog(log)
+		}
+
+		if !ok {
+			_, err := jsonparser.GetString([]byte(rr.Body), "error")
+			if err != nil {
+				hasError = err != nil
+				status.AddLog(log)
+			}
+		}
+
+	}
+
+	if msg.Text() != "" && msg.QuickReplies() == nil {
 		log, err := sendTextMsgPart(msg, botToken)
 		hasError = err != nil
 		status.AddLog(log)
@@ -340,15 +420,36 @@ func getUserInfo(userSlackID string, channel courier.Channel) (*UserInfo, *couri
 
 // mtPayload is a struct that represents the body of a SendMmsg text part
 type mtPayload struct {
-	Channel string `json:"channel"`
-	Text    string `json:"text"`
+	Channel string  `json:"channel"`
+	Text    string  `json:"text,omitempty"`
+	Blocks  []Block `json:"blocks,omitempty"`
+}
+
+type Block struct {
+	Type     string   `json:"type,omitempty"`
+	Text     *Text    `json:"text,omitempty"`
+	Elements []Button `json:"elements,omitempty"`
+}
+
+type Text struct {
+	Type  string `json:"type,omitempty"` //value: plain_text
+	Text  string `json:"text,omitempty"` //length: 75 characters
+	Emoji bool   `json:"emoji,omitempty"`
+}
+
+type Button struct {
+	Type  string `json:"type"`
+	Text  Text   `json:"text,omitempty"`
+	URL   string `json:"url,omitempty"`
+	Value string `json:"value"`
 }
 
 // moPayload is a struct that represents message payload from message type event
 type moPayload struct {
-	Token    string `json:"token,omitempty"`
-	TeamID   string `json:"team_id,omitempty"`
-	APIAppID string `json:"api_app_id,omitempty"`
+	Payload  PayloadInteractive `json:"payload,omitempty"`
+	Token    string             `json:"token,omitempty"`
+	TeamID   string             `json:"team_id,omitempty"`
+	APIAppID string             `json:"api_app_id,omitempty"`
 	Event    struct {
 		Type        string `json:"type,omitempty"`
 		Channel     string `json:"channel,omitempty"`
@@ -459,4 +560,90 @@ type UserInfo struct {
 			Team                  string `json:"team"`
 		} `json:"profile"`
 	} `json:"user"`
+}
+
+type PayloadInteractive struct {
+	Type string `json:"type"`
+	User struct {
+		ID       string `json:"id"`
+		Username string `json:"username"`
+		Name     string `json:"name"`
+		TeamID   string `json:"team_id"`
+	} `json:"user"`
+	APIAppID  string `json:"api_app_id"`
+	Token     string `json:"token"`
+	Container struct {
+		Type        string `json:"type"`
+		MessageTs   string `json:"message_ts"`
+		ChannelID   string `json:"channel_id"`
+		IsEphemeral bool   `json:"is_ephemeral"`
+	} `json:"container"`
+	TriggerID string `json:"trigger_id"`
+	Team      struct {
+		ID     string `json:"id"`
+		Domain string `json:"domain"`
+	} `json:"team"`
+	Enterprise          interface{} `json:"enterprise"`
+	IsEnterpriseInstall bool        `json:"is_enterprise_install"`
+	Channel             struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"channel"`
+	Message struct {
+		BotID  string `json:"bot_id"`
+		Type   string `json:"type"`
+		Text   string `json:"text"`
+		User   string `json:"user"`
+		Ts     string `json:"ts"`
+		AppID  string `json:"app_id"`
+		Team   string `json:"team"`
+		Blocks []struct {
+			Type     string `json:"type"`
+			BlockID  string `json:"block_id"`
+			ImageURL string `json:"image_url,omitempty"`
+			AltText  string `json:"alt_text,omitempty"`
+			Title    struct {
+				Type  string `json:"type"`
+				Text  string `json:"text"`
+				Emoji bool   `json:"emoji"`
+			} `json:"title,omitempty"`
+			ImageWidth  int    `json:"image_width,omitempty"`
+			ImageHeight int    `json:"image_height,omitempty"`
+			ImageBytes  int    `json:"image_bytes,omitempty"`
+			IsAnimated  bool   `json:"is_animated,omitempty"`
+			Fallback    string `json:"fallback,omitempty"`
+			Text        struct {
+				Type  string `json:"type"`
+				Text  string `json:"text"`
+				Emoji bool   `json:"emoji"`
+			} `json:"text,omitempty"`
+			Elements []struct {
+				Type     string `json:"type"`
+				ActionID string `json:"action_id"`
+				Text     struct {
+					Type  string `json:"type"`
+					Text  string `json:"text"`
+					Emoji bool   `json:"emoji"`
+				} `json:"text"`
+				Value string `json:"value"`
+			} `json:"elements,omitempty"`
+		} `json:"blocks"`
+	} `json:"message"`
+	State struct {
+		Values struct {
+		} `json:"values"`
+	} `json:"state"`
+	ResponseURL string `json:"response_url"`
+	Actions     []struct {
+		ActionID string `json:"action_id"`
+		BlockID  string `json:"block_id"`
+		Text     struct {
+			Type  string `json:"type"`
+			Text  string `json:"text"`
+			Emoji bool   `json:"emoji"`
+		} `json:"text"`
+		Value    string `json:"value"`
+		Type     string `json:"type"`
+		ActionTs string `json:"action_ts"`
+	} `json:"actions"`
 }

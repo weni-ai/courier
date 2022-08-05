@@ -253,6 +253,8 @@ const videoFileMsg = `{
 	"event_context": "4-eyJldCI6Im1lc3NhZ2UiLCJ0aWQiOiJUMDNDTjVLVEE2UyIsImFpZCI6IkEwM0ZUQzhNWjYzIiwiY2lkIjoiQzAzQ1VRUUJIRUYifQ"
 }`
 
+const payloadInteractive = `{"payload":{"type":"block_actions","user":{"id":"U0123ABCDEF","username":"","name":"U0123ABCDEF","team_id":"T03CN5KTA6S"},"api_app_id":"A03FTC8MZ63","token":"xAV2MhkKnLm3V2VJ8TaxPxKQ","container":{"type":"message","message_ts":"1659624980.743099","channel_id":"C0123ABCDEF","is_ephemeral":false},"trigger_id":"3904042177956.3891425400017.da3a2faea055595adaa7a0d4f12537c4","team":{"id":"T03CN5KTA6S","domain":"test-test"},"enterprise":null,"is_enterprise_install":false,"channel":{"id":"C0123ABCDEF","name":"slack-channel"},"message":{"bot_id":"B03SQ8SQFTK","type":"message","text":"New Paid Time Off request from Fred Enriquez","user":"U03G81FQM98","ts":"1659624980.743099","app_id":"A03FTC8MZ63","team":"T03S7CHBS0H","blocks":[{"type":"image","block_id":"=B\/T","image_url":"https:\/\/api.slack.com\/img\/blocks\/bkb_template_images\/onboardingComplex.jpg","alt_text":"image1","title":{"type":"plain_text","text":"image1","emoji":true},"image_width":2184,"image_height":989,"image_bytes":97082,"is_animated":true,"fallback":"2184x989px image"},{"type":"section","block_id":"jZ+u","text":{"type":"plain_text","text":"Voc\u00ea j\u00e1 conhece a Weni?","emoji":true}},{"type":"actions","block_id":"XNQrP","elements":[{"type":"button","action_id":"lfI","text":{"type":"plain_text","text":"sim","emoji":true},"value":"click_me_123"},{"type":"button","action_id":"wyo","text":{"type":"plain_text","text":"n\u00e3o","emoji":true},"value":"click_me_123"}]}]},"state":{"values":{}},"response_url":"https:\/\/hooks.slack.com\/actions\/T03S7CHBS0H\/3901606585266\/zKQ2GqfcwfjTKczEfahJqDKn","actions":[{"action_id":"wyo","block_id":"XNQrP","text":{"type":"plain_text","text":"n\u00e3o","emoji":true},"value":"click_me_123","type":"button","action_ts":"1659702012.231524"}]}}`
+
 func setSendUrl(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
 	apiURL = s.URL
 }
@@ -305,6 +307,17 @@ var handleTestCases = []ChannelHandleTestCase{
 		Response:   "Accepted",
 		ExternalID: Sp("Ev0PV52K21"),
 	},
+	{
+		Label:      "Receive Interactive Messages with Button",
+		URL:        receiveURL,
+		Headers:    map[string]string{},
+		Data:       payloadInteractive,
+		Attachment: nil,
+		URN:        Sp("slack:C0123ABCDEF"),
+		Text:       Sp("não"),
+		Status:     200,
+		Response:   "Accepted",
+	},
 }
 
 var defaultSendTestCases = []ChannelSendTestCase{
@@ -333,6 +346,16 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		ResponseBody:   `{"ok":false,"error":"invalid_auth"}`,
 		ResponseStatus: 200,
 		RequestBody:    `{"channel":"U0123ABCDEF","text":"Hello"}`,
+		SendPrep:       setSendUrl,
+	},
+	{
+		Label: "Quick Replies",
+		Text:  "Quick Replies", URN: "slack:U0123ABCDEF",
+		Status:         "W",
+		QuickReplies:   []string{"ROW1", "ROW2"},
+		ResponseBody:   `{"ok":true,"channel":"U0123ABCDEF"}`,
+		ResponseStatus: 200,
+		RequestBody:    `{"channel":"U0123ABCDEF","blocks":[{"type":"section","text":{"type":"plain_text","text":"Quick Replies","emoji":true}},{"type":"actions","elements":[{"type":"button","text":{"type":"plain_text","text":"ROW1","emoji":true},"value":"ROW1"},{"type":"button","text":{"type":"plain_text","text":"ROW2","emoji":true},"value":"ROW2"}]}]}`,
 		SendPrep:       setSendUrl,
 	},
 }

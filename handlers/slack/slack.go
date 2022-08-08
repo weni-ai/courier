@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -70,13 +71,34 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	}
 
 	if payload.Payload.Actions != nil && payload.Event.BotID == "" {
-		path := payload.Payload.Channel.ID
+		ts := strings.Split(payload.Payload.Actions[0].ActionTs, ".")
+		i, err := strconv.ParseInt(ts[0], 10, 64)
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+		date := time.Unix(int64(i), 0)
+
+		var userName string
+		var path string
+
+		if payload.Payload.Channel.Name != "directmessage" { //if is a message from a slack channel that bot is in
+			path = payload.Payload.Channel.ID
+		} else { // if is a direct message from a user
+			path = payload.Payload.User.ID
+			userInfo, log, err := getUserInfo(path, channel)
+			if err != nil {
+				h.Backend().WriteChannelLogs(ctx, []*courier.ChannelLog{log})
+				return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+			}
+			userName = userInfo.User.RealName
+		}
+
 		urn, err := urns.NewURNFromParts(urns.SlackScheme, path, "", "")
 		if err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 		}
 		text := payload.Payload.Actions[0].Text.Text
-		msg := h.Backend().NewIncomingMsg(channel, urn, text)
+		msg := h.Backend().NewIncomingMsg(channel, urn, text).WithContactName(userName).WithReceivedOn(date)
 		return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
 	}
 
@@ -198,72 +220,9 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 
 	if msg.QuickReplies() != nil {
-
-		payload := &mtPayload{
-			Channel: msg.URN().Path(),
-			Blocks: []Block{
-				{
-					Type: "section",
-					Text: &Text{
-						Type:  "plain_text",
-						Text:  msg.Text(),
-						Emoji: true,
-					},
-				},
-			},
-		}
-
-		bl := Block{
-			Type: "actions",
-		}
-		payload.Blocks = append(payload.Blocks, bl)
-
-		for _, qr := range msg.QuickReplies() {
-
-			bt := Button{
-				Type: "button",
-				Text: Text{
-					Type:  "plain_text",
-					Emoji: true,
-					Text:  qr,
-				},
-				Value: qr,
-			}
-			payload.Blocks[1].Elements = append(payload.Blocks[1].Elements, bt)
-		}
-
-		sendURL := apiURL + "/chat.postMessage"
-
-		body, err := json.Marshal(payload)
-		if err != nil {
-			return nil, err
-		}
-
-		req, err := http.NewRequest(http.MethodPost, sendURL, bytes.NewReader(body))
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Content-Type", "application/json; charset=utf-8")
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", botToken))
-
-		rr, err := utils.MakeHTTPRequest(req)
+		log, err := sendQuickReplies(msg, botToken)
 		hasError = err != nil
-		log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
-
-		ok, err := jsonparser.GetBoolean([]byte(rr.Body), "ok")
-		if err != nil {
-			hasError = err != nil
-			status.AddLog(log)
-		}
-
-		if !ok {
-			_, err := jsonparser.GetString([]byte(rr.Body), "error")
-			if err != nil {
-				hasError = err != nil
-				status.AddLog(log)
-			}
-		}
-
+		status.AddLog(log)
 	}
 
 	if msg.Text() != "" && msg.QuickReplies() == nil {
@@ -385,6 +344,73 @@ func sendFilePart(msg courier.Msg, token string, fileParams *FileParams) (*couri
 	}
 
 	return courier.NewChannelLogFromRR("uploading file to Slack", msg.Channel(), msg.ID(), resp).WithError("Error uploading file to Slack", err), nil
+}
+func sendQuickReplies(msg courier.Msg, botToken string) (*courier.ChannelLog, error) {
+	sendURL := apiURL + "/chat.postMessage"
+
+	payload := &mtPayload{
+		Channel: msg.URN().Path(),
+		Blocks: []Block{
+			{
+				Type: "section",
+				Text: &Text{
+					Type:  "plain_text",
+					Text:  msg.Text(),
+					Emoji: true,
+				},
+			},
+		},
+	}
+
+	bl := Block{
+		Type: "actions",
+	}
+	payload.Blocks = append(payload.Blocks, bl)
+
+	for _, qr := range msg.QuickReplies() {
+
+		bt := Button{
+			Type: "button",
+			Text: Text{
+				Type:  "plain_text",
+				Emoji: true,
+				Text:  qr,
+			},
+			Value: qr,
+		}
+		payload.Blocks[1].Elements = append(payload.Blocks[1].Elements, bt)
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, sendURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", botToken))
+
+	rr, err := utils.MakeHTTPRequest(req)
+	log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
+	if err != nil {
+		return log, err
+	}
+
+	ok, err := jsonparser.GetBoolean([]byte(rr.Body), "ok")
+	if err != nil {
+		return log, err
+	}
+
+	if !ok {
+		_, err := jsonparser.GetString([]byte(rr.Body), "error")
+		if err != nil {
+			return log, err
+		}
+	}
+	return log, nil
 }
 
 func getUserInfo(userSlackID string, channel courier.Channel) (*UserInfo, *courier.ChannelLog, error) {

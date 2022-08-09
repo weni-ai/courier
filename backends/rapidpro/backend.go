@@ -70,6 +70,11 @@ func (b *backend) UpdateContactLastSeenOn(ctx context.Context, contactUUID couri
 	return err
 }
 
+func (b *backend) UpdateContactMsg(ctx context.Context, contactUUID courier.ContactUUID, msg courier.Msg) error {
+	_, err := b.db.ExecContext(ctx, `UPDATE contacts_contact SET msg = $2, modified_on = NOW() WHERE uuid = $1`, contactUUID.String(), msg)
+	return err
+}
+
 // AddURNtoContact adds a URN to the passed in contact
 func (b *backend) AddURNtoContact(ctx context.Context, c courier.Channel, contact courier.Contact, urn urns.URN) (urns.URN, error) {
 	tx, err := b.db.BeginTxx(ctx, nil)

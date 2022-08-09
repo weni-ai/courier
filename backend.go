@@ -36,6 +36,9 @@ type Backend interface {
 	// UpdateContactLastSeenOn updates last seen on (and modified on) on the passed in contact
 	UpdateContactLastSeenOn(ctx context.Context, contactUUID ContactUUID, lastSeenOn time.Time) error
 
+	// UpdateContactMsg updates msg (and modified on) on the passed in contact
+	UpdateContactMsg(ctx context.Context, contactUUID ContactUUID, msg Msg) error
+
 	// AddURNtoContact adds a URN to the passed in contact
 	AddURNtoContact(context context.Context, channel Channel, contact Contact, urn urns.URN) (urns.URN, error)
 

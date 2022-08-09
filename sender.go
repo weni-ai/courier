@@ -239,6 +239,11 @@ func (w *Sender) sendMessage(msg Msg) {
 			if err != nil {
 				log.WithError(err).Info("error updating contact last seen on")
 			}
+			err = w.foreman.server.Backend().UpdateContactMsg(context.Background(), ctt.UUID(), msg)
+			if err != nil {
+				log.WithError(err).Info("error updating contact msg")
+			}
+
 		}
 	}
 

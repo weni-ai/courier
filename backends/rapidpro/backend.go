@@ -71,7 +71,7 @@ func (b *backend) UpdateContactLastSeenOn(ctx context.Context, contactUUID couri
 }
 
 func (b *backend) UpdateContactMsg(ctx context.Context, contactUUID courier.ContactUUID, msg courier.Msg) error {
-	_, err := b.db.ExecContext(ctx, `UPDATE contacts_contact SET msg = $2, modified_on = NOW() WHERE uuid = $1`, contactUUID.String(), msg)
+	_, err := b.db.ExecContext(ctx, `UPDATE contacts_contact SET msg_sent_id = $2, modified_on = NOW() WHERE uuid = $1`, contactUUID.String(), msg.ID())
 	return err
 }
 

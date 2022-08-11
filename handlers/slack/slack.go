@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -69,12 +70,20 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
+	payloadI := &PayloadInteractive{}
+	if payload.Payload != "" {
+		jsonStr, err := url.QueryUnescape(payload.Payload)
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+		err = json.Unmarshal([]byte(jsonStr), &payloadI)
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+	}
 
-	fmt.Println(payload)
-	fmt.Println(payload.Payload)
-
-	if payload.Payload.Actions != nil && payload.Event.BotID == "" {
-		ts := strings.Split(payload.Payload.Actions[0].ActionTs, ".")
+	if payloadI.Actions != nil && payload.Event.BotID == "" {
+		ts := strings.Split(payloadI.Actions[0].ActionTs, ".")
 		i, err := strconv.ParseInt(ts[0], 10, 64)
 		if err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
@@ -84,10 +93,10 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		var userName string
 		var path string
 
-		if payload.Payload.Channel.Name != "directmessage" { //if is a message from a slack channel that bot is in
-			path = payload.Payload.Channel.ID
+		if payloadI.Channel.Name != "directmessage" { //if is a message from a slack channel that bot is in
+			path = payloadI.Channel.ID
 		} else { // if is a direct message from a user
-			path = payload.Payload.User.ID
+			path = payloadI.User.ID
 			userInfo, log, err := getUserInfo(path, channel)
 			if err != nil {
 				h.Backend().WriteChannelLogs(ctx, []*courier.ChannelLog{log})
@@ -100,7 +109,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		if err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 		}
-		text := payload.Payload.Actions[0].Text.Text
+		text := payloadI.Actions[0].Text.Text
 		msg := h.Backend().NewIncomingMsg(channel, urn, text).WithContactName(userName).WithReceivedOn(date)
 		return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
 	}
@@ -461,7 +470,7 @@ type Block struct {
 }
 
 type Text struct {
-	Type  string `json:"type,omitempty"` //value: plain_text
+	Type  string `json:"type,omitempty"`
 	Text  string `json:"text,omitempty"` //length: 75 characters
 	Emoji bool   `json:"emoji,omitempty"`
 }
@@ -475,10 +484,10 @@ type Button struct {
 
 // moPayload is a struct that represents message payload from message type event
 type moPayload struct {
-	Payload  PayloadInteractive `json:"payload,omitempty"`
-	Token    string             `json:"token,omitempty"`
-	TeamID   string             `json:"team_id,omitempty"`
-	APIAppID string             `json:"api_app_id,omitempty"`
+	Payload  string `json:"payload,omitempty"`
+	Token    string `json:"token,omitempty"`
+	TeamID   string `json:"team_id,omitempty"`
+	APIAppID string `json:"api_app_id,omitempty"`
 	Event    struct {
 		Type        string `json:"type,omitempty"`
 		Channel     string `json:"channel,omitempty"`

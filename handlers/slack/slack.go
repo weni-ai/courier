@@ -70,6 +70,9 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
+	fmt.Println(payload)
+	fmt.Println(payload.Payload)
+
 	if payload.Payload.Actions != nil && payload.Event.BotID == "" {
 		ts := strings.Split(payload.Payload.Actions[0].ActionTs, ".")
 		i, err := strconv.ParseInt(ts[0], 10, 64)

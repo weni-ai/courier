@@ -57,7 +57,6 @@ func DecodeAndValidateJSON(envelope interface{}, r *http.Request) error {
 	if err != nil {
 		return fmt.Errorf("unable to read request body: %s", err)
 	}
-	fmt.Println(string(body))
 	// try to decode our envelope
 	if err = json.Unmarshal(body, envelope); err != nil {
 		return fmt.Errorf("unable to parse request JSON: %s", err)

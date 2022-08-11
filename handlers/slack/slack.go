@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -66,12 +67,21 @@ func handleURLVerification(ctx context.Context, channel courier.Channel, w http.
 
 func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
 	payload := &moPayload{}
-	fmt.Println("Body:", r.Body)
-	err := handlers.DecodeAndValidateJSON(payload, r)
+	buf, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
+
+	jsonStr, err := url.QueryUnescape(string(buf)[8:])
+	if err != nil {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+
 	payloadI := &PayloadInteractive{}
+	if err := json.Unmarshal([]byte(jsonStr), &payloadI); err != nil {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+
 	if payload.Payload != "" {
 		jsonStr, err := url.QueryUnescape(payload.Payload)
 		if err != nil {

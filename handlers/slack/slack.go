@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"mime/multipart"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -64,9 +67,59 @@ func handleURLVerification(ctx context.Context, channel courier.Channel, w http.
 
 func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
 	payload := &moPayload{}
-	err := handlers.DecodeAndValidateJSON(payload, r)
+	var payloadI PayloadInteractive
+	var jsonStr string
+
+	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+
+	if strings.HasPrefix(string(body), "payload") {
+		jsonStr, err = url.QueryUnescape(string(body)[8:])
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+
+		if err := json.Unmarshal([]byte(jsonStr), &payloadI); err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+	} else {
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+	}
+
+	if payloadI.Actions != nil && payload.Event.BotID == "" {
+		ts := strings.Split(payloadI.Actions[0].ActionTs, ".")
+		i, err := strconv.ParseInt(ts[0], 10, 64)
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+		date := time.Unix(int64(i), 0)
+
+		var userName string
+		var path string
+
+		if payloadI.Channel.Name != "directmessage" { //if is a message from a slack channel that bot is in
+			path = payloadI.Channel.ID
+		} else { // if is a direct message from a user
+			path = payloadI.User.ID
+			userInfo, log, err := getUserInfo(path, channel)
+			if err != nil {
+				h.Backend().WriteChannelLogs(ctx, []*courier.ChannelLog{log})
+				return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+			}
+			userName = userInfo.User.RealName
+		}
+
+		urn, err := urns.NewURNFromParts(urns.SlackScheme, path, "", "")
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+		text := payloadI.Actions[0].Text.Text
+		msg := h.Backend().NewIncomingMsg(channel, urn, text).WithContactName(userName).WithReceivedOn(date)
+		return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
 	}
 
 	if payload.Type == "url_verification" {
@@ -186,7 +239,13 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		}
 	}
 
-	if msg.Text() != "" {
+	if len(msg.QuickReplies()) != 0 {
+		log, err := sendQuickReplies(msg, botToken)
+		hasError = err != nil
+		status.AddLog(log)
+	}
+
+	if msg.Text() != "" && len(msg.QuickReplies()) == 0 {
 		log, err := sendTextMsgPart(msg, botToken)
 		hasError = err != nil
 		status.AddLog(log)
@@ -307,6 +366,74 @@ func sendFilePart(msg courier.Msg, token string, fileParams *FileParams) (*couri
 	return courier.NewChannelLogFromRR("uploading file to Slack", msg.Channel(), msg.ID(), resp).WithError("Error uploading file to Slack", err), nil
 }
 
+func sendQuickReplies(msg courier.Msg, botToken string) (*courier.ChannelLog, error) {
+	sendURL := apiURL + "/chat.postMessage"
+
+	payload := &mtPayload{
+		Channel: msg.URN().Path(),
+		Blocks: []Block{
+			{
+				Type: "section",
+				Text: &Text{
+					Type:  "plain_text",
+					Text:  msg.Text(),
+					Emoji: true,
+				},
+			},
+		},
+	}
+
+	bl := Block{
+		Type: "actions",
+	}
+	payload.Blocks = append(payload.Blocks, bl)
+
+	for _, qr := range msg.QuickReplies() {
+
+		bt := Button{
+			Type: "button",
+			Text: Text{
+				Type:  "plain_text",
+				Emoji: true,
+				Text:  qr,
+			},
+			Value: qr,
+		}
+		payload.Blocks[1].Elements = append(payload.Blocks[1].Elements, bt)
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, sendURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", botToken))
+
+	rr, err := utils.MakeHTTPRequest(req)
+	log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
+	if err != nil {
+		return log, err
+	}
+
+	ok, err := jsonparser.GetBoolean([]byte(rr.Body), "ok")
+	if err != nil {
+		return log, err
+	}
+
+	if !ok {
+		_, err := jsonparser.GetString([]byte(rr.Body), "error")
+		if err != nil {
+			return log, err
+		}
+	}
+	return log, nil
+}
+
 func getUserInfo(userSlackID string, channel courier.Channel) (*UserInfo, *courier.ChannelLog, error) {
 	resource := "/users.info"
 	urlStr := apiURL + resource
@@ -340,8 +467,28 @@ func getUserInfo(userSlackID string, channel courier.Channel) (*UserInfo, *couri
 
 // mtPayload is a struct that represents the body of a SendMmsg text part
 type mtPayload struct {
-	Channel string `json:"channel"`
-	Text    string `json:"text"`
+	Channel string  `json:"channel"`
+	Text    string  `json:"text,omitempty"`
+	Blocks  []Block `json:"blocks,omitempty"`
+}
+
+type Block struct {
+	Type     string   `json:"type,omitempty"`
+	Text     *Text    `json:"text,omitempty"`
+	Elements []Button `json:"elements,omitempty"`
+}
+
+type Text struct {
+	Type  string `json:"type,omitempty"`
+	Text  string `json:"text,omitempty"` //length: 75 characters
+	Emoji bool   `json:"emoji,omitempty"`
+}
+
+type Button struct {
+	Type  string `json:"type"`
+	Text  Text   `json:"text,omitempty"`
+	URL   string `json:"url,omitempty"`
+	Value string `json:"value"`
 }
 
 // moPayload is a struct that represents message payload from message type event
@@ -459,4 +606,90 @@ type UserInfo struct {
 			Team                  string `json:"team"`
 		} `json:"profile"`
 	} `json:"user"`
+}
+
+type PayloadInteractive struct {
+	Type string `json:"type"`
+	User struct {
+		ID       string `json:"id"`
+		Username string `json:"username"`
+		Name     string `json:"name"`
+		TeamID   string `json:"team_id"`
+	} `json:"user"`
+	APIAppID  string `json:"api_app_id"`
+	Token     string `json:"token"`
+	Container struct {
+		Type        string `json:"type"`
+		MessageTs   string `json:"message_ts"`
+		ChannelID   string `json:"channel_id"`
+		IsEphemeral bool   `json:"is_ephemeral"`
+	} `json:"container"`
+	TriggerID string `json:"trigger_id"`
+	Team      struct {
+		ID     string `json:"id"`
+		Domain string `json:"domain"`
+	} `json:"team"`
+	Enterprise          interface{} `json:"enterprise"`
+	IsEnterpriseInstall bool        `json:"is_enterprise_install"`
+	Channel             struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"channel"`
+	Message struct {
+		BotID  string `json:"bot_id"`
+		Type   string `json:"type"`
+		Text   string `json:"text"`
+		User   string `json:"user"`
+		Ts     string `json:"ts"`
+		AppID  string `json:"app_id"`
+		Team   string `json:"team"`
+		Blocks []struct {
+			Type     string `json:"type"`
+			BlockID  string `json:"block_id"`
+			ImageURL string `json:"image_url,omitempty"`
+			AltText  string `json:"alt_text,omitempty"`
+			Title    struct {
+				Type  string `json:"type"`
+				Text  string `json:"text"`
+				Emoji bool   `json:"emoji"`
+			} `json:"title,omitempty"`
+			ImageWidth  int    `json:"image_width,omitempty"`
+			ImageHeight int    `json:"image_height,omitempty"`
+			ImageBytes  int    `json:"image_bytes,omitempty"`
+			IsAnimated  bool   `json:"is_animated,omitempty"`
+			Fallback    string `json:"fallback,omitempty"`
+			Text        struct {
+				Type  string `json:"type"`
+				Text  string `json:"text"`
+				Emoji bool   `json:"emoji"`
+			} `json:"text,omitempty"`
+			Elements []struct {
+				Type     string `json:"type"`
+				ActionID string `json:"action_id"`
+				Text     struct {
+					Type  string `json:"type"`
+					Text  string `json:"text"`
+					Emoji bool   `json:"emoji"`
+				} `json:"text"`
+				Value string `json:"value"`
+			} `json:"elements,omitempty"`
+		} `json:"blocks"`
+	} `json:"message"`
+	State struct {
+		Values struct {
+		} `json:"values"`
+	} `json:"state"`
+	ResponseURL string `json:"response_url"`
+	Actions     []struct {
+		ActionID string `json:"action_id"`
+		BlockID  string `json:"block_id"`
+		Text     struct {
+			Type  string `json:"type"`
+			Text  string `json:"text"`
+			Emoji bool   `json:"emoji"`
+		} `json:"text"`
+		Value    string `json:"value"`
+		Type     string `json:"type"`
+		ActionTs string `json:"action_ts"`
+	} `json:"actions"`
 }

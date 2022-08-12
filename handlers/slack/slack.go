@@ -239,13 +239,13 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		}
 	}
 
-	if msg.QuickReplies() != nil {
+	if len(msg.QuickReplies()) != 0 {
 		log, err := sendQuickReplies(msg, botToken)
 		hasError = err != nil
 		status.AddLog(log)
 	}
 
-	if msg.Text() != "" && msg.QuickReplies() == nil {
+	if msg.Text() != "" && len(msg.QuickReplies()) == 0 {
 		log, err := sendTextMsgPart(msg, botToken)
 		hasError = err != nil
 		status.AddLog(log)

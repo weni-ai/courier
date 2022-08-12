@@ -66,25 +66,27 @@ func handleURLVerification(ctx context.Context, channel courier.Channel, w http.
 }
 
 func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
-
-	buf, err := ioutil.ReadAll(r.Body)
+	payload := &moPayload{}
+	err := handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
+		fmt.Println("err")
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
+	fmt.Println(payload)
 	var payloadI PayloadInteractive
-	var payload *moPayload
-	if strings.Contains(string(buf), "payload") {
+	if payload.Type == "block_actions" {
+		fmt.Println("err1")
+		buf, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+
 		jsonStr, err := url.QueryUnescape(string(buf)[8:])
 		if err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 		}
 
 		if err := json.Unmarshal([]byte(jsonStr), &payloadI); err != nil {
-			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
-		}
-	} else {
-		err = handlers.DecodeAndValidateJSON(payload, r)
-		if err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 		}
 	}
@@ -491,10 +493,9 @@ type Button struct {
 
 // moPayload is a struct that represents message payload from message type event
 type moPayload struct {
-	Payload  PayloadInteractive `json:"payload,omitempty"`
-	Token    string             `json:"token,omitempty"`
-	TeamID   string             `json:"team_id,omitempty"`
-	APIAppID string             `json:"api_app_id,omitempty"`
+	Token    string `json:"token,omitempty"`
+	TeamID   string `json:"team_id,omitempty"`
+	APIAppID string `json:"api_app_id,omitempty"`
 	Event    struct {
 		Type        string `json:"type,omitempty"`
 		Channel     string `json:"channel,omitempty"`

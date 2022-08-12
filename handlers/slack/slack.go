@@ -67,26 +67,25 @@ func handleURLVerification(ctx context.Context, channel courier.Channel, w http.
 
 func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
 	payload := &moPayload{}
-	err := handlers.DecodeAndValidateJSON(payload, r)
+	var payloadI PayloadInteractive
+	var jsonStr string
+
+	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		fmt.Println("err")
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
-	fmt.Println(payload)
-	var payloadI PayloadInteractive
-	if payload.Type == "block_actions" {
-		fmt.Println("err1")
-		buf, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
-		}
 
-		jsonStr, err := url.QueryUnescape(string(buf)[8:])
+	if string(body)[0:7] == "payload" {
+		jsonStr, err = url.QueryUnescape(string(body)[8:])
 		if err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 		}
 
 		if err := json.Unmarshal([]byte(jsonStr), &payloadI); err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+	} else {
+		if err := json.Unmarshal(body, &payload); err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 		}
 	}

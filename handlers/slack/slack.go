@@ -75,7 +75,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
-	if string(body)[0:7] == "payload" {
+	if strings.HasPrefix(string(body), "payload") {
 		jsonStr, err = url.QueryUnescape(string(body)[8:])
 		if err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)

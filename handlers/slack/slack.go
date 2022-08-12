@@ -66,23 +66,31 @@ func handleURLVerification(ctx context.Context, channel courier.Channel, w http.
 }
 
 func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
-	payload := &moPayload{}
+
 	buf, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
+	var payloadI PayloadInteractive
+	var payload *moPayload
+	if strings.Contains(string(buf), "payload") {
+		jsonStr, err := url.QueryUnescape(string(buf)[8:])
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
 
-	jsonStr, err := url.QueryUnescape(string(buf)[8:])
-	if err != nil {
-		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		if err := json.Unmarshal([]byte(jsonStr), &payloadI); err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+	} else {
+		err = handlers.DecodeAndValidateJSON(payload, r)
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
 	}
 
-	if err := json.Unmarshal([]byte(jsonStr), &payload); err != nil {
-		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
-	}
-
-	if payload.Payload.Actions != nil && payload.Event.BotID == "" {
-		ts := strings.Split(payload.Payload.Actions[0].ActionTs, ".")
+	if payloadI.Actions != nil && payload.Event.BotID == "" {
+		ts := strings.Split(payloadI.Actions[0].ActionTs, ".")
 		i, err := strconv.ParseInt(ts[0], 10, 64)
 		if err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
@@ -92,10 +100,10 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		var userName string
 		var path string
 
-		if payload.Payload.Channel.Name != "directmessage" { //if is a message from a slack channel that bot is in
-			path = payload.Payload.Channel.ID
+		if payloadI.Channel.Name != "directmessage" { //if is a message from a slack channel that bot is in
+			path = payloadI.Channel.ID
 		} else { // if is a direct message from a user
-			path = payload.Payload.User.ID
+			path = payloadI.User.ID
 			userInfo, log, err := getUserInfo(path, channel)
 			if err != nil {
 				h.Backend().WriteChannelLogs(ctx, []*courier.ChannelLog{log})
@@ -108,7 +116,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		if err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 		}
-		text := payload.Payload.Actions[0].Text.Text
+		text := payloadI.Actions[0].Text.Text
 		msg := h.Backend().NewIncomingMsg(channel, urn, text).WithContactName(userName).WithReceivedOn(date)
 		return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
 	}

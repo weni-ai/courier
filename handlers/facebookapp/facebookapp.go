@@ -1236,6 +1236,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 	start := time.Now()
 	hasNewURN := false
+	hasCaption := false
 
 	base, _ := url.Parse(graphURL)
 	path, _ := url.Parse(fmt.Sprintf("/%s/messages", msg.Channel().Address()))
@@ -1382,9 +1383,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			}
 			payload.Type = attType
 			media := wacMTMedia{Link: attURL}
-			if len(msgParts) == 1 && attType != "audio" {
-				fmt.Println("caption " + attType)
+			if len(msgParts) == 1 && attType != "audio" && len(msg.Attachments()) == 1 && len(msg.QuickReplies()) == 0 {
 				media.Caption = msgParts[i]
+				hasCaption = true
 			}
 
 			if attType == "image" {
@@ -1525,9 +1526,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				hasNewURN = true
 			}
 		}
-
-		if templating != nil && len(msg.Attachments()) > 0 || len(msg.Attachments()) > 0 && len(msgParts) == 1 && payload.Audio == nil && len(msg.QuickReplies()) == 0 {
-			fmt.Println("entrou")
+		if templating != nil && len(msg.Attachments()) > 0 || hasCaption {
 			break
 		}
 

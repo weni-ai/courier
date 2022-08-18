@@ -1250,6 +1250,8 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 	}
 	qrs := msg.QuickReplies()
 
+	var payloadAudio wacMTPayload
+
 	for i := 0; i < len(msgParts)+len(msg.Attachments()); i++ {
 		payload := wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path()}
 
@@ -1455,6 +1457,16 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								Image    wacMTMedia "json:\"image,omitempty\""
 								Document wacMTMedia "json:\"document,omitempty\""
 							}{Type: "document", Document: document}
+						} else if attType == "audio" {
+							var zeroIndex bool
+							if i == 0 {
+								zeroIndex = true
+							}
+							payloadAudio = wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path(), Type: "audio", Audio: &wacMTMedia{Link: attURL}}
+							status, _, err := requestWAC(payloadAudio, accessToken, msg, status, wacPhoneURL, zeroIndex)
+							if err != nil {
+								return status, nil
+							}
 						} else {
 							interactive.Type = "button"
 							interactive.Body.Text = msgParts[i]
@@ -1514,41 +1526,15 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				payload.Text = text
 			}
 		}
+		var zeroIndex bool
+		if i == 0 {
+			zeroIndex = true
+		}
 
-		jsonBody, err := json.Marshal(payload)
+		status, respPayload, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, zeroIndex)
 		if err != nil {
 			return status, err
 		}
-
-		req, err := http.NewRequest(http.MethodPost, wacPhoneURL.String(), bytes.NewReader(jsonBody))
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Accept", "application/json")
-
-		rr, err := utils.MakeHTTPRequest(req)
-
-		// record our status and log
-		log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
-		status.AddLog(log)
-		if err != nil {
-			return status, nil
-		}
-
-		respPayload := &wacMTResponse{}
-		err = json.Unmarshal(rr.Body, respPayload)
-		if err != nil {
-			log.WithError("Message Send Error", errors.Errorf("unable to unmarshal response body"))
-			return status, nil
-		}
-		externalID := respPayload.Messages[0].ID
-		if i == 0 && externalID != "" {
-			status.SetExternalID(externalID)
-		}
-		// this was wired successfully
-		status.SetStatus(courier.MsgWired)
 
 		// if payload.contacts[0].wa_id != payload.contacts[0].input | to fix cases with 9 extra
 		if len(respPayload.Contacts) > 0 && respPayload.Contacts[0].WaID != msg.URN().Path() {
@@ -1571,6 +1557,46 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 	}
 	return status, nil
+}
+
+func requestWAC(payload wacMTPayload, accessToken string, msg courier.Msg, status courier.MsgStatus, wacPhoneURL *url.URL, zeroIndex bool) (courier.MsgStatus, *wacMTResponse, error) {
+
+	jsonBody, err := json.Marshal(payload)
+	if err != nil {
+		return status, &wacMTResponse{}, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, wacPhoneURL.String(), bytes.NewReader(jsonBody))
+	if err != nil {
+		return status, &wacMTResponse{}, err
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	rr, err := utils.MakeHTTPRequest(req)
+
+	// record our status and log
+	log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
+	status.AddLog(log)
+	if err != nil {
+		return status, &wacMTResponse{}, nil
+	}
+
+	respPayload := &wacMTResponse{}
+	err = json.Unmarshal(rr.Body, respPayload)
+	if err != nil {
+		log.WithError("Message Send Error", errors.Errorf("unable to unmarshal response body"))
+		return status, respPayload, nil
+	}
+	externalID := respPayload.Messages[0].ID
+	if zeroIndex && externalID != "" {
+		status.SetExternalID(externalID)
+	}
+	// this was wired successfully
+	status.SetStatus(courier.MsgWired)
+
+	return status, respPayload, nil
 }
 
 // DescribeURN looks up URN metadata for new contacts

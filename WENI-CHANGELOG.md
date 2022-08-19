@@ -1,3 +1,12 @@
+1.4.3-courier-7.1.0
+----------
+  * Quick Replies support in the Slack handler #129
+
+1.4.2-courier-7.1.0
+----------
+  * Fix URL of attachments in WAC handler #127
+
+
 1.4.1-courier-7.1.0
 ----------  
   * Fix receiving attachments and quick replies

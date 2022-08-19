@@ -1284,10 +1284,14 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 					attType, attURL := handlers.SplitAttachment(msg.Attachments()[0])
 					attType = strings.Split(attType, "/")[0]
+					parsedURL, err := url.Parse(attURL)
+					if err != nil {
+						return status, err
+					}
 					if attType == "application" {
 						attType = "document"
 					}
-					media := wacMTMedia{Link: attURL}
+					media := wacMTMedia{Link: parsedURL.String()}
 					if attType == "image" {
 						header.Params = append(header.Params, &wacParam{Type: "image", Image: &media})
 					} else if attType == "video" {
@@ -1380,11 +1384,15 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		} else if i < len(msg.Attachments()) && len(qrs) == 0 || len(qrs) > 3 && i < len(msg.Attachments()) {
 			attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
 			attType = strings.Split(attType, "/")[0]
+			parsedURL, err := url.Parse(attURL)
+			if err != nil {
+				return status, err
+			}
 			if attType == "application" {
 				attType = "document"
 			}
 			payload.Type = attType
-			media := wacMTMedia{Link: attURL}
+			media := wacMTMedia{Link: parsedURL.String()}
 			if len(msgParts) == 1 && attType != "audio" && len(msg.Attachments()) == 1 && len(msg.QuickReplies()) == 0 {
 				media.Caption = msgParts[i]
 				hasCaption = true

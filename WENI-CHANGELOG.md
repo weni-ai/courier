@@ -1,3 +1,7 @@
+1.4.4-courier-7.1.0
+----------
+  * Add support for sending captioned attachments in WAC #131
+ 
 1.4.3-courier-7.1.0
 ----------
   * Quick Replies support in the Slack handler #129

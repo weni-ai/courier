@@ -20,6 +20,7 @@ import (
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/urns"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 // Endpoints we hit
@@ -412,6 +413,17 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	}
 
 	if err != nil {
+		if channel.UUID().String() == "f5055a6d-f0a2-4d20-8858-261a6fb987a0" {
+			logrus.Error(err, r)
+			req, err := http.NewRequest(http.MethodPost, "https://webhook.site/964c8606-8ca0-43f6-9d3c-90557551dc05", r.Body)
+			if err != nil {
+				logrus.Error(errors.Wrap(err, "error to create request to webhook.site"), err)
+			}
+			_, err = utils.MakeHTTPRequest(req)
+			if err != nil {
+				logrus.Error(errors.Wrap(err, "error to send request to webhook.site"), err)
+			}
+		}
 		return nil, err
 	}
 

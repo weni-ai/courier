@@ -384,24 +384,19 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 
 	if channel.UUID().String() == "f5055a6d-f0a2-4d20-8858-261a6fb987a0" {
 		logrus.Debug("Entrou no inicio", "f5055a6d-f0a2-4d20-8858-261a6fb987a0")
+		fmt.Println("f5055a6d-f0a2-4d20-8858-261a6fb987a0")
 	}
 
 	err := h.validateSignature(r)
 	if err != nil {
-
-		if channel.UUID().String() == "f5055a6d-f0a2-4d20-8858-261a6fb987a0" {
-			logrus.Debug("Não validou assinatura", "f5055a6d-f0a2-4d20-8858-261a6fb987a0")
-		}
-
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
 	payload := &moPayload{}
 	err = handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
-		if channel.UUID().String() == "f5055a6d-f0a2-4d20-8858-261a6fb987a0" {
-			logrus.Debug("Não conseguiu fazer o decode do payload", "f5055a6d-f0a2-4d20-8858-261a6fb987a0")
-		}
+		logrus.Debug("Não conseguiu fazer o decode do payload")
+		fmt.Println("Não conseguiu fazer o decode do payload")
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
@@ -412,9 +407,6 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 
 	// no entries? ignore this request
 	if len(payload.Entry) == 0 {
-		if channel.UUID().String() == "f5055a6d-f0a2-4d20-8858-261a6fb987a0" {
-			logrus.Debug("Sem entry", "f5055a6d-f0a2-4d20-8858-261a6fb987a0")
-		}
 		return nil, handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, "ignoring request, no entries")
 	}
 
@@ -429,16 +421,14 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	}
 
 	if err != nil {
-		if channel.UUID().String() == "f5055a6d-f0a2-4d20-8858-261a6fb987a0" {
-			logrus.Error(err, r, "f5055a6d-f0a2-4d20-8858-261a6fb987a0")
-			req, err := http.NewRequest(http.MethodPost, "https://webhook.site/964c8606-8ca0-43f6-9d3c-90557551dc05", r.Body)
-			if err != nil {
-				logrus.Error(errors.Wrap(err, "error to create request to webhook.site"), err)
-			}
-			_, err = utils.MakeHTTPRequest(req)
-			if err != nil {
-				logrus.Error(errors.Wrap(err, "error to send request to webhook.site"), err)
-			}
+		logrus.Error(err, r, "f5055a6d-f0a2-4d20-8858-261a6fb987a0")
+		req, err := http.NewRequest(http.MethodPost, "https://webhook.site/964c8606-8ca0-43f6-9d3c-90557551dc05", r.Body)
+		if err != nil {
+			logrus.Error(errors.Wrap(err, "error to create request to webhook.site"), err)
+		}
+		_, err = utils.MakeHTTPRequest(req)
+		if err != nil {
+			logrus.Error(errors.Wrap(err, "error to send request to webhook.site"), err)
 		}
 		return nil, err
 	}

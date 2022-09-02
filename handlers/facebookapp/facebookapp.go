@@ -383,17 +383,25 @@ func resolveMediaURL(channel courier.Channel, mediaID string, token string) (str
 func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
 
 	if channel.UUID().String() == "f5055a6d-f0a2-4d20-8858-261a6fb987a0" {
-		logrus.Debug("f5055a6d-f0a2-4d20-8858-261a6fb987a0")
+		logrus.Debug("Entrou no inicio", "f5055a6d-f0a2-4d20-8858-261a6fb987a0")
 	}
 
 	err := h.validateSignature(r)
 	if err != nil {
+
+		if channel.UUID().String() == "f5055a6d-f0a2-4d20-8858-261a6fb987a0" {
+			logrus.Debug("Não validou assinatura", "f5055a6d-f0a2-4d20-8858-261a6fb987a0")
+		}
+
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
 	payload := &moPayload{}
 	err = handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
+		if channel.UUID().String() == "f5055a6d-f0a2-4d20-8858-261a6fb987a0" {
+			logrus.Debug("Não conseguiu fazer o decode do payload", "f5055a6d-f0a2-4d20-8858-261a6fb987a0")
+		}
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
@@ -404,6 +412,9 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 
 	// no entries? ignore this request
 	if len(payload.Entry) == 0 {
+		if channel.UUID().String() == "f5055a6d-f0a2-4d20-8858-261a6fb987a0" {
+			logrus.Debug("Sem entry", "f5055a6d-f0a2-4d20-8858-261a6fb987a0")
+		}
 		return nil, handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, "ignoring request, no entries")
 	}
 

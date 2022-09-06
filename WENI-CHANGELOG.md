@@ -1,3 +1,7 @@
+1.4.5-courier-7.1.0
+----------
+  * Remove expiration_timestamp from moPayload in WAC #133
+
 1.4.4-courier-7.1.0
 ----------
   * Add support for sending captioned attachments in WAC #131

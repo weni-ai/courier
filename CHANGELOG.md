@@ -1,3 +1,95 @@
+v7.2.0
+----------
+ * CI testing with go 1.17.7
+
+v7.1.19
+----------
+ * Update D3 handler to support check for whatsapp contact not in contact store
+
+v7.1.18
+----------
+ * Fix type for IsDeleted field for IG unsend events
+ * Fix metadata fetching for new Facebook contacts
+
+v7.1.17
+----------
+ * Fix whatsapp uploaded attachment file name
+ * Use deleted by sender visibity for message unsent on IG channels
+ * Add missing languages from whatsapp template
+ * Do not save any message when receiving IG story mentions
+
+v7.1.16
+----------
+ * Update to latest gocommon
+ * Pause WA channel bulk queue when we hit the spam rate limit
+
+v7.1.15
+----------
+ * Fix Gujarati whatsapp language code
+ * Send flow name as user_data to HX
+
+v7.1.14
+----------
+ * Allow more active redis connections
+ * Support sending WA quick replies when we have attachments too
+ * Add support to receive button text from Twilio WhatsApp
+
+v7.1.13
+----------
+ * Send db and redis stats to librato in backed heartbeat
+ * Include session_status in FCM payloads
+
+v7.1.12
+----------
+ * Update to latest gocommon
+ * Add instagram handler
+
+v7.1.11
+----------
+ * More bulk sql tweaks
+
+v7.1.10
+----------
+ * Update to latest gocommon
+
+v7.1.9
+----------
+ * Fix bulk status updates
+
+v7.1.8
+----------
+ * Do more error wrapping when creating contacts and URNs
+
+v7.1.7
+----------
+ * Use dbutil package from gocommon
+ * Add quick replies for vk
+
+v7.1.6
+----------
+ * Throttle WA queues when we get 429 responses
+
+v7.1.5
+----------
+ * Add Msg.failed_reason and set when msg fails due to reaching error limit
+
+v7.1.4
+----------
+ * Remove loop detection now that mailroom does this
+ * Smarter organization of quick replies for viber keyboards
+
+v7.1.3
+----------
+ * Use response_to_external_id instead of response_to_id
+
+v7.1.2
+----------
+ * External channel handler should use headers config setting if provided
+
+v7.1.1
+----------
+ * Pin to go 1.17.2
+
 v7.1.0
 ----------
  * Remove chatbase support

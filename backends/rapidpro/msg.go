@@ -3,6 +3,7 @@ package rapidpro
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -256,7 +257,7 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 	}
 
 	if resp.StatusCode == 401 {
-		return "", fmt.Errorf("error downloading media")
+		return "", errors.New("error downloading media")
 	}
 
 	defer resp.Body.Close()

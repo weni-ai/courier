@@ -256,6 +256,7 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 	}
 
 	if resp.StatusCode == 401 {
+		logrus.WithField("channel_uuid", channel.UUID()).WithField("channel_type", channel.ChannelType()).WithField("media_url", mediaURL).WithError(err).Error("unable to download media")
 		return "", fmt.Errorf("error downloading media, status code %d", resp.StatusCode)
 	}
 

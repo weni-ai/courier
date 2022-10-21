@@ -807,22 +807,22 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 	return events, data, nil
 }
 
-// {
-//     "messaging_type": "<MESSAGING_TYPE>"
-//     "recipient":{
-//         "id":"<PSID>"
-//     },
-//     "message":{
-//	       "text":"hello, world!"
-//         "attachment":{
-//             "type":"image",
-//             "payload":{
-//                 "url":"http://www.messenger-rocks.com/image.jpg",
-//                 "is_reusable":true
-//             }
-//         }
-//     }
-// }
+//	{
+//	    "messaging_type": "<MESSAGING_TYPE>"
+//	    "recipient":{
+//	        "id":"<PSID>"
+//	    },
+//	    "message":{
+//		       "text":"hello, world!"
+//	        "attachment":{
+//	            "type":"image",
+//	            "payload":{
+//	                "url":"http://www.messenger-rocks.com/image.jpg",
+//	                "is_reusable":true
+//	            }
+//	        }
+//	    }
+//	}
 type mtPayload struct {
 	MessagingType string `json:"messaging_type"`
 	Tag           string `json:"tag,omitempty"`
@@ -1332,7 +1332,15 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 									Type: "reply",
 								}
 								btns[i].Reply.ID = fmt.Sprint(i)
-								btns[i].Reply.Title = qr
+								var text string
+								if strings.Contains(qr, "\\/") {
+									text = strings.Replace(qr, "\\", "", -1)
+								} else if strings.Contains(qr, "\\\\") {
+									text = strings.Replace(qr, "\\\\", "\\", -1)
+								} else {
+									text = qr
+								}
+								btns[i].Reply.Title = text
 							}
 							interactive.Action = &struct {
 								Button   string         "json:\"button,omitempty\""
@@ -1349,9 +1357,17 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								Rows: make([]wacMTSectionRow, len(qrs)),
 							}
 							for i, qr := range qrs {
+								var text string
+								if strings.Contains(qr, "\\/") {
+									text = strings.Replace(qr, "\\", "", -1)
+								} else if strings.Contains(qr, "\\\\") {
+									text = strings.Replace(qr, "\\\\", "\\", -1)
+								} else {
+									text = qr
+								}
 								section.Rows[i] = wacMTSectionRow{
 									ID:    fmt.Sprint(i),
-									Title: qr,
+									Title: text,
 								}
 							}
 
@@ -1486,7 +1502,15 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							Type: "reply",
 						}
 						btns[i].Reply.ID = fmt.Sprint(i)
-						btns[i].Reply.Title = qr
+						var text string
+						if strings.Contains(qr, "\\/") {
+							text = strings.Replace(qr, "\\", "", -1)
+						} else if strings.Contains(qr, "\\\\") {
+							text = strings.Replace(qr, "\\\\", "\\", -1)
+						} else {
+							text = qr
+						}
+						btns[i].Reply.Title = text
 					}
 					interactive.Action = &struct {
 						Button   string         "json:\"button,omitempty\""
@@ -1504,9 +1528,17 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						Rows: make([]wacMTSectionRow, len(qrs)),
 					}
 					for i, qr := range qrs {
+						var text string
+						if strings.Contains(qr, "\\/") {
+							text = strings.Replace(qr, "\\", "", -1)
+						} else if strings.Contains(qr, "\\\\") {
+							text = strings.Replace(qr, "\\\\", "\\", -1)
+						} else {
+							text = qr
+						}
 						section.Rows[i] = wacMTSectionRow{
 							ID:    fmt.Sprint(i),
-							Title: qr,
+							Title: text,
 						}
 					}
 

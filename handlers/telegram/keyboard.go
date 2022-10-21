@@ -30,9 +30,14 @@ func NewKeyboardFromReplies(replies []string) *ReplyKeyboardMarkup {
 		keyboard[i] = make([]KeyboardButton, len(rows[i]))
 		for j := range rows[i] {
 			fmt.Println(rows[i][j])
-			text := strings.Replace(rows[i][j], "\\", "", -1)
+			var text string
+			if strings.Contains(rows[i][j], "\\/") {
+				text = strings.Replace(rows[i][j], "\\", "", -1)
+			} else {
+				text = rows[i][j]
+			}
 			fmt.Println("New: ", text)
-			keyboard[i][j].Text = rows[i][j]
+			keyboard[i][j].Text = text
 		}
 	}
 

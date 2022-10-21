@@ -33,6 +33,8 @@ func NewKeyboardFromReplies(replies []string) *ReplyKeyboardMarkup {
 			var text string
 			if strings.Contains(rows[i][j], "\\/") {
 				text = strings.Replace(rows[i][j], "\\", "", -1)
+			} else if strings.Contains(rows[i][j], "\\\\") {
+				text = strings.Replace(rows[i][j], "\\\\", "\\", -1)
 			} else {
 				text = rows[i][j]
 			}

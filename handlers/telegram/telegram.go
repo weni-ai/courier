@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -15,6 +14,7 @@ import (
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
+	"github.com/nyaruka/gocommon/jsonx"
 	"github.com/nyaruka/gocommon/urns"
 )
 
@@ -136,11 +136,7 @@ func (h *handler) sendMsgPart(msg courier.Msg, token string, path string, form u
 	if keyboard == nil {
 		form.Add("reply_markup", `{"remove_keyboard":true}`)
 	} else {
-		keyboardMarshal, err := json.Marshal(keyboard)
-		if err != nil {
-			return "", nil, err
-		}
-		form.Add("reply_markup", string(keyboardMarshal))
+		form.Add("reply_markup", string(jsonx.MustMarshal(keyboard)))
 	}
 
 	sendURL := fmt.Sprintf("%s/bot%s/%s", apiURL, token, path)

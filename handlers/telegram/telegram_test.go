@@ -595,7 +595,16 @@ var defaultSendTestCases = []ChannelSendTestCase{
 			"reply_markup": `{"keyboard":[[{"text":"Yes"},{"text":"No"}]],"resize_keyboard":true,"one_time_keyboard":true}`,
 		},
 		SendPrep: setSendURL},
-
+	{Label: "Quick Reply with Slashes",
+		Text: "Are you happy?", URN: "telegram:12345", QuickReplies: []string{"\\\\Yes", "/No"},
+		Status: "W", ExternalID: "133",
+		ResponseBody: `{ "ok": true, "result": { "message_id": 133 } }`, ResponseStatus: 200,
+		PostParams: map[string]string{
+			"text":         "Are you happy?",
+			"chat_id":      "12345",
+			"reply_markup": `{"keyboard":[[{"text":"\\Yes"},{"text":"/No"}]],"resize_keyboard":true,"one_time_keyboard":true}`,
+		},
+		SendPrep: setSendURL},
 	{Label: "Unicode Send",
 		Text: "☺", URN: "telegram:12345",
 		Status: "W", ExternalID: "133",

@@ -1,7 +1,6 @@
 package telegram
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/nyaruka/courier/utils"
@@ -29,16 +28,12 @@ func NewKeyboardFromReplies(replies []string) *ReplyKeyboardMarkup {
 	for i := range rows {
 		keyboard[i] = make([]KeyboardButton, len(rows[i]))
 		for j := range rows[i] {
-			fmt.Println(rows[i][j])
 			var text string
-			if strings.Contains(rows[i][j], "\\/") {
-				text = strings.Replace(rows[i][j], "\\", "", -1)
-			} else if strings.Contains(rows[i][j], "\\\\") {
-				text = strings.Replace(rows[i][j], "\\\\", "\\", -1)
+			if strings.Contains(rows[i][j], "\\/") || strings.Contains(rows[i][j], "\\\\") {
+				text = strings.Replace(rows[i][j], "\\", "", 1)
 			} else {
 				text = rows[i][j]
 			}
-			fmt.Println("New: ", text)
 			keyboard[i][j].Text = text
 		}
 	}

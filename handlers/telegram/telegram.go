@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -14,7 +15,6 @@ import (
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
-	"github.com/nyaruka/gocommon/jsonx"
 	"github.com/nyaruka/gocommon/urns"
 )
 
@@ -136,7 +136,11 @@ func (h *handler) sendMsgPart(msg courier.Msg, token string, path string, form u
 	if keyboard == nil {
 		form.Add("reply_markup", `{"remove_keyboard":true}`)
 	} else {
-		form.Add("reply_markup", string(jsonx.MustMarshal(keyboard)))
+		keyboardMarshal, err := json.Marshal(keyboard)
+		if err != nil {
+			return "", nil, err
+		}
+		form.Add("reply_markup", string(keyboardMarshal))
 	}
 
 	sendURL := fmt.Sprintf("%s/bot%s/%s", apiURL, token, path)
@@ -337,26 +341,26 @@ type moLocation struct {
 	Longitude float64 `json:"longitude"`
 }
 
-// {
-// 	"update_id": 174114370,
-// 	"message": {
-// 	  "message_id": 41,
-//      "from": {
-// 		  "id": 3527065,
-// 		  "first_name": "Nic",
-// 		  "last_name": "Pottier",
-//        "username": "nicpottier"
-// 	    },
-//     "chat": {
-//       "id": 3527065,
-// 		 "first_name": "Nic",
-//       "last_name": "Pottier",
-//       "type": "private"
-//     },
-// 	   "date": 1454119029,
-//     "text": "Hello World"
-// 	 }
-// }
+//	{
+//		"update_id": 174114370,
+//		"message": {
+//		  "message_id": 41,
+//	     "from": {
+//			  "id": 3527065,
+//			  "first_name": "Nic",
+//			  "last_name": "Pottier",
+//	       "username": "nicpottier"
+//		    },
+//	    "chat": {
+//	      "id": 3527065,
+//			 "first_name": "Nic",
+//	      "last_name": "Pottier",
+//	      "type": "private"
+//	    },
+//		   "date": 1454119029,
+//	    "text": "Hello World"
+//		 }
+//	}
 type moPayload struct {
 	UpdateID int64 `json:"update_id" validate:"required"`
 	Message  struct {

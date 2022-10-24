@@ -84,30 +84,33 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 
 	// deal with attachments
 	mediaURL := ""
+	var URLs []string
 	if len(payload.Message.Photo) > 0 {
 		// grab the largest photo less than 100k
-		photo := payload.Message.Photo[0]
-		for i := 1; i < len(payload.Message.Photo); i++ {
-			if payload.Message.Photo[i].FileSize > 100000 {
-				break
-			}
-			photo = payload.Message.Photo[i]
+		for _, p := range payload.Message.Photo {
+			mediaURL, err = h.resolveFileID(ctx, channel, p.FileID)
+			URLs = append(URLs, mediaURL)
 		}
-		mediaURL, err = h.resolveFileID(ctx, channel, photo.FileID)
 	} else if payload.Message.Video != nil {
 		mediaURL, err = h.resolveFileID(ctx, channel, payload.Message.Video.FileID)
+		URLs = append(URLs, mediaURL)
 	} else if payload.Message.Voice != nil {
 		mediaURL, err = h.resolveFileID(ctx, channel, payload.Message.Voice.FileID)
+		URLs = append(URLs, mediaURL)
 	} else if payload.Message.Sticker != nil {
 		mediaURL, err = h.resolveFileID(ctx, channel, payload.Message.Sticker.Thumb.FileID)
+		URLs = append(URLs, mediaURL)
 	} else if payload.Message.Document != nil {
 		mediaURL, err = h.resolveFileID(ctx, channel, payload.Message.Document.FileID)
+		URLs = append(URLs, mediaURL)
 	} else if payload.Message.Venue != nil {
 		text = utils.JoinNonEmpty(", ", payload.Message.Venue.Title, payload.Message.Venue.Address)
 		mediaURL = fmt.Sprintf("geo:%f,%f", payload.Message.Location.Latitude, payload.Message.Location.Longitude)
+		URLs = append(URLs, mediaURL)
 	} else if payload.Message.Location != nil {
 		text = fmt.Sprintf("%f,%f", payload.Message.Location.Latitude, payload.Message.Location.Longitude)
 		mediaURL = fmt.Sprintf("geo:%f,%f", payload.Message.Location.Latitude, payload.Message.Location.Longitude)
+		URLs = append(URLs, mediaURL)
 	} else if payload.Message.Contact != nil {
 		phone := ""
 		if payload.Message.Contact.PhoneNumber != "" {
@@ -120,18 +123,26 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 	if err != nil && text == "" {
 		return nil, handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, fmt.Sprintf("unable to resolve file: %s", err.Error()))
 	}
-
-	fmt.Println(payload)
-
-	// build our msg
-	msg := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(fmt.Sprintf("%d", payload.Message.MessageID)).WithContactName(name)
-	fmt.Println(mediaURL)
-	if mediaURL != "" {
-		fmt.Println("withAttachment")
-		msg.WithAttachment(mediaURL)
+	msgs := []courier.Msg{}
+	if len(URLs) > 0 {
+		fmt.Println(len(URLs))
+		for _, mediaURL := range URLs {
+			// build our msg
+			msg := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(fmt.Sprintf("%d", payload.Message.MessageID)).WithContactName(name)
+			fmt.Println("MediaURL: ", mediaURL)
+			if mediaURL != "" {
+				fmt.Println("oii")
+				msg.WithAttachment(mediaURL)
+			}
+			msgs = append(msgs, msg)
+		}
+	} else {
+		msg := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(fmt.Sprintf("%d", payload.Message.MessageID)).WithContactName(name)
+		msgs = append(msgs, msg)
 	}
+
 	// and finally write our message
-	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
+	return handlers.WriteMsgsAndResponse(ctx, h, msgs, w, r)
 }
 
 func (h *handler) sendMsgPart(msg courier.Msg, token string, path string, form url.Values, keyboard *ReplyKeyboardMarkup) (string, *courier.ChannelLog, error) {

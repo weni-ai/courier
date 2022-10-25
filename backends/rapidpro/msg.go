@@ -379,11 +379,10 @@ func checkMsgSeen(b *backend, msg *DBMsg) courier.MsgUUID {
 
 	// if so, test whether the text it the same
 	if found != "" {
-		fmt.Println("Found: ", found)
 		prevText := found[37:]
 
 		// if it is the same, return the UUID
-		if prevText == msg.Text() {
+		if prevText == msg.Text() && msg.Text() != "" {
 			return courier.NewMsgUUIDFromString(found[:36])
 		}
 	}

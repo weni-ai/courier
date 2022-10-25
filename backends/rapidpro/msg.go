@@ -62,6 +62,7 @@ func writeMsg(ctx context.Context, b *backend, msg courier.Msg) error {
 
 	// if we have media, go download it to S3
 	for i, attachment := range m.Attachments_ {
+		fmt.Println("Attachment: ", attachment)
 		if strings.HasPrefix(attachment, "http") {
 			url, err := downloadMediaToS3(ctx, b, channel, m.OrgID_, m.UUID_, attachment)
 			if err != nil {
@@ -217,7 +218,7 @@ WHERE
 //-----------------------------------------------------------------------------
 
 func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel, orgID OrgID, msgUUID courier.MsgUUID, mediaURL string) (string, error) {
-
+	fmt.Println("Func DownloadMedia")
 	parsedURL, err := url.Parse(mediaURL)
 	if err != nil {
 		return "", err

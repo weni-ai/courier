@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/nyaruka/courier"
@@ -22,6 +23,7 @@ func WriteMsgsAndResponse(ctx context.Context, h ResponseWriter, msgs []courier.
 	for i, m := range msgs {
 		err := h.Backend().WriteMsg(ctx, m)
 		if err != nil {
+			fmt.Println("Erro: ", err)
 			return nil, err
 		}
 		events[i] = m

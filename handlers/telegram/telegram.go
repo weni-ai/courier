@@ -48,7 +48,9 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 	p, _ := json.Marshal(payload)
-	fmt.Printf("\n", string(p))
+	fmt.Printf("\n")
+	fmt.Printf("Payload: ", string(p))
+	fmt.Printf("\n")
 	// no message? ignore this
 	if payload.Message.MessageID == 0 {
 		return nil, handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, "Ignoring request, no message")

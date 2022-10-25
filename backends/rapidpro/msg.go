@@ -55,6 +55,7 @@ func writeMsg(ctx context.Context, b *backend, msg courier.Msg) error {
 
 	// this msg has already been written (we received it twice), we are a no op
 	if m.alreadyWritten {
+		fmt.Println("alreadyWritten: ", m.alreadyWritten)
 		return nil
 	}
 
@@ -378,6 +379,7 @@ func checkMsgSeen(b *backend, msg *DBMsg) courier.MsgUUID {
 
 	// if so, test whether the text it the same
 	if found != "" {
+		fmt.Println("Found: ", found)
 		prevText := found[37:]
 
 		// if it is the same, return the UUID

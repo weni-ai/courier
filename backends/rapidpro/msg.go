@@ -55,7 +55,6 @@ func writeMsg(ctx context.Context, b *backend, msg courier.Msg) error {
 
 	// this msg has already been written (we received it twice), we are a no op
 	if m.alreadyWritten {
-		fmt.Println("alreadyWritten: ", m.alreadyWritten)
 		return nil
 	}
 
@@ -63,7 +62,6 @@ func writeMsg(ctx context.Context, b *backend, msg courier.Msg) error {
 
 	// if we have media, go download it to S3
 	for i, attachment := range m.Attachments_ {
-		fmt.Println("Attachment: ", attachment)
 		if strings.HasPrefix(attachment, "http") {
 			url, err := downloadMediaToS3(ctx, b, channel, m.OrgID_, m.UUID_, attachment)
 			if err != nil {
@@ -379,10 +377,20 @@ func checkMsgSeen(b *backend, msg *DBMsg) courier.MsgUUID {
 
 	// if so, test whether the text it the same
 	if found != "" {
+
 		prevText := found[37:]
 
+		// foundSplit := strings.Split(found, "|")
+		// if len(foundSplit) > 2 && foundSplit[1] == "" {
+		// 	prevAtt := foundSplit[2]
+
+		// 	if prevAtt == string(msg.Attachments_[0:]) {
+
+		// 	}
+		// }
+
 		// if it is the same, return the UUID
-		if prevText == msg.Text() && msg.Text() != "" {
+		if prevText == msg.Text() {
 			return courier.NewMsgUUIDFromString(found[:36])
 		}
 	}
@@ -401,11 +409,20 @@ func writeMsgSeen(b *backend, msg *DBMsg) {
 	defer r.Close()
 
 	urnFingerprint := msg.urnFingerprint()
-	uuidText := fmt.Sprintf("%s|%s", msg.UUID().String(), msg.Text_)
+
+	var msgSeen string
+
+	if len(msg.Attachments_) > 0 {
+		msgSeen = fmt.Sprintf("%s|%s|%s", msg.UUID().String(), msg.Text_, msg.Attachments_)
+		fmt.Println(msgSeen)
+	} else {
+		msgSeen = fmt.Sprintf("%s|%s", msg.UUID().String(), msg.Text_)
+	}
+
 	now := time.Now().In(time.UTC)
 	windowKey := fmt.Sprintf("seen:msgs:%s:%02d", now.Format("2006-01-02-15:04"), now.Second()/2*2)
 
-	luaWriteMsgSeen.Do(r, windowKey, urnFingerprint, uuidText)
+	luaWriteMsgSeen.Do(r, windowKey, urnFingerprint, msgSeen)
 }
 
 // clearMsgSeen clears our seen incoming messages for the passed in channel and URN

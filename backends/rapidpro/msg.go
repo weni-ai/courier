@@ -413,7 +413,7 @@ func writeMsgSeen(b *backend, msg *DBMsg) {
 	var msgSeen string
 
 	if len(msg.Attachments_) > 0 {
-		msgSeen = fmt.Sprintf("%s|%s|%s", msg.UUID().String(), msg.Text_, msg.Attachments_)
+		msgSeen = fmt.Sprintf("%s|%s|%s", msg.UUID().String(), msg.Text_, msg.Metadata_)
 		fmt.Println(msgSeen)
 	} else {
 		msgSeen = fmt.Sprintf("%s|%s", msg.UUID().String(), msg.Text_)

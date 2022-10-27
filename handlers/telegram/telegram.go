@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -78,11 +77,6 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 		return []courier.Event{event}, courier.WriteChannelEventSuccess(ctx, w, r, event)
 	}
 
-	metadata, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-
 	// normal message of some kind
 	if text == "" && payload.Message.Caption != "" {
 		text = payload.Message.Caption
@@ -128,7 +122,7 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 	}
 
 	// build our msg
-	msg := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(fmt.Sprintf("%d", payload.Message.MessageID)).WithContactName(name).WithMetadata(json.RawMessage(metadata))
+	msg := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(fmt.Sprintf("%d", payload.Message.MessageID)).WithContactName(name)
 
 	if mediaURL != "" {
 		msg.WithAttachment(mediaURL)

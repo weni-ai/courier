@@ -381,7 +381,7 @@ func checkMsgSeen(b *backend, msg *DBMsg) courier.MsgUUID {
 		foundSplit := strings.Split(found, "|")
 		if len(foundSplit) > 2 && foundSplit[1] == "" {
 			prevAtt := foundSplit[2]
-			if prevAtt == string(msg.Metadata_) {
+			if prevAtt == string(msg.ExternalID_) {
 				return courier.NewMsgUUIDFromString(found[:36])
 			}
 		} else if prevText == msg.Text() {
@@ -406,8 +406,8 @@ func writeMsgSeen(b *backend, msg *DBMsg) {
 	urnFingerprint := msg.urnFingerprint()
 	var msgSeen string
 
-	if msg.Metadata_ != nil {
-		msgSeen = fmt.Sprintf("%s|%s|%s", msg.UUID().String(), msg.Text_, msg.Metadata_)
+	if msg.ExternalID_ != "" && msg.Attachments_ != nil {
+		msgSeen = fmt.Sprintf("%s|%s|%s", msg.UUID().String(), msg.Text_, msg.ExternalID_)
 	} else {
 		msgSeen = fmt.Sprintf("%s|%s", msg.UUID().String(), msg.Text_)
 	}

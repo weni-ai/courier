@@ -377,20 +377,16 @@ func checkMsgSeen(b *backend, msg *DBMsg) courier.MsgUUID {
 
 	// if so, test whether the text it the same
 	if found != "" {
-
 		prevText := found[37:]
+		foundSplit := strings.Split(found, "|")
+		if len(foundSplit) > 2 && foundSplit[1] == "" {
+			prevAtt := foundSplit[2]
 
-		// foundSplit := strings.Split(found, "|")
-		// if len(foundSplit) > 2 && foundSplit[1] == "" {
-		// 	prevAtt := foundSplit[2]
-
-		// 	if prevAtt == string(msg.Attachments_[0:]) {
-
-		// 	}
-		// }
-
-		// if it is the same, return the UUID
-		if prevText == msg.Text() {
+			if prevAtt == string(msg.Metadata_) {
+				return courier.NewMsgUUIDFromString(found[:36])
+			}
+			// if it is the same, return the UUID
+		} else if prevText == msg.Text() {
 			return courier.NewMsgUUIDFromString(found[:36])
 		}
 	}

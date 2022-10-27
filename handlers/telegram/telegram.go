@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -77,6 +78,11 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 		return []courier.Event{event}, courier.WriteChannelEventSuccess(ctx, w, r, event)
 	}
 
+	metadata, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
 	// normal message of some kind
 	if text == "" && payload.Message.Caption != "" {
 		text = payload.Message.Caption
@@ -122,7 +128,7 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 	}
 
 	// build our msg
-	msg := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(fmt.Sprintf("%d", payload.Message.MessageID)).WithContactName(name)
+	msg := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(fmt.Sprintf("%d", payload.Message.MessageID)).WithContactName(name).WithMetadata(json.RawMessage(metadata))
 
 	if mediaURL != "" {
 		msg.WithAttachment(mediaURL)
@@ -337,26 +343,26 @@ type moLocation struct {
 	Longitude float64 `json:"longitude"`
 }
 
-// {
-// 	"update_id": 174114370,
-// 	"message": {
-// 	  "message_id": 41,
-//      "from": {
-// 		  "id": 3527065,
-// 		  "first_name": "Nic",
-// 		  "last_name": "Pottier",
-//        "username": "nicpottier"
-// 	    },
-//     "chat": {
-//       "id": 3527065,
-// 		 "first_name": "Nic",
-//       "last_name": "Pottier",
-//       "type": "private"
-//     },
-// 	   "date": 1454119029,
-//     "text": "Hello World"
-// 	 }
-// }
+//	{
+//		"update_id": 174114370,
+//		"message": {
+//		  "message_id": 41,
+//	     "from": {
+//			  "id": 3527065,
+//			  "first_name": "Nic",
+//			  "last_name": "Pottier",
+//	       "username": "nicpottier"
+//		    },
+//	    "chat": {
+//	      "id": 3527065,
+//			 "first_name": "Nic",
+//	      "last_name": "Pottier",
+//	      "type": "private"
+//	    },
+//		   "date": 1454119029,
+//	    "text": "Hello World"
+//		 }
+//	}
 type moPayload struct {
 	UpdateID int64 `json:"update_id" validate:"required"`
 	Message  struct {

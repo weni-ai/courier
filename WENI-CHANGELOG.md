@@ -1,3 +1,8 @@
+1.4.6-courier-7.1.0
+----------
+  * Normalize quick response strings with slashes for TG and WA channels #137
+  * Fix receiving multiple media for TG, WAC and WA channels #136
+
 1.4.5-courier-7.1.0
 ----------
   * Remove expiration_timestamp from moPayload in WAC #133

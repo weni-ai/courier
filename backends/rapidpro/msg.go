@@ -378,9 +378,14 @@ func checkMsgSeen(b *backend, msg *DBMsg) courier.MsgUUID {
 	// if so, test whether the text it the same
 	if found != "" {
 		prevText := found[37:]
-
-		// if it is the same, return the UUID
-		if prevText == msg.Text() {
+		foundSplit := strings.Split(found, "|")
+		if len(foundSplit) > 2 && foundSplit[1] == "" {
+			prevAtt := foundSplit[2]
+			if prevAtt == string(msg.ExternalID_) {
+				return courier.NewMsgUUIDFromString(found[:36])
+			}
+		} else if prevText == msg.Text() {
+			// if it is the same, return the UUID
 			return courier.NewMsgUUIDFromString(found[:36])
 		}
 	}
@@ -399,11 +404,18 @@ func writeMsgSeen(b *backend, msg *DBMsg) {
 	defer r.Close()
 
 	urnFingerprint := msg.urnFingerprint()
-	uuidText := fmt.Sprintf("%s|%s", msg.UUID().String(), msg.Text_)
+	var msgSeen string
+
+	if msg.ExternalID_ != "" && msg.Attachments_ != nil {
+		msgSeen = fmt.Sprintf("%s|%s|%s", msg.UUID().String(), msg.Text_, msg.ExternalID_)
+	} else {
+		msgSeen = fmt.Sprintf("%s|%s", msg.UUID().String(), msg.Text_)
+	}
+
 	now := time.Now().In(time.UTC)
 	windowKey := fmt.Sprintf("seen:msgs:%s:%02d", now.Format("2006-01-02-15:04"), now.Second()/2*2)
 
-	luaWriteMsgSeen.Do(r, windowKey, urnFingerprint, uuidText)
+	luaWriteMsgSeen.Do(r, windowKey, urnFingerprint, msgSeen)
 }
 
 // clearMsgSeen clears our seen incoming messages for the passed in channel and URN

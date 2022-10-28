@@ -69,23 +69,23 @@ func (h *handler) Initialize(s courier.Server) error {
 	return nil
 }
 
-// {
-//   "statuses": [{
-//     "id": "9712A34B4A8B6AD50F",
-//     "recipient_id": "16315555555",
-//     "status": "sent",
-//     "timestamp": "1518694700"
-//   }],
-//   "messages": [ {
-//     "from": "16315555555",
-//     "id": "3AF99CB6BE490DCAF641",
-//     "timestamp": "1518694235",
-//     "text": {
-//       "body": "Hello this is an answer"
-//     },
-//     "type": "text"
-//   }]
-// }
+//	{
+//	  "statuses": [{
+//	    "id": "9712A34B4A8B6AD50F",
+//	    "recipient_id": "16315555555",
+//	    "status": "sent",
+//	    "timestamp": "1518694700"
+//	  }],
+//	  "messages": [ {
+//	    "from": "16315555555",
+//	    "id": "3AF99CB6BE490DCAF641",
+//	    "timestamp": "1518694235",
+//	    "text": {
+//	      "body": "Hello this is an answer"
+//	    },
+//	    "type": "text"
+//	  }]
+//	}
 type eventPayload struct {
 	Contacts []struct {
 		Profile struct {
@@ -766,7 +766,15 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 									Type: "reply",
 								}
 								btns[i].Reply.ID = fmt.Sprint(i)
-								btns[i].Reply.Title = qr
+								var text string
+								if strings.Contains(qr, "\\/") {
+									text = strings.Replace(qr, "\\", "", -1)
+								} else if strings.Contains(qr, "\\\\") {
+									text = strings.Replace(qr, "\\\\", "\\", -1)
+								} else {
+									text = qr
+								}
+								btns[i].Reply.Title = text
 							}
 							payload.Interactive.Action.Buttons = btns
 							payloads = append(payloads, payload)
@@ -778,9 +786,17 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 								Rows: make([]mtSectionRow, len(qrs)),
 							}
 							for i, qr := range qrs {
+								var text string
+								if strings.Contains(qr, "\\/") {
+									text = strings.Replace(qr, "\\", "", -1)
+								} else if strings.Contains(qr, "\\\\") {
+									text = strings.Replace(qr, "\\\\", "\\", -1)
+								} else {
+									text = qr
+								}
 								section.Rows[i] = mtSectionRow{
 									ID:    fmt.Sprint(i),
-									Title: qr,
+									Title: text,
 								}
 							}
 							payload.Interactive.Action.Sections = []mtSection{

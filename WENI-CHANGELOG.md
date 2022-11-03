@@ -1,3 +1,7 @@
+1.5.0-courier-7.2.0
+----------
+  * Merge tag v7.2.0 from nyaruka into our 1.4.5-courier-7.1.0
+
 1.4.5-courier-7.1.0
 ----------
   * Remove expiration_timestamp from moPayload in WAC #133

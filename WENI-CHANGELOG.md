@@ -1,3 +1,7 @@
+1.5.0-courier-7.1.19
+----------
+  * Merge tag v7.1.19 from nyaruka into our 1.4.6-courier-7.1.0
+
 1.4.6-courier-7.1.0
 ----------
   * Normalize quick response strings with slashes for TG and WA channels #137

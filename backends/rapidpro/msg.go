@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/buger/jsonparser"
+	"github.com/pkg/errors"
 
 	"mime"
 
@@ -134,7 +135,7 @@ func writeMsgToDB(ctx context.Context, b *backend, m *DBMsg) error {
 
 	// our db is down, write to the spool, we will write/queue this later
 	if err != nil {
-		return err
+		return errors.Wrap(err, "error getting contact for message")
 	}
 
 	// set our contact and urn ids from our contact
@@ -143,14 +144,14 @@ func writeMsgToDB(ctx context.Context, b *backend, m *DBMsg) error {
 
 	rows, err := b.db.NamedQueryContext(ctx, insertMsgSQL, m)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "error inserting message")
 	}
 	defer rows.Close()
 
 	rows.Next()
 	err = rows.Scan(&m.ID_)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "error scanning for inserted message id")
 	}
 
 	// queue this up to be handled by RapidPro
@@ -175,6 +176,7 @@ SELECT
 	attachments,
 	msg_count,
 	error_count,
+	failed_reason,
 	high_priority,
 	status,
 	visibility,
@@ -506,7 +508,6 @@ type DBMsg struct {
 	Text_                 string                 `json:"text"            db:"text"`
 	Attachments_          pq.StringArray         `json:"attachments"     db:"attachments"`
 	ExternalID_           null.String            `json:"external_id"     db:"external_id"`
-	ResponseToID_         courier.MsgID          `json:"response_to_id"  db:"response_to_id"`
 	ResponseToExternalID_ string                 `json:"response_to_external_id"`
 	IsResend_             bool                   `json:"is_resend,omitempty"`
 	Metadata_             json.RawMessage        `json:"metadata"        db:"metadata"`
@@ -515,8 +516,9 @@ type DBMsg struct {
 	ContactID_    ContactID         `json:"contact_id"      db:"contact_id"`
 	ContactURNID_ ContactURNID      `json:"contact_urn_id"  db:"contact_urn_id"`
 
-	MessageCount_ int `json:"msg_count"    db:"msg_count"`
-	ErrorCount_   int `json:"error_count"  db:"error_count"`
+	MessageCount_ int         `json:"msg_count"     db:"msg_count"`
+	ErrorCount_   int         `json:"error_count"   db:"error_count"`
+	FailedReason_ null.String `json:"failed_reason" db:"failed_reason"`
 
 	ChannelUUID_ courier.ChannelUUID `json:"channel_uuid"`
 	ContactName_ string              `json:"contact_name"`
@@ -532,6 +534,8 @@ type DBMsg struct {
 	SessionTimeout_       int        `json:"session_timeout,omitempty"`
 	SessionWaitStartedOn_ *time.Time `json:"session_wait_started_on,omitempty"`
 	SessionStatus_        string     `json:"session_status,omitempty"`
+
+	Flow_ *courier.FlowReference `json:"flow,omitempty"`
 
 	channel        *DBChannel
 	workerToken    queue.WorkerToken
@@ -551,12 +555,27 @@ func (m *DBMsg) ContactName() string          { return m.ContactName_ }
 func (m *DBMsg) HighPriority() bool           { return m.HighPriority_ }
 func (m *DBMsg) ReceivedOn() *time.Time       { return m.SentOn_ }
 func (m *DBMsg) SentOn() *time.Time           { return m.SentOn_ }
-func (m *DBMsg) ResponseToID() courier.MsgID  { return m.ResponseToID_ }
 func (m *DBMsg) ResponseToExternalID() string { return m.ResponseToExternalID_ }
 func (m *DBMsg) IsResend() bool               { return m.IsResend_ }
 
 func (m *DBMsg) Channel() courier.Channel { return m.channel }
 func (m *DBMsg) SessionStatus() string    { return m.SessionStatus_ }
+
+func (m *DBMsg) Flow() *courier.FlowReference { return m.Flow_ }
+
+func (m *DBMsg) FlowName() string {
+	if m.Flow_ == nil {
+		return ""
+	}
+	return m.Flow_.Name
+}
+
+func (m *DBMsg) FlowUUID() string {
+	if m.Flow_ == nil {
+		return ""
+	}
+	return m.Flow_.UUID
+}
 
 func (m *DBMsg) QuickReplies() []string {
 	if m.quickReplies != nil {
@@ -612,6 +631,9 @@ func (m *DBMsg) WithUUID(uuid courier.MsgUUID) courier.Msg { m.UUID_ = uuid; ret
 
 // WithMetadata can be used to add metadata to a Msg
 func (m *DBMsg) WithMetadata(metadata json.RawMessage) courier.Msg { m.Metadata_ = metadata; return m }
+
+// WithFlow can be used to add flow to a Msg
+func (m *DBMsg) WithFlow(flow *courier.FlowReference) courier.Msg { m.Flow_ = flow; return m }
 
 // WithAttachment can be used to append to the media urls for a message
 func (m *DBMsg) WithAttachment(url string) courier.Msg {

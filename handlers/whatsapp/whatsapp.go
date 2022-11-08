@@ -13,12 +13,13 @@ import (
 
 	"github.com/buger/jsonparser"
 	"github.com/gabriel-vasile/mimetype"
+	"github.com/gomodule/redigo/redis"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/backends/rapidpro"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
-	"github.com/nyaruka/gocommon/rcache"
 	"github.com/nyaruka/gocommon/urns"
+	"github.com/nyaruka/redisx"
 	"github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -560,6 +561,8 @@ const maxMsgLength = 4096
 // SendMsg sends the passed in message, returning any error
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
 	start := time.Now()
+	conn := h.Backend().RedisPool().Get()
+	defer conn.Close()
 
 	// get our token
 	token := msg.Channel().StringConfigForKey(courier.ConfigAuthToken, "")
@@ -591,8 +594,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	for i, payload := range payloads {
 		externalID := ""
-
-		wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, payload)
+		wppID, externalID, logs, err = sendWhatsAppMsg(conn, msg, sendPath, payload)
 		// add logs to our status
 		for _, log := range logs {
 			status.AddLog(log)
@@ -631,6 +633,13 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 	var payloads []interface{}
 	var logs []*courier.ChannelLog
 	var err error
+
+	parts := handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLength)
+
+	qrs := msg.QuickReplies()
+	wppVersion := msg.Channel().ConfigForKey("version", "0").(string)
+	isInteractiveMsgCompatible := semver.Compare(wppVersion, interactiveMsgMinSupVersion)
+	isInteractiveMsg := (isInteractiveMsgCompatible >= 0) && (len(qrs) > 0)
 
 	// do we have a template?
 	templating, err := h.getTemplate(msg)
@@ -733,12 +742,6 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 				payloads = append(payloads, payload)
 			}
 		} else {
-			parts := handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLength)
-
-			qrs := msg.QuickReplies()
-			wppVersion := msg.Channel().ConfigForKey("version", "0").(string)
-			isInteractiveMsgCompatible := semver.Compare(wppVersion, interactiveMsgMinSupVersion)
-			isInteractiveMsg := (isInteractiveMsgCompatible >= 0) && (len(qrs) > 0)
 
 			if isInteractiveMsg {
 				for i, part := range parts {
@@ -910,7 +913,8 @@ func (h *handler) fetchMediaID(msg courier.Msg, mimeType, mediaURL string) (stri
 	defer rc.Close()
 
 	cacheKey := fmt.Sprintf(mediaCacheKeyPattern, msg.Channel().UUID().String())
-	mediaID, err := rcache.Get(rc, cacheKey, mediaURL)
+	mediaCache := redisx.NewIntervalHash(cacheKey, time.Hour*24, 2)
+	mediaID, err := mediaCache.Get(rc, mediaURL)
 	if err != nil {
 		return "", logs, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, mediaURL)
 	} else if mediaID != "" {
@@ -975,7 +979,7 @@ func (h *handler) fetchMediaID(msg courier.Msg, mimeType, mediaURL string) (stri
 	}
 
 	// put in cache
-	err = rcache.Set(rc, cacheKey, mediaURL, mediaID)
+	err = mediaCache.Set(rc, mediaURL, mediaID)
 	if err != nil {
 		return "", logs, errors.Wrapf(err, "error setting media id in cache")
 	}
@@ -983,7 +987,7 @@ func (h *handler) fetchMediaID(msg courier.Msg, mimeType, mediaURL string) (stri
 	return mediaID, logs, nil
 }
 
-func sendWhatsAppMsg(msg courier.Msg, sendPath *url.URL, payload interface{}) (string, string, []*courier.ChannelLog, error) {
+func sendWhatsAppMsg(rc redis.Conn, msg courier.Msg, sendPath *url.URL, payload interface{}) (string, string, []*courier.ChannelLog, error) {
 	start := time.Now()
 	jsonBody, err := json.Marshal(payload)
 
@@ -996,12 +1000,38 @@ func sendWhatsAppMsg(msg courier.Msg, sendPath *url.URL, payload interface{}) (s
 	req, _ := http.NewRequest(http.MethodPost, sendPath.String(), bytes.NewReader(jsonBody))
 	req.Header = buildWhatsAppHeaders(msg.Channel())
 	rr, err := utils.MakeHTTPRequest(req)
+
+	if rr.StatusCode == 429 || rr.StatusCode == 503 {
+		rateLimitKey := fmt.Sprintf("rate_limit:%s", msg.Channel().UUID().String())
+		rc.Do("SET", rateLimitKey, "engaged")
+
+		// The rate limit is 50 requests per second
+		// We pause sending 2 seconds so the limit count is reset
+		// TODO: In the future we should the header value when available
+		rc.Do("EXPIRE", rateLimitKey, 2)
+
+		log := courier.NewChannelLogFromRR("rate limit engaged", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
+		return "", "", []*courier.ChannelLog{log}, err
+	}
+
 	log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
 	errPayload := &mtErrorPayload{}
 	err = json.Unmarshal(rr.Body, errPayload)
 
 	// handle send msg errors
 	if err == nil && len(errPayload.Errors) > 0 {
+		if hasTiersError(*errPayload) {
+			rateLimitBulkKey := fmt.Sprintf("rate_limit_bulk:%s", msg.Channel().UUID().String())
+			rc.Do("SET", rateLimitBulkKey, "engaged")
+
+			// The WA tiers spam rate limit hit
+			// We pause the bulk queue for 24 hours and 5min
+			rc.Do("EXPIRE", rateLimitBulkKey, (60*60*24)+(5*60))
+
+			err := errors.Errorf("received error from send endpoint: %s", errPayload.Errors[0].Title)
+			return "", "", []*courier.ChannelLog{log}, err
+		}
+
 		if !hasWhatsAppContactError(*errPayload) {
 			err := errors.Errorf("received error from send endpoint: %s", errPayload.Errors[0].Title)
 			return "", "", []*courier.ChannelLog{log}, err
@@ -1113,9 +1143,18 @@ func buildWhatsAppHeaders(channel courier.Channel) http.Header {
 	return header
 }
 
+func hasTiersError(payload mtErrorPayload) bool {
+	for _, err := range payload.Errors {
+		if err.Code == 471 {
+			return true
+		}
+	}
+	return false
+}
+
 func hasWhatsAppContactError(payload mtErrorPayload) bool {
 	for _, err := range payload.Errors {
-		if err.Code == 1006 && err.Title == "Resource not found" && err.Details == "unknown contact" {
+		if err.Code == 1006 && err.Title == "Resource not found" && (err.Details == "unknown contact" || err.Details == "Could not retrieve phone number from contact store") {
 			return true
 		}
 	}
@@ -1241,6 +1280,7 @@ var languageMap = map[string]string{
 	"fil":    "fil",   // Filipino
 	"fin":    "fi",    // Finnish
 	"fra":    "fr",    // French
+	"kat":    "ka",    // Georgian
 	"deu":    "de",    // German
 	"ell":    "el",    // Greek
 	"guj":    "gu",    // Gujarati
@@ -1254,6 +1294,7 @@ var languageMap = map[string]string{
 	"jpn":    "ja",    // Japanese
 	"kan":    "kn",    // Kannada
 	"kaz":    "kk",    // Kazakh
+	"kin":    "rw_RW", // Kinyarwanda
 	"kor":    "ko",    // Korean
 	"kir":    "ky_KG", // Kyrgyzstan
 	"lao":    "lo",    // Lao

@@ -449,6 +449,12 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		ResponseBody: `{ "errors": [{ "title": "Error Sending" }] }`, ResponseStatus: 403,
 		RequestBody: `{"to":"250788123123","type":"text","text":{"body":"Error"}}`,
 		SendPrep:    setSendURL},
+	{Label: "Rate Limit Engaged",
+		Text: "Error", URN: "whatsapp:250788123123",
+		Status:       "E",
+		ResponseBody: `{ "errors": [{ "title": "Too many requests" }] }`, ResponseStatus: 429,
+		RequestBody: `{"to":"250788123123","type":"text","text":{"body":"Error"}}`,
+		SendPrep:    setSendURL},
 	{Label: "No Message ID",
 		Text: "Error", URN: "whatsapp:250788123123",
 		Status:       "E",
@@ -595,6 +601,38 @@ var defaultSendTestCases = []ChannelSendTestCase{
 			}: MockedResponse{
 				Status: 404,
 				Body:   `{"errors": [{"code": 1006, "title": "Resource not found", "details": "unknown contact"}]}`,
+			},
+			MockedRequest{
+				Method: "POST",
+				Path:   "/v1/contacts",
+				Body:   `{"blocking":"wait","contacts":["+250788123123"],"force_check":true}`,
+			}: MockedResponse{
+				Status: 200,
+				Body:   `{"contacts": [{"input": "+250788123123", "status": "valid", "wa_id": "250788123123"}]}`,
+			},
+			MockedRequest{
+				Method:   "POST",
+				Path:     "/v1/messages",
+				RawQuery: "retry=1",
+				Body:     `{"to":"250788123123","type":"text","text":{"body":"try again"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{"messages": [{"id": "157b5e14568e8"}]}`,
+			},
+		},
+		SendPrep: setSendURL,
+	},
+	{Label: "Try Messaging Again After WhatsApp Contact Check",
+		Text: "try again", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/v1/messages",
+				Body:   `{"to":"250788123123","type":"text","text":{"body":"try again"}}`,
+			}: MockedResponse{
+				Status: 404,
+				Body:   `{"errors": [{"code": 1006, "title": "Resource not found", "details": "Could not retrieve phone number from contact store"}]}`,
 			},
 			MockedRequest{
 				Method: "POST",

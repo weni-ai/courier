@@ -807,22 +807,22 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 	return events, data, nil
 }
 
-// {
-//     "messaging_type": "<MESSAGING_TYPE>"
-//     "recipient":{
-//         "id":"<PSID>"
-//     },
-//     "message":{
-//	       "text":"hello, world!"
-//         "attachment":{
-//             "type":"image",
-//             "payload":{
-//                 "url":"http://www.messenger-rocks.com/image.jpg",
-//                 "is_reusable":true
-//             }
-//         }
-//     }
-// }
+//	{
+//	    "messaging_type": "<MESSAGING_TYPE>"
+//	    "recipient":{
+//	        "id":"<PSID>"
+//	    },
+//	    "message":{
+//		       "text":"hello, world!"
+//	        "attachment":{
+//	            "type":"image",
+//	            "payload":{
+//	                "url":"http://www.messenger-rocks.com/image.jpg",
+//	                "is_reusable":true
+//	            }
+//	        }
+//	    }
+//	}
 type mtPayload struct {
 	MessagingType string `json:"messaging_type"`
 	Tag           string `json:"tag,omitempty"`

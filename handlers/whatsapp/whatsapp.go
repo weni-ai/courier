@@ -70,23 +70,23 @@ func (h *handler) Initialize(s courier.Server) error {
 	return nil
 }
 
-// {
-//   "statuses": [{
-//     "id": "9712A34B4A8B6AD50F",
-//     "recipient_id": "16315555555",
-//     "status": "sent",
-//     "timestamp": "1518694700"
-//   }],
-//   "messages": [ {
-//     "from": "16315555555",
-//     "id": "3AF99CB6BE490DCAF641",
-//     "timestamp": "1518694235",
-//     "text": {
-//       "body": "Hello this is an answer"
-//     },
-//     "type": "text"
-//   }]
-// }
+//	{
+//	  "statuses": [{
+//	    "id": "9712A34B4A8B6AD50F",
+//	    "recipient_id": "16315555555",
+//	    "status": "sent",
+//	    "timestamp": "1518694700"
+//	  }],
+//	  "messages": [ {
+//	    "from": "16315555555",
+//	    "id": "3AF99CB6BE490DCAF641",
+//	    "timestamp": "1518694235",
+//	    "text": {
+//	      "body": "Hello this is an answer"
+//	    },
+//	    "type": "text"
+//	  }]
+//	}
 type eventPayload struct {
 	Contacts []struct {
 		Profile struct {
@@ -892,13 +892,13 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 						}
 						payload.Text.Body = part
 						payloads = append(payloads, payload)
-	
+
 					} else {
 						payload := mtInteractivePayload{
 							To:   msg.URN().Path(),
 							Type: "interactive",
 						}
-	
+
 						// up to 3 qrs the interactive message will be button type, otherwise it will be list
 						if len(qrs) <= 3 {
 							payload.Interactive.Type = "button"

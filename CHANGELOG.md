@@ -1,3 +1,57 @@
+v7.4.0
+----------
+ * Update README
+ * Use analytics package from gocommon
+
+v7.3.10
+----------
+ * Make sure text are sent after audio attachments for WA channels
+
+v7.3.9
+----------
+ * Add arm64 as a build target
+ * Add support for WA Cloud API
+ * Refactor FBA tests
+
+v7.3.8
+----------
+ * Add log to status first when handling telegram opt outs
+
+v7.3.7
+----------
+ * Fix to not stop contact for other errors
+
+v7.3.6
+----------
+ * Update to go 1.18 and latest gocommon/phonenumbers/jsonparser
+
+v7.3.5
+----------
+ * Update Start Mobile send URL
+
+v7.3.4
+----------
+ * Update WhatsApp handler so that we update the URN if the returned ID doesn't match
+ * Stop Telegram contact that have blocked the channel bot
+
+v7.3.3
+----------
+ * Quick fix to stop JSON content being omitted in logs
+
+v7.3.2
+----------
+ * Update to latest gocommon and start using httpx.DetectContentType
+ * Add link preview attribute for sending whatsapp
+ * Update golang.org/x/sys
+
+v7.3.1
+----------
+ * Fix handling stops via status callbacks on Twilio
+
+v7.3.0
+----------
+ * Support stopping contacts when we get stop events on status callbacks
+
 v7.2.0
 ----------
  * CI testing with go 1.17.7

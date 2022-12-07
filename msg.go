@@ -117,4 +117,6 @@ type Msg interface {
 
 	EventID() int64
 	SessionStatus() string
+
+	TextLanguage() string
 }

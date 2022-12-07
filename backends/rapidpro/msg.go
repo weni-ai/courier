@@ -510,6 +510,7 @@ type DBMsg struct {
 	ResponseToExternalID_ string                 `json:"response_to_external_id"`
 	IsResend_             bool                   `json:"is_resend,omitempty"`
 	Metadata_             json.RawMessage        `json:"metadata"        db:"metadata"`
+	TextLanguage_         string                 `json:"text_language" db:"text_language"`
 
 	ChannelID_    courier.ChannelID `json:"channel_id"      db:"channel_id"`
 	ContactID_    ContactID         `json:"contact_id"      db:"contact_id"`
@@ -557,6 +558,7 @@ func (m *DBMsg) IsResend() bool               { return m.IsResend_ }
 
 func (m *DBMsg) Channel() courier.Channel { return m.channel }
 func (m *DBMsg) SessionStatus() string    { return m.SessionStatus_ }
+func (m *DBMsg) TextLanguage() string     { return m.TextLanguage_ }
 
 func (m *DBMsg) QuickReplies() []string {
 	if m.quickReplies != nil {

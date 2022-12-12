@@ -1541,14 +1541,24 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							Title: text,
 						}
 					}
-
-					interactive.Action = &struct {
-						Button   string         "json:\"button,omitempty\""
-						Sections []wacMTSection "json:\"sections,omitempty\""
-						Buttons  []wacMTButton  "json:\"buttons,omitempty\""
-					}{Button: languageMenuMap[msg.TextLanguage()], Sections: []wacMTSection{
-						section,
-					}}
+					fmt.Println("TextLanguage: ", msg.TextLanguage())
+					if msg.TextLanguage() != "" {
+						interactive.Action = &struct {
+							Button   string         "json:\"button,omitempty\""
+							Sections []wacMTSection "json:\"sections,omitempty\""
+							Buttons  []wacMTButton  "json:\"buttons,omitempty\""
+						}{Button: languageMenuMap[msg.TextLanguage()], Sections: []wacMTSection{
+							section,
+						}}
+					} else {
+						interactive.Action = &struct {
+							Button   string         "json:\"button,omitempty\""
+							Sections []wacMTSection "json:\"sections,omitempty\""
+							Buttons  []wacMTButton  "json:\"buttons,omitempty\""
+						}{Button: "Menu", Sections: []wacMTSection{
+							section,
+						}}
+					}
 
 					payload.Interactive = &interactive
 				} else {

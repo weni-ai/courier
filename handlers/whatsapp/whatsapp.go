@@ -781,7 +781,13 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 						} else {
 							payload.Interactive.Type = "list"
 							payload.Interactive.Body.Text = part
-							payload.Interactive.Action.Button = languageMenuMap[msg.TextLanguage()]
+							fmt.Println("TextLanguage: ", msg.TextLanguage())
+							if msg.TextLanguage() != "" {
+								payload.Interactive.Action.Button = languageMenuMap[msg.TextLanguage()]
+							} else {
+								payload.Interactive.Action.Button = "Menu"
+							}
+
 							section := mtSection{
 								Rows: make([]mtSectionRow, len(qrs)),
 							}

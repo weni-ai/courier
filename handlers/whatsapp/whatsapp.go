@@ -783,8 +783,17 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 							payload.Interactive.Body.Text = part
 							fmt.Println("TextLanguage: ", msg.TextLanguage())
 							if msg.TextLanguage() != "" {
+								fmt.Println("Via TextLanguage")
+								fmt.Println("TextLanguage: ", msg.TextLanguage())
 								payload.Interactive.Action.Button = languageMenuMap[msg.TextLanguage()]
+							}
+
+							if msg.TextLanguagee() != "" {
+								fmt.Println("Via Metadata")
+								fmt.Println("Metadata: ", msg.TextLanguagee())
+								payload.Interactive.Action.Button = languageMenuMap[msg.TextLanguagee()]
 							} else {
+								fmt.Println("Nenhum funcionou")
 								payload.Interactive.Action.Button = "Menu"
 							}
 

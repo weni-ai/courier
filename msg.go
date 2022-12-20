@@ -119,4 +119,5 @@ type Msg interface {
 	SessionStatus() string
 
 	TextLanguage() string
+	TextLanguagee() string
 }

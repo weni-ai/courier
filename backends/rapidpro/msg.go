@@ -538,6 +538,7 @@ type DBMsg struct {
 	workerToken    queue.WorkerToken
 	alreadyWritten bool
 	quickReplies   []string
+	textLanguage   string
 }
 
 func (m *DBMsg) ID() courier.MsgID            { return m.ID_ }
@@ -558,7 +559,9 @@ func (m *DBMsg) IsResend() bool               { return m.IsResend_ }
 
 func (m *DBMsg) Channel() courier.Channel { return m.channel }
 func (m *DBMsg) SessionStatus() string    { return m.SessionStatus_ }
-func (m *DBMsg) TextLanguage() string     { return m.TextLanguage_ }
+
+// Testing language submission via TextLanguage
+func (m *DBMsg) TextLanguage() string { return m.TextLanguage_ }
 
 func (m *DBMsg) QuickReplies() []string {
 	if m.quickReplies != nil {
@@ -577,6 +580,19 @@ func (m *DBMsg) QuickReplies() []string {
 		},
 		"quick_replies")
 	return m.quickReplies
+}
+
+// Testing language submission via Metadata
+func (m *DBMsg) TextLanguagee() string {
+	if m.textLanguage != "" {
+		return m.textLanguage
+	}
+	if m.Metadata_ == nil {
+		return ""
+	}
+
+	textLanguage, _, _, _ := jsonparser.Get(m.Metadata_, "text_language")
+	return string(textLanguage)
 }
 
 func (m *DBMsg) Topic() string {

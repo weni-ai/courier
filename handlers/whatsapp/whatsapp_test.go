@@ -656,7 +656,7 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		SendPrep:    setSendURL},
 	{Label: "Interactive List Message Send",
 		Text: "Interactive List Msg", URN: "whatsapp:250788123123", QuickReplies: []string{"ROW1", "ROW2", "ROW3", "ROW4"},
-		Status: "W", ExternalID: "157b5e14568e8",
+		Status: "W", ExternalID: "157b5e14568e8", TextLanguage: "pt-BR",
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"to":"250788123123","type":"interactive","interactive":{"type":"list","body":{"text":"Interactive List Msg"},"action":{"button":"Menu","sections":[{"rows":[{"id":"0","title":"ROW1"},{"id":"1","title":"ROW2"},{"id":"2","title":"ROW3"},{"id":"3","title":"ROW4"}]}]}}}`,
 		SendPrep:    setSendURL},

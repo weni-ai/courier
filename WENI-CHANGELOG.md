@@ -1,3 +1,7 @@
+1.4.7-courier-7.1.0
+----------
+  * Add "Menu" word translation mapping to list messages in WAC and WA channels #139
+
 1.4.6-courier-7.1.0
 ----------
   * Normalize quick response strings with slashes for TG and WA channels #137

@@ -579,7 +579,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	var wppID string
 	var logs []*courier.ChannelLog
 
-	payloads, logs, err := buildPayloads(msg, h)
+	payloads, logs, err, hasSleep := buildPayloads(msg, h)
 
 	fail := payloads == nil && err != nil
 	if fail {
@@ -605,6 +605,10 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		if i == 0 {
 			status.SetExternalID(externalID)
 		}
+		// pause time to certify media delivery
+		if hasSleep {
+			time.Sleep(2 * time.Second)
+		}
 	}
 
 	// we are wired it there were no errors
@@ -626,18 +630,19 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	return status, nil
 }
 
-func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.ChannelLog, error) {
+func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.ChannelLog, error, bool) {
 	start := time.Now()
 	var payloads []interface{}
 	var logs []*courier.ChannelLog
 	var err error
+	hasSleep := false
 
 	// do we have a template?
 	templating, err := h.getTemplate(msg)
 	if templating != nil || len(msg.Attachments()) == 0 {
 
 		if err != nil {
-			return nil, nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())
+			return nil, nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID()), false
 		}
 		if templating != nil {
 			namespace := templating.Namespace
@@ -645,7 +650,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 				namespace = msg.Channel().StringConfigForKey(configNamespace, "")
 			}
 			if namespace == "" {
-				return nil, nil, errors.Errorf("cannot send template message without Facebook namespace for channel: %s", msg.Channel().UUID())
+				return nil, nil, errors.Errorf("cannot send template message without Facebook namespace for channel: %s", msg.Channel().UUID()), false
 			}
 
 			if msg.Channel().BoolConfigForKey(configHSMSupport, false) {
@@ -703,7 +708,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 							header.Parameters = append(header.Parameters, Param{Type: "image", Image: image})
 							payload.Template.Components = append(payload.Template.Components, *header)
 						} else if strings.HasPrefix(mimeType, "application") {
-
+							hasSleep = true
 							filename, err := utils.BasePathForURL(fileURL)
 							if err != nil {
 								logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("Error while parsing the media URL")
@@ -716,6 +721,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 							header.Parameters = append(header.Parameters, Param{Type: "document", Document: document})
 							payload.Template.Components = append(payload.Template.Components, *header)
 						} else if strings.HasPrefix(mimeType, "video") {
+							hasSleep = true
 							video := &mmtVideo{
 								Link: mediaURL,
 							}
@@ -858,6 +864,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					payload.Audio = mediaPayload
 					payloads = append(payloads, payload)
 				} else if strings.HasPrefix(mimeType, "application") {
+					hasSleep = true
 					payload := mtDocumentPayload{
 						To:   msg.URN().Path(),
 						Type: "document",
@@ -883,6 +890,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					payload.Image = mediaPayload
 					payloads = append(payloads, payload)
 				} else if strings.HasPrefix(mimeType, "video") {
+					hasSleep = true
 					payload := mtVideoPayload{
 						To:   msg.URN().Path(),
 						Type: "video",
@@ -902,7 +910,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 			}
 		}
 	}
-	return payloads, logs, err
+	return payloads, logs, err, hasSleep
 }
 
 // fetchMediaID tries to fetch the id for the uploaded media, setting the result in redis.

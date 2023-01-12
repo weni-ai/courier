@@ -1236,6 +1236,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 	start := time.Now()
 	hasNewURN := false
 	hasCaption := false
+	hasSleep := false
 
 	base, _ := url.Parse(graphURL)
 	path, _ := url.Parse(fmt.Sprintf("/%s/messages", msg.Channel().Address()))
@@ -1294,8 +1295,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					if attType == "image" {
 						header.Params = append(header.Params, &wacParam{Type: "image", Image: &media})
 					} else if attType == "video" {
+						hasSleep = true
 						header.Params = append(header.Params, &wacParam{Type: "video", Video: &media})
 					} else if attType == "document" {
+						hasSleep = true
 						media.Filename, err = utils.BasePathForURL(attURL)
 						if err != nil {
 							return nil, err
@@ -1422,8 +1425,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			} else if attType == "audio" {
 				payload.Audio = &media
 			} else if attType == "video" {
+				hasSleep = true
 				payload.Video = &media
 			} else if attType == "document" {
+				hasSleep = true
 				media.Filename, err = utils.BasePathForURL(attURL)
 				if err != nil {
 					return nil, err
@@ -1458,6 +1463,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								Document wacMTMedia "json:\"document,omitempty\""
 							}{Type: "image", Image: image}
 						} else if attType == "video" {
+							hasSleep = true
 							video := wacMTMedia{
 								Link: attURL,
 							}
@@ -1469,6 +1475,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								Document wacMTMedia "json:\"document,omitempty\""
 							}{Type: "video", Video: video}
 						} else if attType == "document" {
+							hasSleep = true
 							filename, err := utils.BasePathForURL(attURL)
 							if err != nil {
 								return nil, err
@@ -1490,7 +1497,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								zeroIndex = true
 							}
 							payloadAudio = wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path(), Type: "audio", Audio: &wacMTMedia{Link: attURL}}
-							status, _, err := requestWAC(payloadAudio, accessToken, msg, status, wacPhoneURL, zeroIndex)
+							status, _, err := requestWAC(payloadAudio, accessToken, msg, status, wacPhoneURL, zeroIndex, hasSleep)
 							if err != nil {
 								return status, nil
 							}
@@ -1574,7 +1581,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			zeroIndex = true
 		}
 
-		status, respPayload, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, zeroIndex)
+		status, respPayload, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, zeroIndex, hasSleep)
 		if err != nil {
 			return status, err
 		}
@@ -1602,7 +1609,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 	return status, nil
 }
 
-func requestWAC(payload wacMTPayload, accessToken string, msg courier.Msg, status courier.MsgStatus, wacPhoneURL *url.URL, zeroIndex bool) (courier.MsgStatus, *wacMTResponse, error) {
+func requestWAC(payload wacMTPayload, accessToken string, msg courier.Msg, status courier.MsgStatus, wacPhoneURL *url.URL, zeroIndex bool, hasSleep bool) (courier.MsgStatus, *wacMTResponse, error) {
 
 	jsonBody, err := json.Marshal(payload)
 	if err != nil {
@@ -1638,6 +1645,11 @@ func requestWAC(payload wacMTPayload, accessToken string, msg courier.Msg, statu
 	}
 	// this was wired successfully
 	status.SetStatus(courier.MsgWired)
+
+	// pause time to certify media delivery
+	if hasSleep {
+		time.Sleep(2 * time.Second)
+	}
 
 	return status, respPayload, nil
 }

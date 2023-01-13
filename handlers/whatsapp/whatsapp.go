@@ -607,7 +607,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		}
 		// pause time to certify media delivery
 		if hasSleep {
-			time.Sleep(2 * time.Second)
+			time.Sleep(8 * time.Second)
 		}
 	}
 

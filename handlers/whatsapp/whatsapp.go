@@ -591,7 +591,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	for i, payload := range payloads {
 		externalID := ""
-
+		fmt.Println(fmt.Sprint(payload))
 		wppID, externalID, logs, err = sendWhatsAppMsg(msg, sendPath, payload)
 		// add logs to our status
 		for _, log := range logs {
@@ -607,7 +607,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		}
 		// pause time to certify media delivery
 		if hasSleep {
-			time.Sleep(8 * time.Second)
+			fmt.Println("hasSleep")
+			time.Sleep(10 * time.Second)
 		}
 	}
 

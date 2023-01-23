@@ -1,3 +1,7 @@
+1.4.8-courier-7.1.0
+----------
+  * Fix word 'menu' in Arabic for list messages #141
+
 1.4.7-courier-7.1.0
 ----------
   * Add "Menu" word translation mapping to list messages in WAC and WA channels #139

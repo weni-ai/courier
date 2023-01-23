@@ -1896,5 +1896,5 @@ var languageMenuMap = map[string]string{
 	"zh-CN": "菜单",
 	"zh-HK": "菜單",
 	"zh-TW": "菜單",
-	"ar-JO": "قائمة الطعام",
+	"ar-JO": "قائمة",
 }

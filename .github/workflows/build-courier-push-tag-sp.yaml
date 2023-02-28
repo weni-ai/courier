@@ -55,7 +55,7 @@ jobs:
       - name: Build and push - Courier Image
         uses: docker/build-push-action@v3
         with:
-          context: .
+          context: ./docker
           labels: |
             tag=${{env.TAG}}
             commit=${{env.COMMIT_SHA}}

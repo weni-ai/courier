@@ -128,5 +128,5 @@ jobs:
           repository: "${{ env.MANIFESTS_REPOSITORY }}"
           directory: ./kubernetes-manifests-platform/
           branch: main
-          message: "From Mailroom Build (Push Tag ${{ env.MANIFESTS_ENVIRONMENT }})"
+          message: "From Courier Build (Push Tag ${{ env.MANIFESTS_ENVIRONMENT }})"
           

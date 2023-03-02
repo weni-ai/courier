@@ -8,20 +8,25 @@ import (
 	"github.com/nyaruka/courier/utils"
 )
 
-func SendWebhooks(channel courier.Channel, r *http.Request, webhook interface{}) error {
-	webhookURL, ok := webhook.(map[string]interface{})
+func SendWebhooks(channel courier.Channel, r *http.Request, configWebhook interface{}) error {
+	webhook, ok := configWebhook.(map[string]interface{})
 	if !ok {
 		return fmt.Errorf("conversion error")
 	}
-	req, err := http.NewRequest(http.MethodPost, webhookURL["url"].(string), r.Body)
-	if err != nil {
-		return err
+
+	method := webhook["method"].(string)
+	if method == "" {
+		method = "POST"
+	}
+
+	req, _ := http.NewRequest(method, webhook["url"].(string), r.Body)
+
+	headers := webhook["headers"].(map[string]interface{})
+	for name, value := range headers {
+		req.Header.Set(name, value.(string))
 	}
 
 	resp, err := utils.MakeHTTPRequest(req)
-	if err != nil {
-		return err
-	}
 
 	if resp.StatusCode/100 != 2 {
 		return err

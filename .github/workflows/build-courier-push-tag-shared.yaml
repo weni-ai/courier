@@ -125,7 +125,7 @@ jobs:
         with:
           github_token: "${{ secrets.DEVOPS_GITHUB_PERMANENT_TOKEN }}"
           repository: "${{ env.MANIFESTS_REPOSITORY }}"
-          directory: ./kubernetes-manifests-platform/
+          directory: ./kubernetes-manifests/
           branch: main
           message: "From Courier Build (Push Tag ${{ env.MANIFESTS_ENVIRONMENT }})"
           

@@ -72,7 +72,7 @@ jobs:
           ref: main
           repository: "${{ env.MANIFESTS_REPOSITORY }}"
           token: "${{ secrets.DEVOPS_GITHUB_PERMANENT_TOKEN }}"
-          path: ./kubernetes-manifests-platform/
+          path: ./kubernetes-manifests/
 
       - name: Update image on deployment
         run: |

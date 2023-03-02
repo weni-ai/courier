@@ -51,10 +51,9 @@ jobs:
       - name: Login to Registry
         uses: docker/login-action@v2
         with:
-
           registry: ${{ secrets.ECR_SP }}
-          username: ${{ secrets.AWS_ACCESS_KEY_ID_SHARED }}      
-          password: ${{ secrets.AWS_SECRET_ACCESS_KEY_SHARED }}
+          username: ${{ secrets.AWS_ACCESS_KEY_ID_SP }}      
+          password: ${{ secrets.AWS_SECRET_ACCESS_KEY_SP }}
 
       - name: Build and push - Courier Image
         uses: docker/build-push-action@v3

@@ -637,3 +637,15 @@ func (m *DBMsg) WithURNAuth(auth string) courier.Msg {
 	m.URNAuth_ = auth
 	return m
 }
+
+func GetMsg(b *backend, id courier.MsgID) (*DBMsg, error) {
+	m := &DBMsg{
+		ID_: id,
+	}
+	err := b.db.Get(m, selectMsgSQL, id)
+	if err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}

@@ -120,3 +120,17 @@ type Msg interface {
 
 	TextLanguage() string
 }
+
+type RunEvent struct {
+	Type      string
+	StepUUID  string
+	CreatedOn *time.Time
+	Msg       EventMsg
+}
+
+type EventMsg struct {
+	ID   null.Int
+	URN  string
+	Text string
+	UUID string
+}

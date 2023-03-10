@@ -107,6 +107,10 @@ type Backend interface {
 
 	// RedisPool returns the redisPool for this backend
 	RedisPool() *redis.Pool
+
+	GetRunEventsByMsgUUIDFromDB(context.Context, string) ([]RunEvent, error)
+
+	GetMessage(context.Context, int) (Msg, error)
 }
 
 // NewBackend creates the type of backend passed in

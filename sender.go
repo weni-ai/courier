@@ -3,9 +3,11 @@ package courier
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/nyaruka/librato"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -207,6 +209,55 @@ func (w *Sender) sendMessage(msg Msg) {
 		status.AddLog(NewChannelLogFromError("Message Loop", msg.Channel(), msg.ID(), 0, fmt.Errorf("message loop detected, failing message without send")))
 		log.Error("message loop detected, failing message")
 	} else {
+
+		/*
+			  TODO: handle context timeout if previous msg sent to contact has attachments
+				TODO: and if it status wasn't is read or wired not send current yet
+		*/
+		canContinue := false // TODO: pass initial condition here
+		for !canContinue {
+			if !canContinue {
+				time.Sleep(time.Second * 1)
+			}
+			canContinue = true // TODO: recheck condition here
+		}
+
+		msgUUID := msg.UUID().String()
+		if msgUUID != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+			defer cancel()
+			msgEvents, err := server.Backend().GetRunEventsByMsgUUIDFromDB(ctx, msgUUID)
+			if err != nil {
+				log.Error(errors.Wrap(err, "unable to get events"))
+			}
+			if msgEvents != nil {
+				sort.SliceStable(msgEvents, func(i, j int) bool {
+					return msgEvents[i].Msg.ID < msgEvents[j].Msg.ID
+				})
+
+				msgIndex := func(slice []RunEvent, item int) int {
+					for i := range slice {
+						if int(slice[i].Msg.ID) == item {
+							return i
+						}
+					}
+					return -1
+				}(msgEvents, int(msg.ID()))
+				if msgIndex > 0 {
+					ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+					defer cancel()
+					previousEventMgID := msgEvents[msgIndex-1].Msg.ID
+					prevMsg, err := server.Backend().GetMessage(ctx, int(previousEventMgID))
+					if err != nil {
+						log.Error(errors.Wrap(err, "GetMessage failed"))
+					}
+					if prevMsg != nil {
+
+					}
+				}
+			}
+		}
+
 		// send our message
 		status, err = server.SendMsg(sendCTX, msg)
 		duration := time.Now().Sub(start)

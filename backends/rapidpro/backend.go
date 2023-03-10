@@ -830,3 +830,11 @@ type backend struct {
 	stopChan  chan bool
 	waitGroup *sync.WaitGroup
 }
+
+func (b *backend) GetRunEventsByMsgUUIDFromDB(ctx context.Context, msgUUID string) ([]courier.RunEvent, error) {
+	return nil, nil
+}
+
+func (b *backend) GetMessage(ctx context.Context, msdID int) (courier.Msg, error) {
+	return nil, nil
+}

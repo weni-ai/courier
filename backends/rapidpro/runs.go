@@ -100,3 +100,18 @@ func GetRunEventsByMsgUUIDFromDB(ctx context.Context, db *sqlx.DB, uuid string) 
 
 	return events, nil
 }
+
+func GetRunEventsJSONByMsgUUIDFromDB(ctx context.Context, db *sqlx.DB, uuid string) (string, error) {
+	run := &FlowRun{}
+	err := db.GetContext(ctx, run, selectFlowRunEventsByMsgUUID, uuid)
+
+	if err == sql.ErrNoRows {
+		return "", errors.New("run not found")
+	}
+
+	if err != nil {
+		return "", err
+	}
+
+	return run.Events, nil
+}

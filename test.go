@@ -390,6 +390,14 @@ func (mb *MockBackend) RedisPool() *redis.Pool {
 	return mb.redisPool
 }
 
+func (b *MockBackend) GetRunEventsByMsgUUIDFromDB(ctx context.Context, msgUUID string) ([]RunEvent, error) {
+	return nil, nil
+}
+
+func (b *MockBackend) GetMessage(ctx context.Context, msdID int) (Msg, error) {
+	return nil, nil
+}
+
 func buildMockBackend(config *Config) Backend {
 	return NewMockBackend()
 }
@@ -627,6 +635,7 @@ func (m *mockMsg) WithAttachment(url string) Msg {
 	return m
 }
 func (m *mockMsg) WithMetadata(metadata json.RawMessage) Msg { m.metadata = metadata; return m }
+func (m *mockMsg) Status() MsgStatusValue                    { return "" }
 
 //-----------------------------------------------------------------------------
 // Mock status implementation

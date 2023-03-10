@@ -210,27 +210,18 @@ func (w *Sender) sendMessage(msg Msg) {
 		log.Error("message loop detected, failing message")
 	} else {
 
-		/*
-			  TODO: handle context timeout if previous msg sent to contact has attachments
-				TODO: and if it status wasn't is read or wired not send current yet
-		*/
-		canContinue := false // TODO: pass initial condition here
-		for !canContinue {
-			if !canContinue {
-				time.Sleep(time.Second * 1)
-			}
-			canContinue = true // TODO: recheck condition here
-		}
-
+		// check if previous message is already Wired or Delivered
 		msgUUID := msg.UUID().String()
 		if msgUUID != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
 			defer cancel()
+
 			msgEvents, err := server.Backend().GetRunEventsByMsgUUIDFromDB(ctx, msgUUID)
 			if err != nil {
 				log.Error(errors.Wrap(err, "unable to get events"))
 			}
 			if msgEvents != nil {
+
 				sort.SliceStable(msgEvents, func(i, j int) bool {
 					return msgEvents[i].Msg.ID < msgEvents[j].Msg.ID
 				})
@@ -243,23 +234,39 @@ func (w *Sender) sendMessage(msg Msg) {
 					}
 					return -1
 				}(msgEvents, int(msg.ID()))
+
 				if msgIndex > 0 {
 					ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
 					defer cancel()
 					previousEventMgID := msgEvents[msgIndex-1].Msg.ID
-					prevMsg, err := server.Backend().GetMessage(ctx, int(previousEventMgID))
-					if err != nil {
-						log.Error(errors.Wrap(err, "GetMessage failed"))
-					}
-					if prevMsg != nil {
-
+					waitMediaMsg := true
+					for waitMediaMsg {
+						prevMsg, err := server.Backend().GetMessage(ctx, int(previousEventMgID))
+						if err != nil {
+							log.Error(errors.Wrap(err, "GetMessage for previous message failed"))
+						}
+						if prevMsg != nil {
+							if len(prevMsg.Attachments()) > 0 {
+								if prevMsg.Status() != MsgWired && prevMsg.Status() != MsgDelivered {
+									time.Sleep(time.Second * 1)
+								} else {
+									continue
+								}
+							} else {
+								waitMediaMsg = false
+							}
+						} else {
+							waitMediaMsg = false
+						}
 					}
 				}
 			}
 		}
 
+		nsendCTX, ncancel := context.WithTimeout(context.Background(), time.Second*35)
+		defer ncancel()
 		// send our message
-		status, err = server.SendMsg(sendCTX, msg)
+		status, err = server.SendMsg(nsendCTX, msg)
 		duration := time.Now().Sub(start)
 		secondDuration := float64(duration) / float64(time.Second)
 

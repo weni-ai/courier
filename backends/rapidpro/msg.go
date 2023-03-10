@@ -649,3 +649,5 @@ func GetMsg(b *backend, id courier.MsgID) (*DBMsg, error) {
 
 	return m, nil
 }
+
+func (m *DBMsg) Status() courier.MsgStatusValue { return m.Status_ }

@@ -119,6 +119,8 @@ type Msg interface {
 	SessionStatus() string
 
 	TextLanguage() string
+
+	Status() MsgStatusValue
 }
 
 type RunEvent struct {

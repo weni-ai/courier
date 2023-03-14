@@ -247,17 +247,14 @@ func (w *Sender) sendMessage(msg Msg) {
 						}
 						if prevMsg != nil {
 							if len(prevMsg.Attachments()) > 0 {
-								if prevMsg.Status() != MsgWired && prevMsg.Status() != MsgDelivered {
+								if prevMsg.Status() != MsgSent &&
+									prevMsg.Status() != MsgDelivered {
 									time.Sleep(time.Second * 1)
-								} else {
 									continue
 								}
-							} else {
-								waitMediaMsg = false
 							}
-						} else {
-							waitMediaMsg = false
 						}
+						break
 					}
 				}
 			}

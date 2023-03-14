@@ -210,51 +210,55 @@ func (w *Sender) sendMessage(msg Msg) {
 		log.Error("message loop detected, failing message")
 	} else {
 
-		// check if previous message is already Wired or Delivered
-		msgUUID := msg.UUID().String()
-		if msgUUID != "" {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
-			defer cancel()
+		_, found := waitMediaChannelsMapping[msg.Channel().ChannelType()]
 
-			msgEvents, err := server.Backend().GetRunEventsByMsgUUIDFromDB(ctx, msgUUID)
-			if err != nil {
-				log.Error(errors.Wrap(err, "unable to get events"))
-			}
-			if msgEvents != nil {
+		if found {
+			// check if previous message is already Wired or Delivered
+			msgUUID := msg.UUID().String()
+			if msgUUID != "" {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+				defer cancel()
 
-				sort.SliceStable(msgEvents, func(i, j int) bool {
-					return msgEvents[i].Msg.ID < msgEvents[j].Msg.ID
-				})
+				msgEvents, err := server.Backend().GetRunEventsByMsgUUIDFromDB(ctx, msgUUID)
+				if err != nil {
+					log.Error(errors.Wrap(err, "unable to get events"))
+				}
+				if msgEvents != nil {
 
-				msgIndex := func(slice []RunEvent, item int) int {
-					for i := range slice {
-						if int(slice[i].Msg.ID) == item {
-							return i
-						}
-					}
-					return -1
-				}(msgEvents, int(msg.ID()))
+					sort.SliceStable(msgEvents, func(i, j int) bool {
+						return msgEvents[i].Msg.ID < msgEvents[j].Msg.ID
+					})
 
-				if msgIndex > 0 {
-					ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
-					defer cancel()
-					previousEventMgID := msgEvents[msgIndex-1].Msg.ID
-					waitMediaMsg := true
-					for waitMediaMsg {
-						prevMsg, err := server.Backend().GetMessage(ctx, int(previousEventMgID))
-						if err != nil {
-							log.Error(errors.Wrap(err, "GetMessage for previous message failed"))
-						}
-						if prevMsg != nil {
-							if len(prevMsg.Attachments()) > 0 {
-								if prevMsg.Status() != MsgSent &&
-									prevMsg.Status() != MsgDelivered {
-									time.Sleep(time.Second * 1)
-									continue
-								}
+					msgIndex := func(slice []RunEvent, item int) int {
+						for i := range slice {
+							if int(slice[i].Msg.ID) == item {
+								return i
 							}
 						}
-						break
+						return -1
+					}(msgEvents, int(msg.ID()))
+
+					if msgIndex > 0 {
+						ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+						defer cancel()
+						previousEventMgID := msgEvents[msgIndex-1].Msg.ID
+						waitMediaMsg := true
+						for waitMediaMsg {
+							prevMsg, err := server.Backend().GetMessage(ctx, int(previousEventMgID))
+							if err != nil {
+								log.Error(errors.Wrap(err, "GetMessage for previous message failed"))
+							}
+							if prevMsg != nil {
+								if len(prevMsg.Attachments()) > 0 {
+									if prevMsg.Status() != MsgSent &&
+										prevMsg.Status() != MsgDelivered {
+										time.Sleep(time.Second * 2)
+										continue
+									}
+								}
+							}
+							break
+						}
 					}
 				}
 			}
@@ -314,4 +318,12 @@ func (w *Sender) sendMessage(msg Msg) {
 
 	// mark our send task as complete
 	backend.MarkOutgoingMsgComplete(writeCTX, msg, status)
+}
+
+var waitMediaChannelsMapping = map[ChannelType]string{
+	ChannelType("WA"):  "WA",
+	ChannelType("WAC"): "WAC",
+	ChannelType("FB"):  "FB",
+	ChannelType("FBA"): "FBA",
+	ChannelType("IG"):  "IG",
 }

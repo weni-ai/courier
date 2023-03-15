@@ -69,11 +69,11 @@ type EventMsg struct {
 
 const selectFlowRunEventsByMsgUUID = `
 SELECT 
- flows_flowrun.event
+ flows_flowrun.events
 FROM
  flows_flowrun 
 WHERE
- flows_flowrun.events @@ '$[*].msg.uuid like_regex "$2"';
+ flows_flowrun.events @@ '$[*].msg.uuid like_regex "$1"';
 `
 
 type FlowRun struct {

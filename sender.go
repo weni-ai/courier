@@ -250,9 +250,8 @@ func (w *Sender) sendMessage(msg Msg) {
 							}
 							if prevMsg != nil {
 								if len(prevMsg.Attachments()) > 0 {
-									if prevMsg.Status() != MsgSent &&
-										prevMsg.Status() != MsgDelivered {
-										time.Sleep(time.Second * 2)
+									if prevMsg.Status() != MsgDelivered {
+										time.Sleep(time.Second * 1)
 										continue
 									}
 								}

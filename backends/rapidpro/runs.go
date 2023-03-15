@@ -69,7 +69,7 @@ type EventMsg struct {
 
 const selectFlowRunEventsByMsgUUID = `
 SELECT 
- flows_flowrun.event
+ flows_flowrun.events
 FROM
  flows_flowrun 
 WHERE

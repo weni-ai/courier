@@ -394,7 +394,7 @@ func (b *MockBackend) GetRunEventsByMsgUUIDFromDB(ctx context.Context, msgUUID s
 	return nil, nil
 }
 
-func (b *MockBackend) GetMessage(ctx context.Context, msdID int) (Msg, error) {
+func (b *MockBackend) GetMessage(ctx context.Context, msgUUID string) (Msg, error) {
 	return nil, nil
 }
 

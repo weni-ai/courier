@@ -223,35 +223,45 @@ func (w *Sender) sendMessage(msg Msg) {
 
 				msgEvents, err := server.Backend().GetRunEventsByMsgUUIDFromDB(ctx, msgUUID)
 
-				log.Println("%s: %s", msgUUID, msgEvents)
+				log.Printf("\n%s: Events %s", msgUUID, msgEvents)
+				log.Printf("\n%s: Events Count %s", msgUUID, len(msgEvents))
 				if err != nil {
 					log.Error(errors.Wrap(err, "unable to get events"))
 				}
+
+				log.Println("msgEvents != nil: ", msgEvents != nil)
 				if msgEvents != nil {
 
 					sort.SliceStable(msgEvents, func(i, j int) bool {
 						return msgEvents[i].Msg.ID < msgEvents[j].Msg.ID
 					})
 
-					msgIndex := func(slice []RunEvent, item int) int {
+					log.Println("msgEvents:", msgEvents)
+
+					msgIndex := func(slice []RunEvent, item string) int {
 						for i := range slice {
-							if int(slice[i].Msg.ID) == item {
+							if slice[i].Msg.UUID == item {
 								return i
 							}
 						}
 						return -1
-					}(msgEvents, int(msg.ID()))
+					}(msgEvents, msg.UUID().String())
+
+					log.Println("msgIndex: ", msgIndex)
 
 					if msgIndex > 0 {
 						ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
 						defer cancel()
-						previousEventMgID := msgEvents[msgIndex-1].Msg.ID
-						log.Printf("%s: Previous Event Msg ID: %s", msg.UUID, previousEventMgID)
-						waitMediaMsg := true
-						for waitMediaMsg {
-							prevMsg, err := server.Backend().GetMessage(ctx, int(previousEventMgID))
+						previousEventMsgUUID := msgEvents[msgIndex-1].Msg.UUID
+						log.Printf("\n%s: Previous Event Msg ID: %s", msg.UUID, previousEventMsgUUID)
+						tries := 0
+						tryLimit := 5
+						for tries < tryLimit {
+							tries++
+							prevMsg, err := server.Backend().GetMessage(ctx, previousEventMsgUUID)
 							if err != nil {
 								log.Error(errors.Wrap(err, "GetMessage for previous message failed"))
+								break
 							}
 							if prevMsg != nil {
 								log.Printf("%s: %s", msgUUID, prevMsg)

@@ -840,13 +840,13 @@ func (b *backend) GetRunEventsByMsgUUIDFromDB(ctx context.Context, msgUUID strin
 	if jsonEvents == "" {
 		return events, nil
 	}
-	err = json.Unmarshal([]byte(jsonEvents), events)
+	err = json.Unmarshal([]byte(jsonEvents), &events)
 	if err != nil {
 		return nil, err
 	}
 	return events, nil
 }
 
-func (b *backend) GetMessage(ctx context.Context, msdID int) (courier.Msg, error) {
-	return GetMsg(b, courier.MsgID(msdID))
+func (b *backend) GetMessage(ctx context.Context, msgUUID string) (courier.Msg, error) {
+	return GetMsgByUUID(b, msgUUID)
 }

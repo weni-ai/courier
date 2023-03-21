@@ -124,15 +124,15 @@ type Msg interface {
 }
 
 type RunEvent struct {
-	Type      string
-	StepUUID  string
-	CreatedOn *time.Time
-	Msg       EventMsg
+	Type      string     `json:"type,omitempty"`
+	StepUUID  string     `json:"step_uuid,omitempty"`
+	CreatedOn *time.Time `json:"created_on,omitempty"`
+	Msg       EventMsg   `json:"msg,omitempty"`
 }
 
 type EventMsg struct {
-	ID   null.Int
-	URN  string
-	Text string
-	UUID string
+	ID   int64  `json:"id,omitempty"`
+	URN  string `json:"urn,omitempty"`
+	Text string `json:"text,omitempty"`
+	UUID string `json:"uuid,omitempty"`
 }

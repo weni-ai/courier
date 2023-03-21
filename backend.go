@@ -110,7 +110,7 @@ type Backend interface {
 
 	GetRunEventsByMsgUUIDFromDB(context.Context, string) ([]RunEvent, error)
 
-	GetMessage(context.Context, int) (Msg, error)
+	GetMessage(context.Context, string) (Msg, error)
 }
 
 // NewBackend creates the type of backend passed in

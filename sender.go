@@ -215,11 +215,15 @@ func (w *Sender) sendMessage(msg Msg) {
 		if found {
 			// check if previous message is already Wired or Delivered
 			msgUUID := msg.UUID().String()
+
+			log.Printf("%s-%s: %s", msgUUID, msg.ID(), msg.Text())
 			if msgUUID != "" {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
 				defer cancel()
 
 				msgEvents, err := server.Backend().GetRunEventsByMsgUUIDFromDB(ctx, msgUUID)
+
+				log.Println("%s: %s", msgUUID, msgEvents)
 				if err != nil {
 					log.Error(errors.Wrap(err, "unable to get events"))
 				}
@@ -242,6 +246,7 @@ func (w *Sender) sendMessage(msg Msg) {
 						ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
 						defer cancel()
 						previousEventMgID := msgEvents[msgIndex-1].Msg.ID
+						log.Printf("%s: Previous Event Msg ID: %s", msg.UUID, previousEventMgID)
 						waitMediaMsg := true
 						for waitMediaMsg {
 							prevMsg, err := server.Backend().GetMessage(ctx, int(previousEventMgID))
@@ -249,8 +254,12 @@ func (w *Sender) sendMessage(msg Msg) {
 								log.Error(errors.Wrap(err, "GetMessage for previous message failed"))
 							}
 							if prevMsg != nil {
+								log.Printf("%s: %s", msgUUID, prevMsg)
+								log.Printf("%s: Previous Message found!", msgUUID)
 								if len(prevMsg.Attachments()) > 0 {
+									log.Printf("%s: previous msg has attachments")
 									if prevMsg.Status() != MsgDelivered {
+										log.Printf("%s: Sleep", msgUUID)
 										time.Sleep(time.Second * 1)
 										continue
 									}

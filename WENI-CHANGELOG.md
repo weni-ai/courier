@@ -1,3 +1,7 @@
+1.4.9-courier-7.1.0
+----------
+  * Add logic in sender to wait previous media msg be delivered to send current msg for some channels
+
 1.4.8-courier-7.1.0
 ----------
   * Fix word 'menu' in Arabic for list messages #141

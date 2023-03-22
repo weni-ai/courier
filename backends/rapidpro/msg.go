@@ -193,6 +193,33 @@ WHERE
 	id = $1
 `
 
+const selectMsgByUUIDSQL = `
+SELECT
+	id,
+	uuid,
+	org_id,
+	direction,
+	text,
+	attachments,
+	msg_count,
+	error_count,
+	high_priority,
+	status,
+	visibility,
+	external_id,
+	channel_id,
+	contact_id,
+	contact_urn_id,
+	created_on,
+	modified_on,
+	queued_on,
+	sent_on
+FROM
+	msgs_msg
+WHERE
+	uuid = $1
+`
+
 const selectChannelSQL = `
 SELECT
 	org_id,
@@ -637,3 +664,27 @@ func (m *DBMsg) WithURNAuth(auth string) courier.Msg {
 	m.URNAuth_ = auth
 	return m
 }
+
+func GetMsg(b *backend, id courier.MsgID) (*DBMsg, error) {
+	m := &DBMsg{
+		ID_: id,
+	}
+	err := b.db.Get(m, selectMsgSQL, id)
+	if err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
+
+func GetMsgByUUID(b *backend, uuid string) (*DBMsg, error) {
+	m := &DBMsg{}
+	err := b.db.Get(m, selectMsgByUUIDSQL, uuid)
+	if err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
+
+func (m *DBMsg) Status() courier.MsgStatusValue { return m.Status_ }

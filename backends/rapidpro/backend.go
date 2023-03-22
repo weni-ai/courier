@@ -830,3 +830,23 @@ type backend struct {
 	stopChan  chan bool
 	waitGroup *sync.WaitGroup
 }
+
+func (b *backend) GetRunEventsByMsgUUIDFromDB(ctx context.Context, msgUUID string) ([]courier.RunEvent, error) {
+	events := []courier.RunEvent{}
+	jsonEvents, err := GetRunEventsJSONByMsgUUIDFromDB(ctx, b.db, msgUUID)
+	if err != nil {
+		return nil, err
+	}
+	if jsonEvents == "" {
+		return events, nil
+	}
+	err = json.Unmarshal([]byte(jsonEvents), &events)
+	if err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
+func (b *backend) GetMessage(ctx context.Context, msgUUID string) (courier.Msg, error) {
+	return GetMsgByUUID(b, msgUUID)
+}

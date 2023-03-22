@@ -119,4 +119,20 @@ type Msg interface {
 	SessionStatus() string
 
 	TextLanguage() string
+
+	Status() MsgStatusValue
+}
+
+type RunEvent struct {
+	Type      string     `json:"type,omitempty"`
+	StepUUID  string     `json:"step_uuid,omitempty"`
+	CreatedOn *time.Time `json:"created_on,omitempty"`
+	Msg       EventMsg   `json:"msg,omitempty"`
+}
+
+type EventMsg struct {
+	ID   int64  `json:"id,omitempty"`
+	URN  string `json:"urn,omitempty"`
+	Text string `json:"text,omitempty"`
+	UUID string `json:"uuid,omitempty"`
 }

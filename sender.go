@@ -3,9 +3,12 @@ package courier
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
+	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/librato"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -207,8 +210,73 @@ func (w *Sender) sendMessage(msg Msg) {
 		status.AddLog(NewChannelLogFromError("Message Loop", msg.Channel(), msg.ID(), 0, fmt.Errorf("message loop detected, failing message without send")))
 		log.Error("message loop detected, failing message")
 	} else {
+
+		waitMediaChannels := w.foreman.server.Config().WaitMediaChannels
+		msgChannel := msg.Channel().ChannelType().String()
+		mustWait := utils.StringArrayContains(waitMediaChannels, msgChannel)
+
+		if mustWait {
+			// check if previous message is already Wired or Delivered
+			msgUUID := msg.UUID().String()
+
+			if msgUUID != "" {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*35)
+				defer cancel()
+
+				msgEvents, err := server.Backend().GetRunEventsByMsgUUIDFromDB(ctx, msgUUID)
+
+				if err != nil {
+					log.Error(errors.Wrap(err, "unable to get events"))
+				}
+
+				if msgEvents != nil {
+
+					sort.SliceStable(msgEvents, func(i, j int) bool {
+						return msgEvents[i].Msg.ID < msgEvents[j].Msg.ID
+					})
+
+					msgIndex := func(slice []RunEvent, item string) int {
+						for i := range slice {
+							if slice[i].Msg.UUID == item {
+								return i
+							}
+						}
+						return -1
+					}(msgEvents, msg.UUID().String())
+
+					if msgIndex > 0 {
+						ctx, cancel := context.WithTimeout(context.Background(), time.Second*35)
+						defer cancel()
+						previousEventMsgUUID := msgEvents[msgIndex-1].Msg.UUID
+						tries := 0
+						tryLimit := w.foreman.server.Config().WaitMediaCount
+						for tries < tryLimit {
+							tries++
+							prevMsg, err := server.Backend().GetMessage(ctx, previousEventMsgUUID)
+							if err != nil {
+								log.Error(errors.Wrap(err, "GetMessage for previous message failed"))
+								break
+							}
+							if prevMsg != nil {
+								if len(prevMsg.Attachments()) > 0 {
+									if prevMsg.Status() != MsgDelivered {
+										sleepDuration := time.Duration(w.foreman.server.Config().WaitMediaSleepDuration)
+										time.Sleep(time.Millisecond * sleepDuration)
+										continue
+									}
+								}
+							}
+							break
+						}
+					}
+				}
+			}
+		}
+
+		nsendCTX, ncancel := context.WithTimeout(context.Background(), time.Second*35)
+		defer ncancel()
 		// send our message
-		status, err = server.SendMsg(sendCTX, msg)
+		status, err = server.SendMsg(nsendCTX, msg)
 		duration := time.Now().Sub(start)
 		secondDuration := float64(duration) / float64(time.Second)
 

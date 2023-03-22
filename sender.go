@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/librato"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -210,15 +211,16 @@ func (w *Sender) sendMessage(msg Msg) {
 		log.Error("message loop detected, failing message")
 	} else {
 
-		_, found := waitMediaChannelsMapping[msg.Channel().ChannelType()]
+		waitMediaChannels := w.foreman.server.Config().WaitMediaChannels
+		msgChannel := msg.Channel().ChannelType().String()
+		mustWait := utils.StringArrayContains(waitMediaChannels, msgChannel)
 
-		if found {
+		if mustWait {
 			// check if previous message is already Wired or Delivered
 			msgUUID := msg.UUID().String()
 
-			log.Printf("%s: %s", msgUUID, msg.Text())
 			if msgUUID != "" {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*35)
 				defer cancel()
 
 				msgEvents, err := server.Backend().GetRunEventsByMsgUUIDFromDB(ctx, msgUUID)
@@ -243,11 +245,11 @@ func (w *Sender) sendMessage(msg Msg) {
 					}(msgEvents, msg.UUID().String())
 
 					if msgIndex > 0 {
-						ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+						ctx, cancel := context.WithTimeout(context.Background(), time.Second*35)
 						defer cancel()
 						previousEventMsgUUID := msgEvents[msgIndex-1].Msg.UUID
 						tries := 0
-						tryLimit := 5
+						tryLimit := w.foreman.server.Config().WaitMediaCount
 						for tries < tryLimit {
 							tries++
 							prevMsg, err := server.Backend().GetMessage(ctx, previousEventMsgUUID)
@@ -258,7 +260,8 @@ func (w *Sender) sendMessage(msg Msg) {
 							if prevMsg != nil {
 								if len(prevMsg.Attachments()) > 0 {
 									if prevMsg.Status() != MsgDelivered {
-										time.Sleep(time.Second * 1)
+										sleepDuration := time.Duration(w.foreman.server.Config().WaitMediaSleepDuration)
+										time.Sleep(time.Millisecond * sleepDuration)
 										continue
 									}
 								}
@@ -324,12 +327,4 @@ func (w *Sender) sendMessage(msg Msg) {
 
 	// mark our send task as complete
 	backend.MarkOutgoingMsgComplete(writeCTX, msg, status)
-}
-
-var waitMediaChannelsMapping = map[ChannelType]string{
-	ChannelType("WA"):  "WA",
-	ChannelType("WAC"): "WAC",
-	ChannelType("FB"):  "FB",
-	ChannelType("FBA"): "FBA",
-	ChannelType("IG"):  "IG",
 }

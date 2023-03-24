@@ -1,3 +1,8 @@
+1.4.10-courier-7.1.0
+----------
+  * Add module to send webhooks for WAC and WA #2
+  * Add read status for WAC and WA #3
+
 1.4.9-courier-7.1.0
 ----------
   * Add logic in sender to wait previous media msg be delivered to send current msg for some channels

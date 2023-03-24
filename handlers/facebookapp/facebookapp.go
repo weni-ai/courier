@@ -62,7 +62,7 @@ const (
 var waStatusMapping = map[string]courier.MsgStatusValue{
 	"sent":      courier.MsgSent,
 	"delivered": courier.MsgDelivered,
-	"read":      courier.MsgDelivered,
+	"read":      courier.MsgRead,
 	"failed":    courier.MsgFailed,
 }
 
@@ -407,7 +407,13 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		events, data, err = h.processFacebookInstagramPayload(ctx, channel, payload, w, r)
 	} else {
 		events, data, err = h.processCloudWhatsAppPayload(ctx, channel, payload, w, r)
-
+		webhook := channel.ConfigForKey("webhook", nil)
+		if webhook != nil {
+			er := handlers.SendWebhooks(channel, r, webhook)
+			if er != nil {
+				return nil, er
+			}
+		}
 	}
 
 	if err != nil {

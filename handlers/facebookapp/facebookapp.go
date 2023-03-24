@@ -62,7 +62,7 @@ const (
 var waStatusMapping = map[string]courier.MsgStatusValue{
 	"sent":      courier.MsgSent,
 	"delivered": courier.MsgDelivered,
-	"read":      courier.MsgDelivered,
+	"read":      courier.MsgRead,
 	"failed":    courier.MsgFailed,
 }
 

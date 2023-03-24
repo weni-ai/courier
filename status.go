@@ -14,6 +14,7 @@ const (
 	MsgErrored   MsgStatusValue = "E"
 	MsgDelivered MsgStatusValue = "D"
 	MsgFailed    MsgStatusValue = "F"
+	MsgRead      MsgStatusValue = "V"
 	NilMsgStatus MsgStatusValue = ""
 )
 

@@ -77,7 +77,7 @@ func NewConfig() *Config {
 		Version:                      "Dev",
 		WaitMediaCount:               10,
 		WaitMediaSleepDuration:       1000,
-		WaitMediaChannels:            []string{"WA", "WAC", "FB", "FBA", "IG"},
+		WaitMediaChannels:            []string{},
 	}
 }
 

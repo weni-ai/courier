@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -70,11 +69,18 @@ type EventMsg struct {
 
 const selectFlowRunEventsByMsgUUID = `
 SELECT 
- flows_flowrun.events
-FROM
- flows_flowrun 
-WHERE
- flows_flowrun.events @@ $1;
+  flows_flowrun.events
+FROM 
+  flows_flowrun
+WHERE EXISTS (
+  SELECT 1 
+  FROM jsonb_array_elements(flows_flowrun.events) AS elementos
+  WHERE EXISTS (
+    SELECT 1
+    FROM jsonb_extract_path_text(elementos, 'msg', 'uuid') AS atributo
+    WHERE atributo = '$1'
+  )
+);
 `
 
 type FlowRun struct {
@@ -84,8 +90,7 @@ type FlowRun struct {
 func GetRunEventsByMsgUUIDFromDB(ctx context.Context, db *sqlx.DB, uuid string) ([]Event, error) {
 	run := &FlowRun{}
 
-	uuidPattern := fmt.Sprintf(`$[*].msg.uuid like_regex "%s"`, uuid)
-	err := db.GetContext(ctx, run, selectFlowRunEventsByMsgUUID, uuidPattern)
+	err := db.GetContext(ctx, run, selectFlowRunEventsByMsgUUID, uuid)
 
 	if err == sql.ErrNoRows {
 		return nil, errors.New("run not found")
@@ -107,8 +112,7 @@ func GetRunEventsByMsgUUIDFromDB(ctx context.Context, db *sqlx.DB, uuid string) 
 func GetRunEventsJSONByMsgUUIDFromDB(ctx context.Context, db *sqlx.DB, uuid string) (string, error) {
 	run := &FlowRun{}
 
-	uuidPattern := fmt.Sprintf(`$[*].msg.uuid like_regex "%s"`, uuid)
-	err := db.GetContext(ctx, run, selectFlowRunEventsByMsgUUID, uuidPattern)
+	err := db.GetContext(ctx, run, selectFlowRunEventsByMsgUUID, uuid)
 
 	if err == sql.ErrNoRows {
 		return "", errors.New("run not found")

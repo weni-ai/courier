@@ -1,3 +1,7 @@
+1.4.12-courier-7.1.0
+----------
+  * Set Wait media channels config to empty array by default
+
 1.4.11-courier-7.1.0
 ----------
   * Fix media ordenation on wait previous msg be delivered on configured channels

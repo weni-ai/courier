@@ -2,8 +2,8 @@ package courier
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/nyaruka/courier/utils"
@@ -216,14 +216,19 @@ func (w *Sender) sendMessage(msg Msg) {
 		mustWait := utils.StringArrayContains(waitMediaChannels, msgChannel)
 
 		if mustWait {
-			// check if previous message is already Wired or Delivered
+			// check if previous message is already Delivered
+			log.Println(fmt.Sprintf("Channel type is: %s. Must wait if previous message has attachments", msg.Channel().ChannelType()))
 			msgUUID := msg.UUID().String()
 
 			if msgUUID != "" {
+				log.Println("Current msg UUID:", msgUUID)
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second*35)
 				defer cancel()
 
 				msgEvents, err := server.Backend().GetRunEventsByMsgUUIDFromDB(ctx, msgUUID)
+
+				jsonEvents, _ := json.MarshalIndent(msgEvents, "", "  ")
+				log.Println(jsonEvents)
 
 				if err != nil {
 					log.Error(errors.Wrap(err, "unable to get events"))
@@ -231,9 +236,9 @@ func (w *Sender) sendMessage(msg Msg) {
 
 				if msgEvents != nil {
 
-					sort.SliceStable(msgEvents, func(i, j int) bool {
-						return msgEvents[i].Msg.ID < msgEvents[j].Msg.ID
-					})
+					// sort.SliceStable(msgEvents, func(i, j int) bool {
+					// 	return msgEvents[i].Msg.ID < msgEvents[j].Msg.ID
+					// })
 
 					msgIndex := func(slice []RunEvent, item string) int {
 						for i := range slice {
@@ -244,23 +249,30 @@ func (w *Sender) sendMessage(msg Msg) {
 						return -1
 					}(msgEvents, msg.UUID().String())
 
+					log.Println("MsgIndex:", msgIndex)
+
 					if msgIndex > 0 {
 						ctx, cancel := context.WithTimeout(context.Background(), time.Second*35)
 						defer cancel()
 						previousEventMsgUUID := msgEvents[msgIndex-1].Msg.UUID
 						tries := 0
 						tryLimit := w.foreman.server.Config().WaitMediaCount
+						log.Println("total try limit:", tryLimit)
 						for tries < tryLimit {
+							log.Println("Current Try to wait:", tries)
 							tries++
 							prevMsg, err := server.Backend().GetMessage(ctx, previousEventMsgUUID)
 							if err != nil {
 								log.Error(errors.Wrap(err, "GetMessage for previous message failed"))
 								break
 							}
+							log.Println("Previous msg:", prevMsg)
 							if prevMsg != nil {
 								if len(prevMsg.Attachments()) > 0 {
+									log.Println("prev has attachment:")
 									if prevMsg.Status() != MsgDelivered {
 										sleepDuration := time.Duration(w.foreman.server.Config().WaitMediaSleepDuration)
+										log.Println("sleepDuration:", sleepDuration)
 										time.Sleep(time.Millisecond * sleepDuration)
 										continue
 									}

@@ -269,14 +269,11 @@ func (w *Sender) sendMessage(msg Msg) {
 							log.Println("Current msg:", msg.Text())
 							log.Println("Previous msg:", prevMsg.Text())
 							if prevMsg != nil {
-								if len(prevMsg.Attachments()) > 0 {
-									log.Println("prev has attachment:")
-									if prevMsg.Status() != MsgDelivered {
-										sleepDuration := time.Duration(w.foreman.server.Config().WaitMediaSleepDuration)
-										log.Println("sleepDuration:", sleepDuration)
-										time.Sleep(time.Millisecond * sleepDuration)
-										continue
-									}
+								if prevMsg.Status() != MsgDelivered {
+									sleepDuration := time.Duration(w.foreman.server.Config().WaitMediaSleepDuration)
+									log.Println("sleepDuration:", sleepDuration)
+									time.Sleep(time.Millisecond * sleepDuration)
+									continue
 								}
 							}
 							break

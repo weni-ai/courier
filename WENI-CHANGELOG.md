@@ -1,3 +1,7 @@
+1.4.11-courier-7.1.0
+----------
+  * Fix media ordenation on wait previous msg be delivered on configured channels
+
 1.4.10-courier-7.1.0
 ----------
   * Add module to send webhooks for WAC and WA #2

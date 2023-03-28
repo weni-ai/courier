@@ -259,7 +259,8 @@ func (w *Sender) sendMessage(msg Msg) {
 							}
 							if prevMsg != nil {
 								if len(prevMsg.Attachments()) > 0 {
-									if prevMsg.Status() != MsgDelivered {
+									if prevMsg.Status() != MsgDelivered &&
+										prevMsg.Status() != MsgRead {
 										sleepDuration := time.Duration(w.foreman.server.Config().WaitMediaSleepDuration)
 										time.Sleep(time.Millisecond * sleepDuration)
 										continue

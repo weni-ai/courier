@@ -152,7 +152,8 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 
 		attachmentURLs := make([]string, 0)
 		for _, file := range payload.Event.Files {
-			fileURL, err := h.resolveFile(ctx, channel, file)
+			//fileURL, err := h.resolveFile(ctx, channel, file)
+			fileURL := file.URLPrivateDownload
 			if err != nil {
 				courier.LogRequestError(r, channel, err)
 			} else {

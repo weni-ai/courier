@@ -277,6 +277,14 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", b.config.WhatsappAdminSystemUserToken))
 	}
 
+	switch channel.ChannelType() {
+	case "WAC":
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", b.config.WhatsappAdminSystemUserToken))
+
+	case "SL":
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", channel.StringConfigForKey("user_token", "")))
+	}
+
 	resp, err := utils.GetHTTPClient().Do(req)
 	if err != nil {
 		return "", err

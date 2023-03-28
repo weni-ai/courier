@@ -152,9 +152,8 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 
 		attachmentURLs := make([]string, 0)
 		for _, file := range payload.Event.Files {
-			//fileURL, err := h.resolveFile(ctx, channel, file)
 			fileURL := file.URLPrivateDownload
-			if err != nil {
+			if fileURL == "" {
 				courier.LogRequestError(r, channel, err)
 			} else {
 				attachmentURLs = append(attachmentURLs, fileURL)
@@ -171,51 +170,6 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
 	}
 	return nil, handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, "Ignoring request, no message")
-}
-
-func (h *handler) resolveFile(ctx context.Context, channel courier.Channel, file File) (string, error) {
-	userToken := channel.StringConfigForKey(configUserToken, "")
-
-	fileApiURL := apiURL + "/files.sharedPublicURL"
-
-	data := strings.NewReader(fmt.Sprintf(`{"file":"%s"}`, file.ID))
-	req, err := http.NewRequest(http.MethodPost, fileApiURL, data)
-	if err != nil {
-		courier.LogRequestError(req, channel, err)
-		return "", err
-	}
-	req.Header.Add("Content-Type", "application/json; charset=utf-8")
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", userToken))
-
-	rr, err := utils.MakeHTTPRequest(req)
-	if err != nil {
-		log := courier.NewChannelLogFromRR("File Resolving", channel, courier.NilMsgID, rr).WithError("File Resolving Error", err)
-		h.Backend().WriteChannelLogs(ctx, []*courier.ChannelLog{log})
-		return "", err
-	}
-
-	var fResponse FileResponse
-	if err := json.Unmarshal([]byte(rr.Body), &fResponse); err != nil {
-		return "", errors.Errorf("couldn't unmarshal file response: %v", err)
-	}
-
-	currentFile := fResponse.File
-
-	if !fResponse.OK {
-		if fResponse.Error != ErrAlreadyPublic {
-			if fResponse.Error == ErrPublicVideoNotAllowed {
-				return "", errors.Errorf("public sharing of videos is not available for a free instance of Slack. file id: %s. error: %s", file.ID, fResponse.Error)
-			}
-			return "", errors.Errorf("couldn't resolve file for file id: %s. error: %s", file.ID, fResponse.Error)
-		}
-		currentFile = file
-	}
-
-	pubLnkSplited := strings.Split(currentFile.PermalinkPublic, "-")
-	pubSecret := pubLnkSplited[len(pubLnkSplited)-1]
-	filePath := currentFile.URLPrivateDownload + "?pub_secret=" + pubSecret
-
-	return filePath, nil
 }
 
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {

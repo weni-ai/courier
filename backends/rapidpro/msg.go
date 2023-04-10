@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/buger/jsonparser"
+	"github.com/gabriel-vasile/mimetype"
 
 	"mime"
 
@@ -294,16 +295,23 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 	}
 
 	// first try getting our mime type from the first 300 bytes of our body
-	fileType, err := filetype.Match(body[:300])
-	if fileType != filetype.Unknown {
-		mimeType = fileType.MIME.Value
-		extension = fileType.Extension
-	} else {
-		// if that didn't work, try from our extension
-		fileType = filetype.GetType(extension)
-		if fileType != filetype.Unknown {
+	fileType, _ := filetype.Match(body[:300])
+	mimeT := mimetype.Detect(body)
+
+	if fileType != filetype.Unknown || mimeT.String() != "application/octet-stream" {
+		if mimeT.String() == fileType.MIME.Type {
 			mimeType = fileType.MIME.Value
 			extension = fileType.Extension
+		} else if mimeT.String() != "application/zip" && mimeT.String() != "application/octet-stream" {
+			mimeType = mimeT.String()
+			extension = mimeT.Extension()[1:]
+		} else {
+			// if that didn't work, try from our extension
+			fileType = filetype.GetType(extension)
+			if fileType != filetype.Unknown {
+				mimeType = fileType.MIME.Value
+				extension = fileType.Extension
+			}
 		}
 	}
 

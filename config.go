@@ -40,14 +40,11 @@ type Config struct {
 	// ExcludeChannels is the list of channels to exclude, empty means exclude none
 	ExcludeChannels []string
 
-	// WaitMediaCount is the count limit to wait for previous media message be delivered before current msg be send
-	// Default is 10
-	WaitMediaCount int
-	// WaitMediaSleepDuration is the duration time in milliseconds of each wait sleep
-	// Default is 1000
+	// WaitMediaSleepDuration is the duration time in milliseconds of each wait sleep for ordening media msgs purpose
+	// Default could be 500
 	WaitMediaSleepDuration int
 	// WaitMediaChannels is the list of channels that have the logic of wait for previous media message be delivered before current msg be send
-	// Default is WA, WAC, FB, FBA, IG
+	// Default could be WA, WAC, FB, FBA, IG
 	WaitMediaChannels []string
 }
 
@@ -75,9 +72,7 @@ func NewConfig() *Config {
 		MaxWorkers:                   32,
 		LogLevel:                     "error",
 		Version:                      "Dev",
-		WaitMediaCount:               10,
-		WaitMediaSleepDuration:       1000,
-		WaitMediaChannels:            []string{},
+		WaitMediaSleepDuration:       500,
 	}
 }
 

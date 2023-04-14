@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/evalphobia/logrus_sentry"
@@ -79,6 +80,10 @@ var version = "Dev"
 
 func main() {
 	config := courier.LoadConfig("courier.toml")
+
+	if waitMediaChannelsStr, ok := os.LookupEnv("COURIER_WAIT_MEDIA_CHANNELS"); ok {
+		config.WaitMediaChannels = strings.Split(waitMediaChannelsStr, ",")
+	}
 
 	// if we have a custom version, use it
 	if version != "Dev" {

@@ -553,6 +553,9 @@ func (c *MockChannel) HasRole(role ChannelRole) bool {
 	return false
 }
 
+// TPS returns channel tps
+func (c *MockChannel) TPS() int { return 0 }
+
 // NewMockChannel creates a new mock channel for the passed in type, address, country and config
 func NewMockChannel(uuid string, channelType string, address string, country string, config map[string]interface{}) *MockChannel {
 	cUUID, _ := NewChannelUUID(uuid)
@@ -742,4 +745,8 @@ func ReadFile(path string) []byte {
 		panic(err)
 	}
 	return d
+}
+
+func (mb *MockBackend) PushBackOutgoingMsg(ctx context.Context, msg Msg) error {
+	return nil
 }

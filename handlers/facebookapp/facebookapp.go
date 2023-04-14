@@ -32,7 +32,9 @@ var (
 	configWACPhoneNumberID = "wac_phone_number_id"
 
 	// max for the body
-	maxMsgLength = 1000
+	maxMsgLengthIG  = 1000
+	maxMsgLengthFBA = 2000
+	maxMsgLengthWAC = 4096
 
 	// Sticker ID substitutions
 	stickerIDToEmoji = map[int64]string{
@@ -1018,7 +1020,12 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 
 	msgParts := make([]string, 0)
 	if msg.Text() != "" {
-		msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLength)
+		if msg.Channel().ChannelType() == "IG" {
+			msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthIG)
+		} else {
+			msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthFBA)
+		}
+
 	}
 
 	// send each part and each attachment separately. we send attachments first as otherwise quick replies
@@ -1251,7 +1258,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 	msgParts := make([]string, 0)
 	if msg.Text() != "" {
-		msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLength)
+		msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthWAC)
 	}
 	qrs := msg.QuickReplies()
 

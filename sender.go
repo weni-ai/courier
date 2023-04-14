@@ -3,7 +3,6 @@ package courier
 import (
 	"context"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/nyaruka/courier/utils"
@@ -216,7 +215,7 @@ func (w *Sender) sendMessage(msg Msg) {
 		mustWait := utils.StringArrayContains(waitMediaChannels, msgChannel)
 
 		if mustWait {
-			// check if previous message is already Wired or Delivered
+			// check if previous message is already Delivered
 			msgUUID := msg.UUID().String()
 
 			if msgUUID != "" {
@@ -230,10 +229,6 @@ func (w *Sender) sendMessage(msg Msg) {
 				}
 
 				if msgEvents != nil {
-
-					sort.SliceStable(msgEvents, func(i, j int) bool {
-						return msgEvents[i].Msg.ID < msgEvents[j].Msg.ID
-					})
 
 					msgIndex := func(slice []RunEvent, item string) int {
 						for i := range slice {
@@ -258,13 +253,11 @@ func (w *Sender) sendMessage(msg Msg) {
 								break
 							}
 							if prevMsg != nil {
-								if len(prevMsg.Attachments()) > 0 {
-									if prevMsg.Status() != MsgDelivered &&
-										prevMsg.Status() != MsgRead {
-										sleepDuration := time.Duration(w.foreman.server.Config().WaitMediaSleepDuration)
-										time.Sleep(time.Millisecond * sleepDuration)
-										continue
-									}
+								if prevMsg.Status() != MsgDelivered &&
+									prevMsg.Status() != MsgRead {
+									sleepDuration := time.Duration(w.foreman.server.Config().WaitMediaSleepDuration)
+									time.Sleep(time.Millisecond * sleepDuration)
+									continue
 								}
 							}
 							break

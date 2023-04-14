@@ -711,7 +711,9 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 
 func TestSending(t *testing.T) {
 	// shorter max msg length for testing
-	maxMsgLength = 100
+	maxMsgLengthFBA = 100
+	maxMsgLengthIG = 100
+	maxMsgLengthWAC = 100
 	var ChannelFBA = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "FBA", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
 	var ChannelIG = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "IG", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
 	var ChannelWAC = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WAC", "12345_ID", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})

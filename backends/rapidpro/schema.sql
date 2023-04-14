@@ -21,7 +21,8 @@ CREATE TABLE channels_channel (
     country character varying(2),
     config text,
     role character varying(4) NOT NULL,
-    org_id integer references orgs_org(id) on delete cascade
+    org_id integer references orgs_org(id) on delete cascade,
+    tps integer
 );
 
 DROP TABLE IF EXISTS contacts_contact CASCADE;

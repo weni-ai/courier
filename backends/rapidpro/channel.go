@@ -61,7 +61,8 @@ SELECT
 	ch.country as country, 
 	ch.config as config, 
 	org.config as org_config, 
-	org.is_anon as org_is_anon
+	org.is_anon as org_is_anon,
+	ch.tps as tps
 FROM 
 	channels_channel ch
 	JOIN orgs_org org on ch.org_id = org.id
@@ -285,6 +286,8 @@ type DBChannel struct {
 	Config_      utils.NullMap       `db:"config"`
 	Role_        string              `db:"role"`
 
+	TPS_ sql.NullInt32 `db:"tps"`
+
 	OrgConfig_ utils.NullMap `db:"org_config"`
 	OrgIsAnon_ bool          `db:"org_is_anon"`
 
@@ -437,4 +440,13 @@ func (c *DBChannel) supportsScheme(scheme string) bool {
 		}
 	}
 	return false
+}
+
+// TPS returns channel tps
+func (c *DBChannel) TPS() int {
+	if c.TPS_.Valid {
+		return int(c.TPS_.Int32)
+	} else {
+		return 0
+	}
 }

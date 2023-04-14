@@ -169,4 +169,6 @@ type Channel interface {
 	BoolConfigForKey(key string, defaultValue bool) bool
 	IntConfigForKey(key string, defaultValue int) int
 	OrgConfigForKey(key string, defaultValue interface{}) interface{}
+
+	TPS() int
 }

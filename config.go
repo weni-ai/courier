@@ -76,8 +76,7 @@ func NewConfig() *Config {
 		LogLevel:                     "error",
 		Version:                      "Dev",
 		WaitMediaCount:               10,
-		WaitMediaSleepDuration:       1000,
-		WaitMediaChannels:            []string{},
+		WaitMediaSleepDuration:       500,
 	}
 }
 

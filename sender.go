@@ -209,58 +209,62 @@ func (w *Sender) sendMessage(msg Msg) {
 		status.AddLog(NewChannelLogFromError("Message Loop", msg.Channel(), msg.ID(), 0, fmt.Errorf("message loop detected, failing message without send")))
 		log.Error("message loop detected, failing message")
 	} else {
+		// if the msg is for a channel that needs to be ensured ordering
+		{
+			waitMediaChannels := w.foreman.server.Config().WaitMediaChannels
+			msgChannelType := msg.Channel().ChannelType().String()
+			mustWait := utils.StringArrayContains(waitMediaChannels, msgChannelType)
 
-		waitMediaChannels := w.foreman.server.Config().WaitMediaChannels
-		msgChannel := msg.Channel().ChannelType().String()
-		mustWait := utils.StringArrayContains(waitMediaChannels, msgChannel)
+			if mustWait {
+				msgUUID := msg.UUID().String()
+				if msgUUID != "" {
+					ctx, cancel := context.WithTimeout(context.Background(), time.Second*35)
+					defer cancel()
 
-		if mustWait {
-			// check if previous message is already Delivered
-			msgUUID := msg.UUID().String()
+					msgEvents, err := server.Backend().GetRunEventsByMsgUUIDFromDB(ctx, msgUUID)
+					if err != nil {
+						log.Error(errors.Wrap(err, "unable to get events"))
+					}
 
-			if msgUUID != "" {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Second*35)
-				defer cancel()
-
-				msgEvents, err := server.Backend().GetRunEventsByMsgUUIDFromDB(ctx, msgUUID)
-
-				if err != nil {
-					log.Error(errors.Wrap(err, "unable to get events"))
-				}
-
-				if msgEvents != nil {
-
-					msgIndex := func(slice []RunEvent, item string) int {
-						for i := range slice {
-							if slice[i].Msg.UUID == item {
-								return i
+					if msgEvents != nil {
+						msgIndex := func(slice []RunEvent, item string) int {
+							for i := range slice {
+								if slice[i].Msg.UUID == item {
+									return i
+								}
 							}
-						}
-						return -1
-					}(msgEvents, msg.UUID().String())
+							return -1
+						}(msgEvents, msg.UUID().String())
+						previousMsgEvent := msgEvents[msgIndex-1]
 
-					if msgIndex > 0 {
-						ctx, cancel := context.WithTimeout(context.Background(), time.Second*35)
-						defer cancel()
-						previousEventMsgUUID := msgEvents[msgIndex-1].Msg.UUID
-						tries := 0
-						tryLimit := w.foreman.server.Config().WaitMediaCount
-						for tries < tryLimit {
-							tries++
+						if msgIndex > 0 && previousMsgEvent.Type != MsgReceived {
+							// if the previous message has attachments wait a while to give it a chance to be delivered
+							if len(previousMsgEvent.Msg.Attachments) > 0 {
+								sleepDuration := time.Duration(w.foreman.server.Config().WaitMediaSleepDuration)
+								time.Sleep(time.Millisecond * sleepDuration)
+							}
+
+							ctx, cancel := context.WithTimeout(context.Background(), time.Second*35)
+							defer cancel()
+							previousEventMsgUUID := previousMsgEvent.Msg.UUID
 							prevMsg, err := server.Backend().GetMessage(ctx, previousEventMsgUUID)
 							if err != nil {
 								log.Error(errors.Wrap(err, "GetMessage for previous message failed"))
-								break
+								return
 							}
 							if prevMsg != nil {
-								if prevMsg.Status() != MsgDelivered &&
+								// now check if it was delivered or read at least
+								if prevMsg.Status() != MsgSent &&
+									prevMsg.Status() != MsgDelivered &&
 									prevMsg.Status() != MsgRead {
-									sleepDuration := time.Duration(w.foreman.server.Config().WaitMediaSleepDuration)
-									time.Sleep(time.Millisecond * sleepDuration)
-									continue
+									err = backend.PushBackOutgoingMsg(ctx, msg)
+									if err != nil {
+										log.Error(err)
+									}
+									log.Info("push msg back to queue")
+									return
 								}
 							}
-							break
 						}
 					}
 				}

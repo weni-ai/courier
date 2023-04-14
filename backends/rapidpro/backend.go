@@ -850,3 +850,24 @@ func (b *backend) GetRunEventsByMsgUUIDFromDB(ctx context.Context, msgUUID strin
 func (b *backend) GetMessage(ctx context.Context, msgUUID string) (courier.Msg, error) {
 	return GetMsgByUUID(b, msgUUID)
 }
+
+func (b *backend) PushBackOutgoingMsg(ctx context.Context, msg courier.Msg) error {
+	rc := b.redisPool.Get()
+	defer rc.Close()
+
+	chUUID := msg.Channel().UUID().String()
+	chTPS := msg.Channel().TPS()
+
+	msgBatch := []courier.Msg{msg}
+	batchJSON, err := json.Marshal(msgBatch)
+
+	if err != nil {
+		return err
+	}
+
+	err = queue.PushOntoQueue(rc, msgQueueName, chUUID, chTPS, string(batchJSON), queue.HighPriority)
+	if err != nil {
+		return errors.Wrap(err, "failed to push message to queue")
+	}
+	return nil
+}

@@ -278,6 +278,8 @@ var testCasesWAC = []ChannelHandleTestCase{
 	{Label: "Receive Valid Interactive List Reply Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/listReplyWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("Yes"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Valid Contact Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/contactWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("+1 415-858-6273, +1 415-858-6274"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Invalid JSON", URL: wacReceiveURL, Data: "not json", Status: 400, Response: "unable to parse", PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Invalid JSON", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/invalidFrom.json")), Status: 400, Response: "invalid whatsapp id", PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Invalid JSON", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/invalidTimestamp.json")), Status: 400, Response: "invalid timestamp", PrepRequest: addValidSignatureWAC},

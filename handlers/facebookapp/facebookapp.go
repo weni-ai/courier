@@ -188,6 +188,18 @@ type moPayload struct {
 							Title string `json:"title"`
 						} `json:"list_reply,omitempty"`
 					} `json:"interactive,omitempty"`
+					Contacts []struct {
+						Name struct {
+							FirstName     string `json:"first_name"`
+							LastName      string `json:"last_name"`
+							FormattedName string `json:"formatted_name"`
+						} `json:"name"`
+						Phones []struct {
+							Phone string `json:"phone"`
+							WaID  string `json:"wa_id"`
+							Type  string `json:"type"`
+						} `json:"phones"`
+					} `json:"contacts"`
 				} `json:"messages"`
 				Statuses []struct {
 					ID           string `json:"id"`
@@ -483,6 +495,18 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					text = msg.Interactive.ButtonReply.Title
 				} else if msg.Type == "interactive" && msg.Interactive.Type == "list_reply" {
 					text = msg.Interactive.ListReply.Title
+				} else if msg.Type == "contacts" {
+
+					if len(msg.Contacts) == 0 {
+						return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("no shared contact"))
+					}
+
+					// put phones in a comma-separated string
+					var phones []string
+					for _, phone := range msg.Contacts[0].Phones {
+						phones = append(phones, phone.Phone)
+					}
+					text = strings.Join(phones, ", ")
 				} else {
 					// we received a message type we do not support.
 					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))

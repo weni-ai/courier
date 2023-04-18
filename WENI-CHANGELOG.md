@@ -1,3 +1,7 @@
+1.4.14-courier-7.1.0
+----------
+  * Add support for receiving contact type messages in WAC
+
 1.4.13-courier-7.1.0
 ----------
   * Use user token to download files from Slack

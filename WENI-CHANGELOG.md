@@ -1,3 +1,13 @@
+1.4.14-courier-7.1.0
+----------
+  * Add support for receiving contact type messages in WAC
+
+1.4.13-courier-7.1.0
+----------
+  * Use user token to download files from Slack
+  * Fix maximum message size limits for WAC, FBA and IG
+  * Use the new package to find out the mime type of attachments
+
 1.4.12-courier-7.1.0
 ----------
   * Set Wait media channels config to empty array by default

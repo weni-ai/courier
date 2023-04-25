@@ -475,7 +475,6 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 				text := ""
 				mediaURL := ""
-				metadata := []byte{}
 
 				if msg.Type == "text" {
 					text = msg.Text.Body
@@ -508,8 +507,12 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 						return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("no shared contact"))
 					}
 
-					//text = strings.Join(phones, ", ")
-					metadata, _ = json.Marshal(msg.Contacts)
+					for _, phone := range msg.Contacts {
+						for i := range phone.Phones {
+							mediaURL += fmt.Sprintf("contact:%s - %s,", phone.Name.FormattedName, phone.Phones[i].Phone)
+						}
+
+					}
 
 				} else {
 					// we received a message type we do not support.
@@ -523,10 +526,6 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				// we had an error downloading media
 				if err != nil {
 					courier.LogRequestError(r, channel, err)
-				}
-
-				if metadata != nil {
-					event.WithMetadata(metadata)
 				}
 
 				if mediaURL != "" {

@@ -509,7 +509,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 					for _, phone := range msg.Contacts {
 						for i := range phone.Phones {
-							mediaURL += fmt.Sprintf("contact:%s - %s,", phone.Name.FormattedName, phone.Phones[i].Phone)
+							mediaURL += fmt.Sprintf("contact:%s - %s ", phone.Name.FormattedName, phone.Phones[i].Phone)
 						}
 
 					}

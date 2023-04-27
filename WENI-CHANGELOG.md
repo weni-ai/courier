@@ -1,3 +1,7 @@
+1.4.15-courier-7.1.0
+----------
+  * Improve URL verification for webhooks
+
 1.4.14-courier-7.1.0
 ----------
   * Add support for receiving contact type messages in WAC

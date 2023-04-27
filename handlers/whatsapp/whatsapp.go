@@ -339,9 +339,9 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 
 	webhook := channel.ConfigForKey("webhook", nil)
 	if webhook != nil {
-		err = handlers.SendWebhooks(channel, r, webhook)
-		if err != nil {
-			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		er := handlers.SendWebhooks(channel, r, webhook)
+		if er != nil {
+			courier.LogRequestError(r, channel, fmt.Errorf("could not send webhook: %s", er))
 		}
 	}
 

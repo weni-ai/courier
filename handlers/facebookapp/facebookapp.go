@@ -32,7 +32,9 @@ var (
 	configWACPhoneNumberID = "wac_phone_number_id"
 
 	// max for the body
-	maxMsgLength = 1000
+	maxMsgLengthIG  = 1000
+	maxMsgLengthFBA = 2000
+	maxMsgLengthWAC = 4096
 
 	// Sticker ID substitutions
 	stickerIDToEmoji = map[int64]string{
@@ -186,6 +188,18 @@ type moPayload struct {
 							Title string `json:"title"`
 						} `json:"list_reply,omitempty"`
 					} `json:"interactive,omitempty"`
+					Contacts []struct {
+						Name struct {
+							FirstName     string `json:"first_name"`
+							LastName      string `json:"last_name"`
+							FormattedName string `json:"formatted_name"`
+						} `json:"name"`
+						Phones []struct {
+							Phone string `json:"phone"`
+							WaID  string `json:"wa_id"`
+							Type  string `json:"type"`
+						} `json:"phones"`
+					} `json:"contacts"`
 				} `json:"messages"`
 				Statuses []struct {
 					ID           string `json:"id"`
@@ -481,6 +495,18 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					text = msg.Interactive.ButtonReply.Title
 				} else if msg.Type == "interactive" && msg.Interactive.Type == "list_reply" {
 					text = msg.Interactive.ListReply.Title
+				} else if msg.Type == "contacts" {
+
+					if len(msg.Contacts) == 0 {
+						return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("no shared contact"))
+					}
+
+					// put phones in a comma-separated string
+					var phones []string
+					for _, phone := range msg.Contacts[0].Phones {
+						phones = append(phones, phone.Phone)
+					}
+					text = strings.Join(phones, ", ")
 				} else {
 					// we received a message type we do not support.
 					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
@@ -1012,7 +1038,12 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 
 	msgParts := make([]string, 0)
 	if msg.Text() != "" {
-		msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLength)
+		if msg.Channel().ChannelType() == "IG" {
+			msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthIG)
+		} else {
+			msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthFBA)
+		}
+
 	}
 
 	// send each part and each attachment separately. we send attachments first as otherwise quick replies
@@ -1245,7 +1276,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 	msgParts := make([]string, 0)
 	if msg.Text() != "" {
-		msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLength)
+		msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthWAC)
 	}
 	qrs := msg.QuickReplies()
 

@@ -215,18 +215,6 @@ func (w *Sender) sendMessage(msg Msg) {
 			log.WithField("elapsed", duration).Info("msg sent")
 			analytics.Gauge(fmt.Sprintf("courier.msg_send_%s", msg.Channel().ChannelType()), secondDuration)
 		}
-
-		// update last seen on if message is no error and no fail
-		if status.Status() != MsgErrored && status.Status() != MsgFailed {
-			ctt, err := w.foreman.server.Backend().GetContact(context.Background(), msg.Channel(), msg.URN(), "", "")
-			if err != nil {
-				log.WithError(err).Info("error getting contact")
-			}
-			err = w.foreman.server.Backend().UpdateContactLastSeenOn(context.Background(), ctt.UUID(), time.Now())
-			if err != nil {
-				log.WithError(err).Info("error updating contact last seen on")
-			}
-		}
 	}
 
 	// we allot 10 seconds to write our status to the db

@@ -286,11 +286,6 @@ func (mb *MockBackend) GetContact(ctx context.Context, channel Channel, urn urns
 	return contact, nil
 }
 
-// UpdateContactLastSeenOn updates last seen on (and modified on) on the passed in contact
-func (mb *MockBackend) UpdateContactLastSeenOn(ctx context.Context, contactUUID ContactUUID, lastSeenOn time.Time) error {
-	return nil
-}
-
 // AddURNtoContact adds a URN to the passed in contact
 func (mb *MockBackend) AddURNtoContact(context context.Context, channel Channel, contact Contact, urn urns.URN) (urns.URN, error) {
 	mb.contacts[urn] = contact

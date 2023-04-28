@@ -475,6 +475,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 				text := ""
 				mediaURL := ""
+				contacts := ""
 
 				if msg.Type == "text" {
 					text = msg.Text.Body
@@ -507,12 +508,21 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 						return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("no shared contact"))
 					}
 
-					// put phones in a comma-separated string
-					var phones []string
-					for _, phone := range msg.Contacts[0].Phones {
-						phones = append(phones, phone.Phone)
+					contacts = `{"contacts":[`
+					for i, phone := range msg.Contacts {
+						contacts += fmt.Sprintf(`{"formatted_name":"%s","numbers":[`, phone.Name.FormattedName)
+						for j, p := range phone.Phones {
+							contacts += fmt.Sprintf(`"%s"`, p.Phone)
+							if j != len(phone.Phones)-1 {
+								contacts += `,`
+							}
+						}
+						contacts += `]}`
+						if i != len(msg.Contacts)-1 {
+							contacts += `,`
+						}
 					}
-					text = strings.Join(phones, ", ")
+					contacts += `]}`
 				} else {
 					// we received a message type we do not support.
 					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
@@ -525,6 +535,10 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				// we had an error downloading media
 				if err != nil {
 					courier.LogRequestError(r, channel, err)
+				}
+
+				if contacts != "" {
+					event.WithAttachment(contacts)
 				}
 
 				if mediaURL != "" {

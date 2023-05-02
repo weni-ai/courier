@@ -1,4 +1,4 @@
-1.5.1-courier-7.2.0
+1.5.1-courier-7.4.0
 ----------
   * Fix WAC handler
   * Fix: Remove last seen on 

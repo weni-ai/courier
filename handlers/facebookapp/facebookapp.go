@@ -1837,12 +1837,16 @@ func (h *handler) getTemplate(msg courier.Msg) (*MsgTemplating, error) {
 }
 
 func PresignedURL(link string, accessKey string, secretKey string, region string) (string, error) {
-
+	fmt.Println("LINK: ", link)
 	splitURL := strings.Split(link, ".")
-	bucketName := strings.TrimPrefix(splitURL[0], "http://")
+	fmt.Println("splitURL1: ", splitURL)
+	bucketName := strings.TrimPrefix(splitURL[0], "https://")
+	fmt.Println("bucketName: ", bucketName)
 
 	splitURL = strings.Split(link, "attachments")
+	fmt.Println("splitURL2: ", splitURL)
 	objectKey := "/attachments" + splitURL[1]
+	fmt.Println("objectKey: ", objectKey)
 
 	sess, err := session.NewSession(&aws.Config{
 		Credentials: credentials.NewStaticCredentials(accessKey, secretKey, ""),
@@ -1859,7 +1863,7 @@ func PresignedURL(link string, accessKey string, secretKey string, region string
 		Key:    aws.String(objectKey),
 	})
 	urlStr, err := req.Presign((24 * time.Hour) * 7)
-
+	fmt.Println("urlStr: ", urlStr)
 	if err != nil {
 		return "", err
 	}

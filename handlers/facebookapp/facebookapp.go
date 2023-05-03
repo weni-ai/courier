@@ -14,6 +14,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/buger/jsonparser"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
@@ -1324,10 +1328,16 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					if err != nil {
 						return status, err
 					}
+
+					urlStr, err := PresignedURL(parsedURL.String(), h.Server().Config().AWSAccessKeyID, h.Server().Config().AWSSecretAccessKey, h.Server().Config().S3Region)
+					if err != nil {
+						return status, err
+					}
+
 					if attType == "application" {
 						attType = "document"
 					}
-					media := wacMTMedia{Link: parsedURL.String()}
+					media := wacMTMedia{Link: urlStr}
 					if attType == "image" {
 						header.Params = append(header.Params, &wacParam{Type: "image", Image: &media})
 					} else if attType == "video" {
@@ -1444,11 +1454,17 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			if err != nil {
 				return status, err
 			}
+
+			urlStr, err := PresignedURL(parsedURL.String(), h.Server().Config().AWSAccessKeyID, h.Server().Config().AWSSecretAccessKey, h.Server().Config().S3Region)
+			if err != nil {
+				return status, err
+			}
+
 			if attType == "application" {
 				attType = "document"
 			}
 			payload.Type = attType
-			media := wacMTMedia{Link: parsedURL.String()}
+			media := wacMTMedia{Link: urlStr}
 			if len(msgParts) == 1 && attType != "audio" && len(msg.Attachments()) == 1 && len(msg.QuickReplies()) == 0 {
 				media.Caption = msgParts[i]
 				hasCaption = true
@@ -1480,12 +1496,18 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					if len(msg.Attachments()) > 0 {
 						attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
 						attType = strings.Split(attType, "/")[0]
+
+						urlStr, err := PresignedURL(attURL, h.Server().Config().AWSAccessKeyID, h.Server().Config().AWSSecretAccessKey, h.Server().Config().S3Region)
+						if err != nil {
+							return status, err
+						}
+
 						if attType == "application" {
 							attType = "document"
 						}
 						if attType == "image" {
 							image := wacMTMedia{
-								Link: attURL,
+								Link: urlStr,
 							}
 							interactive.Header = &struct {
 								Type     string     "json:\"type\""
@@ -1496,7 +1518,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							}{Type: "image", Image: image}
 						} else if attType == "video" {
 							video := wacMTMedia{
-								Link: attURL,
+								Link: urlStr,
 							}
 							interactive.Header = &struct {
 								Type     string     "json:\"type\""
@@ -1511,7 +1533,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								return nil, err
 							}
 							document := wacMTMedia{
-								Link:     attURL,
+								Link:     urlStr,
 								Filename: filename,
 							}
 							interactive.Header = &struct {
@@ -1526,7 +1548,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							if i == 0 {
 								zeroIndex = true
 							}
-							payloadAudio = wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path(), Type: "audio", Audio: &wacMTMedia{Link: attURL}}
+							payloadAudio = wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path(), Type: "audio", Audio: &wacMTMedia{Link: urlStr}}
 							status, _, err := requestWAC(payloadAudio, accessToken, msg, status, wacPhoneURL, zeroIndex)
 							if err != nil {
 								return status, nil
@@ -1812,6 +1834,38 @@ func (h *handler) getTemplate(msg courier.Msg) (*MsgTemplating, error) {
 	templating.Language = language
 
 	return templating, err
+}
+
+func PresignedURL(link string, accessKey string, secretKey string, region string) (string, error) {
+
+	splitURL := strings.Split(link, ".")
+	bucketName := strings.TrimPrefix(splitURL[0], "http://")
+
+	splitURL = strings.Split(link, "attachments")
+	objectKey := "/attachments" + splitURL[1]
+
+	sess, err := session.NewSession(&aws.Config{
+		Credentials: credentials.NewStaticCredentials(accessKey, secretKey, ""),
+		Region:      aws.String(region),
+	})
+	if err != nil {
+		return "", err
+	}
+
+	svc := s3.New(sess)
+
+	req, _ := svc.GetObjectRequest(&s3.GetObjectInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(objectKey),
+	})
+	urlStr, err := req.Presign((24 * time.Hour) * 7)
+
+	if err != nil {
+		return "", err
+	}
+
+	return urlStr, nil
+
 }
 
 type TemplateMetadata struct {

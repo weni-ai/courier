@@ -1795,7 +1795,7 @@ func (h *handler) getTemplate(msg courier.Msg) (*MsgTemplating, error) {
 func PresignedURL(link string, accessKey string, secretKey string, region string) (string, error) {
 
 	splitURL := strings.Split(link, ".")
-	bucketName := strings.TrimPrefix(splitURL[0], "http://")
+	bucketName := strings.TrimPrefix(splitURL[0], "https://")
 
 	splitURL = strings.Split(link, "attachments")
 	objectKey := "/attachments" + splitURL[1]

@@ -1,3 +1,7 @@
+1.5.2-courier-7.4.0
+----------
+  * Add module to send webhooks for WAC and WA
+
 1.5.1-courier-7.4.0
 ----------
   * Fix WAC handler

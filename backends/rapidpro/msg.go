@@ -310,7 +310,7 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 		if mimeT.String() == fileType.MIME.Type {
 			mimeType = fileType.MIME.Value
 			extension = fileType.Extension
-		} else if mimeT.String() != "application/zip" && mimeT.String() != "application/octet-stream" && fileType != filetype.Unknown {
+		} else if mimeT.String() != "application/zip" && mimeT.String() != "application/octet-stream" {
 			mimeType = mimeT.String()
 			extension = mimeT.Extension()[1:]
 		} else {

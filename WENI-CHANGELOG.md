@@ -1,3 +1,7 @@
+1.4.16-courier-7.1.0
+----------
+  * Fix test TestMsgSuite/TestWriteAttachment
+
 1.4.15-courier-7.1.0
 ----------
   * Improve URL verification for webhooks

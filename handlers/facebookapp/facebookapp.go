@@ -53,6 +53,8 @@ var (
 		"account":  "ACCOUNT_UPDATE",
 		"agent":    "HUMAN_AGENT",
 	}
+
+	presignedURLFunc func(string, string, string, string) (string, error)
 )
 
 // keys for extra in channel events
@@ -84,7 +86,7 @@ func init() {
 	courier.RegisterHandler(newHandler("IG", "Instagram", false))
 	courier.RegisterHandler(newHandler("FBA", "Facebook", false))
 	courier.RegisterHandler(newHandler("WAC", "WhatsApp Cloud", false))
-
+	presignedURLFunc = PresignedURL
 }
 
 type handler struct {
@@ -1323,7 +1325,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						return status, err
 					}
 
-					urlStr, err := PresignedURL(parsedURL.String(), h.Server().Config().AWSAccessKeyID, h.Server().Config().AWSSecretAccessKey, h.Server().Config().S3Region)
+					urlStr, err := presignedURLFunc(parsedURL.String(), h.Server().Config().AWSAccessKeyID, h.Server().Config().AWSSecretAccessKey, h.Server().Config().S3Region)
 					if err != nil {
 						return status, err
 					}
@@ -1429,7 +1431,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				return status, err
 			}
 
-			urlStr, err := PresignedURL(parsedURL.String(), h.Server().Config().AWSAccessKeyID, h.Server().Config().AWSSecretAccessKey, h.Server().Config().S3Region)
+			urlStr, err := presignedURLFunc(parsedURL.String(), h.Server().Config().AWSAccessKeyID, h.Server().Config().AWSSecretAccessKey, h.Server().Config().S3Region)
 			if err != nil {
 				return status, err
 			}
@@ -1471,7 +1473,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
 						attType = strings.Split(attType, "/")[0]
 
-						urlStr, err := PresignedURL(attURL, h.Server().Config().AWSAccessKeyID, h.Server().Config().AWSSecretAccessKey, h.Server().Config().S3Region)
+						urlStr, err := presignedURLFunc(attURL, h.Server().Config().AWSAccessKeyID, h.Server().Config().AWSSecretAccessKey, h.Server().Config().S3Region)
 						if err != nil {
 							return status, err
 						}
@@ -1798,7 +1800,7 @@ func PresignedURL(link string, accessKey string, secretKey string, region string
 	bucketName := strings.TrimPrefix(splitURL[0], "https://")
 
 	splitURL = strings.Split(link, "attachments")
-	objectKey := "/attachments" + splitURL[1]
+	objectKey := "/attachments" + splitURL[0]
 
 	sess, err := session.NewSession(&aws.Config{
 		Credentials: credentials.NewStaticCredentials(accessKey, secretKey, ""),

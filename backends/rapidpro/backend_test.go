@@ -962,14 +962,14 @@ func (ts *BackendTestSuite) TestWriteAttachment() {
 		content := ""
 		switch r.URL.Path {
 		case "/test.jpg":
-			content = "malformedjpegbody"
+			content = "\xFF\xD8\xFF"
 
 		case "/giffy":
 			content = "GIF87aandstuff"
 
 		case "/header":
 			w.Header().Add("Content-Type", "image/png")
-			content = "nothingbody"
+			content = "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A"
 
 		default:
 			content = "unknown"

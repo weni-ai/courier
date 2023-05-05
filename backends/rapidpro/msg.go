@@ -306,7 +306,7 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 	fileType, _ := filetype.Match(body[:300])
 	mimeT := mimetype.Detect(body)
 
-	if fileType != filetype.Unknown || mimeT.String() != "application/octet-stream" {
+	if fileType != filetype.Unknown {
 		if mimeT.String() == fileType.MIME.Type {
 			mimeType = fileType.MIME.Value
 			extension = fileType.Extension
@@ -320,6 +320,12 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 				mimeType = fileType.MIME.Value
 				extension = fileType.Extension
 			}
+		}
+	} else {
+		fileType = filetype.GetType(extension)
+		if fileType != filetype.Unknown {
+			mimeType = fileType.MIME.Value
+			extension = fileType.Extension
 		}
 	}
 
@@ -671,6 +677,7 @@ func (m *DBMsg) WithMetadata(metadata json.RawMessage) courier.Msg { m.Metadata_
 
 // WithAttachment can be used to append to the media urls for a message
 func (m *DBMsg) WithAttachment(url string) courier.Msg {
+	fmt.Println(m.Attachments_)
 	m.Attachments_ = append(m.Attachments_, url)
 	return m
 }

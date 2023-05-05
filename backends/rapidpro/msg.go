@@ -321,12 +321,6 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 				extension = fileType.Extension
 			}
 		}
-	} else {
-		fileType = filetype.GetType(extension)
-		if fileType != filetype.Unknown {
-			mimeType = fileType.MIME.Value
-			extension = fileType.Extension
-		}
 	}
 
 	// we still don't know our mime type, use our content header instead

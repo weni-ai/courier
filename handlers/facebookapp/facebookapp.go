@@ -8,17 +8,24 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/buger/jsonparser"
+	"github.com/gabriel-vasile/mimetype"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
+	"github.com/nyaruka/gocommon/rcache"
 	"github.com/nyaruka/gocommon/urns"
+	"github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
 )
 
@@ -71,6 +78,12 @@ var waStatusMapping = map[string]courier.MsgStatusValue{
 var waIgnoreStatuses = map[string]bool{
 	"deleted": true,
 }
+
+const (
+	mediaCacheKeyPatternWhatsapp = "whatsapp_cloud_media_%s"
+)
+
+var failedMediaCache *cache.Cache
 
 func newHandler(channelType courier.ChannelType, name string, useUUIDRoutes bool) courier.ChannelHandler {
 	return &handler{handlers.NewBaseHandlerWithParams(channelType, name, useUUIDRoutes)}
@@ -1934,4 +1947,116 @@ var languageMenuMap = map[string]string{
 	"zh-HK": "菜單",
 	"zh-TW": "菜單",
 	"ar-JO": "قائمة",
+}
+
+func (h *handler) fetchMediaID(msg courier.Msg, mimeType, mediaURL string, accessToken string) (string, []*courier.ChannelLog, error) {
+	var logs []*courier.ChannelLog
+
+	rc := h.Backend().RedisPool().Get()
+	defer rc.Close()
+
+	cacheKey := fmt.Sprintf(mediaCacheKeyPatternWhatsapp, msg.Channel().UUID().String())
+	mediaID, err := rcache.Get(rc, cacheKey, mediaURL)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, mediaURL)
+	} else if mediaID != "" {
+		return mediaID, logs, nil
+	}
+
+	failKey := fmt.Sprintf("%s-%s", msg.Channel().UUID().String(), mediaURL)
+	found, _ := failedMediaCache.Get(failKey)
+
+	if found != nil {
+		return "", logs, nil
+	}
+
+	// request to download media
+	req, err := http.NewRequest("GET", mediaURL, nil)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "error builing media request")
+	}
+	rr, err := utils.MakeHTTPRequest(req)
+	log := courier.NewChannelLogFromRR("Fetching media", msg.Channel(), msg.ID(), rr).WithError("error fetching media", err)
+	logs = append(logs, log)
+	if err != nil {
+		failedMediaCache.Set(failKey, true, cache.DefaultExpiration)
+		return "", logs, nil
+	}
+
+	// upload media to WhatsAppCloud
+	base, _ := url.Parse(graphURL)
+	path, _ := url.Parse(fmt.Sprintf("/%s/media", msg.Channel().Address()))
+	wacPhoneURLMedia := base.ResolveReference(path)
+	mediaID, logs, err = requestWACMediaUpload(rr.Body, mediaURL, wacPhoneURLMedia.String(), mimeType, msg, accessToken)
+	if err != nil {
+		return "", logs, err
+	}
+
+	// put in cache
+	err = rcache.Set(rc, cacheKey, mediaURL, mediaID)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "error setting media id in cache")
+	}
+
+	return mediaID, logs, nil
+}
+
+func requestWACMediaUpload(file []byte, mediaURL string, requestUrl string, mimeType string, msg courier.Msg, accessToken string) (string, []*courier.ChannelLog, error) {
+	var logs []*courier.ChannelLog
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	fileType := http.DetectContentType(file)
+	fileName := filepath.Base(mediaURL)
+
+	if fileType != mimeType || fileType == "application/octet-stream" || fileType == "application/zip" {
+		fileType = mimetype.Detect(file).String()
+	}
+
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition",
+		fmt.Sprintf(`form-data; name="%s"; filename="%s"`,
+			"file", fileName))
+	h.Set("Content-Type", fileType)
+	fileField, err := writer.CreatePart(h)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "failed to create form field:")
+	}
+
+	fileReader := bytes.NewReader(file)
+	_, err = io.Copy(fileField, fileReader)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "failed to copy file to form field")
+	}
+
+	err = writer.WriteField("messaging_product", "whatsapp")
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "failed to add field")
+	}
+
+	err = writer.Close()
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "failed to close multipart writer")
+	}
+
+	req, err := http.NewRequest("POST", requestUrl, body)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "failed to create request")
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
+
+	resp, err := utils.MakeHTTPRequest(req)
+	log := courier.NewChannelLogFromRR("Uploading media to WhatsApp Cloud", msg.Channel(), msg.ID(), resp).WithError("Error uploading media to WhatsApp Cloud", err)
+	logs = append(logs, log)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "request failed")
+	}
+
+	id, err := jsonparser.GetString(resp.Body, "id")
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "error parsing media id")
+	}
+	return id, logs, nil
 }

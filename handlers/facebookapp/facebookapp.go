@@ -8,17 +8,24 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/buger/jsonparser"
+	"github.com/gabriel-vasile/mimetype"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
+	"github.com/nyaruka/gocommon/rcache"
 	"github.com/nyaruka/gocommon/urns"
+	"github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
 )
 
@@ -72,6 +79,12 @@ var waIgnoreStatuses = map[string]bool{
 	"deleted": true,
 }
 
+const (
+	mediaCacheKeyPatternWhatsapp = "whatsapp_cloud_media_%s"
+)
+
+var failedMediaCache *cache.Cache
+
 func newHandler(channelType courier.ChannelType, name string, useUUIDRoutes bool) courier.ChannelHandler {
 	return &handler{handlers.NewBaseHandlerWithParams(channelType, name, useUUIDRoutes)}
 }
@@ -81,6 +94,7 @@ func init() {
 	courier.RegisterHandler(newHandler("FBA", "Facebook", false))
 	courier.RegisterHandler(newHandler("WAC", "WhatsApp Cloud", false))
 
+	failedMediaCache = cache.New(15*time.Minute, 15*time.Minute)
 }
 
 type handler struct {
@@ -1319,7 +1333,17 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					header := &wacComponent{Type: "header"}
 
 					attType, attURL := handlers.SplitAttachment(msg.Attachments()[0])
+					mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
+					for _, log := range mediaLogs {
+						status.AddLog(log)
+					}
+					if err != nil {
+						status.AddLog(courier.NewChannelLogFromError("error on fetch media ID", msg.Channel(), msg.ID(), time.Since(start), err))
+					} else if mediaID != "" {
+						attURL = ""
+					}
 					attType = strings.Split(attType, "/")[0]
+
 					parsedURL, err := url.Parse(attURL)
 					if err != nil {
 						return status, err
@@ -1327,7 +1351,8 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					if attType == "application" {
 						attType = "document"
 					}
-					media := wacMTMedia{Link: parsedURL.String()}
+
+					media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
 					if attType == "image" {
 						header.Params = append(header.Params, &wacParam{Type: "image", Image: &media})
 					} else if attType == "video" {
@@ -1439,34 +1464,46 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 		} else if i < len(msg.Attachments()) && len(qrs) == 0 || len(qrs) > 3 && i < len(msg.Attachments()) {
 			attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
-			attType = strings.Split(attType, "/")[0]
+			fileURL := attURL
+			mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
+			for _, log := range mediaLogs {
+				status.AddLog(log)
+			}
+			if err != nil {
+				status.AddLog(courier.NewChannelLogFromError("error on fetch media ID", msg.Channel(), msg.ID(), time.Since(start), err))
+			} else if mediaID != "" {
+				attURL = ""
+			}
 			parsedURL, err := url.Parse(attURL)
 			if err != nil {
 				return status, err
 			}
+			attType = strings.Split(attType, "/")[0]
 			if attType == "application" {
 				attType = "document"
 			}
 			payload.Type = attType
-			media := wacMTMedia{Link: parsedURL.String()}
+			media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
 			if len(msgParts) == 1 && attType != "audio" && len(msg.Attachments()) == 1 && len(msg.QuickReplies()) == 0 {
 				media.Caption = msgParts[i]
 				hasCaption = true
 			}
 
-			if attType == "image" {
+			switch attType {
+			case "image":
 				payload.Image = &media
-			} else if attType == "audio" {
+			case "audio":
 				payload.Audio = &media
-			} else if attType == "video" {
+			case "video":
 				payload.Video = &media
-			} else if attType == "document" {
-				media.Filename, err = utils.BasePathForURL(attURL)
+			case "document":
+				media.Filename, err = utils.BasePathForURL(fileURL)
 				if err != nil {
 					return nil, err
 				}
 				payload.Document = &media
 			}
+			//end
 		} else {
 			if len(qrs) > 0 {
 				payload.Type = "interactive"
@@ -1479,54 +1516,57 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 					if len(msg.Attachments()) > 0 {
 						attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
+						mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
+						for _, log := range mediaLogs {
+							status.AddLog(log)
+						}
+						if err != nil {
+							status.AddLog(courier.NewChannelLogFromError("error on fetch media ID", msg.Channel(), msg.ID(), time.Since(start), err))
+						} else if mediaID != "" {
+							attURL = ""
+						}
 						attType = strings.Split(attType, "/")[0]
 						if attType == "application" {
 							attType = "document"
 						}
+						fileURL := attURL
+						media := wacMTMedia{ID: mediaID, Link: attURL}
+
 						if attType == "image" {
-							image := wacMTMedia{
-								Link: attURL,
-							}
 							interactive.Header = &struct {
 								Type     string     "json:\"type\""
 								Text     string     "json:\"text,omitempty\""
 								Video    wacMTMedia "json:\"video,omitempty\""
 								Image    wacMTMedia "json:\"image,omitempty\""
 								Document wacMTMedia "json:\"document,omitempty\""
-							}{Type: "image", Image: image}
+							}{Type: "image", Image: media}
 						} else if attType == "video" {
-							video := wacMTMedia{
-								Link: attURL,
-							}
 							interactive.Header = &struct {
 								Type     string     "json:\"type\""
 								Text     string     "json:\"text,omitempty\""
 								Video    wacMTMedia "json:\"video,omitempty\""
 								Image    wacMTMedia "json:\"image,omitempty\""
 								Document wacMTMedia "json:\"document,omitempty\""
-							}{Type: "video", Video: video}
+							}{Type: "video", Video: media}
 						} else if attType == "document" {
-							filename, err := utils.BasePathForURL(attURL)
+							filename, err := utils.BasePathForURL(fileURL)
 							if err != nil {
 								return nil, err
 							}
-							document := wacMTMedia{
-								Link:     attURL,
-								Filename: filename,
-							}
+							media.Filename = filename
 							interactive.Header = &struct {
 								Type     string     "json:\"type\""
 								Text     string     "json:\"text,omitempty\""
 								Video    wacMTMedia "json:\"video,omitempty\""
 								Image    wacMTMedia "json:\"image,omitempty\""
 								Document wacMTMedia "json:\"document,omitempty\""
-							}{Type: "document", Document: document}
+							}{Type: "document", Document: media}
 						} else if attType == "audio" {
 							var zeroIndex bool
 							if i == 0 {
 								zeroIndex = true
 							}
-							payloadAudio = wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path(), Type: "audio", Audio: &wacMTMedia{Link: attURL}}
+							payloadAudio = wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path(), Type: "audio", Audio: &wacMTMedia{ID: mediaID, Link: attURL}}
 							status, _, err := requestWAC(payloadAudio, accessToken, msg, status, wacPhoneURL, zeroIndex)
 							if err != nil {
 								return status, nil
@@ -1934,4 +1974,116 @@ var languageMenuMap = map[string]string{
 	"zh-HK": "菜單",
 	"zh-TW": "菜單",
 	"ar-JO": "قائمة",
+}
+
+func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, accessToken string) (string, []*courier.ChannelLog, error) {
+	var logs []*courier.ChannelLog
+
+	rc := h.Backend().RedisPool().Get()
+	defer rc.Close()
+
+	cacheKey := fmt.Sprintf(mediaCacheKeyPatternWhatsapp, msg.Channel().UUID().String())
+	mediaID, err := rcache.Get(rc, cacheKey, mediaURL)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, mediaURL)
+	} else if mediaID != "" {
+		return mediaID, logs, nil
+	}
+
+	failKey := fmt.Sprintf("%s-%s", msg.Channel().UUID().String(), mediaURL)
+	found, _ := failedMediaCache.Get(failKey)
+
+	if found != nil {
+		return "", logs, nil
+	}
+
+	// request to download media
+	req, err := http.NewRequest("GET", mediaURL, nil)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "error builing media request")
+	}
+	rr, err := utils.MakeHTTPRequest(req)
+	log := courier.NewChannelLogFromRR("Fetching media", msg.Channel(), msg.ID(), rr).WithError("error fetching media", err)
+	logs = append(logs, log)
+	if err != nil {
+		failedMediaCache.Set(failKey, true, cache.DefaultExpiration)
+		return "", logs, nil
+	}
+
+	// upload media to WhatsAppCloud
+	base, _ := url.Parse(graphURL)
+	path, _ := url.Parse(fmt.Sprintf("/%s/media", msg.Channel().Address()))
+	wacPhoneURLMedia := base.ResolveReference(path)
+	mediaID, logs, err = requestWACMediaUpload(rr.Body, mediaURL, wacPhoneURLMedia.String(), mimeType, msg, accessToken)
+	if err != nil {
+		return "", logs, err
+	}
+
+	// put in cache
+	err = rcache.Set(rc, cacheKey, mediaURL, mediaID)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "error setting media id in cache")
+	}
+
+	return mediaID, logs, nil
+}
+
+func requestWACMediaUpload(file []byte, mediaURL string, requestUrl string, mimeType string, msg courier.Msg, accessToken string) (string, []*courier.ChannelLog, error) {
+	var logs []*courier.ChannelLog
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	fileType := http.DetectContentType(file)
+	fileName := filepath.Base(mediaURL)
+
+	if fileType != mimeType || fileType == "application/octet-stream" || fileType == "application/zip" {
+		fileType = mimetype.Detect(file).String()
+	}
+
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition",
+		fmt.Sprintf(`form-data; name="%s"; filename="%s"`,
+			"file", fileName))
+	h.Set("Content-Type", fileType)
+	fileField, err := writer.CreatePart(h)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "failed to create form field:")
+	}
+
+	fileReader := bytes.NewReader(file)
+	_, err = io.Copy(fileField, fileReader)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "failed to copy file to form field")
+	}
+
+	err = writer.WriteField("messaging_product", "whatsapp")
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "failed to add field")
+	}
+
+	err = writer.Close()
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "failed to close multipart writer")
+	}
+
+	req, err := http.NewRequest("POST", requestUrl, body)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "failed to create request")
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
+
+	resp, err := utils.MakeHTTPRequest(req)
+	log := courier.NewChannelLogFromRR("Uploading media to WhatsApp Cloud", msg.Channel(), msg.ID(), resp).WithError("Error uploading media to WhatsApp Cloud", err)
+	logs = append(logs, log)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "request failed")
+	}
+
+	id, err := jsonparser.GetString(resp.Body, "id")
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "error parsing media id")
+	}
+	return id, logs, nil
 }

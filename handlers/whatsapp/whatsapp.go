@@ -865,6 +865,14 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					}
 					payload.Audio = mediaPayload
 					payloads = append(payloads, payload)
+					if attachmentCount == 0 {
+						payloadText := mtTextPayload{
+							To:   msg.URN().Path(),
+							Type: "text",
+						}
+						payloadText.Text.Body = msg.Text()
+						payloads = append(payloads, payloadText)
+					}
 				} else if strings.HasPrefix(mimeType, "application") {
 					payload := mtDocumentPayload{
 						To:   msg.URN().Path(),

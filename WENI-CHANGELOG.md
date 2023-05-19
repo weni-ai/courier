@@ -1,3 +1,7 @@
+1.4.18-courier-7.1.0
+----------
+  * Support send audio with text in WA 
+
 1.4.17-courier-7.1.0
 ----------
   * Cache media ids for WhatsApp cloud attachments

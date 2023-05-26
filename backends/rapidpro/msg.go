@@ -642,3 +642,8 @@ func (m *DBMsg) WithURNAuth(auth string) courier.Msg {
 	m.URNAuth_ = auth
 	return m
 }
+
+func (m *DBMsg) WithPresignedURL(urls []string) courier.Msg {
+	m.Attachments_ = urls
+	return m
+}

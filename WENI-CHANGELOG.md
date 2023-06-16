@@ -1,3 +1,7 @@
+1.4.19-courier-7.1.0
+----------
+  * Support for referral messages in WAC
+
 1.4.18-courier-7.1.0
 ----------
   * Support send audio with text in WA 

@@ -215,13 +215,13 @@ type moPayload struct {
 						} `json:"phones"`
 					} `json:"contacts"`
 					Referral struct {
-						Headline   string    `json:"headline"`
-						Body       string    `json:"body"`
-						SourceType string    `json:"source_type"`
-						SourceID   string    `json:"source_id"`
-						SourceURL  string    `json:"source_url"`
-						Image      *wacMedia `json:"image,omitempty"`
-						Video      *wacMedia `json:"video,omitempty"`
+						Headline   string   `json:"headline"`
+						Body       string   `json:"body"`
+						SourceType string   `json:"source_type"`
+						SourceID   string   `json:"source_id"`
+						SourceURL  string   `json:"source_url"`
+						Image      wacMedia `json:"image,omitempty"`
+						Video      wacMedia `json:"video,omitempty"`
 					} `json:"referral"`
 				} `json:"messages"`
 				Statuses []struct {

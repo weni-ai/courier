@@ -220,8 +220,8 @@ type moPayload struct {
 						SourceType string    `json:"source_type"`
 						SourceID   string    `json:"source_id"`
 						SourceURL  string    `json:"source_url"`
-						Image      *wacMedia `json:"image"`
-						Video      *wacMedia `json:"video"`
+						Image      *wacMedia `json:"image,omitempty"`
+						Video      *wacMedia `json:"video,omitempty"`
 					} `json:"referral"`
 				} `json:"messages"`
 				Statuses []struct {

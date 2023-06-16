@@ -26,6 +26,7 @@ func queueMsgHandling(rc redis.Conn, c *DBContact, m *DBMsg) error {
 		"attachments":     m.Attachments(),
 		"new_contact":     c.IsNew_,
 		"created_on":      m.CreatedOn_,
+		"metadata":        m.Metadata_,
 	}
 
 	return queueMailroomTask(rc, "msg_event", m.OrgID_, m.ContactID_, body)

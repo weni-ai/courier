@@ -1135,6 +1135,7 @@ func (ts *BackendTestSuite) TestWriteMsg() {
 		"attachments":     nil,
 		"new_contact":     contact.IsNew_,
 		"created_on":      msg.CreatedOn_.Format(time.RFC3339Nano),
+		"metadata":        nil,
 	}, body["task"])
 }
 

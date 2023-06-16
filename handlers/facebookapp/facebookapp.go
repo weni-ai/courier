@@ -214,6 +214,15 @@ type moPayload struct {
 							Type  string `json:"type"`
 						} `json:"phones"`
 					} `json:"contacts"`
+					Referral struct {
+						Headline   string    `json:"headline"`
+						Body       string    `json:"body"`
+						SourceType string    `json:"source_type"`
+						SourceID   string    `json:"source_id"`
+						SourceURL  string    `json:"source_url"`
+						Image      *wacMedia `json:"image"`
+						Video      *wacMedia `json:"video"`
+					} `json:"referral"`
 				} `json:"messages"`
 				Statuses []struct {
 					ID           string `json:"id"`
@@ -539,6 +548,16 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				// we had an error downloading media
 				if err != nil {
 					courier.LogRequestError(r, channel, err)
+				}
+
+				if msg.Referral.Headline != "" {
+
+					referral, err := json.Marshal(msg.Referral)
+					if err != nil {
+						courier.LogRequestError(r, channel, err)
+					}
+					metadata := json.RawMessage(referral)
+					event.WithMetadata(metadata)
 				}
 
 				if mediaURL != "" {

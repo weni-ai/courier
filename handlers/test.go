@@ -43,6 +43,7 @@ type ChannelHandleTestCase struct {
 	Attachment  *string
 	Attachments []string
 	Date        *time.Time
+	Metadata    *json.RawMessage
 
 	MsgStatus *string
 
@@ -119,6 +120,12 @@ func Sp(str interface{}) *string { asStr := fmt.Sprintf("%s", str); return &asSt
 
 // Tp is utility method to get the pointer to the passed in time
 func Tp(tm time.Time) *time.Time { return &tm }
+
+func Jp(js interface{}) *json.RawMessage {
+	referral, _ := json.Marshal(js)
+	metadata := json.RawMessage(referral)
+	return &metadata
+}
 
 // utility method to make sure the passed in host is up, prevents races with our test server
 func ensureTestServerUp(host string) {
@@ -449,6 +456,9 @@ func RunChannelTestCases(t *testing.T, channels []courier.Channel, handler couri
 					} else {
 						require.Equal(*testCase.Date, nil)
 					}
+				}
+				if testCase.Metadata != nil {
+					require.Equal(*testCase.Metadata, msg.Metadata())
 				}
 			}
 		})

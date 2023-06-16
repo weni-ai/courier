@@ -257,6 +257,30 @@ var testCasesWAC = []ChannelHandleTestCase{
 		Text: Sp("No"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		PrepRequest: addValidSignatureWAC},
 
+	{Label: "Receive Referral WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/referralWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(&struct {
+			Headline   string `json:"headline"`
+			Body       string `json:"body"`
+			SourceType string `json:"source_type"`
+			SourceID   string `json:"source_id"`
+			SourceURL  string `json:"source_url"`
+			Image      *struct {
+				Caption  string `json:"caption"`
+				Filename string `json:"filename"`
+				ID       string `json:"id"`
+				Mimetype string `json:"mime_type"`
+				SHA256   string `json:"sha256"`
+			} `json:"image"`
+			Video *struct {
+				Caption  string `json:"caption"`
+				Filename string `json:"filename"`
+				ID       string `json:"id"`
+				Mimetype string `json:"mime_type"`
+				SHA256   string `json:"sha256"`
+			} `json:"video"`
+		}{Headline: "Our new product", Body: "This is a great product", SourceType: "SOURCE_TYPE", SourceID: "SOURCE_ID", SourceURL: "SOURCE_URL", Image: nil, Video: nil}),
+		PrepRequest: addValidSignatureWAC},
+
 	{Label: "Receive Valid Document Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/documentWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("80skaraokesonglistartist"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Attachment: Sp("https://foo.bar/attachmentURL_Document"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		PrepRequest: addValidSignatureWAC},

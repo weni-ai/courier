@@ -551,12 +551,14 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				}
 
 				if msg.Referral.Headline != "" {
-
+					fmt.Printf("%+v\n", msg.Referral)
 					referral, err := json.Marshal(msg.Referral)
+					fmt.Println(string(referral))
 					if err != nil {
 						courier.LogRequestError(r, channel, err)
 					}
 					metadata := json.RawMessage(referral)
+					fmt.Println(string(metadata))
 					event.WithMetadata(metadata)
 				}
 

@@ -384,7 +384,6 @@ func TestVerify(t *testing.T) {
 func setSendURL(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
 	sendURL = s.URL
 	graphURL = s.URL
-	presignedURLFunc = PresignedURLMock
 }
 
 var SendTestCasesFBA = []ChannelSendTestCase{
@@ -745,20 +744,4 @@ func TestSigning(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, tc.Signature, sig, "%d: mismatched signature", i)
 	}
-}
-
-func PresignedURLMock(link string, a string, b string, c string) (string, error) {
-
-	if strings.HasSuffix(link, ".mp3") {
-		return "https://foo.bar/attachments/audio.mp3", nil
-	} else if strings.HasSuffix(link, ".pdf") {
-		return "https://foo.bar/attachments/document.pdf", nil
-	} else if strings.HasSuffix(link, ".jpg") {
-		return "https://foo.bar/attachments/image.jpg", nil
-	} else if strings.HasSuffix(link, ".mp4") {
-		return "https://foo.bar/attachments/video.mp4", nil
-	}
-
-	return "", fmt.Errorf("no match")
-
 }

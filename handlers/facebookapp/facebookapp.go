@@ -49,8 +49,6 @@ var (
 		"account":  "ACCOUNT_UPDATE",
 		"agent":    "HUMAN_AGENT",
 	}
-
-	presignedURLFunc func(string, string, string, string) (string, error)
 )
 
 // keys for extra in channel events

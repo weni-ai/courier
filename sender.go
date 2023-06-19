@@ -169,13 +169,14 @@ func (w *Sender) sendMessage(msg Msg) {
 		var attachments []string
 		log = log.WithField("attachments", msg.Attachments())
 		for _, att := range msg.Attachments() {
-			urlAtt := SplitAttachment(att)
+			typeAtt, urlAtt := SplitAttachment(att)
 			url, err := PresignedURL(urlAtt, server.Config().AWSAccessKeyID, server.Config().AWSSecretAccessKey, server.Config().S3Region)
 			fmt.Println("URL: ", url)
 			if err != nil {
 				log.WithError(err).Error("error converting attachment for pre-signed url")
 			}
-			attachments = append(attachments, url)
+			att = typeAtt + ":" + url
+			attachments = append(attachments, att)
 		}
 		msg = msg.WithPresignedURL(attachments)
 		fmt.Println("Att: ", msg.Attachments())

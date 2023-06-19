@@ -16,7 +16,7 @@ func PresignedURL(link string, accessKey string, secretKey string, region string
 	bucketName := strings.TrimPrefix(splitURL[0], "https://")
 
 	splitURL = strings.Split(link, "attachments")
-	objectKey := "/attachments" + splitURL[0]
+	objectKey := "/attachments" + splitURL[1]
 
 	sess, err := session.NewSession(&aws.Config{
 		Credentials: credentials.NewStaticCredentials(accessKey, secretKey, ""),

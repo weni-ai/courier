@@ -337,6 +337,14 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		data = append(data, courier.NewStatusData(event))
 	}
 
+	webhook := channel.ConfigForKey("webhook", nil)
+	if webhook != nil {
+		er := handlers.SendWebhooks(channel, r, webhook)
+		if er != nil {
+			courier.LogRequestError(r, channel, fmt.Errorf("could not send webhook: %s", er))
+		}
+	}
+
 	return events, courier.WriteDataResponse(ctx, w, http.StatusOK, "Events Handled", data)
 }
 

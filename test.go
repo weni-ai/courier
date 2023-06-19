@@ -632,7 +632,6 @@ func (m *mockMsg) WithPresignedURL(urls []string) Msg {
 	m.attachments = urls
 	return m
 }
-func (m *mockMsg) Status() MsgStatusValue { return "" }
 
 //-----------------------------------------------------------------------------
 // Mock status implementation

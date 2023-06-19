@@ -41,3 +41,12 @@ func PresignedURL(link string, accessKey string, secretKey string, region string
 	return urlStr, nil
 
 }
+
+// SplitAttachment takes an attachment string and returns the media type and URL for the attachment
+func SplitAttachment(attachment string) string {
+	parts := strings.SplitN(attachment, ":", 2)
+	if len(parts) < 2 {
+		return parts[0]
+	}
+	return parts[1]
+}

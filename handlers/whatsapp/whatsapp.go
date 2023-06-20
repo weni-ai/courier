@@ -167,6 +167,27 @@ type eventPayload struct {
 				Phone string `json:"phone"`
 			} `json:"phones"`
 		} `json:"contacts"`
+		Referral struct {
+			Headline   string `json:"headline"`
+			Body       string `json:"body"`
+			SourceType string `json:"source_type"`
+			SourceID   string `json:"source_id"`
+			SourceURL  string `json:"source_url"`
+			Image      *struct {
+				File     string `json:"file"      validate:"required"`
+				ID       string `json:"id"        validate:"required"`
+				Link     string `json:"link"`
+				MimeType string `json:"mime_type" validate:"required"`
+				Sha256   string `json:"sha256"    validate:"required"`
+			} `json:"image"`
+			Video *struct {
+				File     string `json:"file"      validate:"required"`
+				ID       string `json:"id"        validate:"required"`
+				Link     string `json:"link"`
+				MimeType string `json:"mime_type" validate:"required"`
+				Sha256   string `json:"sha256"    validate:"required"`
+			} `json:"video"`
+		} `json:"referral"`
 	} `json:"messages"`
 	Statuses []struct {
 		ID          string `json:"id"           validate:"required"`
@@ -290,6 +311,16 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		// we had an error downloading media
 		if err != nil {
 			courier.LogRequestError(r, channel, err)
+		}
+
+		if msg.Referral.Headline != "" {
+
+			referral, err := json.Marshal(msg.Referral)
+			if err != nil {
+				courier.LogRequestError(r, channel, err)
+			}
+			metadata := json.RawMessage(referral)
+			event.WithMetadata(metadata)
 		}
 
 		if mediaURL != "" {

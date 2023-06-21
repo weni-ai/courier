@@ -1,3 +1,7 @@
+1.4.20-courier-7.1.0
+----------
+  * Support for Referrals in WA
+
 1.4.19-courier-7.1.0
 ----------
   * Support for referral messages in WAC

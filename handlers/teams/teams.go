@@ -342,19 +342,33 @@ type Attachment struct {
 	Name        string `json:"name,omitempty"`
 }
 
+type CardAction struct {
+	ChannelData string `json:"channelData"`
+	DisplayText string `json:"displayText"`
+	Text        string `json:"text"`
+	Title       string `json:"title"`
+	Type        string `json:"type"`
+}
+
+type SuggestedActions struct {
+	Actions []CardAction `json:"actions"`
+	To      []string     `json:"to"`
+}
+
 type Activity struct {
-	Action       string              `json:"action,omitempty"`
-	Attachments  []Attachment        `json:"attachments,omitempty"`
-	ChannelId    string              `json:"channelId,omitempty"`
-	Conversation ConversationAccount `json:"conversation,omitempty"`
-	Id           string              `json:"id,omitempty"`
-	MembersAdded []ChannelAccount    `json:"membersAdded,omitempty"`
-	Name         string              `json:"name,omitempty"`
-	Recipient    ChannelAccount      `json:"recipient,omitempty"`
-	ServiceUrl   string              `json:"serviceUrl,omitempty"`
-	Text         string              `json:"text"`
-	Type         string              `json:"type"`
-	Timestamp    string              `json:"timestamp,omitempty"`
+	Action           string              `json:"action,omitempty"`
+	Attachments      []Attachment        `json:"attachments,omitempty"`
+	ChannelId        string              `json:"channelId,omitempty"`
+	Conversation     ConversationAccount `json:"conversation,omitempty"`
+	Id               string              `json:"id,omitempty"`
+	MembersAdded     []ChannelAccount    `json:"membersAdded,omitempty"`
+	Name             string              `json:"name,omitempty"`
+	Recipient        ChannelAccount      `json:"recipient,omitempty"`
+	ServiceUrl       string              `json:"serviceUrl,omitempty"`
+	Text             string              `json:"text"`
+	Type             string              `json:"type"`
+	Timestamp        string              `json:"timestamp,omitempty"`
+	SuggestedActions SuggestedActions    `json:"suggestedActions,omitempty"`
 }
 
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
@@ -385,6 +399,18 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	if msg.Text() != "" {
 		payload.Type = "message"
 		payload.Text = msg.Text()
+	}
+
+	for _, qr := range msg.QuickReplies() {
+
+		ca := CardAction{
+			DisplayText: qr,
+			Text:        qr,
+			Title:       qr,
+		}
+
+		payload.SuggestedActions.Actions = append(payload.SuggestedActions.Actions, ca)
+		payload.SuggestedActions.To = append(payload.SuggestedActions.To, conversationID)
 	}
 
 	jsonBody, err := json.Marshal(payload)

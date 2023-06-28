@@ -201,7 +201,6 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		if err != nil {
 			logrus.WithField("channel_uuid", event.Channel().UUID().String()).WithError(err).Error("Error getting contact email")
 		} else {
-			fmt.Println("Email: ", email)
 			ctEmail := struct {
 				Email string `json:"email"`
 			}{Email: email}

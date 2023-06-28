@@ -480,7 +480,6 @@ func getContactEmail(channel courier.Channel, urn urns.URN) (string, error) {
 	pathSplit := strings.Split(urn.Path(), ":")
 	conversationID := pathSplit[1]
 	url := urn.TeamsServiceURL() + "/v3/conversations/a:" + conversationID + "/members"
-	fmt.Println(url)
 
 	req, _ := http.NewRequest(http.MethodGet, url, nil)
 	req.Header.Set("Authorization", "Bearer "+accessToken)

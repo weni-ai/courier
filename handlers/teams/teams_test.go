@@ -280,6 +280,14 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		Status: "W", ExternalID: "1234567890",
 		ResponseBody: `{"id": "1234567890"}`, ResponseStatus: 200,
 	},
+	{
+		Label:        "Send Quick Replies",
+		Text:         "Send Quick Replies",
+		URN:          "teams:a:2022:serviceURL:https://smba.trafficmanager.net/br/",
+		QuickReplies: []string{"button1", "button2"},
+		Status:       "W", ExternalID: "1234567890",
+		ResponseBody: `{id:"1234567890"}`, ResponseStatus: 200,
+	},
 }
 
 func newSendTestCases(testSendCases []ChannelSendTestCase, url string) []ChannelSendTestCase {

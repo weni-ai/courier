@@ -342,11 +342,9 @@ type Attachment struct {
 }
 
 type CardAction struct {
-	ChannelData string `json:"channelData"`
-	DisplayText string `json:"displayText"`
-	Text        string `json:"text"`
-	Title       string `json:"title"`
-	Type        string `json:"type"`
+	Title string `json:"title"`
+	Type  string `json:"type"`
+	Value string `json:"value"`
 }
 
 type SuggestedActions struct {
@@ -403,10 +401,9 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	for _, qr := range msg.QuickReplies() {
 
 		ca := CardAction{
-			DisplayText: qr,
-			Text:        qr,
-			Title:       qr,
-			Type:        "imBack",
+			Title: qr,
+			Type:  "imBack",
+			Value: qr,
 		}
 
 		payload.SuggestedActions.Actions = append(payload.SuggestedActions.Actions, ca)

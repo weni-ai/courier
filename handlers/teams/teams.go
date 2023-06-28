@@ -406,6 +406,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			DisplayText: qr,
 			Text:        qr,
 			Title:       qr,
+			Type:        "imBack",
 		}
 
 		payload.SuggestedActions.Actions = append(payload.SuggestedActions.Actions, ca)

@@ -1,3 +1,7 @@
+1.4.21-courier-7.1.0
+----------
+  * Quick Response Support and Contact Email Recovery in Teams
+
 1.4.20-courier-7.1.0
 ----------
   * Support for Referrals in WA

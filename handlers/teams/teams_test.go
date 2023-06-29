@@ -20,6 +20,10 @@ var testChannels = []courier.Channel{
 	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "TM", "2022", "US", map[string]interface{}{"auth_token": access_token, "tenantID": "cba321", "botID": "0123", "appID": "1596"}),
 }
 
+var tmService = buildMockTeams()
+
+var tmURL = tmService.URL
+
 var helloMsg = `{
 	"channelId": "msteams",
 	"conversation": {
@@ -30,6 +34,20 @@ var helloMsg = `{
 	"id": "56834",
 	"timestamp": "2022-06-06T16:51:00.0000000Z",
 	"serviceUrl": "https://smba.trafficmanager.net/br/",
+	"text":"Hello World",
+	"type":"message"
+}`
+
+var helloEmail = `{
+	"channelId": "msteams",
+	"conversation": {
+		"converstaionType": "personal",
+		"id": "a:2811",
+		"tenantId": "cba321"
+	},
+	"id": "56834",
+	"timestamp": "2022-06-06T16:51:00.0000000Z",
+	"serviceUrl": "` + tmURL + `",
 	"text":"Hello World",
 	"type":"message"
 }`
@@ -101,7 +119,7 @@ var conversationUpdate = `{
 	"channelId": "msteams",
 	"id": "56834",
 	"timestamp": "2022-06-06T16:51:00.0000000Z",
-	"serviceUrl": "https://smba.trafficmanager.net/br/",
+	"serviceUrl": "` + tmURL + `",
 	"type":"conversationUpdate",
 	"membersAdded": [{
 		"id":"4569",
@@ -187,22 +205,35 @@ var testCases = []ChannelHandleTestCase{
 	{
 		Label:             "Receive Conversation Update",
 		URL:               "/c/tm/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive",
-		Data:              "",
+		Data:              conversationUpdate,
 		Status:            200,
 		Response:          "Handled",
 		Headers:           map[string]string{"Authorization": "Bearer " + access_token},
 		NoQueueErrorCheck: true,
 	},
+	{
+		Label:      "Receive Message with Email",
+		URL:        "/c/tm/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive",
+		Data:       helloEmail,
+		Status:     200,
+		Response:   "Handled",
+		Text:       Sp("Hello World"),
+		URN:        Sp("teams:a:2811:serviceURL:" + tmURL),
+		ExternalID: Sp("56834"),
+		Date:       Tp(time.Date(2022, 6, 6, 16, 51, 00, 0000000, time.UTC)),
+		Headers:    map[string]string{"Authorization": "Bearer " + access_token},
+		Metadata: Jp(&struct {
+			Email string `json:"email"`
+		}{Email: "email@email"}),
+		NoQueueErrorCheck: true,
+	},
 }
 
 func TestHandler(t *testing.T) {
-	tmService := buildMockTeams()
-	newTestCases := newConversationUpdateTC(tmService.URL, testCases)
 	jwks_url := buildMockJwksURL()
-	RunChannelTestCases(t, testChannels, newHandler(), newTestCases)
+	RunChannelTestCases(t, testChannels, newHandler(), testCases)
 	jwks_url.Close()
 	tmService.Close()
-
 }
 
 func buildMockJwksURL() *httptest.Server {
@@ -240,21 +271,13 @@ func buildMockTeams() *httptest.Server {
 		if r.URL.Path == "/v3/conversations/a:2022/members" {
 			w.Write([]byte(`[{"givenName": "John","surname": "Doe"}]`))
 		}
+
+		if r.URL.Path == "/v3/conversations/a:2811/members" {
+			w.Write([]byte(`[{"email": "email@email"}]`))
+		}
 	}))
 
 	return server
-}
-
-func newConversationUpdateTC(newUrl string, testCase []ChannelHandleTestCase) []ChannelHandleTestCase {
-	casesWithMockedUrls := make([]ChannelHandleTestCase, len(testCases))
-	for i, tc := range testCases {
-		mockedCase := tc
-		if mockedCase.Label == "Receive Conversation Update" {
-			mockedCase.Data = strings.Replace(conversationUpdate, "https://smba.trafficmanager.net/br/", newUrl, 1)
-		}
-		casesWithMockedUrls[i] = mockedCase
-	}
-	return casesWithMockedUrls
 }
 
 var defaultSendTestCases = []ChannelSendTestCase{
@@ -279,6 +302,14 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		URN: "teams:a:2022:serviceURL:https://smba.trafficmanager.net/br/", Attachments: []string{"application/pdf:https://foo.bar/document.pdf"},
 		Status: "W", ExternalID: "1234567890",
 		ResponseBody: `{"id": "1234567890"}`, ResponseStatus: 200,
+	},
+	{
+		Label:        "Send Quick Replies",
+		Text:         "Send Quick Replies",
+		URN:          "teams:a:2022:serviceURL:https://smba.trafficmanager.net/br/",
+		QuickReplies: []string{"button1", "button2"},
+		Status:       "W", ExternalID: "1234567890",
+		ResponseBody: `{id:"1234567890"}`, ResponseStatus: 200,
 	},
 }
 

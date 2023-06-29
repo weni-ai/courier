@@ -197,12 +197,29 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		ev := h.Backend().NewIncomingMsg(channel, urn, text).WithExternalID(payload.Id).WithReceivedOn(date)
 		event := h.Backend().CheckExternalIDSeen(ev)
 
+		email, err := getContactEmail(channel, urn)
+		if err != nil {
+			logrus.WithField("channel_uuid", event.Channel().UUID().String()).WithError(err).Error("Error getting contact email")
+		} else {
+			ctEmail := struct {
+				Email string `json:"email"`
+			}{Email: email}
+
+			md, err := json.Marshal(ctEmail)
+			if err != nil {
+				courier.LogRequestError(r, channel, err)
+			}
+
+			metadata := json.RawMessage(md)
+			event.WithMetadata(metadata)
+		}
+
 		// add any attachment URL found
 		for _, attURL := range attachmentURLs {
 			event.WithAttachment(attURL)
 		}
 
-		err := h.Backend().WriteMsg(ctx, event)
+		err = h.Backend().WriteMsg(ctx, event)
 		if err != nil {
 			return nil, err
 		}
@@ -324,19 +341,31 @@ type Attachment struct {
 	Name        string `json:"name,omitempty"`
 }
 
+type CardAction struct {
+	Title string `json:"title"`
+	Type  string `json:"type"`
+	Value string `json:"value"`
+}
+
+type SuggestedActions struct {
+	Actions []CardAction `json:"actions"`
+	To      []string     `json:"to"`
+}
+
 type Activity struct {
-	Action       string              `json:"action,omitempty"`
-	Attachments  []Attachment        `json:"attachments,omitempty"`
-	ChannelId    string              `json:"channelId,omitempty"`
-	Conversation ConversationAccount `json:"conversation,omitempty"`
-	Id           string              `json:"id,omitempty"`
-	MembersAdded []ChannelAccount    `json:"membersAdded,omitempty"`
-	Name         string              `json:"name,omitempty"`
-	Recipient    ChannelAccount      `json:"recipient,omitempty"`
-	ServiceUrl   string              `json:"serviceUrl,omitempty"`
-	Text         string              `json:"text"`
-	Type         string              `json:"type"`
-	Timestamp    string              `json:"timestamp,omitempty"`
+	Action           string              `json:"action,omitempty"`
+	Attachments      []Attachment        `json:"attachments,omitempty"`
+	ChannelId        string              `json:"channelId,omitempty"`
+	Conversation     ConversationAccount `json:"conversation,omitempty"`
+	Id               string              `json:"id,omitempty"`
+	MembersAdded     []ChannelAccount    `json:"membersAdded,omitempty"`
+	Name             string              `json:"name,omitempty"`
+	Recipient        ChannelAccount      `json:"recipient,omitempty"`
+	ServiceUrl       string              `json:"serviceUrl,omitempty"`
+	Text             string              `json:"text"`
+	Type             string              `json:"type"`
+	Timestamp        string              `json:"timestamp,omitempty"`
+	SuggestedActions SuggestedActions    `json:"suggestedActions,omitempty"`
 }
 
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
@@ -367,6 +396,18 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	if msg.Text() != "" {
 		payload.Type = "message"
 		payload.Text = msg.Text()
+	}
+
+	for _, qr := range msg.QuickReplies() {
+
+		ca := CardAction{
+			Title: qr,
+			Type:  "imBack",
+			Value: qr,
+		}
+
+		payload.SuggestedActions.Actions = append(payload.SuggestedActions.Actions, ca)
+		payload.SuggestedActions.To = append(payload.SuggestedActions.To, conversationID)
 	}
 
 	jsonBody, err := json.Marshal(payload)
@@ -424,4 +465,29 @@ func (h *handler) DescribeURN(ctx context.Context, channel courier.Channel, urn 
 	surname, _ := jsonparser.GetString(rr.Body, "[0]", "surname")
 
 	return map[string]string{"name": utils.JoinNonEmpty(" ", givenName, surname)}, nil
+}
+
+func getContactEmail(channel courier.Channel, urn urns.URN) (string, error) {
+	accessToken := channel.StringConfigForKey(courier.ConfigAuthToken, "")
+	if accessToken == "" {
+		return "", fmt.Errorf("missing access token")
+	}
+
+	// build a request to lookup the stats for this contact
+	pathSplit := strings.Split(urn.Path(), ":")
+	conversationID := pathSplit[1]
+	url := urn.TeamsServiceURL() + "/v3/conversations/a:" + conversationID + "/members"
+
+	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	rr, err := utils.MakeHTTPRequest(req)
+	if err != nil {
+		return "", fmt.Errorf("unable to look up contact data:%s\n%s", err, rr.Response)
+	}
+
+	//read our contact email
+	contactEmail, _ := jsonparser.GetString(rr.Body, "[0]", "email")
+
+	return contactEmail, nil
+
 }

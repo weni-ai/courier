@@ -239,6 +239,24 @@ func TestDescribeWAC(t *testing.T) {
 	}
 }
 
+func TestResolveMediaURL(t *testing.T) {
+
+	tcs := []struct {
+		id    string
+		token string
+		url   string
+		err   string
+	}{{"id_media", "", "", "missing token for WAC channel"},
+		{"id_media", "token", "", `unsupported protocol scheme ""`}}
+
+	graphURL = "url"
+
+	for _, tc := range tcs {
+		_, err := resolveMediaURL(testChannelsWAC[0], tc.id, tc.token)
+		assert.Equal(t, err.Error(), tc.err)
+	}
+}
+
 var wacReceiveURL = "/c/wac/receive"
 
 var testCasesWAC = []ChannelHandleTestCase{
@@ -314,6 +332,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 	{Label: "Receive Ignore Status", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/ignoreStatusWAC.json")), Status: 200, Response: `"ignoring status: deleted"`, PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Not Changes", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/notchangesWAC.json")), Status: 400, Response: `"no changes found"`, PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Not Channel Address", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/notchanneladdressWAC.json")), Status: 400, Response: `"no channel address found"`, PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Empty Entry", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/emptyEntryWAC.json")), Status: 400, Response: `"no entries found"`, PrepRequest: addValidSignatureWAC},
 }
 
 func TestHandler(t *testing.T) {

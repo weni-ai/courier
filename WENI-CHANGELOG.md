@@ -1,3 +1,7 @@
+1.4.22-courier-7.1.0
+----------
+  * Increase test coverage in facebookapp handler
+
 1.4.21-courier-7.1.0
 ----------
   * Quick Response Support and Contact Email Recovery in Teams

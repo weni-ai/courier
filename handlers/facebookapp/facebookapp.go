@@ -36,8 +36,6 @@ var (
 
 	signatureHeader = "X-Hub-Signature"
 
-	configWACPhoneNumberID = "wac_phone_number_id"
-
 	// max for the body
 	maxMsgLengthIG  = 1000
 	maxMsgLengthFBA = 2000
@@ -425,16 +423,6 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	err = handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
-	}
-
-	// is not a 'page' and 'instagram' object? ignore it
-	if payload.Object != "page" && payload.Object != "instagram" && payload.Object != "whatsapp_business_account" {
-		return nil, handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, "ignoring request")
-	}
-
-	// no entries? ignore this request
-	if len(payload.Entry) == 0 {
-		return nil, handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, "ignoring request, no entries")
 	}
 
 	var events []courier.Event

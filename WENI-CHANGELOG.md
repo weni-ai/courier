@@ -1,3 +1,7 @@
+1.4.23-courier-7.1.0
+----------
+  * Support for Order in WAC
+
 1.4.22-courier-7.1.0
 ----------
   * Increase test coverage in facebookapp handler

@@ -1,3 +1,7 @@
+1.4.24-courier-7.1.0
+----------
+  * Fix Order WAC types
+
 1.4.23-courier-7.1.0
 ----------
   * Support for Order in WAC

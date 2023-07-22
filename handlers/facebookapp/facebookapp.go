@@ -225,10 +225,10 @@ type moPayload struct {
 						CatalogID    string `json:"catalog_id"`
 						Text         string `json:"text"`
 						ProductItems []struct {
-							ProductRetailerID string `json:"product_retailer_id"`
-							Quantity          string `json:"quantity"`
-							ItemPrice         string `json:"item_price"`
-							Currency          string `json:"currency"`
+							ProductRetailerID string  `json:"product_retailer_id"`
+							Quantity          int     `json:"quantity"`
+							ItemPrice         float64 `json:"item_price"`
+							Currency          string  `json:"currency"`
 						} `json:"product_items"`
 					} `json:"order"`
 				} `json:"messages"`

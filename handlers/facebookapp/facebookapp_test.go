@@ -304,17 +304,17 @@ var testCasesWAC = []ChannelHandleTestCase{
 			"order": map[string]interface{}{
 				"catalog_id": "800683284849775",
 				"text":       "",
-				"product_items": []map[string]string{
+				"product_items": []map[string]interface{}{
 					{
 						"product_retailer_id": "1031",
-						"quantity":            "1",
-						"item_price":          "599.9",
+						"quantity":            1,
+						"item_price":          599.9,
 						"currency":            "BRL",
 					},
 					{
 						"product_retailer_id": "10320",
-						"quantity":            "1",
-						"item_price":          "2399",
+						"quantity":            1,
+						"item_price":          2399,
 						"currency":            "BRL",
 					},
 				},

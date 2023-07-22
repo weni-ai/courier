@@ -458,7 +458,9 @@ func RunChannelTestCases(t *testing.T, channels []courier.Channel, handler couri
 					}
 				}
 				if testCase.Metadata != nil {
-					require.Equal(*testCase.Metadata, msg.Metadata())
+					wants := *testCase.Metadata
+					have := msg.Metadata()
+					require.JSONEq(string(wants), string(have))
 				}
 			}
 		})

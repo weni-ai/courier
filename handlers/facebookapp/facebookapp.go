@@ -221,6 +221,16 @@ type moPayload struct {
 						Image      *wacMedia `json:"image"`
 						Video      *wacMedia `json:"video"`
 					} `json:"referral"`
+					Order struct {
+						CatalogID    string `json:"catalog_id"`
+						Text         string `json:"text"`
+						ProductItems []struct {
+							ProductRetailerID string `json:"product_retailer_id"`
+							Quantity          string `json:"quantity"`
+							ItemPrice         string `json:"item_price"`
+							Currency          string `json:"currency"`
+						} `json:"product_items"`
+					} `json:"order"`
 				} `json:"messages"`
 				Statuses []struct {
 					ID           string `json:"id"`
@@ -512,6 +522,8 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					text = msg.Interactive.ButtonReply.Title
 				} else if msg.Type == "interactive" && msg.Interactive.Type == "list_reply" {
 					text = msg.Interactive.ListReply.Title
+				} else if msg.Type == "order" {
+					text = msg.Order.Text
 				} else if msg.Type == "contacts" {
 
 					if len(msg.Contacts) == 0 {
@@ -536,6 +548,16 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				// we had an error downloading media
 				if err != nil {
 					courier.LogRequestError(r, channel, err)
+				}
+
+				if msg.Type == "order" {
+					orderM := map[string]interface{}{"order": msg.Order}
+					orderJSON, err := json.Marshal(orderM)
+					if err != nil {
+						courier.LogRequestError(r, channel, err)
+					}
+					metadata := json.RawMessage(orderJSON)
+					event.WithMetadata(metadata)
 				}
 
 				if msg.Referral.Headline != "" {

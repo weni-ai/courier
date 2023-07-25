@@ -11,6 +11,19 @@
 ----------
   * Merge tag v7.2.0 from nyaruka into our 1.4.5-courier-7.1.0
 
+1.4.8-courier-7.1.0
+----------
+  * Fix word 'menu' in Arabic for list messages #141
+
+1.4.7-courier-7.1.0
+----------
+  * Add "Menu" word translation mapping to list messages in WAC and WA channels #139
+
+1.4.6-courier-7.1.0
+----------
+  * Normalize quick response strings with slashes for TG and WA channels #137
+  * Fix receiving multiple media for TG, WAC and WA channels #136
+
 1.4.5-courier-7.1.0
 ----------
   * Remove expiration_timestamp from moPayload in WAC #133

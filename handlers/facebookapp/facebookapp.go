@@ -1369,7 +1369,15 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 									Type: "reply",
 								}
 								btns[i].Reply.ID = fmt.Sprint(i)
-								btns[i].Reply.Title = qr
+								var text string
+								if strings.Contains(qr, "\\/") {
+									text = strings.Replace(qr, "\\", "", -1)
+								} else if strings.Contains(qr, "\\\\") {
+									text = strings.Replace(qr, "\\\\", "\\", -1)
+								} else {
+									text = qr
+								}
+								btns[i].Reply.Title = text
 							}
 							interactive.Action = &struct {
 								Button   string         "json:\"button,omitempty\""
@@ -1386,9 +1394,17 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								Rows: make([]wacMTSectionRow, len(qrs)),
 							}
 							for i, qr := range qrs {
+								var text string
+								if strings.Contains(qr, "\\/") {
+									text = strings.Replace(qr, "\\", "", -1)
+								} else if strings.Contains(qr, "\\\\") {
+									text = strings.Replace(qr, "\\\\", "\\", -1)
+								} else {
+									text = qr
+								}
 								section.Rows[i] = wacMTSectionRow{
 									ID:    fmt.Sprint(i),
-									Title: qr,
+									Title: text,
 								}
 							}
 
@@ -1399,6 +1415,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							}{Button: "Menu", Sections: []wacMTSection{
 								section,
 							}}
+
+							if msg.TextLanguage() != "" {
+								interactive.Action.Button = languageMenuMap[msg.TextLanguage()]
+							}
 
 							payload.Interactive = &interactive
 						} else {
@@ -1523,7 +1543,15 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							Type: "reply",
 						}
 						btns[i].Reply.ID = fmt.Sprint(i)
-						btns[i].Reply.Title = qr
+						var text string
+						if strings.Contains(qr, "\\/") {
+							text = strings.Replace(qr, "\\", "", -1)
+						} else if strings.Contains(qr, "\\\\") {
+							text = strings.Replace(qr, "\\\\", "\\", -1)
+						} else {
+							text = qr
+						}
+						btns[i].Reply.Title = text
 					}
 					interactive.Action = &struct {
 						Button   string         "json:\"button,omitempty\""
@@ -1541,9 +1569,17 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						Rows: make([]wacMTSectionRow, len(qrs)),
 					}
 					for i, qr := range qrs {
+						var text string
+						if strings.Contains(qr, "\\/") {
+							text = strings.Replace(qr, "\\", "", -1)
+						} else if strings.Contains(qr, "\\\\") {
+							text = strings.Replace(qr, "\\\\", "\\", -1)
+						} else {
+							text = qr
+						}
 						section.Rows[i] = wacMTSectionRow{
 							ID:    fmt.Sprint(i),
-							Title: qr,
+							Title: text,
 						}
 					}
 
@@ -1866,4 +1902,34 @@ var languageMap = map[string]string{
 	"uzb":    "uz",    // Uzbek
 	"vie":    "vi",    // Vietnamese
 	"zul":    "zu",    // Zulu
+}
+
+// iso language code mapping to respective "Menu" word translation
+var languageMenuMap = map[string]string{
+	"da-DK": "Menu",
+	"de-DE": "Speisekarte",
+	"en-AU": "Menu",
+	"en-CA": "Menu",
+	"en-GB": "Menu",
+	"en-IN": "Menu",
+	"en-US": "Menu",
+	"ca-ES": "Menú",
+	"es-ES": "Menú",
+	"es-MX": "Menú",
+	"fi-FI": "Valikko",
+	"fr-CA": "Menu",
+	"fr-FR": "Menu",
+	"it-IT": "Menù",
+	"ja-JP": "メニュー",
+	"ko-KR": "메뉴",
+	"nb-NO": "Meny",
+	"nl-NL": "Menu",
+	"pl-PL": "Menu",
+	"pt-BR": "Menu",
+	"ru-RU": "Меню",
+	"sv-SE": "Meny",
+	"zh-CN": "菜单",
+	"zh-HK": "菜單",
+	"zh-TW": "菜單",
+	"ar-JO": "قائمة",
 }

@@ -380,26 +380,26 @@ type moLocation struct {
 	Longitude float64 `json:"longitude"`
 }
 
-// {
-// 	"update_id": 174114370,
-// 	"message": {
-// 	  "message_id": 41,
-//      "from": {
-// 		  "id": 3527065,
-// 		  "first_name": "Nic",
-// 		  "last_name": "Pottier",
-//        "username": "nicpottier"
-// 	    },
-//     "chat": {
-//       "id": 3527065,
-// 		 "first_name": "Nic",
-//       "last_name": "Pottier",
-//       "type": "private"
-//     },
-// 	   "date": 1454119029,
-//     "text": "Hello World"
-// 	 }
-// }
+//	{
+//		"update_id": 174114370,
+//		"message": {
+//		  "message_id": 41,
+//	     "from": {
+//			  "id": 3527065,
+//			  "first_name": "Nic",
+//			  "last_name": "Pottier",
+//	       "username": "nicpottier"
+//		    },
+//	    "chat": {
+//	      "id": 3527065,
+//			 "first_name": "Nic",
+//	      "last_name": "Pottier",
+//	      "type": "private"
+//	    },
+//		   "date": 1454119029,
+//	    "text": "Hello World"
+//		 }
+//	}
 type moPayload struct {
 	UpdateID int64 `json:"update_id" validate:"required"`
 	Message  struct {

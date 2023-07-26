@@ -1,3 +1,16 @@
+1.5.2-courier-7.4.0
+----------
+  * Add module to send webhooks for WAC and WA
+
+1.5.1-courier-7.4.0
+----------
+  * Fix WAC handler
+  * Fix: Remove last seen on 
+
+1.5.0-courier-7.2.0
+----------
+  * Merge tag v7.2.0 from nyaruka into our 1.4.5-courier-7.1.0
+
 1.4.8-courier-7.1.0
 ----------
   * Fix word 'menu' in Arabic for list messages #141

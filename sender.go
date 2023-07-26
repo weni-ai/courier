@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nyaruka/librato"
+	"github.com/nyaruka/gocommon/analytics"
 	"github.com/sirupsen/logrus"
 )
 
@@ -189,23 +189,10 @@ func (w *Sender) sendMessage(msg Msg) {
 		log.WithError(err).Error("error looking up msg was sent")
 	}
 
-	// is this msg in a loop?
-	loop, err := backend.IsMsgLoop(sendCTX, msg)
-
-	// failing on loop lookup isn't permanent, but log
-	if err != nil {
-		log.WithError(err).Error("error looking up msg loop")
-	}
-
 	if sent {
 		// if this message was already sent, create a wired status for it
 		status = backend.NewMsgStatusForID(msg.Channel(), msg.ID(), MsgWired)
 		log.Warning("duplicate send, marking as wired")
-	} else if loop {
-		// if this contact is in a loop, fail the message immediately without sending
-		status = backend.NewMsgStatusForID(msg.Channel(), msg.ID(), MsgFailed)
-		status.AddLog(NewChannelLogFromError("Message Loop", msg.Channel(), msg.ID(), 0, fmt.Errorf("message loop detected, failing message without send")))
-		log.Error("message loop detected, failing message")
 	} else {
 		// send our message
 		status, err = server.SendMsg(sendCTX, msg)
@@ -223,22 +210,10 @@ func (w *Sender) sendMessage(msg Msg) {
 		// report to librato and log locally
 		if status.Status() == MsgErrored || status.Status() == MsgFailed {
 			log.WithField("elapsed", duration).Warning("msg errored")
-			librato.Gauge(fmt.Sprintf("courier.msg_send_error_%s", msg.Channel().ChannelType()), secondDuration)
+			analytics.Gauge(fmt.Sprintf("courier.msg_send_error_%s", msg.Channel().ChannelType()), secondDuration)
 		} else {
 			log.WithField("elapsed", duration).Info("msg sent")
-			librato.Gauge(fmt.Sprintf("courier.msg_send_%s", msg.Channel().ChannelType()), secondDuration)
-		}
-
-		// update last seen on if message is no error and no fail
-		if status.Status() != MsgErrored && status.Status() != MsgFailed {
-			ctt, err := w.foreman.server.Backend().GetContact(context.Background(), msg.Channel(), msg.URN(), "", "")
-			if err != nil {
-				log.WithError(err).Info("error getting contact")
-			}
-			err = w.foreman.server.Backend().UpdateContactLastSeenOn(context.Background(), ctt.UUID(), time.Now())
-			if err != nil {
-				log.WithError(err).Info("error updating contact last seen on")
-			}
+			analytics.Gauge(fmt.Sprintf("courier.msg_send_%s", msg.Channel().ChannelType()), secondDuration)
 		}
 	}
 

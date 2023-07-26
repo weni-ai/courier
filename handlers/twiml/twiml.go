@@ -79,6 +79,7 @@ type moForm struct {
 	To          string `validate:"required"`
 	ToCountry   string
 	Body        string
+	ButtonText  string
 	NumMedia    int
 }
 
@@ -86,6 +87,7 @@ type statusForm struct {
 	MessageSID    string `validate:"required"`
 	MessageStatus string `validate:"required"`
 	ErrorCode     string
+	To            string
 }
 
 var statusMapping = map[string]courier.MsgStatusValue{
@@ -111,24 +113,7 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
-	// create our URN
-	var urn urns.URN
-	if channel.IsScheme(urns.WhatsAppScheme) {
-		// Twilio Whatsapp from is in the form: whatsapp:+12211414154 or +12211414154
-		var fromTel string
-		parts := strings.Split(form.From, ":")
-		if len(parts) > 1 {
-			fromTel = parts[1]
-		} else {
-			fromTel = parts[0]
-		}
-
-		// trim off left +, official whatsapp IDs dont have that
-		urn, err = urns.NewWhatsAppURN(strings.TrimLeft(fromTel, "+"))
-	} else {
-		urn, err = urns.NewTelURNForCountry(form.From, form.FromCountry)
-	}
-
+	urn, err := h.parseURN(channel, form.From, form.FromCountry)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
@@ -138,8 +123,13 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 		form.Body = handlers.DecodePossibleBase64(form.Body)
 	}
 
+	text := form.Body
+	if channel.IsScheme(urns.WhatsAppScheme) && form.ButtonText != "" {
+		text = form.ButtonText
+	}
+
 	// build our msg
-	msg := h.Backend().NewIncomingMsg(channel, urn, form.Body).WithExternalID(form.MessageSID)
+	msg := h.Backend().NewIncomingMsg(channel, urn, text).WithExternalID(form.MessageSID)
 
 	// process any attached media
 	for i := 0; i < form.NumMedia; i++ {
@@ -189,6 +179,23 @@ func (h *handler) receiveStatus(ctx context.Context, channel courier.Channel, w 
 	if status == nil {
 		status = h.Backend().NewMsgStatusForExternalID(channel, form.MessageSID, msgStatus)
 	}
+
+	errorCode, _ := strconv.ParseInt(form.ErrorCode, 10, 64)
+	if errorCode == errorStopped {
+		urn, err := h.parseURN(channel, form.To, "")
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+
+		// create a stop channel event
+		channelEvent := h.Backend().NewChannelEvent(channel, courier.StopContact, urn)
+		err = h.Backend().WriteChannelEvent(ctx, channelEvent)
+		if err != nil {
+			return nil, err
+		}
+
+	}
+
 	return handlers.WriteMsgStatusAndResponse(ctx, h, channel, status, w, r)
 }
 
@@ -305,6 +312,24 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 
 	return status, nil
+}
+
+func (h *handler) parseURN(channel courier.Channel, text, country string) (urns.URN, error) {
+	if channel.IsScheme(urns.WhatsAppScheme) {
+		// Twilio Whatsapp from is in the form: whatsapp:+12211414154 or +12211414154
+		var fromTel string
+		parts := strings.Split(text, ":")
+		if len(parts) > 1 {
+			fromTel = parts[1]
+		} else {
+			fromTel = parts[0]
+		}
+
+		// trim off left +, official whatsapp IDs dont have that
+		return urns.NewWhatsAppURN(strings.TrimLeft(fromTel, "+"))
+	}
+
+	return urns.NewTelURNForCountry(text, country)
 }
 
 func (h *handler) baseURL(c courier.Channel) string {

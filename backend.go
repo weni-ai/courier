@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/gomodule/redigo/redis"
 	"github.com/nyaruka/gocommon/urns"
@@ -32,9 +31,6 @@ type Backend interface {
 
 	// GetContact returns (or creates) the contact for the passed in channel and URN
 	GetContact(context context.Context, channel Channel, urn urns.URN, auth string, name string) (Contact, error)
-
-	// UpdateContactLastSeenOn updates last seen on (and modified on) on the passed in contact
-	UpdateContactLastSeenOn(ctx context.Context, contactUUID ContactUUID, lastSeenOn time.Time) error
 
 	// AddURNtoContact adds a URN to the passed in contact
 	AddURNtoContact(context context.Context, channel Channel, contact Contact, urn urns.URN) (urns.URN, error)
@@ -80,10 +76,6 @@ type Backend interface {
 	// ClearMsgSent clears any internal status that a message was previously sent. This can be used in the case where
 	// a message is being forced in being resent by a user
 	ClearMsgSent(context.Context, MsgID) error
-
-	// IsMsgLoop returns whether the passed in message is part of a message loop, possibly with another bot. Backends should
-	// implement their own logic to implement this.
-	IsMsgLoop(ctx context.Context, msg Msg) (bool, error)
 
 	// MarkOutgoingMsgComplete marks the passed in message as having been processed. Note this should be called even in the case
 	// of errors during sending as it will manage the number of active workers per channel. The optional status parameter can be

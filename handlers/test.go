@@ -87,9 +87,9 @@ type ChannelSendTestCase struct {
 	QuickReplies         []string
 	Topic                string
 	HighPriority         bool
-	ResponseToID         int64
 	ResponseToExternalID string
 	Metadata             json.RawMessage
+	Flow                 *courier.FlowReference
 
 	ResponseStatus int
 	ResponseBody   string
@@ -226,7 +226,7 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 		t.Run(testCase.Label, func(t *testing.T) {
 			require := require.New(t)
 
-			msg := mb.NewOutgoingMsg(channel, courier.NewMsgID(10), urns.URN(testCase.URN), testCase.Text, testCase.HighPriority, testCase.QuickReplies, testCase.Topic, testCase.ResponseToID, testCase.ResponseToExternalID, testCase.TextLanguage)
+			msg := mb.NewOutgoingMsg(channel, courier.NewMsgID(10), urns.URN(testCase.URN), testCase.Text, testCase.HighPriority, testCase.QuickReplies, testCase.Topic, testCase.ResponseToExternalID, testCase.TextLanguage)
 
 			for _, a := range testCase.Attachments {
 				msg.WithAttachment(a)
@@ -236,6 +236,9 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 			}
 			if len(testCase.Metadata) > 0 {
 				msg.WithMetadata(testCase.Metadata)
+			}
+			if testCase.Flow != nil {
+				msg.WithFlow(testCase.Flow)
 			}
 
 			var testRequest *http.Request

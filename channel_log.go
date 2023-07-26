@@ -2,11 +2,11 @@ package courier
 
 import (
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
 	"github.com/nyaruka/courier/utils"
+	"github.com/nyaruka/gocommon/httpx"
 )
 
 // NilStatusCode is used when we have an error before even sending anything
@@ -42,10 +42,10 @@ func sanitizeBody(body string) string {
 		return body
 	}
 
-	ct := http.DetectContentType([]byte(parts[1]))
+	ct := httpx.DetectContentType([]byte(parts[1]))
 
 	// if this isn't text, replace with placeholder
-	if !strings.HasPrefix(ct, "text") {
+	if !strings.HasPrefix(ct, "text") && !strings.HasPrefix(ct, "application/json") {
 		return fmt.Sprintf("%s\r\n\r\nOmitting non text body of type: %s", parts[0], ct)
 	}
 

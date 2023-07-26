@@ -1,3 +1,149 @@
+v7.4.0
+----------
+ * Update README
+ * Use analytics package from gocommon
+
+v7.3.10
+----------
+ * Make sure text are sent after audio attachments for WA channels
+
+v7.3.9
+----------
+ * Add arm64 as a build target
+ * Add support for WA Cloud API
+ * Refactor FBA tests
+
+v7.3.8
+----------
+ * Add log to status first when handling telegram opt outs
+
+v7.3.7
+----------
+ * Fix to not stop contact for other errors
+
+v7.3.6
+----------
+ * Update to go 1.18 and latest gocommon/phonenumbers/jsonparser
+
+v7.3.5
+----------
+ * Update Start Mobile send URL
+
+v7.3.4
+----------
+ * Update WhatsApp handler so that we update the URN if the returned ID doesn't match
+ * Stop Telegram contact that have blocked the channel bot
+
+v7.3.3
+----------
+ * Quick fix to stop JSON content being omitted in logs
+
+v7.3.2
+----------
+ * Update to latest gocommon and start using httpx.DetectContentType
+ * Add link preview attribute for sending whatsapp
+ * Update golang.org/x/sys
+
+v7.3.1
+----------
+ * Fix handling stops via status callbacks on Twilio
+
+v7.3.0
+----------
+ * Support stopping contacts when we get stop events on status callbacks
+
+v7.2.0
+----------
+ * CI testing with go 1.17.7
+
+v7.1.19
+----------
+ * Update D3 handler to support check for whatsapp contact not in contact store
+
+v7.1.18
+----------
+ * Fix type for IsDeleted field for IG unsend events
+ * Fix metadata fetching for new Facebook contacts
+
+v7.1.17
+----------
+ * Fix whatsapp uploaded attachment file name
+ * Use deleted by sender visibity for message unsent on IG channels
+ * Add missing languages from whatsapp template
+ * Do not save any message when receiving IG story mentions
+
+v7.1.16
+----------
+ * Update to latest gocommon
+ * Pause WA channel bulk queue when we hit the spam rate limit
+
+v7.1.15
+----------
+ * Fix Gujarati whatsapp language code
+ * Send flow name as user_data to HX
+
+v7.1.14
+----------
+ * Allow more active redis connections
+ * Support sending WA quick replies when we have attachments too
+ * Add support to receive button text from Twilio WhatsApp
+
+v7.1.13
+----------
+ * Send db and redis stats to librato in backed heartbeat
+ * Include session_status in FCM payloads
+
+v7.1.12
+----------
+ * Update to latest gocommon
+ * Add instagram handler
+
+v7.1.11
+----------
+ * More bulk sql tweaks
+
+v7.1.10
+----------
+ * Update to latest gocommon
+
+v7.1.9
+----------
+ * Fix bulk status updates
+
+v7.1.8
+----------
+ * Do more error wrapping when creating contacts and URNs
+
+v7.1.7
+----------
+ * Use dbutil package from gocommon
+ * Add quick replies for vk
+
+v7.1.6
+----------
+ * Throttle WA queues when we get 429 responses
+
+v7.1.5
+----------
+ * Add Msg.failed_reason and set when msg fails due to reaching error limit
+
+v7.1.4
+----------
+ * Remove loop detection now that mailroom does this
+ * Smarter organization of quick replies for viber keyboards
+
+v7.1.3
+----------
+ * Use response_to_external_id instead of response_to_id
+
+v7.1.2
+----------
+ * External channel handler should use headers config setting if provided
+
+v7.1.1
+----------
+ * Pin to go 1.17.2
+
 v7.1.0
 ----------
  * Remove chatbase support

@@ -121,6 +121,12 @@ type Msg interface {
 	TextLanguage() string
 
 	Status() MsgStatusValue
+
+	Products() []string
+	Header() string
+	Body() string
+	Footer() string
+	Action() string
 }
 
 type RunEvent struct {

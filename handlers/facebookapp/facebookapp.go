@@ -1211,8 +1211,8 @@ type wacMTMedia struct {
 
 type wacMTSection struct {
 	Title        string             `json:"title,omitempty"`
-	Rows         []wacMTSectionRow  `json:"rows"`
-	ProductItems []wacMTProductItem `json:"product_items"`
+	Rows         []wacMTSectionRow  `json:"rows,omitempty"`
+	ProductItems []wacMTProductItem `json:"product_items,omitempty"`
 }
 
 type wacMTSectionRow struct {
@@ -1281,6 +1281,7 @@ type wacInteractive struct {
 		Buttons           []wacMTButton  `json:"buttons,omitempty"`
 		CatalogID         string         `json:"catalog_id,omitempty"`
 		ProductRetailerID string         `json:"product_retailer_id,omitempty"`
+		Name              string         `json:"name,omitempty"`
 	} `json:"action,omitempty"`
 }
 
@@ -1450,6 +1451,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								Buttons           []wacMTButton  "json:\"buttons,omitempty\""
 								CatalogID         string         "json:\"catalog_id,omitempty\""
 								ProductRetailerID string         "json:\"product_retailer_id,omitempty\""
+								Name              string         "json:\"name,omitempty\""
 							}{Buttons: btns}
 							payload.Interactive = &interactive
 						} else if len(qrs) <= 10 {
@@ -1481,6 +1483,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								Buttons           []wacMTButton  "json:\"buttons,omitempty\""
 								CatalogID         string         "json:\"catalog_id,omitempty\""
 								ProductRetailerID string         "json:\"product_retailer_id,omitempty\""
+								Name              string         "json:\"name,omitempty\""
 							}{Button: "Menu", Sections: []wacMTSection{
 								section,
 							}}
@@ -1638,9 +1641,12 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						btns[i].Reply.Title = text
 					}
 					interactive.Action = &struct {
-						Button   string         "json:\"button,omitempty\""
-						Sections []wacMTSection "json:\"sections,omitempty\""
-						Buttons  []wacMTButton  "json:\"buttons,omitempty\""
+						Button            string         "json:\"button,omitempty\""
+						Sections          []wacMTSection "json:\"sections,omitempty\""
+						Buttons           []wacMTButton  "json:\"buttons,omitempty\""
+						CatalogID         string         "json:\"catalog_id,omitempty\""
+						ProductRetailerID string         "json:\"product_retailer_id,omitempty\""
+						Name              string         "json:\"name,omitempty\""
 					}{Buttons: btns}
 					payload.Interactive = &interactive
 
@@ -1668,9 +1674,12 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					}
 
 					interactive.Action = &struct {
-						Button   string         "json:\"button,omitempty\""
-						Sections []wacMTSection "json:\"sections,omitempty\""
-						Buttons  []wacMTButton  "json:\"buttons,omitempty\""
+						Button            string         "json:\"button,omitempty\""
+						Sections          []wacMTSection "json:\"sections,omitempty\""
+						Buttons           []wacMTButton  "json:\"buttons,omitempty\""
+						CatalogID         string         "json:\"catalog_id,omitempty\""
+						ProductRetailerID string         "json:\"product_retailer_id,omitempty\""
+						Name              string         "json:\"name,omitempty\""
 					}{Button: "Menu", Sections: []wacMTSection{
 						section,
 					}}
@@ -1722,7 +1731,95 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 	}
 
 	if len(msg.Products()) > 0 {
-		// TODO: implement catalog setup here
+
+		catalogID := msg.Channel().StringConfigForKey("catalog_id", "")
+		if catalogID == "" {
+			return status, errors.New("Catalog ID not found in channel config")
+		}
+
+		payload := wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path()}
+
+		payload.Type = "interactive"
+
+		interactive := wacInteractive{
+			Type: "catalog_message",
+		}
+
+		interactive.Body = struct {
+			Text string `json:"text"`
+		}{
+			Text: msg.Body(),
+		}
+
+		if msg.Header() != "" {
+			interactive.Header = &struct {
+				Type     string     `json:"type"`
+				Text     string     `json:"text,omitempty"`
+				Video    wacMTMedia `json:"video,omitempty"`
+				Image    wacMTMedia `json:"image,omitempty"`
+				Document wacMTMedia `json:"document,omitempty"`
+			}{
+				Type: "text",
+				Text: msg.Header(),
+			}
+		}
+
+		if msg.Footer() != "" {
+			interactive.Footer = &struct {
+				Text string "json:\"text\""
+			}{
+				Text: msg.Footer(),
+			}
+		}
+
+		products := msg.Products()
+
+		if len(products) > 0 {
+			if len(products) > 1 {
+				sproducts := []wacMTProductItem{}
+
+				for _, p := range products {
+					sproducts = append(sproducts, wacMTProductItem{
+						ProductRetailerID: p,
+					})
+				}
+
+				sections := []wacMTSection{{
+					Title:        "items",
+					ProductItems: sproducts,
+				}}
+
+				interactive.Action = &struct {
+					Button            string         `json:"button,omitempty"`
+					Sections          []wacMTSection `json:"sections,omitempty"`
+					Buttons           []wacMTButton  `json:"buttons,omitempty"`
+					CatalogID         string         `json:"catalog_id,omitempty"`
+					ProductRetailerID string         `json:"product_retailer_id,omitempty"`
+					Name              string         `json:"name,omitempty"`
+				}{
+					CatalogID: catalogID,
+					Sections:  sections,
+				}
+			} else {
+				interactive.Action = &struct {
+					Button            string         `json:"button,omitempty"`
+					Sections          []wacMTSection `json:"sections,omitempty"`
+					Buttons           []wacMTButton  `json:"buttons,omitempty"`
+					CatalogID         string         `json:"catalog_id,omitempty"`
+					ProductRetailerID string         `json:"product_retailer_id,omitempty"`
+					Name              string         `json:"name,omitempty"`
+				}{
+					CatalogID:         catalogID,
+					Name:              msg.Action(),
+					ProductRetailerID: products[0],
+				}
+			}
+		}
+		payload.Interactive = &interactive
+		status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true)
+		if err != nil {
+			return status, err
+		}
 	}
 
 	return status, nil

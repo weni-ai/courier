@@ -53,6 +53,12 @@ func TestServer(t *testing.T) {
 	rr, err = utils.MakeHTTPRequest(req)
 	assert.Error(t, err)
 	assert.Contains(t, string(rr.Body), "method not allowed")
+
+	// health check
+	req, _ = http.NewRequest("GET", "http://localhost:8080/c/health", nil)
+	rr, err = utils.MakeHTTPRequest(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 200, rr.StatusCode)
 }
 
 func TestSanitizeBody(t *testing.T) {

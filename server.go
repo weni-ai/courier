@@ -108,6 +108,7 @@ func (s *server) Start() error {
 	s.router.MethodNotAllowed(s.handle405)
 	s.router.Get("/", s.handleIndex)
 	s.router.Get("/status", s.handleStatus)
+	s.router.Get("/c/health", s.handleCHealth)
 
 	// initialize our handlers
 	s.initializeChannelHandlers()
@@ -434,6 +435,19 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var buf bytes.Buffer
+	buf.WriteString("<title>courier</title><body><pre>\n")
+	buf.WriteString(splash)
+	buf.WriteString(s.config.Version)
+
+	buf.WriteString("\n\n")
+	buf.WriteString(s.backend.Status())
+	buf.WriteString("\n\n")
+	buf.WriteString("</pre></body>")
+	w.Write(buf.Bytes())
+}
+
+func (s *server) handleCHealth(w http.ResponseWriter, r *http.Request) {
 	var buf bytes.Buffer
 	buf.WriteString("<title>courier</title><body><pre>\n")
 	buf.WriteString(splash)

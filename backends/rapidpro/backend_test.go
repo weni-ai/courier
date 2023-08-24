@@ -511,6 +511,17 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	ts.True(m.ModifiedOn_.After(now))
 	ts.True(m.SentOn_.Equal(sentOn)) // no change
 
+	// update to READ using id
+	status = ts.b.NewMsgStatusForID(channel, courier.NewMsgID(10001), courier.MsgRead)
+	err = ts.b.WriteMsgStatus(ctx, status)
+	ts.NoError(err)
+	time.Sleep(time.Second)
+
+	m = readMsgFromDB(ts.b, courier.NewMsgID(10001))
+	ts.Equal(m.Status_, courier.MsgRead)
+	ts.True(m.ModifiedOn_.After(now))
+	ts.True(m.SentOn_.Equal(sentOn)) // no change
+
 	// no change for incoming messages
 	status = ts.b.NewMsgStatusForID(channel, courier.NewMsgID(10002), courier.MsgSent)
 	err = ts.b.WriteMsgStatus(ctx, status)

@@ -1,3 +1,7 @@
+1.4.25-courier-7.1.0
+----------
+  * Add 'V' status to check definition of sent_on
+
 1.4.24-courier-7.1.0
 ----------
   * Fix Order WAC types

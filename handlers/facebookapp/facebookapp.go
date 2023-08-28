@@ -141,6 +141,14 @@ type wacMedia struct {
 	Mimetype string `json:"mime_type"`
 	SHA256   string `json:"sha256"`
 }
+
+type wacSticker struct {
+	Animated bool   `json:"animated"`
+	ID       string `json:"id"`
+	Mimetype string `json:"mime_type"`
+	SHA256   string `json:"sha256"`
+}
+
 type moPayload struct {
 	Object string `json:"object"`
 	Entry  []struct {
@@ -174,11 +182,12 @@ type moPayload struct {
 					Text struct {
 						Body string `json:"body"`
 					} `json:"text"`
-					Image    *wacMedia `json:"image"`
-					Audio    *wacMedia `json:"audio"`
-					Video    *wacMedia `json:"video"`
-					Document *wacMedia `json:"document"`
-					Voice    *wacMedia `json:"voice"`
+					Image    *wacMedia   `json:"image"`
+					Audio    *wacMedia   `json:"audio"`
+					Video    *wacMedia   `json:"video"`
+					Document *wacMedia   `json:"document"`
+					Voice    *wacMedia   `json:"voice"`
+					Sticker  *wacSticker `json:"sticker"`
 					Location *struct {
 						Latitude  float64 `json:"latitude"`
 						Longitude float64 `json:"longitude"`
@@ -513,6 +522,8 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				} else if msg.Type == "image" && msg.Image != nil {
 					text = msg.Image.Caption
 					mediaURL, err = resolveMediaURL(channel, msg.Image.ID, token)
+				} else if msg.Type == "sticker" && msg.Sticker != nil {
+					mediaURL, err = resolveMediaURL(channel, msg.Sticker.ID, token)
 				} else if msg.Type == "video" && msg.Video != nil {
 					text = msg.Video.Caption
 					mediaURL, err = resolveMediaURL(channel, msg.Video.ID, token)
@@ -1293,6 +1304,7 @@ type wacMTPayload struct {
 	Image    *wacMTMedia `json:"image,omitempty"`
 	Audio    *wacMTMedia `json:"audio,omitempty"`
 	Video    *wacMTMedia `json:"video,omitempty"`
+	Sticker  *wacMTMedia `json:"sticker,omitempty"`
 
 	Interactive *wacInteractive `json:"interactive,omitempty"`
 
@@ -1494,6 +1506,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		} else if i < len(msg.Attachments()) && len(qrs) == 0 || len(qrs) > 3 && i < len(msg.Attachments()) {
 			attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
 			fileURL := attURL
+
+			splitedAttType := strings.Split(attType, "/")
+			attType = splitedAttType[0]
+			attFormat := splitedAttType[1]
+
 			mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
 			for _, log := range mediaLogs {
 				status.AddLog(log)
@@ -1507,7 +1524,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			if err != nil {
 				return status, err
 			}
-			attType = strings.Split(attType, "/")[0]
+
 			if attType == "application" {
 				attType = "document"
 			}
@@ -1520,7 +1537,13 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 			switch attType {
 			case "image":
-				payload.Image = &media
+				if attFormat == "webp" {
+					payload.Sticker = &media
+					payload.Type = "sticker"
+				} else {
+					payload.Image = &media
+				}
+
 			case "audio":
 				payload.Audio = &media
 			case "video":

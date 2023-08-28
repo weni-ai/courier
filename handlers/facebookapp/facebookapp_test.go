@@ -328,6 +328,9 @@ var testCasesWAC = []ChannelHandleTestCase{
 	{Label: "Receive Valid Image Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/imageWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("Check out my new phone!"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Attachment: Sp("https://foo.bar/attachmentURL_Image"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Valid Sticker Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/stickerWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp(""), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Attachment: Sp("https://foo.bar/attachmentURL_Sticker"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Valid Video Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/videoWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("Check out my new phone!"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Attachment: Sp("https://foo.bar/attachmentURL_Video"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		PrepRequest: addValidSignatureWAC},
@@ -396,6 +399,10 @@ func TestHandler(t *testing.T) {
 		if strings.HasSuffix(r.URL.Path, "document") {
 			w.Write([]byte(`{"url": "https://foo.bar/attachmentURL_Document"}`))
 			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "sticker") {
+			w.Write([]byte(`{"url": "https://foo.bar/attachmentURL_Sticker"}`))
 		}
 
 		// valid token

@@ -1,3 +1,7 @@
+1.4.26-courier-7.1.0
+----------
+  * Add healthcheck endpoint at c/health
+
 1.4.25-courier-7.1.0
 ----------
   * Add 'V' status to check definition of sent_on

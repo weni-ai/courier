@@ -587,7 +587,14 @@ var defaultSendTestCases = []ChannelSendTestCase{
 			MockedRequest{
 				Method: "POST",
 				Path:   "/v1/messages",
-				Body:   `{"to":"250788123123","type":"sticker","sticker":{"link":"https://foo.bar/sticker.webp","caption":"sticker caption"}}`,
+				Body:   `{"to":"250788123123","type":"sticker","sticker":{"link":"https://foo.bar/sticker.webp"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			}, MockedRequest{
+				Method: "POST",
+				Path:   "/v1/messages",
+				Body:   `{"to":"250788123123","type":"text","text":{"body":"sticker caption"}}`,
 			}: MockedResponse{
 				Status: 201,
 				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,

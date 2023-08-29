@@ -1530,7 +1530,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			}
 			payload.Type = attType
 			media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
-			if len(msgParts) == 1 && attType != "audio" && len(msg.Attachments()) == 1 && len(msg.QuickReplies()) == 0 {
+			if len(msgParts) == 1 && (attType != "audio" && attFormat != "webp") && len(msg.Attachments()) == 1 && len(msg.QuickReplies()) == 0 {
 				media.Caption = msgParts[i]
 				hasCaption = true
 			}
@@ -1543,7 +1543,6 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				} else {
 					payload.Image = &media
 				}
-
 			case "audio":
 				payload.Audio = &media
 			case "video":

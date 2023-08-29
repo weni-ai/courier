@@ -938,24 +938,31 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					payloads = append(payloads, payload)
 				} else if strings.HasPrefix(mimeType, "image") {
 					var payload interface{}
-					if attachmentCount == 0 {
-						mediaPayload.Caption = msg.Text()
-					}
 					if attFormat == "webp" {
 						payload = mtStickerPayload{
 							To:      msg.URN().Path(),
 							Type:    "sticker",
 							Sticker: mediaPayload,
 						}
-						payloads = append(payloads, payload)
+						if attachmentCount == 0 {
+							payloadText := mtTextPayload{
+								To:   msg.URN().Path(),
+								Type: "text",
+							}
+							payloadText.Text.Body = msg.Text()
+							payloads = append(payloads, payloadText)
+						}
 					} else {
+						if attachmentCount == 0 {
+							mediaPayload.Caption = msg.Text()
+						}
 						payload = mtImagePayload{
 							To:    msg.URN().Path(),
 							Type:  "image",
 							Image: mediaPayload,
 						}
-						payloads = append(payloads, payload)
 					}
+					payloads = append(payloads, payload)
 				} else if strings.HasPrefix(mimeType, "video") {
 					payload := mtVideoPayload{
 						To:   msg.URN().Path(),

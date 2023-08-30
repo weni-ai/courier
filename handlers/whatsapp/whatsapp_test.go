@@ -147,6 +147,22 @@ var imageMsg = `{
 	}]
 }`
 
+var stickerMsg = `{
+	"messages": [{
+		"from": "250788123123",
+		"id": "41",
+		"timestamp": "1454119029",
+		"type": "sticker",
+		"sticker": {
+			"file": "/path/to/v1/media/41",
+			"id": "41",
+			"link": "https://example.org/v1/media/41",
+			"mime_type": "text/plain",
+			"sha256": "the-sha-signature"
+		}
+	}]
+}`
+
 var interactiveButtonMsg = `{
   "messages": [{
 		"from": "250788123123",
@@ -373,6 +389,8 @@ var waTestCases = []ChannelHandleTestCase{
 		Text: Sp("the caption"), Attachment: Sp("https://foo.bar/v1/media/41"), URN: Sp("whatsapp:250788123123"), ExternalID: Sp("41"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC))},
 	{Label: "Receive Valid Image Message", URL: waReceiveURL, Data: imageMsg, Status: 200, Response: `"type":"msg"`,
 		Text: Sp("the caption"), Attachment: Sp("https://foo.bar/v1/media/41"), URN: Sp("whatsapp:250788123123"), ExternalID: Sp("41"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC))},
+	{Label: "Receive Valid Sticker Message", URL: waReceiveURL, Data: stickerMsg, Status: 200, Response: `"type":"msg"`,
+		Text: Sp(""), Attachment: Sp("https://foo.bar/v1/media/41"), URN: Sp("whatsapp:250788123123"), ExternalID: Sp("41"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC))},
 	{Label: "Receive Valid Interactive Button Message", URL: waReceiveURL, Data: interactiveButtonMsg, Status: 200, Response: `"type":"msg"`,
 		Text: Sp("BUTTON1"), URN: Sp("whatsapp:250788123123"), ExternalID: Sp("41"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC))},
 	{Label: "Receive Valid Interactive List Message", URL: waReceiveURL, Data: interactiveListMsg, Status: 200, Response: `"type":"msg"`,
@@ -553,6 +571,30 @@ var defaultSendTestCases = []ChannelSendTestCase{
 				Method: "POST",
 				Path:   "/v1/messages",
 				Body:   `{"to":"250788123123","type":"image","image":{"link":"https://foo.bar/image.jpg","caption":"document caption"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL,
+	},
+	{Label: "Sticker Send",
+		Text:   "sticker caption",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"image/webp:https://foo.bar/sticker.webp"},
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/v1/messages",
+				Body:   `{"to":"250788123123","type":"sticker","sticker":{"link":"https://foo.bar/sticker.webp"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			}, MockedRequest{
+				Method: "POST",
+				Path:   "/v1/messages",
+				Body:   `{"to":"250788123123","type":"text","text":{"body":"sticker caption"}}`,
 			}: MockedResponse{
 				Status: 201,
 				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,

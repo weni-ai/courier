@@ -129,6 +129,12 @@ type eventPayload struct {
 			Sha256   string `json:"sha256"    validate:"required"`
 			Caption  string `json:"caption"`
 		} `json:"image"`
+		Sticker *struct {
+			Animated bool   `json:"animated"`
+			ID       string `json:"id"`
+			Mimetype string `json:"mime_type"`
+			SHA256   string `json:"sha256"`
+		}
 		Interactive *struct {
 			ButtonReply *struct {
 				ID    string `json:"id"`
@@ -276,6 +282,8 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		} else if msg.Type == "image" && msg.Image != nil {
 			text = msg.Image.Caption
 			mediaURL, err = resolveMediaURL(channel, msg.Image.ID)
+		} else if msg.Type == "sticker" && msg.Sticker != nil {
+			mediaURL, err = resolveMediaURL(channel, msg.Sticker.ID)
 		} else if msg.Type == "interactive" {
 			if msg.Interactive.Type == "button_reply" {
 				text = msg.Interactive.ButtonReply.Title
@@ -579,6 +587,12 @@ type mtImagePayload struct {
 	Image *mediaObject `json:"image"`
 }
 
+type mtStickerPayload struct {
+	To      string       `json:"to"    validate:"required"`
+	Type    string       `json:"type"  validate:"required"`
+	Sticker *mediaObject `json:"sticker"`
+}
+
 type mtVideoPayload struct {
 	To    string       `json:"to" validate:"required"`
 	Type  string       `json:"type" validate:"required"`
@@ -673,6 +687,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 
 	// do we have a template?
 	templating, err := h.getTemplate(msg)
+
 	if templating != nil || len(msg.Attachments()) == 0 {
 
 		if err != nil {
@@ -875,8 +890,10 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 
 		if len(msg.Attachments()) > 0 {
 			for attachmentCount, attachment := range msg.Attachments() {
-
 				mimeType, mediaURL := handlers.SplitAttachment(attachment)
+				splitedAttType := strings.Split(mimeType, "/")
+				mimeType = splitedAttType[0]
+				attFormat := splitedAttType[1]
 				mediaID, mediaLogs, err := h.fetchMediaID(msg, mimeType, mediaURL)
 				if len(mediaLogs) > 0 {
 					logs = append(logs, mediaLogs...)
@@ -920,14 +937,31 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					payload.Document = mediaPayload
 					payloads = append(payloads, payload)
 				} else if strings.HasPrefix(mimeType, "image") {
-					payload := mtImagePayload{
-						To:   msg.URN().Path(),
-						Type: "image",
+					var payload interface{}
+					if attFormat == "webp" {
+						payload = mtStickerPayload{
+							To:      msg.URN().Path(),
+							Type:    "sticker",
+							Sticker: mediaPayload,
+						}
+						if attachmentCount == 0 {
+							payloadText := mtTextPayload{
+								To:   msg.URN().Path(),
+								Type: "text",
+							}
+							payloadText.Text.Body = msg.Text()
+							payloads = append(payloads, payloadText)
+						}
+					} else {
+						if attachmentCount == 0 {
+							mediaPayload.Caption = msg.Text()
+						}
+						payload = mtImagePayload{
+							To:    msg.URN().Path(),
+							Type:  "image",
+							Image: mediaPayload,
+						}
 					}
-					if attachmentCount == 0 {
-						mediaPayload.Caption = msg.Text()
-					}
-					payload.Image = mediaPayload
 					payloads = append(payloads, payload)
 				} else if strings.HasPrefix(mimeType, "video") {
 					payload := mtVideoPayload{

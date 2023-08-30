@@ -1,3 +1,7 @@
+1.4.27-courier-7.1.0
+----------
+  * Add support for sending sticker to WA and WAC
+
 1.4.26-courier-7.1.0
 ----------
   * Add healthcheck endpoint at c/health

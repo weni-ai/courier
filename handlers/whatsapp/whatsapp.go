@@ -893,7 +893,10 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 				mimeType, mediaURL := handlers.SplitAttachment(attachment)
 				splitedAttType := strings.Split(mimeType, "/")
 				mimeType = splitedAttType[0]
-				attFormat := splitedAttType[1]
+				attFormat := ""
+				if len(splitedAttType) > 1 {
+					attFormat = splitedAttType[1]
+				}
 				mediaID, mediaLogs, err := h.fetchMediaID(msg, mimeType, mediaURL)
 				if len(mediaLogs) > 0 {
 					logs = append(logs, mediaLogs...)

@@ -1509,7 +1509,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 			splitedAttType := strings.Split(attType, "/")
 			attType = splitedAttType[0]
-			attFormat := splitedAttType[1]
+			attFormat := ""
+			if len(splitedAttType) > 1 {
+				attFormat = splitedAttType[1]
+			}
 
 			mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
 			for _, log := range mediaLogs {

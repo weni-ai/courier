@@ -1,3 +1,7 @@
+1.4.28-courier-7.1.0
+----------
+  * Fix attFormat variable setting for WAC and WA
+
 1.4.27-courier-7.1.0
 ----------
   * Add support for sending sticker to WA and WAC

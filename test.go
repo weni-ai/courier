@@ -630,6 +630,10 @@ func (m *mockMsg) WithAttachment(url string) Msg {
 func (m *mockMsg) WithMetadata(metadata json.RawMessage) Msg { m.metadata = metadata; return m }
 
 func (m *mockMsg) WithFlow(flow *FlowReference) Msg { m.flow = flow; return m }
+func (m *mockMsg) WithPresignedURL(urls []string) Msg {
+	m.attachments = urls
+	return m
+}
 
 //-----------------------------------------------------------------------------
 // Mock status implementation

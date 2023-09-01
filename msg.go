@@ -123,6 +123,7 @@ type Msg interface {
 	WithURNAuth(auth string) Msg
 	WithMetadata(metadata json.RawMessage) Msg
 	WithFlow(flow *FlowReference) Msg
+	WithPresignedURL(urls []string) Msg
 
 	EventID() int64
 	SessionStatus() string

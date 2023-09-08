@@ -1,6 +1,7 @@
 package courier
 
 import (
+	"fmt"
 	"net/url"
 	"strings"
 	"time"
@@ -43,6 +44,8 @@ func PresignedURL(link string, accessKey string, secretKey string, region string
 	if err != nil {
 		return "", err
 	}
+
+	fmt.Println(parsedURL)
 
 	return parsedURL, nil
 

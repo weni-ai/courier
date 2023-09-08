@@ -1,6 +1,7 @@
 package courier
 
 import (
+	"net/url"
 	"strings"
 	"time"
 
@@ -38,7 +39,12 @@ func PresignedURL(link string, accessKey string, secretKey string, region string
 		return "", err
 	}
 
-	return urlStr, nil
+	parsedURL, err := url.QueryUnescape(urlStr)
+	if err != nil {
+		return "", err
+	}
+
+	return parsedURL, nil
 
 }
 

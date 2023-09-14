@@ -191,7 +191,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 				status.SetStatus(courier.MsgFailed)
 				break attachmentsLoop
 			}
-			req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
+			req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 			res, err := utils.MakeHTTPRequest(req)
 			if res != nil {
@@ -218,7 +218,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			logs = append(logs, log)
 			status.SetStatus(courier.MsgFailed)
 		} else {
-			req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
+			req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 			res, err := utils.MakeHTTPRequest(req)
 			if res != nil {

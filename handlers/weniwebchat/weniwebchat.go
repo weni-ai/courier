@@ -240,12 +240,25 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 }
 
 func newOutgoingMessage(payType, to, from string, quickReplies []string) *moPayload {
+	var text string
+	var qrs []string
+	for _, qr := range quickReplies {
+		if strings.Contains(qr, "\\/") {
+			text = strings.Replace(qr, "\\", "", -1)
+		} else if strings.Contains(qr, "\\\\") {
+			text = strings.Replace(qr, "\\\\", "\\", -1)
+		} else {
+			text = qr
+		}
+		qrs = append(qrs, text)
+	}
+
 	return &moPayload{
 		Type: payType,
 		To:   to,
 		From: from,
 		Message: moMessage{
-			QuickReplies: quickReplies,
+			QuickReplies: qrs,
 		},
 	}
 }

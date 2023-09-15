@@ -177,9 +177,21 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			}
 
 			// add quickreplies on last message
-			// if i == lenAttachments-1 {
-			// 	payload.Message.QuickReplies = msg.QuickReplies()
-			// }
+			if i == lenAttachments-1 {
+				var text string
+				var qrs []string
+				for _, qr := range msg.QuickReplies() {
+					if strings.Contains(qr, "\\/") {
+						text = strings.Replace(qr, "\\", "", -1)
+					} else if strings.Contains(qr, "\\\\") {
+						text = strings.Replace(qr, "\\\\", "\\", -1)
+					} else {
+						text = qr
+					}
+					qrs = append(qrs, text)
+				}
+				payload.Message.QuickReplies = qrs
+			}
 
 			// build request
 			var body []byte
@@ -204,10 +216,23 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			}
 		}
 	} else {
+		var text string
+		var qrs []string
+		for _, qr := range msg.QuickReplies() {
+			if strings.Contains(qr, "\\/") {
+				text = strings.Replace(qr, "\\", "", -1)
+			} else if strings.Contains(qr, "\\\\") {
+				text = strings.Replace(qr, "\\\\", "\\", -1)
+			} else {
+				text = qr
+			}
+			qrs = append(qrs, text)
+		}
 		payload.Message = moMessage{
-			Type:      "text",
-			TimeStamp: getTimestamp(),
-			Text:      msg.Text(),
+			Type:         "text",
+			TimeStamp:    getTimestamp(),
+			Text:         msg.Text(),
+			QuickReplies: qrs,
 		}
 		// build request
 		body, err := json.Marshal(&payload)
@@ -239,25 +264,12 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 }
 
 func newOutgoingMessage(payType, to, from string, quickReplies []string) *moPayload {
-	var text string
-	var qrs []string
-	for _, qr := range quickReplies {
-		if strings.Contains(qr, "\\/") {
-			text = strings.Replace(qr, "\\", "", -1)
-		} else if strings.Contains(qr, "\\\\") {
-			text = strings.Replace(qr, "\\\\", "\\", -1)
-		} else {
-			text = qr
-		}
-		qrs = append(qrs, text)
-	}
-
 	return &moPayload{
 		Type: payType,
 		To:   to,
 		From: from,
 		Message: moMessage{
-			QuickReplies: qrs,
+			QuickReplies: quickReplies,
 		},
 	}
 }

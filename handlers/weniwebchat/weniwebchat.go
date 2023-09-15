@@ -178,7 +178,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 			// add quickreplies on last message
 			if i == lenAttachments-1 {
-				payload.Message.QuickReplies = msg.QuickReplies()
+				qrs := normalizeQuickReplies(msg.QuickReplies())
+				payload.Message.QuickReplies = qrs
 			}
 
 			// build request
@@ -204,11 +205,12 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			}
 		}
 	} else {
+		qrs := normalizeQuickReplies(msg.QuickReplies())
 		payload.Message = moMessage{
 			Type:         "text",
 			TimeStamp:    getTimestamp(),
 			Text:         msg.Text(),
-			QuickReplies: msg.QuickReplies(),
+			QuickReplies: qrs,
 		}
 		// build request
 		body, err := json.Marshal(&payload)
@@ -256,4 +258,20 @@ func getTimestamp() string {
 	}
 
 	return fmt.Sprint(time.Now().Unix())
+}
+
+func normalizeQuickReplies(quickReplies []string) []string {
+	var text string
+	var qrs []string
+	for _, qr := range quickReplies {
+		if strings.Contains(qr, "\\/") {
+			text = strings.Replace(qr, "\\", "", -1)
+		} else if strings.Contains(qr, "\\\\") {
+			text = strings.Replace(qr, "\\\\", "\\", -1)
+		} else {
+			text = qr
+		}
+		qrs = append(qrs, text)
+	}
+	return qrs
 }

@@ -1,3 +1,7 @@
+1.4.29-courier-7.1.0
+----------
+  * Normalize strings with slashes in quick replies on wwc
+
 1.4.28-courier-7.1.0
 ----------
   * Fix attFormat variable setting for WAC and WA

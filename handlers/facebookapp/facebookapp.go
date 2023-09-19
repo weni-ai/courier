@@ -1776,29 +1776,47 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 		if len(products) > 0 {
 			if len(products) > 1 {
-				sproducts := []wacMTProductItem{}
 
-				for _, p := range products {
-					sproducts = append(sproducts, wacMTProductItem{
-						ProductRetailerID: p,
-					})
-				}
+				blockSize := 30
+				iterations := (len(products) + blockSize - 1) / blockSize
 
-				sections := []wacMTSection{{
-					Title:        "items",
-					ProductItems: sproducts,
-				}}
+				for i := 0; i < iterations; i++ {
+					start := i * blockSize
+					end := (i + 1) * blockSize
+					if end > len(products) {
+						end = len(products)
+					}
 
-				interactive.Action = &struct {
-					Button            string         `json:"button,omitempty"`
-					Sections          []wacMTSection `json:"sections,omitempty"`
-					Buttons           []wacMTButton  `json:"buttons,omitempty"`
-					CatalogID         string         `json:"catalog_id,omitempty"`
-					ProductRetailerID string         `json:"product_retailer_id,omitempty"`
-					Name              string         `json:"name,omitempty"`
-				}{
-					CatalogID: catalogID,
-					Sections:  sections,
+					sproducts := []wacMTProductItem{}
+					for _, p := range products[start:end] {
+						sproducts = append(sproducts, wacMTProductItem{
+							ProductRetailerID: p,
+						})
+					}
+
+					sections := []wacMTSection{{
+						Title:        "items",
+						ProductItems: sproducts,
+					}}
+
+					interactive.Action = &struct {
+						Button            string         `json:"button,omitempty"`
+						Sections          []wacMTSection `json:"sections,omitempty"`
+						Buttons           []wacMTButton  `json:"buttons,omitempty"`
+						CatalogID         string         `json:"catalog_id,omitempty"`
+						ProductRetailerID string         `json:"product_retailer_id,omitempty"`
+						Name              string         `json:"name,omitempty"`
+					}{
+						CatalogID: catalogID,
+						Sections:  sections,
+						Name:      msg.Action(),
+					}
+
+					payload.Interactive = &interactive
+					status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true)
+					if err != nil {
+						return status, err
+					}
 				}
 			} else {
 				interactive.Action = &struct {
@@ -1813,12 +1831,12 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					Name:              msg.Action(),
 					ProductRetailerID: products[0],
 				}
+				payload.Interactive = &interactive
+				status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true)
+				if err != nil {
+					return status, err
+				}
 			}
-		}
-		payload.Interactive = &interactive
-		status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true)
-		if err != nil {
-			return status, err
 		}
 	}
 

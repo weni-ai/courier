@@ -11,21 +11,20 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/buger/jsonparser"
 	"github.com/gomodule/redigo/redis"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
-	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/urns"
-	"github.com/sirupsen/logrus"
+	"github.com/pkg/errors"
 )
 
 var (
 	sendURL      = "https://api.weixin.qq.com/cgi-bin"
 	maxMsgLength = 1600
-	fetchTimeout = time.Second * 2
 )
 
 const (
@@ -39,10 +38,15 @@ func init() {
 
 type handler struct {
 	handlers.BaseHandler
+
+	fetchTokenMutex sync.Mutex
 }
 
 func newHandler() courier.ChannelHandler {
-	return &handler{handlers.NewBaseHandler(courier.ChannelType("WC"), "WeChat")}
+	return &handler{
+		BaseHandler:     handlers.NewBaseHandler(courier.ChannelType("WC"), "WeChat"),
+		fetchTokenMutex: sync.Mutex{},
+	}
 }
 
 // Initialize is called by the engine once everything is loaded
@@ -61,7 +65,7 @@ type verifyForm struct {
 }
 
 // VerifyURL is our HTTP handler function for WeChat config URL verification callbacks
-func (h *handler) VerifyURL(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+func (h *handler) VerifyURL(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request, clog *courier.ChannelLog) ([]courier.Event, error) {
 	form := &verifyForm{}
 	err := handlers.DecodeAndValidateForm(form, r)
 	if err != nil {
@@ -69,7 +73,7 @@ func (h *handler) VerifyURL(ctx context.Context, channel courier.Channel, w http
 	}
 
 	dictOrder := []string{channel.StringConfigForKey(courier.ConfigSecret, ""), form.Timestamp, form.Nonce}
-	sort.Sort(sort.StringSlice(dictOrder))
+	sort.Strings(dictOrder)
 
 	combinedParams := strings.Join(dictOrder, "")
 
@@ -83,79 +87,12 @@ func (h *handler) VerifyURL(ctx context.Context, channel courier.Channel, w http
 	if encoded == form.Signature {
 		ResponseText = form.EchoStr
 		StatusCode = 200
-		go func() {
-			time.Sleep(fetchTimeout)
-			h.fetchAccessToken(ctx, channel)
-		}()
 	}
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(StatusCode)
 	_, err = fmt.Fprint(w, ResponseText)
 	return nil, err
-}
-
-// fetchAccessToken tries to fetch a new token for our channel, setting the result in redis
-func (h *handler) fetchAccessToken(ctx context.Context, channel courier.Channel) error {
-	start := time.Now()
-	logs := make([]*courier.ChannelLog, 0, 1)
-
-	form := url.Values{
-		"grant_type": []string{"client_credential"},
-		"appid":      []string{channel.StringConfigForKey(configAppID, "")},
-		"secret":     []string{channel.StringConfigForKey(configAppSecret, "")},
-	}
-
-	tokenURL, _ := url.Parse(fmt.Sprintf("%s/%s", sendURL, "token"))
-	tokenURL.RawQuery = form.Encode()
-
-	req, _ := http.NewRequest(http.MethodGet, tokenURL.String(), nil)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-	rr, err := utils.MakeHTTPRequest(req)
-	if err != nil {
-		duration := time.Now().Sub(start)
-		logs = append(logs, courier.NewChannelLogFromError("failed to fetch access token", channel, courier.NilMsgID, duration, err))
-		return h.Backend().WriteChannelLogs(ctx, logs)
-	}
-
-	accessToken, err := jsonparser.GetString(rr.Body, "access_token")
-	if err != nil {
-		duration := time.Now().Sub(start)
-		logs = append(logs, courier.NewChannelLogFromError("invalid json", channel, courier.NilMsgID, duration, err))
-		return h.Backend().WriteChannelLogs(ctx, logs)
-	}
-	expiration, err := jsonparser.GetInt(rr.Body, "expires_in")
-	if err != nil {
-		expiration = 7200
-	}
-
-	rc := h.Backend().RedisPool().Get()
-	defer rc.Close()
-
-	cacheKey := fmt.Sprintf("wechat_channel_access_token:%s", channel.UUID().String())
-	_, err = rc.Do("SET", cacheKey, accessToken, expiration)
-
-	if err != nil {
-		logrus.WithError(err).Error("error setting the access token to redis")
-	}
-	return err
-}
-
-func (h *handler) getAccessToken(channel courier.Channel) (string, error) {
-	rc := h.Backend().RedisPool().Get()
-	defer rc.Close()
-
-	cacheKey := fmt.Sprintf("wechat_channel_access_token:%s", channel.UUID().String())
-	accessToken, err := redis.String(rc.Do("GET", cacheKey))
-	if err != nil {
-		return "", err
-	}
-	if accessToken == "" {
-		return "", fmt.Errorf("no access token for channel")
-	}
-
-	return accessToken, nil
 }
 
 type moPayload struct {
@@ -169,7 +106,7 @@ type moPayload struct {
 }
 
 // receiveMessage is our HTTP handler function for incoming messages
-func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request, clog *courier.ChannelLog) ([]courier.Event, error) {
 	payload := &moPayload{}
 	err := handlers.DecodeAndValidateXML(payload, r)
 	if err != nil {
@@ -188,14 +125,14 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 
 	// subscribe event, trigger a new conversation
 	if payload.MsgType == "event" && payload.Event == "subscribe" {
-		channelEvent := h.Backend().NewChannelEvent(channel, courier.NewConversation, urn)
+		channelEvent := h.Backend().NewChannelEvent(channel, courier.NewConversation, urn, clog)
 
-		err := h.Backend().WriteChannelEvent(ctx, channelEvent)
+		err := h.Backend().WriteChannelEvent(ctx, channelEvent, clog)
 		if err != nil {
 			return nil, err
 		}
 
-		return []courier.Event{channelEvent}, courier.WriteChannelEventSuccess(ctx, w, r, channelEvent)
+		return []courier.Event{channelEvent}, courier.WriteChannelEventSuccess(w, channelEvent)
 	}
 
 	// unknown event type (we only deal with subscribe)
@@ -204,18 +141,18 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 	}
 
 	// create our message
-	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Content).WithExternalID(payload.MsgID).WithReceivedOn(date)
+	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Content, clog).WithExternalID(payload.MsgID).WithReceivedOn(date)
 	if payload.MsgType == "image" || payload.MsgType == "video" || payload.MsgType == "voice" {
 		mediaURL := buildMediaURL(payload.MediaID)
 		msg.WithAttachment(mediaURL)
 	}
 
 	// and finally write our message
-	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
+	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r, clog)
 }
 
 // WriteMsgSuccessResponse writes our response
-func (h *handler) WriteMsgSuccessResponse(ctx context.Context, w http.ResponseWriter, r *http.Request, msgs []courier.Msg) error {
+func (h *handler) WriteMsgSuccessResponse(ctx context.Context, w http.ResponseWriter, msgs []courier.Msg) error {
 	w.WriteHeader(200)
 	_, err := fmt.Fprint(w, "") // WeChat expected empty string to not retry looking for passive reply
 	return err
@@ -235,9 +172,9 @@ type mtPayload struct {
 	} `json:"text"`
 }
 
-// SendMsg sends the passed in message, returning any error
-func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
-	accessToken, err := h.getAccessToken(msg.Channel())
+// Send sends the given message, logging any HTTP calls or errors
+func (h *handler) Send(ctx context.Context, msg courier.Msg, clog *courier.ChannelLog) (courier.MsgStatus, error) {
+	accessToken, err := h.getAccessToken(ctx, msg.Channel(), clog)
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +186,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	partSendURL, _ := url.Parse(fmt.Sprintf("%s/%s", sendURL, "message/custom/send"))
 	partSendURL.RawQuery = form.Encode()
 
-	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
+	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored, clog)
 	parts := handlers.SplitMsgByChannel(msg.Channel(), handlers.GetTextAndAttachments(msg), maxMsgLength)
 	for _, part := range parts {
 		wcMsg := &mtPayload{}
@@ -268,15 +205,11 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
 
-		rr, err := utils.MakeHTTPRequest(req)
-
-		// record our status and log
-		log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
-		status.AddLog(log)
-
-		if err != nil {
-			return status, err
+		resp, _, err := handlers.RequestHTTP(req, clog)
+		if err != nil || resp.StatusCode/100 != 2 {
+			return status, nil
 		}
+
 		status.SetStatus(courier.MsgWired)
 	}
 
@@ -284,8 +217,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 }
 
 // DescribeURN handles WeChat contact details
-func (h *handler) DescribeURN(ctx context.Context, channel courier.Channel, urn urns.URN) (map[string]string, error) {
-	accessToken, err := h.getAccessToken(channel)
+func (h *handler) DescribeURN(ctx context.Context, channel courier.Channel, urn urns.URN, clog *courier.ChannelLog) (map[string]string, error) {
+	accessToken, err := h.getAccessToken(ctx, channel, clog)
 	if err != nil {
 		return nil, err
 	}
@@ -302,11 +235,12 @@ func (h *handler) DescribeURN(ctx context.Context, channel courier.Channel, urn 
 
 	req, _ := http.NewRequest(http.MethodGet, reqURL.String(), nil)
 
-	rr, err := utils.MakeHTTPRequest(req)
-	if err != nil {
-		return nil, fmt.Errorf("unable to look up contact data:%s\n%s", err, rr.Response)
+	resp, respBody, err := handlers.RequestHTTP(req, clog)
+	if err != nil || resp.StatusCode/100 != 2 {
+		return nil, errors.New("unable to look up contact data")
 	}
-	nickname, err := jsonparser.GetString(rr.Body, "nickname")
+
+	nickname, err := jsonparser.GetString(respBody, "nickname")
 	if err != nil {
 		return nil, err
 	}
@@ -314,9 +248,16 @@ func (h *handler) DescribeURN(ctx context.Context, channel courier.Channel, urn 
 	return map[string]string{"name": nickname}, nil
 }
 
-// BuildDownloadMediaRequest download media for message attachment
-func (h *handler) BuildDownloadMediaRequest(ctx context.Context, b courier.Backend, channel courier.Channel, attachmentURL string) (*http.Request, error) {
-	accessToken, err := h.getAccessToken(channel)
+func (h *handler) RedactValues(ch courier.Channel) []string {
+	return []string{
+		ch.StringConfigForKey(courier.ConfigSecret, ""),
+		ch.StringConfigForKey(configAppSecret, ""),
+	}
+}
+
+// BuildAttachmentRequest download media for message attachment
+func (h *handler) BuildAttachmentRequest(ctx context.Context, b courier.Backend, channel courier.Channel, attachmentURL string, clog *courier.ChannelLog) (*http.Request, error) {
+	accessToken, err := h.getAccessToken(ctx, channel, clog)
 	if err != nil {
 		return nil, err
 	}
@@ -332,4 +273,70 @@ func (h *handler) BuildDownloadMediaRequest(ctx context.Context, b courier.Backe
 	// first fetch our media
 	req, _ := http.NewRequest(http.MethodGet, parsedURL.String(), nil)
 	return req, nil
+}
+
+var _ courier.AttachmentRequestBuilder = (*handler)(nil)
+
+func (h *handler) getAccessToken(ctx context.Context, channel courier.Channel, clog *courier.ChannelLog) (string, error) {
+	rc := h.Backend().RedisPool().Get()
+	defer rc.Close()
+
+	tokenKey := fmt.Sprintf("channel-token:%s", channel.UUID().String())
+
+	h.fetchTokenMutex.Lock()
+	defer h.fetchTokenMutex.Unlock()
+
+	token, err := redis.String(rc.Do("GET", tokenKey))
+	if err != nil && err != redis.ErrNil {
+		return "", errors.Wrap(err, "error reading cached access token")
+	}
+
+	if token != "" {
+		return token, nil
+	}
+
+	token, expires, err := h.fetchAccessToken(ctx, channel, clog)
+	if err != nil {
+		return "", errors.Wrap(err, "error fetching new access token")
+	}
+
+	_, err = rc.Do("SET", tokenKey, token, "EX", int(expires/time.Second))
+	if err != nil {
+		return "", errors.Wrap(err, "error updating cached access token")
+	}
+
+	return token, nil
+}
+
+// fetchAccessToken tries to fetch a new token for our channel, setting the result in redis
+func (h *handler) fetchAccessToken(ctx context.Context, channel courier.Channel, clog *courier.ChannelLog) (string, time.Duration, error) {
+	form := url.Values{
+		"grant_type": []string{"client_credential"},
+		"appid":      []string{channel.StringConfigForKey(configAppID, "")},
+		"secret":     []string{channel.StringConfigForKey(configAppSecret, "")},
+	}
+	tokenURL, _ := url.Parse(fmt.Sprintf("%s/%s", sendURL, "token"))
+	tokenURL.RawQuery = form.Encode()
+
+	req, _ := http.NewRequest(http.MethodGet, tokenURL.String(), nil)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	resp, respBody, err := handlers.RequestHTTP(req, clog)
+	if err != nil || resp.StatusCode/100 != 2 {
+		return "", 0, err
+	}
+
+	token, err := jsonparser.GetString(respBody, "access_token")
+	if err != nil {
+		clog.Error(courier.ErrorResponseValueMissing("access_token"))
+		return "", 0, err
+	}
+
+	expiration, err := jsonparser.GetInt(respBody, "expires_in")
+	if err != nil || expiration == 0 {
+		expiration = 7200
+	}
+
+	return token, time.Second * time.Duration(expiration), nil
 }

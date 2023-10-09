@@ -24,32 +24,29 @@ require (
 	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.1
 	golang.org/x/mod v0.6.0
-	gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127 // indirect
+	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/go-playground/validator.v9 v9.31.0
 	gopkg.in/h2non/filetype.v1 v1.0.5
 )
 
 require (
-	github.com/gabriel-vasile/mimetype v1.4.0
+	github.com/gabriel-vasile/mimetype v1.4.1
 	github.com/golang-jwt/jwt/v4 v4.4.1
 	github.com/lestrrat-go/jwx v1.2.25
 	github.com/nyaruka/librato v1.0.0
-	github.com/nyaruka/redisx v0.2.2
-	github.com/patrickmn/go-cache v2.1.0+incompatible
 	gopkg.in/go-playground/assert.v1 v1.2.1
 )
 
 require (
-	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.0-20210816181553-5444fa50b93d // indirect
-	github.com/goccy/go-json v0.9.7 // indirect
 	github.com/antchfx/xpath v1.2.1 // indirect
 	github.com/certifi/gocertifi v0.0.0-20210507211836-431795d63e8d // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.0-20210816181553-5444fa50b93d // indirect
 	github.com/fatih/structs v1.1.0 // indirect
-	github.com/gabriel-vasile/mimetype v1.4.1 // indirect
 	github.com/getsentry/raven-go v0.2.0 // indirect
 	github.com/go-playground/locales v0.14.0 // indirect
 	github.com/go-playground/universal-translator v0.18.0 // indirect
+	github.com/goccy/go-json v0.9.7 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
@@ -63,17 +60,15 @@ require (
 	github.com/lestrrat-go/option v1.0.0 // indirect
 	github.com/naoina/go-stringutil v0.1.0 // indirect
 	github.com/naoina/toml v0.1.1 // indirect
-	golang.org/x/crypto v0.0.0-20220427172511-eb4f295cb31f // indirect
-	github.com/nyaruka/librato v1.0.0 // indirect
 	github.com/nyaruka/phonenumbers v1.1.4 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/shopspring/decimal v1.3.1 // indirect
+	golang.org/x/crypto v0.1.0 // indirect
 	golang.org/x/net v0.2.0 // indirect
 	golang.org/x/sys v0.2.0 // indirect
 	golang.org/x/text v0.4.0 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
-	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/nyaruka/gocommon => github.com/Ilhasoft/gocommon v1.22.2-weni
+//replace github.com/nyaruka/gocommon => github.com/Ilhasoft/gocommon v1.22.2-weni

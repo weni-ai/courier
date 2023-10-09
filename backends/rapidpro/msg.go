@@ -5,8 +5,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
+	"strings"
+	"time"
+
 	"github.com/buger/jsonparser"
-	"github.com/gabriel-vasile/mimetype"
 	"github.com/gomodule/redigo/redis"
 	"github.com/lib/pq"
 	"github.com/nyaruka/courier"
@@ -16,10 +20,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	filetype "gopkg.in/h2non/filetype.v1"
-	"log"
-	"os"
-	"strings"
-	"time"
 )
 
 // MsgDirection is the direction of a message

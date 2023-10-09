@@ -20,7 +20,6 @@ import (
 	"github.com/nyaruka/gocommon/analytics"
 	"github.com/nyaruka/gocommon/httpx"
 	"github.com/nyaruka/gocommon/jsonx"
-	"github.com/nyaruka/librato"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )

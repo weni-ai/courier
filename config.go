@@ -25,7 +25,6 @@ type Config struct {
 	S3DisableSSL        bool   `help:"whether we disable SSL when accessing S3. Should always be set to False unless you're hosting an S3 compatible service within a secure internal network"`
 	S3ForcePathStyle    bool   `help:"whether we force S3 path style. Should generally need to default to False unless you're hosting an S3 compatible service"`
 
-	WhatsappAdminSystemUserToken   string `help:"the token of the admin system user for WhatsApp"`
 	WhatsappCloudApplicationSecret string `help:"the Whatsapp Cloud app secret"`
 	WhatsappCloudWebhookSecret     string `help:"the secret for WhatsApp Cloud webhook URL verification"`
 	FacebookApplicationSecret      string `help:"the Facebook app secret"`

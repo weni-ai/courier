@@ -464,8 +464,6 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 	// the list of data we will return in our response
 	data := make([]interface{}, 0, 2)
 
-	token := h.Server().Config().WhatsappAdminSystemUserToken
-
 	var contactNames = make(map[string]string)
 
 	// for each entry
@@ -852,10 +850,10 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 
 			text := strings.Join(payloads[:], "|")
 
-			ev := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date)
+			ev := h.Backend().NewIncomingMsg(channel, urn, text, clog).WithReceivedOn(date)
 			event := h.Backend().CheckExternalIDSeen(ev)
 
-			err := h.Backend().WriteMsg(ctx, event)
+			err := h.Backend().WriteMsg(ctx, event, clog)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -1072,10 +1070,7 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg,
 			}
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Accept", "application/json")
-			rr, err := utils.MakeHTTPRequest(req)
-
-			log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
-			status.AddLog(log)
+			_, _, err = handlers.RequestHTTP(req, clog)
 			if err != nil {
 				return status, nil
 			}
@@ -1319,7 +1314,6 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg, 
 	// can't do anything without an access token
 	accessToken := h.Server().Config().WhatsappAdminSystemUserToken
 
-	start := time.Now()
 	hasNewURN := false
 	hasCaption := false
 
@@ -1328,8 +1322,6 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg, 
 	wacPhoneURL := base.ResolveReference(path)
 
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored, clog)
-
-	hasCaption := false
 
 	msgParts := make([]string, 0)
 	if msg.Text() != "" {
@@ -1583,7 +1575,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg, 
 								zeroIndex = true
 							}
 							payloadAudio = wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path(), Type: "audio", Audio: &wacMTMedia{Link: attURL}}
-							status, err := requestWAC(payloadAudio, accessToken, status, wacPhoneURL, zeroIndex, clog)
+							status, _, err := requestWAC(payloadAudio, accessToken, status, wacPhoneURL, zeroIndex, clog)
 							if err != nil {
 								return status, nil
 							}
@@ -1668,7 +1660,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg, 
 			zeroIndex = true
 		}
 
-		status, err := requestWAC(payload, accessToken, status, wacPhoneURL, zeroIndex, clog)
+		status, respPayload, err := requestWAC(payload, accessToken, status, wacPhoneURL, zeroIndex, clog)
 		if err != nil {
 			return status, err
 		}
@@ -1682,8 +1674,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg, 
 				}
 				err = status.SetUpdatedURN(msg.URN(), toUpdateURN)
 				if err != nil {
-					log := courier.NewChannelLogFromError("unable to update contact URN for a new based on  wa_id", msg.Channel(), msg.ID(), time.Since(start), err)
-					status.AddLog(log)
+					clog.Error(courier.ErrorResponseUnexpected("unable to update contact URN for a new based on wa_id"))
 				}
 				hasNewURN = true
 			}
@@ -1695,15 +1686,15 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg, 
 	return status, nil
 }
 
-func requestWAC(payload wacMTPayload, accessToken string, status courier.MsgStatus, wacPhoneURL *url.URL, zeroIndex bool, clog *courier.ChannelLog) (courier.MsgStatus, error) {
+func requestWAC(payload wacMTPayload, accessToken string, status courier.MsgStatus, wacPhoneURL *url.URL, zeroIndex bool, clog *courier.ChannelLog) (courier.MsgStatus, *wacMTResponse, error) {
 	jsonBody, err := json.Marshal(payload)
 	if err != nil {
-		return status, err
+		return status, nil, err
 	}
 
 	req, err := http.NewRequest(http.MethodPost, wacPhoneURL.String(), bytes.NewReader(jsonBody))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
@@ -1715,12 +1706,12 @@ func requestWAC(payload wacMTPayload, accessToken string, status courier.MsgStat
 	err = json.Unmarshal(respBody, respPayload)
 	if err != nil {
 		clog.Error(courier.ErrorResponseUnparseable("JSON"))
-		return status, nil
+		return status, nil, nil
 	}
 
 	if respPayload.Error.Code != 0 {
 		clog.Error(courier.ErrorExternal(strconv.Itoa(respPayload.Error.Code), respPayload.Error.Message))
-		return status, nil
+		return status, nil, nil
 	}
 
 	externalID := respPayload.Messages[0].ID
@@ -1729,7 +1720,7 @@ func requestWAC(payload wacMTPayload, accessToken string, status courier.MsgStat
 	}
 	// this was wired successfully
 	status.SetStatus(courier.MsgWired)
-	return status, nil
+	return status, respPayload, nil
 }
 
 // DescribeURN looks up URN metadata for new contacts

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nyaruka/courier"
+	"github.com/nyaruka/courier/handlers"
 	. "github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/test"
 	"github.com/nyaruka/gocommon/httpx"
@@ -1470,7 +1471,9 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 
 func TestSending(t *testing.T) {
 	// shorter max msg length for testing
-	maxMsgLength = 100
+	maxMsgLengthFBA = 100
+	maxMsgLengthIG = 100
+	maxMsgLengthWAC = 100
 
 	var ChannelFBA = test.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "FBA", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
 	var ChannelIG = test.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "IG", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})

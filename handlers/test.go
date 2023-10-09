@@ -70,47 +70,6 @@ type MockedResponse struct {
 	Body   string
 }
 
-// ChannelSendTestCase defines the test values for a particular test case
-type ChannelSendTestCase struct {
-	Label string
-
-	Text                 string
-	URN                  string
-	URNAuth              string
-	Attachments          []string
-	QuickReplies         []string
-	Topic                string
-	HighPriority         bool
-	ResponseToExternalID string
-	Metadata             json.RawMessage
-	Flow                 *courier.FlowReference
-
-	ResponseStatus int
-	ResponseBody   string
-	Responses      map[MockedRequest]MockedResponse
-
-	Path        string
-	URLParams   map[string]string
-	PostParams  map[string]string
-	RequestBody string
-	Headers     map[string]string
-
-	Error      string
-	Status     string
-	ExternalID string
-
-	Stopped bool
-
-	ContactURNs map[string]bool
-
-	SendPrep     SendPrepFunc
-	NewURN       string
-	TextLanguage string
-}
-
-// Sp is a utility method to get the pointer to the passed in string
-func Sp(str interface{}) *string { asStr := fmt.Sprintf("%s", str); return &asStr }
-
 // Tp is utility method to get the pointer to the passed in time
 func Tp(tm time.Time) *time.Time { return &tm }
 
@@ -123,6 +82,8 @@ func ensureTestServerUp(host string) {
 		}
 		time.Sleep(time.Microsecond * 100)
 	}
+}
+
 func (m MockedRequest) Matches(r *http.Request, body []byte) bool {
 	return m.Method == r.Method && m.Path == r.URL.Path && m.RawQuery == r.URL.RawQuery && (m.Body == string(body) || (m.BodyContains != "" && strings.Contains(string(body), m.BodyContains)))
 }

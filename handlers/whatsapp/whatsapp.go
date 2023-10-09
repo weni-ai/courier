@@ -178,10 +178,10 @@ type eventPayload struct {
 }
 
 // checkBlockedContact is a function to verify if the contact from msg has status blocked to return an error or not if it is active
-func checkBlockedContact(payload *eventPayload, ctx context.Context, channel courier.Channel, h *handler) error {
+func checkBlockedContact(payload *eventPayload, ctx context.Context, channel courier.Channel, h *handler, clog *courier.ChannelLog) error {
 	if len(payload.Contacts) > 0 {
 		if contactURN, err := urns.NewWhatsAppURN(payload.Contacts[0].WaID); err == nil {
-			if contact, err := h.Backend().GetContact(ctx, channel, contactURN, channel.StringConfigForKey(courier.ConfigAuthToken, ""), payload.Contacts[0].Profile.Name); err == nil {
+			if contact, err := h.Backend().GetContact(ctx, channel, contactURN, channel.StringConfigForKey(courier.ConfigAuthToken, ""), payload.Contacts[0].Profile.Name, clog); err == nil {
 				c, err := json.Marshal(contact)
 				if err != nil {
 					return err
@@ -211,7 +211,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
-	err = checkBlockedContact(payload, ctx, channel, h)
+	err = checkBlockedContact(payload, ctx, channel, h, clog)
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +339,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 
 	webhook := channel.ConfigForKey("webhook", nil)
 	if webhook != nil {
-		er := handlers.SendWebhooks(channel, r, webhook)
+		er := handlers.SendWebhooks(channel, r, webhook, clog)
 		if er != nil {
 			courier.LogRequestError(r, channel, fmt.Errorf("could not send webhook: %s", er))
 		}
@@ -650,9 +650,8 @@ func buildPayloads(msg courier.Msg, h *handler, clog *courier.ChannelLog) ([]int
 
 	textAsCaption := false
 
-	// do we have a template?
-	templating, err := h.getTemplate(msg)
-	if templating != nil || len(msg.Attachments()) == 0 {
+	if len(msg.Attachments()) > 0 {
+		for attachmentCount, attachment := range msg.Attachments() {
 
 			mimeType, mediaURL := handlers.SplitAttachment(attachment)
 			mediaID, err := h.fetchMediaID(msg, mimeType, mediaURL, clog)
@@ -820,6 +819,7 @@ func buildPayloads(msg courier.Msg, h *handler, clog *courier.ChannelLog) ([]int
 				}
 				payloads = append(payloads, payload)
 			} else {
+
 				payload := templatePayload{
 					To:   msg.URN().Path(),
 					Type: "template",
@@ -836,58 +836,6 @@ func buildPayloads(msg courier.Msg, h *handler, clog *courier.ChannelLog) ([]int
 				}
 				payload.Template.Components = append(payload.Template.Components, *component)
 
-				if len(msg.Attachments()) > 0 {
-
-					header := &Component{Type: "header"}
-
-					for _, attachment := range msg.Attachments() {
-
-						mimeType, mediaURL := handlers.SplitAttachment(attachment)
-						mediaID, mediaLogs, err := h.fetchMediaID(msg, mimeType, mediaURL)
-						if len(mediaLogs) > 0 {
-							logs = append(logs, mediaLogs...)
-						}
-						if err != nil {
-							logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("error while uploading media to whatsapp")
-						}
-						fileURL := mediaURL
-						if err != nil && mediaID != "" {
-							mediaURL = ""
-						}
-						if strings.HasPrefix(mimeType, "image") {
-							image := &mmtImage{
-								Link: mediaURL,
-							}
-							header.Parameters = append(header.Parameters, Param{Type: "image", Image: image})
-							payload.Template.Components = append(payload.Template.Components, *header)
-						} else if strings.HasPrefix(mimeType, "application") {
-
-							filename, err := utils.BasePathForURL(fileURL)
-							if err != nil {
-								logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("Error while parsing the media URL")
-							}
-
-							document := &mmtDocument{
-								Link:     mediaURL,
-								Filename: filename,
-							}
-							header.Parameters = append(header.Parameters, Param{Type: "document", Document: document})
-							payload.Template.Components = append(payload.Template.Components, *header)
-						} else if strings.HasPrefix(mimeType, "video") {
-							video := &mmtVideo{
-								Link: mediaURL,
-							}
-							header.Parameters = append(header.Parameters, Param{Type: "video", Video: video})
-							payload.Template.Components = append(payload.Template.Components, *header)
-						} else {
-							duration := time.Since(start)
-							err = fmt.Errorf("unknown attachment mime type: %s", mimeType)
-							attachmentLogs := []*courier.ChannelLog{courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), duration, err)}
-							logs = append(logs, attachmentLogs...)
-							break
-						}
-					}
-				}
 				payloads = append(payloads, payload)
 			}
 		} else {
@@ -984,152 +932,6 @@ func buildPayloads(msg courier.Msg, h *handler, clog *courier.ChannelLog) ([]int
 				}
 			}
 		}
-	} else {
-
-		if len(msg.Attachments()) > 0 {
-			for attachmentCount, attachment := range msg.Attachments() {
-
-				mimeType, mediaURL := handlers.SplitAttachment(attachment)
-				mediaID, mediaLogs, err := h.fetchMediaID(msg, mimeType, mediaURL)
-				if len(mediaLogs) > 0 {
-					logs = append(logs, mediaLogs...)
-				}
-				if err != nil {
-					logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("error while uploading media to whatsapp")
-				}
-				fileURL := mediaURL
-				if err == nil && mediaID != "" {
-					mediaURL = ""
-				}
-				mediaPayload := &mediaObject{ID: mediaID, Link: mediaURL}
-				if strings.HasPrefix(mimeType, "audio") {
-					payload := mtAudioPayload{
-						To:   msg.URN().Path(),
-						Type: "audio",
-					}
-					payload.Audio = mediaPayload
-					payloads = append(payloads, payload)
-				} else if strings.HasPrefix(mimeType, "application") {
-					payload := mtDocumentPayload{
-						To:   msg.URN().Path(),
-						Type: "document",
-					}
-					if attachmentCount == 0 && !isInteractiveMsg {
-						mediaPayload.Caption = msg.Text()
-						textAsCaption = true
-					}
-					mediaPayload.Filename, err = utils.BasePathForURL(fileURL)
-					// Logging error
-					if err != nil {
-						logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("Error while parsing the media URL")
-					}
-					payload.Document = mediaPayload
-					payloads = append(payloads, payload)
-				} else if strings.HasPrefix(mimeType, "image") {
-					payload := mtImagePayload{
-						To:   msg.URN().Path(),
-						Type: "image",
-					}
-					if attachmentCount == 0 && !isInteractiveMsg {
-						mediaPayload.Caption = msg.Text()
-						textAsCaption = true
-					}
-					payload.Image = mediaPayload
-					payloads = append(payloads, payload)
-				} else if strings.HasPrefix(mimeType, "video") {
-					payload := mtVideoPayload{
-						To:   msg.URN().Path(),
-						Type: "video",
-					}
-					if attachmentCount == 0 && !isInteractiveMsg {
-						mediaPayload.Caption = msg.Text()
-						textAsCaption = true
-					}
-					payload.Video = mediaPayload
-					payloads = append(payloads, payload)
-				} else {
-					duration := time.Since(start)
-					err = fmt.Errorf("unknown attachment mime type: %s", mimeType)
-					attachmentLogs := []*courier.ChannelLog{courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), duration, err)}
-					logs = append(logs, attachmentLogs...)
-					break
-				}
-			}
-
-			if !textAsCaption && !isInteractiveMsg {
-				for _, part := range parts {
-
-					//check if you have a link
-					var payload mtTextPayload
-					if strings.Contains(part, "https://") || strings.Contains(part, "http://") {
-						payload = mtTextPayload{
-							To:         msg.URN().Path(),
-							Type:       "text",
-							PreviewURL: true,
-						}
-					} else {
-						payload = mtTextPayload{
-							To:   msg.URN().Path(),
-							Type: "text",
-						}
-					}
-					payload.Text.Body = part
-					payloads = append(payloads, payload)
-				}
-			}
-
-			if isInteractiveMsg {
-				for i, part := range parts {
-					if i < (len(parts) - 1) { //if split into more than one message, the first parts will be text and the last interactive
-						payload := mtTextPayload{
-							To:   msg.URN().Path(),
-							Type: "text",
-						}
-						payload.Text.Body = part
-						payloads = append(payloads, payload)
-
-					} else {
-						payload := mtInteractivePayload{
-							To:   msg.URN().Path(),
-							Type: "interactive",
-						}
-
-						// up to 3 qrs the interactive message will be button type, otherwise it will be list
-						if len(qrs) <= 3 {
-							payload.Interactive.Type = "button"
-							payload.Interactive.Body.Text = part
-							btns := make([]mtButton, len(qrs))
-							for i, qr := range qrs {
-								btns[i] = mtButton{
-									Type: "reply",
-								}
-								btns[i].Reply.ID = fmt.Sprint(i)
-								btns[i].Reply.Title = qr
-							}
-							payload.Interactive.Action.Buttons = btns
-							payloads = append(payloads, payload)
-						} else {
-							payload.Interactive.Type = "list"
-							payload.Interactive.Body.Text = part
-							payload.Interactive.Action.Button = "Menu"
-							section := mtSection{
-								Rows: make([]mtSectionRow, len(qrs)),
-							}
-							for i, qr := range qrs {
-								section.Rows[i] = mtSectionRow{
-									ID:    fmt.Sprint(i),
-									Title: qr,
-								}
-							}
-							payload.Interactive.Action.Sections = []mtSection{
-								section,
-							}
-							payloads = append(payloads, payload)
-						}
-					}
-				}
-			}
-		}
 	}
 	return payloads, err
 }
@@ -1183,10 +985,10 @@ func (h *handler) fetchMediaID(msg courier.Msg, mimeType, mediaURL string, clog 
 		return "", errors.Wrapf(err, "error building request to media endpoint")
 	}
 	setWhatsAppAuthHeader(&req.Header, msg.Channel())
-	mtype := http.DetectContentType(rr.Body)
+	mtype := http.DetectContentType(respBody)
 
 	if mtype != mimeType || mtype == "application/octet-stream" || mtype == "application/zip" {
-		mimeT := mimetype.Detect(rr.Body)
+		mimeT := mimetype.Detect(respBody)
 		req.Header.Add("Content-Type", mimeT.String())
 	} else {
 		req.Header.Add("Content-Type", mtype)

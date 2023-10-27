@@ -127,6 +127,7 @@ type Msg interface {
 	Body() string
 	Footer() string
 	Action() string
+	SendCatalog() bool
 }
 
 type RunEvent struct {

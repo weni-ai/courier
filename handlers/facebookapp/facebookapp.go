@@ -84,9 +84,10 @@ const (
 var failedMediaCache *cache.Cache
 
 const (
-	InteractiveProductSingleType  = "product"
-	InteractiveProductListType    = "product_list"
-	InteractiveProductCatalogType = "catalog_product"
+	InteractiveProductSingleType         = "product"
+	InteractiveProductListType           = "product_list"
+	InteractiveProductCatalogType        = "catalog_product"
+	InteractiveProductCatalogMessageType = "catalog_message"
 )
 
 func newHandler(channelType courier.ChannelType, name string, useUUIDRoutes bool) courier.ChannelHandler {
@@ -1750,7 +1751,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		products := msg.Products()
 
 		var interactiveType string
-		if len(products) > 1 {
+		if msg.SendCatalog() {
+			interactiveType = InteractiveProductCatalogMessageType
+		} else if len(products) > 1 {
 			interactiveType = InteractiveProductListType
 		} else {
 			interactiveType = InteractiveProductSingleType
@@ -1766,7 +1769,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			Text: msg.Body(),
 		}
 
-		if msg.Header() != "" && len(products) > 1 {
+		if msg.Header() != "" && len(products) > 1 && !msg.SendCatalog() {
 			interactive.Header = &struct {
 				Type     string     `json:"type"`
 				Text     string     `json:"text,omitempty"`

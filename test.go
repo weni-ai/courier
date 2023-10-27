@@ -599,11 +599,12 @@ type mockMsg struct {
 	sentOn     *time.Time
 	wiredOn    *time.Time
 
-	header   string
-	body     string
-	footer   string
-	products []string
-	action   string
+	header      string
+	body        string
+	footer      string
+	products    []string
+	action      string
+	sendCatalog bool
 }
 
 func (m *mockMsg) SessionStatus() string { return "" }
@@ -693,6 +694,18 @@ func (m *mockMsg) Action() string {
 	}
 	action, _, _, _ := jsonparser.Get(m.metadata, "action")
 	return string(action)
+}
+
+func (m *mockMsg) SendCatalog() bool {
+	if m.metadata == nil {
+		return false
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "send_catalog")
+	sendCatalog, err := strconv.ParseBool(string(byteValue))
+	if err != nil {
+		return false
+	}
+	return sendCatalog
 }
 
 //-----------------------------------------------------------------------------

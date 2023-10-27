@@ -582,11 +582,12 @@ type DBMsg struct {
 	quickReplies   []string
 	textLanguage   string
 
-	products []string
-	header   string
-	body     string
-	footer   string
-	action   string
+	products   []string
+	header     string
+	body       string
+	footer     string
+	action     string
+	sendAction bool
 }
 
 func (m *DBMsg) ID() courier.MsgID            { return m.ID_ }
@@ -760,4 +761,16 @@ func (m *DBMsg) Action() string {
 	}
 	action, _, _, _ := jsonparser.Get(m.Metadata_, "action")
 	return string(action)
+}
+
+func (m *DBMsg) SendCatalog() bool {
+	if m.Metadata_ == nil {
+		return false
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.Metadata_, "send_catalog")
+	sendCatalog, err := strconv.ParseBool(string(byteValue))
+	if err != nil {
+		return false
+	}
+	return sendCatalog
 }

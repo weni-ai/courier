@@ -1737,7 +1737,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 	}
 
-	if len(msg.Products()) > 0 {
+	if len(msg.Products()) > 0 || msg.SendCatalog() {
 
 		catalogID := msg.Channel().StringConfigForKey("catalog_id", "")
 		if catalogID == "" {
@@ -1790,7 +1790,23 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			}
 		}
 
-		if len(products) > 0 {
+		if msg.SendCatalog() {
+			interactive.Action = &struct {
+				Button            string         `json:"button,omitempty"`
+				Sections          []wacMTSection `json:"sections,omitempty"`
+				Buttons           []wacMTButton  `json:"buttons,omitempty"`
+				CatalogID         string         `json:"catalog_id,omitempty"`
+				ProductRetailerID string         `json:"product_retailer_id,omitempty"`
+				Name              string         `json:"name,omitempty"`
+			}{
+				Name: "catalog_message",
+			}
+			payload.Interactive = &interactive
+			status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true)
+			if err != nil {
+				return status, err
+			}
+		} else if len(products) > 0 {
 			if len(products) > 1 {
 
 				blockSize := 30

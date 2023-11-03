@@ -1,3 +1,7 @@
+1.4.30-courier-7.1.0
+----------
+  * Msg catalog implementations in msg and handler
+
 1.4.29-courier-7.1.0
 ----------
   * Normalize strings with slashes in quick replies on wwc

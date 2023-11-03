@@ -581,6 +581,13 @@ type DBMsg struct {
 	alreadyWritten bool
 	quickReplies   []string
 	textLanguage   string
+
+	products   []string
+	header     string
+	body       string
+	footer     string
+	action     string
+	sendAction bool
 }
 
 func (m *DBMsg) ID() courier.MsgID            { return m.ID_ }
@@ -704,3 +711,66 @@ func GetMsgByUUID(b *backend, uuid string) (*DBMsg, error) {
 }
 
 func (m *DBMsg) Status() courier.MsgStatusValue { return m.Status_ }
+
+func (m *DBMsg) Products() []string {
+	if m.products != nil {
+		return m.products
+	}
+
+	if m.Metadata_ == nil {
+		return nil
+	}
+
+	m.products = []string{}
+	jsonparser.ArrayEach(
+		m.Metadata_,
+		func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
+			m.products = append(m.products, string(value))
+		},
+		"products")
+	return m.products
+}
+
+func (m *DBMsg) Header() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	header, _, _, _ := jsonparser.Get(m.Metadata_, "header")
+	return string(header)
+}
+
+func (m *DBMsg) Body() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	body, _, _, _ := jsonparser.Get(m.Metadata_, "body")
+	return string(body)
+}
+
+func (m *DBMsg) Footer() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	footer, _, _, _ := jsonparser.Get(m.Metadata_, "footer")
+	return string(footer)
+}
+
+func (m *DBMsg) Action() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	action, _, _, _ := jsonparser.Get(m.Metadata_, "action")
+	return string(action)
+}
+
+func (m *DBMsg) SendCatalog() bool {
+	if m.Metadata_ == nil {
+		return false
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.Metadata_, "send_catalog")
+	sendCatalog, err := strconv.ParseBool(string(byteValue))
+	if err != nil {
+		return false
+	}
+	return sendCatalog
+}

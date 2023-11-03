@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/buger/jsonparser"
 	"github.com/nyaruka/gocommon/urns"
 	"github.com/nyaruka/gocommon/uuids"
 
@@ -597,6 +598,13 @@ type mockMsg struct {
 	receivedOn *time.Time
 	sentOn     *time.Time
 	wiredOn    *time.Time
+
+	header      string
+	body        string
+	footer      string
+	products    []string
+	action      string
+	sendCatalog bool
 }
 
 func (m *mockMsg) SessionStatus() string { return "" }
@@ -636,6 +644,69 @@ func (m *mockMsg) WithAttachment(url string) Msg {
 }
 func (m *mockMsg) WithMetadata(metadata json.RawMessage) Msg { m.metadata = metadata; return m }
 func (m *mockMsg) Status() MsgStatusValue                    { return "" }
+
+func (m *mockMsg) Header() string {
+	if m.metadata == nil {
+		return ""
+	}
+	header, _, _, _ := jsonparser.Get(m.metadata, "header")
+	return string(header)
+}
+
+func (m *mockMsg) Body() string {
+	if m.metadata == nil {
+		return ""
+	}
+	body, _, _, _ := jsonparser.Get(m.metadata, "body")
+	return string(body)
+}
+
+func (m *mockMsg) Footer() string {
+	if m.metadata == nil {
+		return ""
+	}
+	footer, _, _, _ := jsonparser.Get(m.metadata, "footer")
+	return string(footer)
+}
+
+func (m *mockMsg) Products() []string {
+	if m.products != nil {
+		return m.products
+	}
+
+	if m.metadata == nil {
+		return nil
+	}
+
+	m.products = []string{}
+	jsonparser.ArrayEach(
+		m.metadata,
+		func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
+			m.products = append(m.products, string(value))
+		},
+		"products")
+	return m.products
+}
+
+func (m *mockMsg) Action() string {
+	if m.metadata == nil {
+		return ""
+	}
+	action, _, _, _ := jsonparser.Get(m.metadata, "action")
+	return string(action)
+}
+
+func (m *mockMsg) SendCatalog() bool {
+	if m.metadata == nil {
+		return false
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "send_catalog")
+	sendCatalog, err := strconv.ParseBool(string(byteValue))
+	if err != nil {
+		return false
+	}
+	return sendCatalog
+}
 
 //-----------------------------------------------------------------------------
 // Mock status implementation

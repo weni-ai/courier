@@ -535,7 +535,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					text = msg.Video.Caption
 					mediaURL, err = resolveMediaURL(channel, msg.Video.ID, token)
 				} else if msg.Type == "location" && msg.Location != nil {
-					mediaURL = fmt.Sprintf("geo:%f,%f", msg.Location.Latitude, msg.Location.Longitude)
+					mediaURL = fmt.Sprintf("geo:%f,%f;name:%s;address:%s", msg.Location.Latitude, msg.Location.Longitude, msg.Location.Name, msg.Location.Address)
 				} else if msg.Type == "interactive" && msg.Interactive.Type == "button_reply" {
 					text = msg.Interactive.ButtonReply.Title
 				} else if msg.Type == "interactive" && msg.Interactive.Type == "list_reply" {

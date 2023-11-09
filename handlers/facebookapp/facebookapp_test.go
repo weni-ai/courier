@@ -338,7 +338,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 		Text: Sp("Check out my new phone!"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Attachment: Sp("https://foo.bar/attachmentURL_Audio"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Valid Location Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/locationWAC.json")), Status: 200, Response: `"type":"msg"`,
-		Text: Sp(""), Attachment: Sp("geo:0.000000,1.000000"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		Text: Sp(""), Attachment: Sp("geo:0.000000,1.000000;name:Main Street Beach;address:Main Street Beach, Santa Cruz, CA"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Valid Interactive Button Reply Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/buttonReplyWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("Yes"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),

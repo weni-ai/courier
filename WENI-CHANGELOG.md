@@ -1,3 +1,7 @@
+1.4.31-courier-7.1.0
+----------
+  * Add other location fields in the message
+
 1.4.30-courier-7.1.0
 ----------
   * Msg catalog implementations in msg and handler

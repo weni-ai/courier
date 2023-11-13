@@ -192,6 +192,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 			switch content := att.Content.(type) {
 			case string:
 				text = strings.ReplaceAll(content, "<p>", "")
+				text = strings.ReplaceAll(text, "</p>", "")
 			case map[string]interface{}:
 				downloadURL, ok := content["downloadUrl"].(string)
 				if ok && downloadURL != "" {

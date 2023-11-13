@@ -189,8 +189,15 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		attachmentURLs := make([]string, 0, 2)
 
 		for _, att := range payload.Attachments {
-			if att.ContentType != "" && att.Content.DownloadUrl != "" {
-				attachmentURLs = append(attachmentURLs, att.Content.DownloadUrl)
+			switch content := att.Content.(type) {
+			case string:
+				text = strings.ReplaceAll(content, "<p>", "")
+			case map[string]interface{}:
+				downloadURL, ok := content["downloadUrl"].(string)
+				if ok && downloadURL != "" {
+					attachmentURLs = append(attachmentURLs, downloadURL)
+				}
+			default:
 			}
 		}
 
@@ -336,14 +343,10 @@ type ConversationAccount struct {
 }
 
 type Attachment struct {
-	ContentType string `json:"contentType"`
-	ContentUrl  string `json:"contentUrl"`
-	Name        string `json:"name,omitempty"`
-	Content     struct {
-		DownloadUrl string `json:"downloadUrl,omitempty"`
-		UniqueId    string `json:"uniqueId,omitempty"`
-		FileType    string `json:"fileType,omitempty"`
-	} `json:"content,omitempty"`
+	ContentType string      `json:"contentType"`
+	ContentUrl  string      `json:"contentUrl"`
+	Name        string      `json:"name,omitempty"`
+	Content     interface{} `json:"content,omitempty"`
 }
 
 type CardAction struct {

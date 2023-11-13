@@ -62,13 +62,19 @@ var attachment = `{
 	"id": "56834",
 	"timestamp": "2022-06-06T16:51:00.0000000Z",
 	"serviceUrl": "https://smba.trafficmanager.net/br/",
-	"text":"Hello World",
 	"type":"message",
 	"attachments":[
 		{
 			"contentType": "image",
 			"contentUrl": "https://image-url/foo.png",
-			"name": "foo.png"
+			"name": "foo.png",
+			"content": {
+				"downloadUrl": "https://download-url/foo.png"
+			}
+		},
+		{
+			"contentType": "text",
+			"content": "Image caption"
 		}
 	]
 }`
@@ -89,7 +95,10 @@ var attachmentVideo = `{
 		{
 			"contentType": "video/mp4",
 			"contentUrl": "https://video-url/foo.mp4",
-			"name": "foo.png"
+			"name": "foo.png",
+			"content": {
+				"downloadUrl": "https://download-url/foo.mp4"
+			}
 		}
 	]
 }`
@@ -110,7 +119,10 @@ var attachmentDocument = `{
 		{
 			"contentType": "application/pdf",
 			"contentUrl": "https://document-url/foo.pdf",
-			"name": "foo.png"
+			"name": "foo.png",
+			"content": {
+				"downloadUrl": "https://download-url/foo.pdf"
+			}
 		}
 	]
 }`
@@ -156,8 +168,8 @@ var testCases = []ChannelHandleTestCase{
 		Data:              attachment,
 		Status:            200,
 		Response:          "Handled",
-		Text:              Sp("Hello World"),
-		Attachments:       []string{"https://image-url/foo.png"},
+		Text:              Sp("Image caption"),
+		Attachments:       []string{"https://download-url/foo.png"},
 		URN:               Sp("teams:a:2811:serviceURL:https://smba.trafficmanager.net/br/"),
 		ExternalID:        Sp("56834"),
 		Date:              Tp(time.Date(2022, 6, 6, 16, 51, 00, 0000000, time.UTC)),
@@ -171,7 +183,7 @@ var testCases = []ChannelHandleTestCase{
 		Status:            200,
 		Response:          "Handled",
 		Text:              Sp("Hello World"),
-		Attachments:       []string{"https://video-url/foo.mp4"},
+		Attachments:       []string{"https://download-url/foo.mp4"},
 		URN:               Sp("teams:a:2811:serviceURL:https://smba.trafficmanager.net/br/"),
 		ExternalID:        Sp("56834"),
 		Date:              Tp(time.Date(2022, 6, 6, 16, 51, 00, 0000000, time.UTC)),
@@ -185,7 +197,7 @@ var testCases = []ChannelHandleTestCase{
 		Status:            200,
 		Response:          "Handled",
 		Text:              Sp("Hello World"),
-		Attachments:       []string{"https://document-url/foo.pdf"},
+		Attachments:       []string{"https://download-url/foo.pdf"},
 		URN:               Sp("teams:a:2811:serviceURL:https://smba.trafficmanager.net/br/"),
 		ExternalID:        Sp("56834"),
 		Date:              Tp(time.Date(2022, 6, 6, 16, 51, 00, 0000000, time.UTC)),

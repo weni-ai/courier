@@ -1,3 +1,7 @@
+1.4.32-courier-7.1.0
+----------
+  * Fix attachment handling for Teams handler
+
 1.4.31-courier-7.1.0
 ----------
   * Add other location fields in the message

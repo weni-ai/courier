@@ -189,8 +189,16 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		attachmentURLs := make([]string, 0, 2)
 
 		for _, att := range payload.Attachments {
-			if att.ContentType != "" && att.ContentUrl != "" {
-				attachmentURLs = append(attachmentURLs, att.ContentUrl)
+			switch content := att.Content.(type) {
+			case string:
+				text = strings.ReplaceAll(content, "<p>", "")
+				text = strings.ReplaceAll(text, "</p>", "")
+			case map[string]interface{}:
+				downloadURL, ok := content["downloadUrl"].(string)
+				if ok && downloadURL != "" {
+					attachmentURLs = append(attachmentURLs, downloadURL)
+				}
+			default:
 			}
 		}
 
@@ -336,9 +344,10 @@ type ConversationAccount struct {
 }
 
 type Attachment struct {
-	ContentType string `json:"contentType"`
-	ContentUrl  string `json:"contentUrl"`
-	Name        string `json:"name,omitempty"`
+	ContentType string      `json:"contentType"`
+	ContentUrl  string      `json:"contentUrl"`
+	Name        string      `json:"name,omitempty"`
+	Content     interface{} `json:"content,omitempty"`
 }
 
 type CardAction struct {
@@ -390,7 +399,11 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		if err != nil {
 			logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("Error while parsing the media URL")
 		}
-		payload.Attachments = append(payload.Attachments, Attachment{attType, attURL, filename})
+		payload.Attachments = append(payload.Attachments, Attachment{attType, attURL, filename, struct {
+			DownloadUrl string "json:\"downloadUrl,omitempty\""
+			UniqueId    string "json:\"uniqueId,omitempty\""
+			FileType    string "json:\"fileType,omitempty\""
+		}{}})
 	}
 
 	if msg.Text() != "" {

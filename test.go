@@ -602,7 +602,7 @@ type mockMsg struct {
 	header      string
 	body        string
 	footer      string
-	products    []string
+	products    map[string][]string
 	action      string
 	sendCatalog bool
 }
@@ -669,20 +669,26 @@ func (m *mockMsg) Footer() string {
 	return string(footer)
 }
 
-func (m *mockMsg) Products() []string {
+func (m *mockMsg) Products() map[string][]string {
 	if m.products != nil {
 		return m.products
 	}
 
-	if m.metadata == nil {
+	if m.Metadata() == nil {
 		return nil
 	}
 
-	m.products = []string{}
-	jsonparser.ArrayEach(
-		m.metadata,
-		func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-			m.products = append(m.products, string(value))
+	m.products = map[string][]string{}
+	jsonparser.ObjectEach(
+		m.Metadata(),
+		func(key []byte, value []byte, dataType jsonparser.ValueType, offset int) error {
+			var stringArray []string
+			err := json.Unmarshal(value, &stringArray)
+			if err != nil {
+				return err
+			}
+			m.products[string(key)] = stringArray
+			return nil
 		},
 		"products")
 	return m.products

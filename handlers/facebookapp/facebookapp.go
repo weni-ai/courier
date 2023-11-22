@@ -1863,6 +1863,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							})
 						}
 
+						if key == "product_retailer_id" {
+							key = "items"
+						}
+
 						sections = append(sections, wacMTSection{Title: key, ProductItems: sproducts})
 					}
 				}
@@ -1886,7 +1890,6 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					return status, err
 				}
 			} else {
-				fmt.Println("unitario")
 				interactive.Action = &struct {
 					Button            string         `json:"button,omitempty"`
 					Sections          []wacMTSection `json:"sections,omitempty"`

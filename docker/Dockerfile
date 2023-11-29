@@ -2,15 +2,13 @@ FROM golang:1.17.5-alpine3.14 AS builder
 
 WORKDIR /app
 
-RUN go env -w GOMODCACHE=/root/.cache/go-build
-
 RUN apk add --no-cache --virtual build-deps curl gcc
 
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/root/.cache/go-build go mod download
+RUN --mount=type=cache,target=/go/pkg/mod/ go mod download
 
 COPY . ./
-RUN --mount=type=cache,target=/root/.cache/go-build go install -v ./cmd/...
+RUN --mount=type=cache,target=/go/pkg/mod/ go install -v ./cmd/...
 
 FROM alpine:3.18.4
 

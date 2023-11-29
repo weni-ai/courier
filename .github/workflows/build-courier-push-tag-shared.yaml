@@ -55,6 +55,17 @@ jobs:
           username: ${{ secrets.AWS_ACCESS_KEY_ID_SHARED }}      
           password: ${{ secrets.AWS_SECRET_ACCESS_KEY_SHARED }}
 
+      - name: Go Build Cache for Docker
+        uses: actions/cache@v3
+        with:
+          path: go-build-cache
+          key: ${{ runner.os }}-go-build-cache-${{ hashFiles('**/go.sum') }}
+
+      - name: inject go-build-cache into docker
+        uses: reproducible-containers/buildkit-cache-dance@v2.1.2
+        with:
+          cache-source: go-build-cache
+
       - name: Build and push - Courier Image
         uses: docker/build-push-action@v3
         with:
@@ -66,7 +77,8 @@ jobs:
           file: docker/Dockerfile
           push: true
           tags: "${{env.IMAGE_TAG}}"
-          no-cache: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Check out Kubernetes Manifests
         uses: actions/checkout@master
@@ -130,4 +142,3 @@ jobs:
           directory: ./kubernetes-manifests/
           branch: main
           message: "From Courier Build (Push Tag ${{ env.MANIFESTS_ENVIRONMENT }})"
-          

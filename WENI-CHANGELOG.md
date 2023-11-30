@@ -1,3 +1,7 @@
+1.4.33-courier-7.1.0
+----------
+  * Divide searches into product sections
+
 1.4.32-courier-7.1.0
 ----------
   * Fix attachment handling for Teams handler

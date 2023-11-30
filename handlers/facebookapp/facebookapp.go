@@ -1775,10 +1775,20 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 		products := msg.Products()
 
+		isUnitaryProduct := true
+		var unitaryProduct string
+		for _, values := range products {
+			if len(values) > 1 || len(products) > 1 {
+				isUnitaryProduct = false
+			} else {
+				unitaryProduct = values[0]
+			}
+		}
+
 		var interactiveType string
 		if msg.SendCatalog() {
 			interactiveType = InteractiveProductCatalogMessageType
-		} else if len(products) > 1 {
+		} else if !isUnitaryProduct {
 			interactiveType = InteractiveProductListType
 		} else {
 			interactiveType = InteractiveProductSingleType
@@ -1794,7 +1804,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			Text: msg.Body(),
 		}
 
-		if msg.Header() != "" && len(products) > 1 && !msg.SendCatalog() {
+		if msg.Header() != "" && !isUnitaryProduct && !msg.SendCatalog() {
 			interactive.Header = &struct {
 				Type     string     `json:"type"`
 				Text     string     `json:"text,omitempty"`
@@ -1832,48 +1842,52 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				return status, err
 			}
 		} else if len(products) > 0 {
-			if len(products) > 1 {
+			if !isUnitaryProduct {
 
 				blockSize := 30
-				iterations := (len(products) + blockSize - 1) / blockSize
+				sections := []wacMTSection{}
+				for key, values := range products {
+					iterations := (len(values) + blockSize - 1) / blockSize
 
-				for i := 0; i < iterations; i++ {
-					start := i * blockSize
-					end := (i + 1) * blockSize
-					if end > len(products) {
-						end = len(products)
+					for i := 0; i < iterations; i++ {
+						start := i * blockSize
+						end := (i + 1) * blockSize
+						if end > len(values) {
+							end = len(values)
+						}
+
+						sproducts := []wacMTProductItem{}
+						for _, p := range values[start:end] {
+							sproducts = append(sproducts, wacMTProductItem{
+								ProductRetailerID: p,
+							})
+						}
+
+						if key == "product_retailer_id" {
+							key = "items"
+						}
+
+						sections = append(sections, wacMTSection{Title: key, ProductItems: sproducts})
 					}
+				}
 
-					sproducts := []wacMTProductItem{}
-					for _, p := range products[start:end] {
-						sproducts = append(sproducts, wacMTProductItem{
-							ProductRetailerID: p,
-						})
-					}
+				interactive.Action = &struct {
+					Button            string         `json:"button,omitempty"`
+					Sections          []wacMTSection `json:"sections,omitempty"`
+					Buttons           []wacMTButton  `json:"buttons,omitempty"`
+					CatalogID         string         `json:"catalog_id,omitempty"`
+					ProductRetailerID string         `json:"product_retailer_id,omitempty"`
+					Name              string         `json:"name,omitempty"`
+				}{
+					CatalogID: catalogID,
+					Sections:  sections,
+					Name:      msg.Action(),
+				}
 
-					sections := []wacMTSection{{
-						Title:        "items",
-						ProductItems: sproducts,
-					}}
-
-					interactive.Action = &struct {
-						Button            string         `json:"button,omitempty"`
-						Sections          []wacMTSection `json:"sections,omitempty"`
-						Buttons           []wacMTButton  `json:"buttons,omitempty"`
-						CatalogID         string         `json:"catalog_id,omitempty"`
-						ProductRetailerID string         `json:"product_retailer_id,omitempty"`
-						Name              string         `json:"name,omitempty"`
-					}{
-						CatalogID: catalogID,
-						Sections:  sections,
-						Name:      msg.Action(),
-					}
-
-					payload.Interactive = &interactive
-					status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true)
-					if err != nil {
-						return status, err
-					}
+				payload.Interactive = &interactive
+				status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true)
+				if err != nil {
+					return status, err
 				}
 			} else {
 				interactive.Action = &struct {
@@ -1886,7 +1900,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				}{
 					CatalogID:         catalogID,
 					Name:              msg.Action(),
-					ProductRetailerID: products[0],
+					ProductRetailerID: unitaryProduct,
 				}
 				payload.Interactive = &interactive
 				status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true)

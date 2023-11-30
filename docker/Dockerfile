@@ -4,11 +4,11 @@ WORKDIR /app
 
 RUN apk add --no-cache --virtual build-deps curl gcc
 
+COPY go.sum go.mod .
 RUN --mount=type=cache,target=/go/pkg/mod/ \
-    --mount=type=bind,source=go.sum,target=go.sum \
-    --mount=type=bind,source=go.mod,target=go.mod \
     go mod download -x
 
+COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod/ \
     --mount=type=bind,target=. \
     go install -v ./cmd/...

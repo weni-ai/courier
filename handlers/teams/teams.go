@@ -371,7 +371,7 @@ type Activity struct {
 	Name             string              `json:"name,omitempty"`
 	Recipient        ChannelAccount      `json:"recipient,omitempty"`
 	ServiceUrl       string              `json:"serviceUrl,omitempty"`
-	Text             string              `json:"text"`
+	Text             string              `json:"text,omitempty"`
 	Type             string              `json:"type"`
 	Timestamp        string              `json:"timestamp,omitempty"`
 	SuggestedActions SuggestedActions    `json:"suggestedActions,omitempty"`

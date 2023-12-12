@@ -392,6 +392,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	conversationID := path[1]
 
 	msgURL := msg.URN().TeamsServiceURL() + "v3/conversations/a:" + conversationID + "/activities"
+	payload.Type = "message"
 
 	for _, attachment := range msg.Attachments() {
 		attType, attURL := handlers.SplitAttachment(attachment)
@@ -407,7 +408,6 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 
 	if msg.Text() != "" {
-		payload.Type = "message"
 		payload.Text = msg.Text()
 	}
 

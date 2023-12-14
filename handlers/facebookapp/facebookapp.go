@@ -1263,7 +1263,7 @@ type wacComponent struct {
 }
 
 type wacText struct {
-	Body       string `json:"body"`
+	Body       string `json:"body,omitempty"`
 	PreviewURL bool   `json:"preview_url,omitempty"`
 }
 
@@ -1289,7 +1289,7 @@ type wacInteractive struct {
 	} `json:"header,omitempty"`
 	Body struct {
 		Text string `json:"text"`
-	} `json:"body" validate:"required"`
+	} `json:"body,omitempty"`
 	Footer *struct {
 		Text string `json:"text"`
 	} `json:"footer,omitempty"`

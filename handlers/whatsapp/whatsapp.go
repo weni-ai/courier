@@ -455,8 +455,8 @@ type mtTextPayload struct {
 	Type       string `json:"type"  validate:"required"`
 	PreviewURL bool   `json:"preview_url,omitempty"`
 	Text       struct {
-		Body string `json:"body" validate:"required"`
-	} `json:"text"`
+		Body string `json:"body,omitempty"`
+	} `json:"text,omitempty"`
 }
 
 type mtInteractivePayload struct {

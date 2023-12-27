@@ -161,7 +161,7 @@ func (h *handler) Send(ctx context.Context, msg courier.Msg, clog *courier.Chann
 					MediaURL: attachmentURL,
 				}
 			} else {
-				logrus.WithField("channel_uuid", msg.Channel().UUID().String()).Error("unknown attachment mime type: %s", mimeType)
+				logrus.WithField("channel_uuid", msg.Channel().UUID().String()).Error("unknown attachment mime type: ", mimeType)
 				status.SetStatus(courier.MsgFailed)
 				break attachmentsLoop
 			}

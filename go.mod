@@ -33,7 +33,6 @@ require (
 	github.com/gabriel-vasile/mimetype v1.4.1
 	github.com/golang-jwt/jwt/v4 v4.4.1
 	github.com/lestrrat-go/jwx v1.2.25
-	github.com/nyaruka/librato v1.0.0
 	gopkg.in/go-playground/assert.v1 v1.2.1
 )
 
@@ -60,6 +59,7 @@ require (
 	github.com/lestrrat-go/option v1.0.0 // indirect
 	github.com/naoina/go-stringutil v0.1.0 // indirect
 	github.com/naoina/toml v0.1.1 // indirect
+	github.com/nyaruka/librato v1.0.0 // indirect
 	github.com/nyaruka/phonenumbers v1.1.4 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/shopspring/decimal v1.3.1 // indirect
@@ -71,4 +71,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-//replace github.com/nyaruka/gocommon => github.com/Ilhasoft/gocommon v1.22.2-weni
+replace github.com/nyaruka/gocommon => github.com/Ilhasoft/gocommon v1.33.1-weni

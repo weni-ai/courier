@@ -441,7 +441,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		events, data, err = h.processCloudWhatsAppPayload(ctx, channel, payload, w, r, clog)
 		webhook := channel.ConfigForKey("webhook", nil)
 		if webhook != nil {
-			er := handlers.SendWebhooks(channel, r, webhook)
+			er := handlers.SendWebhooks(channel, r, webhook, clog)
 			if er != nil {
 				courier.LogRequestError(r, channel, fmt.Errorf("could not send webhook: %s", er))
 			}

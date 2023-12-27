@@ -1666,7 +1666,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg, 
 		}
 
 		// if payload.contacts[0].wa_id != payload.contacts[0].input | to fix cases with 9 extra
-		if len(respPayload.Contacts) > 0 && respPayload.Contacts[0].WaID != msg.URN().Path() {
+		if respPayload != nil && len(respPayload.Contacts) > 0 && respPayload.Contacts[0].WaID != msg.URN().Path() {
 			if !hasNewURN {
 				toUpdateURN, err := urns.NewWhatsAppURN(respPayload.Contacts[0].WaID)
 				if err != nil {

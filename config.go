@@ -69,9 +69,10 @@ func NewConfig() *Config {
 		S3DisableSSL:        false,
 		S3ForcePathStyle:    false,
 
-		FacebookApplicationSecret:    "missing_facebook_app_secret",
-		FacebookWebhookSecret:        "missing_facebook_webhook_secret",
-		WhatsappAdminSystemUserToken: "missing_whatsapp_admin_system_user_token",
+		FacebookApplicationSecret:      "missing_facebook_app_secret",
+		FacebookWebhookSecret:          "missing_facebook_webhook_secret",
+		WhatsappAdminSystemUserToken:   "missing_whatsapp_admin_system_user_token",
+		WhatsappCloudApplicationSecret: "missing_whatsapp_cloud_app_secret",
 
 		MaxWorkers: 32,
 		LogLevel:   "error",

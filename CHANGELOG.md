@@ -1,3 +1,309 @@
+v7.5.64 (2022-12-13)
+-------------------------
+ * Remove temp workaround to stop D360 channels taking longer than 5 seconds to request attachments
+
+v7.5.63 (2022-11-30)
+-------------------------
+ * Add logs for Facebook, Instagram, Viber, Telgram and Line specific errors
+ * Update deps
+
+v7.5.62 (2022-11-21)
+-------------------------
+ * Rework channel log errors to have separate code and ext_code fields to remove the need for namespaces
+ * Add logs for WhatsApp Cloud specific errors
+
+v7.5.61 (2022-11-18)
+-------------------------
+ * Ensure that URN and contact name are valid utf8 before trying to write to DB
+ * Update to latest gocommon which provides dbutil.ToValidUTF8
+ * Resolve error codes to messages for Twilio and Vonage and log errors for Twilio DLRs
+ * Don't add returned err to channel log if it has logged errors already
+
+v7.5.60
+----------
+ * Allow msg id to be passed to fetch attachment requests and saved on the channel log
+ * Update attachment fetching to handle non-200 response as an unavailable attachment
+
+v7.5.59
+----------
+ * Fix returning non-nil courier.Channel for deleted channels
+
+v7.5.58
+----------
+ * Set server idle timeout to 90 seconds
+ * Test against redis 6.2 and postgres 14
+
+v7.5.57
+----------
+ * Update to latest gocommon
+
+v7.5.56
+----------
+ * Allow empty attachments, e.g. a txt file
+
+v7.5.55
+----------
+ * Update deps including phonenumbers
+
+v7.5.54
+----------
+ * Fetch access tokens for WeChat, JioChat channels as needed
+
+v7.5.53
+----------
+ * Use redisx.IntervalHash for message de-duping checks
+
+v7.5.52
+----------
+ * Add support for JustCall channel type
+
+v7.5.51
+----------
+ * Don't try to download WA attachments with no mediaID
+ * Add WAC interactive message support with attachments, quick replies and captions.
+
+v7.5.50
+----------
+ * Fix recording overall time of an attachment-fetch channel log
+ * Remove no longer used channel_uuid and channel_type fields from msg event payload queued to mailroom
+ * Update to latest gocommon
+
+v7.5.49
+----------
+ * Stop fetching attachments and let message handling service do that via endpoint
+
+v7.5.48
+----------
+ * Fix handling empty and non-200 responses from attachment fetches
+
+v7.5.47
+----------
+ * Fix handling of geo attachments
+
+v7.5.46
+----------
+ * Rework attachment fetching to keep URL and content type separate
+
+v7.5.45
+----------
+ * Basic auth on status endpoint should be optional
+
+v7.5.44
+----------
+ * Add endpoint to download and store attachments by their URL
+
+v7.5.43
+----------
+ * Update dependencies
+ * Skip SSL verification for AC channels
+ * Fix channel log type token_refresh
+
+v7.5.42
+----------
+ * Add channel UUID and type to queued msg events
+ * More jsonx.MustMarshal
+
+v7.5.41
+----------
+ * Customize the http client for D3 attachment fetches to have a timeout of 3 secs
+
+v7.5.40
+----------
+ * Always return 200 status for all WA webhook requests
+ * Remove temporary logging
+
+v7.5.39
+----------
+ * Tweak large attachment logging
+
+v7.5.38
+----------
+ * Tweak large attachment logging
+
+v7.5.37
+----------
+ * Temp logging for large files
+
+v7.5.36
+----------
+ * Update to latest gocommon and remove previous temp logging
+
+v7.5.35
+----------
+ * More logging for large attachment downloads
+
+v7.5.34
+----------
+ * Tweak error message
+
+v7.5.33
+----------
+ * Add more detail to error message from S3 put
+ * Update deps
+
+v7.5.32
+----------
+ * Include requests to download attachments on the channel log for the incoming message
+ * Add support for better channel error reporting
+
+v7.5.31
+----------
+ * Allow twiml channels to send multiple media urls per message
+
+v7.5.30
+----------
+ * Update msg status updating to allow skipping WIRED state
+
+v7.5.29
+----------
+ * Simplify constructing responses and add tests
+ * Make it easier to override responses per handler
+
+v7.5.28
+----------
+ * Update to use SHA256 signature for FBA payload, increase max body bytes limit to 1MiB
+ * Meta channels webhooks requests, should always return 200 status
+
+v7.5.27
+----------
+ * Fix server logging when channel is nil
+
+v7.5.26
+----------
+ * Fix junebug redaction values
+ * Fix redaction on sends and add redaction of error messages
+
+v7.5.25
+----------
+ * Adjust logging for WAC missing channel
+ * Update to latest gocommon
+ * Implement redaction of channel logs
+
+v7.5.24
+----------
+ * Adjust to use the cache by address correctly
+ * Rework handler tests to assert more state by default
+ * Remove duplicate status writes
+ * Append channel log UUIDs on status writes
+ * Set log UUID on incoming messages and channel events
+ * Use go 1.19
+ * Fix some linter warnings
+
+v7.5.23
+----------
+ * Support channels receiving embedded attachments and use with thinq handler
+
+v7.5.22
+----------
+ * Save channel logs with UUID
+
+v7.5.21
+----------
+ * Add codecov token to ci.yml
+ * Add WAC support for sending captioned attachments
+ * Cleanup tests
+ * Include requests made by DescribeURN methods in the channel log for a receive
+
+v7.5.20
+----------
+ * Fix writing errors to channel logs
+
+v7.5.19
+----------
+ * Update to last gocommon
+ * Fix local timezone dependent test
+ * Don't fail CI for codecov problems
+ * Add UUID to channel logs
+ * Replace remaining usages of MakeHTTPRequest
+
+v7.5.18
+----------
+ * Fix insert channel log SQL
+
+v7.5.17
+----------
+ * Fix writing channel logs
+
+v7.5.16
+----------
+ * Write channel logs in new format
+
+v7.5.15
+----------
+ * Use logger for handler func calls
+
+v7.5.14
+----------
+ * Update to latest gocommon and use new recorder reconstruct option
+
+v7.5.13
+----------
+ * Use httpx.Recorder to generate traces of incoming requests
+ * Rework WhatsApp handler to use logger, remove code for storing logs on status objects
+
+v7.5.12
+----------
+ * Adjust LINE to support sending attachments with quick replies later
+
+v7.5.11
+----------
+ * Rework more channel types to pass back traces and errors via logger instead of on status object
+
+v7.5.10
+----------
+ * Update to latest gocommon and fix some go warnings
+ * Support media attachments for LINE
+ * Rework handler DescribeURN methods to take a channel logger
+ * Update more sending to use channel logger
+
+v7.5.9
+----------
+ * Rename S3MediaBucket to S3AttachmentsBucket and S3MediaPrefix to S3AttachmentsPrefix
+ * More handlers to use new HTTP functions
+
+v7.5.8
+----------
+ * Move testing code out of courier package and into new test package
+ * Rework some handler sending to record logs via a logger rather than on the status object
+
+v7.5.7
+----------
+ * Convert remaining channel types to use httpx.Trace
+
+v7.5.6
+----------
+ * Fix URLs from non-resolved attachments that may not be properly escaped
+ * Use httpx.DoTrace for some channels
+ * Convert telegram handler to use ResolveAttachments
+ * Add support for resolving media on the backend
+
+v7.5.5
+----------
+ * Switch to using null.Map instead of utils.NullMap
+
+v7.5.4
+----------
+ * Add AWS Cred Chain support for S3
+ * Update deps and fix incorrect errors import in some handler packages
+
+v7.5.3
+----------
+ * Fix receiving attachments in WAC
+
+v7.5.2
+----------
+ * Support receiving LINE attachments
+
+v7.5.1
+----------
+ * Support Quick replies for LINE channels
+ * Slack channel support
+
+v7.5.0
+----------
+ * Fix receiving quick replies and list replies in WAC
+ * Add link preview support in WAC
+
 v7.4.0
 ----------
  * Update README

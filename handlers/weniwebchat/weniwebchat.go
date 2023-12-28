@@ -13,8 +13,8 @@ import (
 
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
-	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/urns"
+	"github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -32,7 +32,7 @@ func newHandler() courier.ChannelHandler {
 // Initialize is called by the engine once everything is loaded
 func (h *handler) Initialize(s courier.Server) error {
 	h.SetServer(s)
-	s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveMsg)
+	s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveEvent)
 	return nil
 }
 
@@ -52,7 +52,7 @@ type miMessage struct {
 	Longitude string `json:"longitude,omitempty"`
 }
 
-func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request, clog *courier.ChannelLog) ([]courier.Event, error) {
 	payload := &miPayload{}
 	err := handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
@@ -92,13 +92,13 @@ func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w htt
 
 	// build message
 	date := time.Unix(ts, 0).UTC()
-	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Message.Text).WithReceivedOn(date).WithContactName(payload.From)
+	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Message.Text, clog).WithReceivedOn(date).WithContactName(payload.From)
 
 	if mediaURL != "" {
 		msg.WithAttachment(mediaURL)
 	}
 
-	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
+	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r, clog)
 }
 
 var timestamp = ""
@@ -121,9 +121,8 @@ type moMessage struct {
 	QuickReplies []string `json:"quick_replies,omitempty"`
 }
 
-func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
-	start := time.Now()
-	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgSent)
+func (h *handler) Send(ctx context.Context, msg courier.Msg, clog *courier.ChannelLog) (courier.MsgStatus, error) {
+	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgSent, clog)
 
 	baseURL := msg.Channel().StringConfigForKey(courier.ConfigBaseURL, "")
 	if baseURL == "" {
@@ -131,8 +130,6 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 
 	sendURL := fmt.Sprintf("%s/send", baseURL)
-
-	var logs []*courier.ChannelLog
 
 	payload := newOutgoingMessage("message", msg.URN().Path(), msg.Channel().Address(), msg.QuickReplies())
 	lenAttachments := len(msg.Attachments())
@@ -164,9 +161,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 					MediaURL: attachmentURL,
 				}
 			} else {
-				elapsed := time.Since(start)
-				log := courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, fmt.Errorf("unknown attachment mime type: %s", mimeType))
-				logs = append(logs, log)
+				logrus.WithField("channel_uuid", msg.Channel().UUID().String()).Error("unknown attachment mime type: ", mimeType)
 				status.SetStatus(courier.MsgFailed)
 				break attachmentsLoop
 			}
@@ -185,18 +180,16 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			var body []byte
 			body, err := json.Marshal(&payload)
 			if err != nil {
-				elapsed := time.Since(start)
-				log := courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, err)
-				logs = append(logs, log)
+				logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("Error sending message")
 				status.SetStatus(courier.MsgFailed)
 				break attachmentsLoop
 			}
 			req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
 			req.Header.Set("Content-Type", "application/json")
-			res, err := utils.MakeHTTPRequest(req)
-			if res != nil {
-				log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), res).WithError("Message Send Error", err)
-				logs = append(logs, log)
+			_, _, err = handlers.RequestHTTP(req, clog)
+			if err != nil {
+				logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("Message Send Error")
+				status.SetStatus(courier.MsgFailed)
 			}
 			if err != nil {
 				status.SetStatus(courier.MsgFailed)
@@ -213,27 +206,18 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		// build request
 		body, err := json.Marshal(&payload)
 		if err != nil {
-			elapsed := time.Since(start)
-			log := courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, err)
-			logs = append(logs, log)
+			logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("Message Send Error")
+			status.SetStatus(courier.MsgFailed)
 			status.SetStatus(courier.MsgFailed)
 		} else {
 			req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
 			req.Header.Set("Content-Type", "application/json")
-			res, err := utils.MakeHTTPRequest(req)
-			if res != nil {
-				log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), res).WithError("Message Send Error", err)
-				logs = append(logs, log)
-			}
+			_, _, err := handlers.RequestHTTP(req, clog)
 			if err != nil {
 				status.SetStatus(courier.MsgFailed)
 			}
 		}
 
-	}
-
-	for _, log := range logs {
-		status.AddLog(log)
 	}
 
 	return status, nil

@@ -1,3 +1,7 @@
+1.5.2-courier-7.5.64
+----------
+  * Update to v7.5.64
+
 1.5.2-courier-7.4.0
 ----------
   * Add module to send webhooks for WAC and WA

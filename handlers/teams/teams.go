@@ -395,19 +395,33 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	payload.Type = "message"
 
 	for _, attachment := range msg.Attachments() {
-		attType, attURL := handlers.SplitAttachment(attachment)
+		mimeType, attURL := handlers.SplitAttachment(attachment)
+		attType := strings.Split(mimeType, "/")[0]
 		filename, err := utils.BasePathForURL(attURL)
 		if err != nil {
 			logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("Error while parsing the media URL")
 		}
-		payload.Attachments = append(payload.Attachments, Attachment{attType, attURL, filename, struct {
-			DownloadUrl string "json:\"downloadUrl,omitempty\""
-			UniqueId    string "json:\"uniqueId,omitempty\""
-			FileType    string "json:\"fileType,omitempty\""
-		}{}})
+
+		if attType == "application" {
+			attType = "document"
+		}
+
+		if attType == "video" {
+			payload.Text = attURL
+		} else if attType == "document" {
+			payload.Text = attURL
+		} else if attType == "audio" {
+			payload.Text = attURL
+		} else {
+			payload.Attachments = append(payload.Attachments, Attachment{mimeType, attURL, filename, struct {
+				DownloadUrl string "json:\"downloadUrl,omitempty\""
+				UniqueId    string "json:\"uniqueId,omitempty\""
+				FileType    string "json:\"fileType,omitempty\""
+			}{}})
+		}
 	}
 
-	if msg.Text() != "" {
+	if msg.Text() != "" && payload.Text != "" {
 		payload.Text = msg.Text()
 	}
 

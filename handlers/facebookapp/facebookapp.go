@@ -629,6 +629,24 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					return nil, nil, err
 				}
 
+				if msgStatus == courier.MsgDelivered || msgStatus == courier.MsgRead {
+					urn, err := urns.NewWhatsAppURN(status.RecipientID)
+					if err != nil {
+						handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+						continue
+					}
+					contactTo, err := h.Backend().GetContact(ctx, channel, urn, "", "")
+					if err != nil {
+						handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+						continue
+					}
+					err = h.Backend().UpdateContactLastSeenOn(ctx, contactTo.UUID(), time.Now())
+					if err != nil {
+						handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+						continue
+					}
+				}
+
 				events = append(events, event)
 				data = append(data, courier.NewStatusData(event))
 

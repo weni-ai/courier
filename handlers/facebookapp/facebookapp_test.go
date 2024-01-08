@@ -354,6 +354,8 @@ var testCasesWAC = []ChannelHandleTestCase{
 
 	{Label: "Receive Valid Status", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/validStatusWAC.json")), Status: 200, Response: `"type":"status"`,
 		MsgStatus: Sp("S"), ExternalID: Sp("external_id"), PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Valid Delivered Status", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/validDeliveredStatusWAC.json")), Status: 200, Response: `"type":"status"`,
+		MsgStatus: Sp("D"), ExternalID: Sp("external_id"), PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Invalid Status", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/invalidStatusWAC.json")), Status: 400, Response: `"unknown status: in_orbit"`, PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Ignore Status", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/ignoreStatusWAC.json")), Status: 200, Response: `"ignoring status: deleted"`, PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Not Changes", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/notchangesWAC.json")), Status: 400, Response: `"no changes found"`, PrepRequest: addValidSignatureWAC},

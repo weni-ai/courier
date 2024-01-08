@@ -297,9 +297,11 @@ func (w *Sender) sendMessage(msg Msg) {
 			if err != nil {
 				log.WithError(err).Info("error getting contact")
 			}
-			err = w.foreman.server.Backend().UpdateContactLastSeenOn(context.Background(), ctt.UUID(), time.Now())
-			if err != nil {
-				log.WithError(err).Info("error updating contact last seen on")
+			if msg.Channel().ChannelType() != "WAC" {
+				err = w.foreman.server.Backend().UpdateContactLastSeenOn(context.Background(), ctt.UUID(), time.Now())
+				if err != nil {
+					log.WithError(err).Info("error updating contact last seen on")
+				}
 			}
 		}
 	}

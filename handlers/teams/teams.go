@@ -394,6 +394,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	msgURL := msg.URN().TeamsServiceURL() + "v3/conversations/a:" + conversationID + "/activities"
 	payload.Type = "message"
 
+	var attLink string
+
 	for _, attachment := range msg.Attachments() {
 		mimeType, attURL := handlers.SplitAttachment(attachment)
 		attType := strings.Split(mimeType, "/")[0]
@@ -407,11 +409,11 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		}
 
 		if attType == "video" {
-			payload.Text = attURL
+			attLink = attURL
 		} else if attType == "document" {
-			payload.Text = attURL
+			attLink = attURL
 		} else if attType == "audio" {
-			payload.Text = attURL
+			attLink = attURL
 		} else {
 			payload.Attachments = append(payload.Attachments, Attachment{mimeType, attURL, filename, struct {
 				DownloadUrl string "json:\"downloadUrl,omitempty\""
@@ -421,8 +423,14 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		}
 	}
 
-	if msg.Text() != "" && payload.Text != "" {
-		payload.Text = msg.Text()
+	if msg.Text() != "" || attLink != "" {
+		if msg.Text() != "" {
+			payload.Text = msg.Text()
+		}
+
+		if attLink != "" {
+			payload.Text += "\n" + attLink
+		}
 	}
 
 	for _, qr := range msg.QuickReplies() {

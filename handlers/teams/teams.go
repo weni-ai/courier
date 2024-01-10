@@ -386,29 +386,44 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
 
-	payload := Activity{}
+	payloadArray := []Activity{}
 
 	path := strings.Split(msg.URN().Path(), ":")
 	conversationID := path[1]
 
 	msgURL := msg.URN().TeamsServiceURL() + "v3/conversations/a:" + conversationID + "/activities"
-	payload.Type = "message"
 
 	for _, attachment := range msg.Attachments() {
-		attType, attURL := handlers.SplitAttachment(attachment)
+		// Process each attachment separately
+		mimeType, attURL := handlers.SplitAttachment(attachment)
+		attType := strings.Split(mimeType, "/")[0]
 		filename, err := utils.BasePathForURL(attURL)
 		if err != nil {
 			logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("Error while parsing the media URL")
 		}
-		payload.Attachments = append(payload.Attachments, Attachment{attType, attURL, filename, struct {
-			DownloadUrl string "json:\"downloadUrl,omitempty\""
-			UniqueId    string "json:\"uniqueId,omitempty\""
-			FileType    string "json:\"fileType,omitempty\""
-		}{}})
+
+		if attType == "application" {
+			attType = "document"
+		}
+
+		// Create a new payload for each attachment
+		attPayload := Activity{Type: "message"}
+		if attType == "video" || attType == "document" || attType == "audio" {
+			attPayload.Text = attURL
+		} else {
+			attPayload.Attachments = append(attPayload.Attachments, Attachment{mimeType, attURL, filename, struct {
+				DownloadUrl string "json:\"downloadUrl,omitempty\""
+				UniqueId    string "json:\"uniqueId,omitempty\""
+				FileType    string "json:\"fileType,omitempty\""
+			}{}})
+		}
+
+		payloadArray = append(payloadArray, attPayload)
 	}
 
+	textPayload := Activity{Type: "message"}
 	if msg.Text() != "" {
-		payload.Text = msg.Text()
+		textPayload.Text = msg.Text()
 	}
 
 	for _, qr := range msg.QuickReplies() {
@@ -419,38 +434,43 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			Value: qr,
 		}
 
-		payload.SuggestedActions.Actions = append(payload.SuggestedActions.Actions, ca)
-		payload.SuggestedActions.To = append(payload.SuggestedActions.To, conversationID)
+		textPayload.SuggestedActions.Actions = append(textPayload.SuggestedActions.Actions, ca)
+		textPayload.SuggestedActions.To = append(textPayload.SuggestedActions.To, conversationID)
 	}
 
-	jsonBody, err := json.Marshal(payload)
-	if err != nil {
-		return status, err
+	payloadArray = append(payloadArray, textPayload)
+
+	for _, payload := range payloadArray {
+		jsonBody, err := json.Marshal(payload)
+		if err != nil {
+			return status, err
+		}
+
+		req, err := http.NewRequest(http.MethodPost, msgURL, bytes.NewReader(jsonBody))
+
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		rr, err := utils.MakeHTTPRequest(req)
+
+		// record our status and log
+		log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
+		status.AddLog(log)
+		if err != nil {
+			return status, err
+		}
+		status.SetStatus(courier.MsgWired)
+		externalID, err := jsonparser.GetString(rr.Body, "id")
+		if err != nil {
+			log.WithError("Message Send Error", errors.Errorf("unable to get message_id from body"))
+			return status, nil
+		}
+		status.SetExternalID(externalID)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, msgURL, bytes.NewReader(jsonBody))
-
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	rr, err := utils.MakeHTTPRequest(req)
-
-	// record our status and log
-	log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
-	status.AddLog(log)
-	if err != nil {
-		return status, err
-	}
-	status.SetStatus(courier.MsgWired)
-	externalID, err := jsonparser.GetString(rr.Body, "id")
-	if err != nil {
-		log.WithError("Message Send Error", errors.Errorf("unable to get message_id from body"))
-		return status, nil
-	}
-	status.SetExternalID(externalID)
 	return status, nil
 }
 

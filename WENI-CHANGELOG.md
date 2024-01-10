@@ -1,3 +1,7 @@
+1.4.35-courier-7.1.0
+----------
+  * Send attachment link in Teams 
+
 1.4.34-courier-7.1.0
 ----------
   * Fix sending messages with attachments and no captions

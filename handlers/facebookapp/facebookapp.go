@@ -1361,6 +1361,13 @@ type wacMTProductItem struct {
 func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
 	// can't do anything without an access token
 	accessToken := h.Server().Config().WhatsappAdminSystemUserToken
+	userAccessToken := msg.Channel().StringConfigForKey(courier.ConfigUserAccessToken, "")
+
+	// check that userAccessToken is not empty
+	token := accessToken
+	if userAccessToken != "" {
+		token = userAccessToken
+	}
 
 	start := time.Now()
 	hasNewURN := false
@@ -1664,7 +1671,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								zeroIndex = true
 							}
 							payloadAudio = wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path(), Type: "audio", Audio: &wacMTMedia{ID: mediaID, Link: attURL}}
-							status, _, err := requestWAC(payloadAudio, accessToken, msg, status, wacPhoneURL, zeroIndex)
+							status, _, err := requestWAC(payloadAudio, token, msg, status, wacPhoneURL, zeroIndex)
 							if err != nil {
 								return status, nil
 							}
@@ -1754,7 +1761,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			zeroIndex = true
 		}
 
-		status, respPayload, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, zeroIndex)
+		status, respPayload, err := requestWAC(payload, token, msg, status, wacPhoneURL, zeroIndex)
 		if err != nil {
 			return status, err
 		}

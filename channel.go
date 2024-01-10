@@ -55,6 +55,8 @@ const (
 
 	// ConfigSendHeaders is a constant key for channel configs
 	ConfigSendHeaders = "headers"
+
+	ConfigUserAccessToken = "wa_user_access_token"
 )
 
 // ChannelType is our typing of the two char channel types

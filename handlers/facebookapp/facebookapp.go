@@ -1429,16 +1429,26 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					payload.Template.Components = append(payload.Template.Components, header)
 				}
 
-			} else {
+			} else { // aqui
 				if i < (len(msgParts) + len(msg.Attachments()) - 1) {
-					// this is still a msg part
-					text := &wacText{}
-					payload.Type = "text"
 					if strings.Contains(msgParts[i-len(msg.Attachments())], "https://") || strings.Contains(msgParts[i-len(msg.Attachments())], "http://") {
+						text := wacText{}
 						text.PreviewURL = true
+						text.Body = msgParts[i-len(msg.Attachments())]
+						payload.Text = &text
+					} else {
+						text := wacInteractive{Type: "text", Header: &struct {
+							Type     string     "json:\"type\""
+							Text     string     "json:\"text,omitempty\""
+							Video    wacMTMedia "json:\"video,omitempty\""
+							Image    wacMTMedia "json:\"image,omitempty\""
+							Document wacMTMedia "json:\"document,omitempty\""
+						}{Type: "text", Text: msgParts[i-len(msg.Attachments())]}, Footer: &struct {
+							Text string "json:\"text\""
+						}{Text: msg.Footer()}}
+						payload.Type = "interactive"
+						payload.Interactive = &text
 					}
-					text.Body = msgParts[i-len(msg.Attachments())]
-					payload.Text = text
 				} else {
 					if len(qrs) > 0 {
 						payload.Type = "interactive"
@@ -1446,7 +1456,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						if len(qrs) <= 3 {
 							interactive := wacInteractive{Type: "button", Body: struct {
 								Text string "json:\"text\""
-							}{Text: msgParts[i-len(msg.Attachments())]}}
+							}{Text: msgParts[i-len(msg.Attachments())]}, Footer: &struct {
+								Text string "json:\"text\""
+							}{Text: msg.Footer()}}
 
 							btns := make([]wacMTButton, len(qrs))
 							for i, qr := range qrs {

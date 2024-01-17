@@ -605,6 +605,7 @@ type mockMsg struct {
 	products    map[string][]string
 	action      string
 	sendCatalog bool
+	listMessage ListMessage
 }
 
 func (m *mockMsg) SessionStatus() string { return "" }
@@ -712,6 +713,42 @@ func (m *mockMsg) SendCatalog() bool {
 		return false
 	}
 	return sendCatalog
+}
+
+func (m *mockMsg) ListMessage() ListMessage {
+	if m.metadata == nil {
+		return ListMessage{}
+	}
+	// byteValue, _, _, _ := jsonparser.Get(m.metadata, "list_messages")
+	// ListMessages, err := strconv.ParseBool(string(byteValue))
+	// if err != nil {
+	// 	return false
+	// }
+	return ListMessage{}
+}
+
+func (m *mockMsg) HeaderType() string {
+	if m.metadata == nil {
+		return ""
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "header_type")
+	return string(byteValue)
+}
+
+func (m *mockMsg) HeaderText() string {
+	if m.metadata == nil {
+		return ""
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "header_text")
+	return string(byteValue)
+}
+
+func (m *mockMsg) InteractionType() string {
+	if m.metadata == nil {
+		return ""
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "interaction_type")
+	return string(byteValue)
 }
 
 //-----------------------------------------------------------------------------

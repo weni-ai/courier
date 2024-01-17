@@ -273,11 +273,6 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 		}
 	}
 
-	// to allow download media from wac when receive media message
-	if channel.ChannelType() == "WAC" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", b.config.WhatsappAdminSystemUserToken))
-	}
-
 	switch channel.ChannelType() {
 	case "WAC":
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", b.config.WhatsappAdminSystemUserToken))
@@ -582,12 +577,13 @@ type DBMsg struct {
 	quickReplies   []string
 	textLanguage   string
 
-	products   map[string][]string
-	header     string
-	body       string
-	footer     string
-	action     string
-	sendAction bool
+	products     map[string][]string
+	header       string
+	body         string
+	footer       string
+	action       string
+	sendAction   bool
+	listMessages courier.ListItems
 }
 
 func (m *DBMsg) ID() courier.MsgID            { return m.ID_ }
@@ -781,4 +777,40 @@ func (m *DBMsg) SendCatalog() bool {
 		return false
 	}
 	return sendCatalog
+}
+
+func (m *DBMsg) HeaderType() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.Metadata_, "header_type")
+	return string(byteValue)
+}
+
+func (m *DBMsg) HeaderText() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.Metadata_, "header_text")
+	return string(byteValue)
+}
+
+func (m *DBMsg) InteractionType() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.Metadata_, "interaction_type")
+	return string(byteValue)
+}
+
+func (m *DBMsg) ListMessage() courier.ListMessage {
+	if m.Metadata_ == nil {
+		return courier.ListMessage{}
+	}
+	// byteValue, _, _, _ := jsonparser.Get(m.Metadata_, "list_messages")
+	// ListMessages, err := strconv.ParseBool(string(byteValue))
+	// if err != nil {
+	// 	return false
+	// }
+	return courier.ListMessage{}
 }

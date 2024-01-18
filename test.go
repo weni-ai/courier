@@ -719,12 +719,28 @@ func (m *mockMsg) ListMessage() ListMessage {
 	if m.metadata == nil {
 		return ListMessage{}
 	}
-	// byteValue, _, _, _ := jsonparser.Get(m.metadata, "list_messages")
-	// ListMessages, err := strconv.ParseBool(string(byteValue))
-	// if err != nil {
-	// 	return false
-	// }
-	return ListMessage{}
+
+	m.listMessage = ListMessage{}
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "list_title")
+	m.listMessage.ListTitle = string(byteValue)
+
+	byteValue, _, _, _ = jsonparser.Get(m.metadata, "list_footer")
+	m.listMessage.ListFooter = string(byteValue)
+
+	jsonparser.ObjectEach(
+		m.Metadata(),
+		func(key []byte, value []byte, dataType jsonparser.ValueType, offset int) error {
+			var list []ListItems
+			err := json.Unmarshal(value, &list)
+			if err != nil {
+				return err
+			}
+			m.listMessage.ListItems = append(m.listMessage.ListItems, list...)
+			return nil
+		},
+		"list_items")
+
+	return m.listMessage
 }
 
 func (m *mockMsg) HeaderType() string {

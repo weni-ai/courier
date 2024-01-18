@@ -1445,20 +1445,20 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							Document wacMTMedia "json:\"document,omitempty\""
 						}{Type: "text", Text: msgParts[i-len(msg.Attachments())]}, Footer: &struct {
 							Text string "json:\"text\""
-						}{Text: msg.Footer()}}
+						}{Text: msg.ListMessage().ListFooter}}
 						payload.Type = "interactive"
 						payload.Interactive = &text
 					}
 				} else {
-					if len(qrs) > 0 {
+					if len(qrs) > 0 || msg.InteractionType() != "" {
 						payload.Type = "interactive"
 						// We can use buttons
-						if len(qrs) <= 3 {
+						if len(qrs) <= 3 || msg.InteractionType() == "replies" {
 							interactive := wacInteractive{Type: "button", Body: struct {
 								Text string "json:\"text\""
 							}{Text: msgParts[i-len(msg.Attachments())]}, Footer: &struct {
 								Text string "json:\"text\""
-							}{Text: msg.Footer()}}
+							}{Text: msg.ListMessage().ListFooter}}
 
 							btns := make([]wacMTButton, len(qrs))
 							for i, qr := range qrs {
@@ -1485,26 +1485,50 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								Name              string         "json:\"name,omitempty\""
 							}{Buttons: btns}
 							payload.Interactive = &interactive
-						} else if len(qrs) <= 10 {
+						} else if len(qrs) <= 10 || msg.InteractionType() == "list" {
 							interactive := wacInteractive{Type: "list", Body: struct {
 								Text string "json:\"text\""
 							}{Text: msgParts[i-len(msg.Attachments())]}}
 
-							section := wacMTSection{
-								Rows: make([]wacMTSectionRow, len(qrs)),
-							}
-							for i, qr := range qrs {
-								var text string
-								if strings.Contains(qr, "\\/") {
-									text = strings.Replace(qr, "\\", "", -1)
-								} else if strings.Contains(qr, "\\\\") {
-									text = strings.Replace(qr, "\\\\", "\\", -1)
-								} else {
-									text = qr
+							var section wacMTSection
+
+							if len(qrs) > 0 {
+								section = wacMTSection{
+									Rows: make([]wacMTSectionRow, len(qrs)),
 								}
-								section.Rows[i] = wacMTSectionRow{
-									ID:    fmt.Sprint(i),
-									Title: text,
+								for i, qr := range qrs {
+									var text string
+									if strings.Contains(qr, "\\/") {
+										text = strings.Replace(qr, "\\", "", -1)
+									} else if strings.Contains(qr, "\\\\") {
+										text = strings.Replace(qr, "\\\\", "\\", -1)
+									} else {
+										text = qr
+									}
+									section.Rows[i] = wacMTSectionRow{
+										ID:    fmt.Sprint(i),
+										Title: text,
+									}
+								}
+							} else {
+								section = wacMTSection{
+									Rows: make([]wacMTSectionRow, len(msg.ListMessage().ListItems)),
+								}
+								for i, qr := range msg.ListMessage().ListItems {
+									var text string
+									if strings.Contains(qr.Title, "\\/") {
+										text = strings.Replace(qr.Title, "\\", "", -1)
+									} else if strings.Contains(qr.Title, "\\\\") {
+										text = strings.Replace(qr.Title, "\\\\", "\\", -1)
+									} else {
+										text = qr.Title
+									}
+									section.Rows[i] = wacMTSectionRow{
+										ID:          qr.UUID,
+										Title:       text,
+										Description: qr.Description,
+									}
+									section.Title = msg.ListMessage().ListTitle
 								}
 							}
 
@@ -1524,9 +1548,23 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							}
 
 							payload.Interactive = &interactive
+							payload.Interactive.Footer.Text = msg.ListMessage().ListFooter
 						} else {
 							return nil, fmt.Errorf("too many quick replies WAC supports only up to 10 quick replies")
 						}
+					} else if msg.InteractionType() == "location" {
+						interactive := wacInteractive{Type: "location_request_message", Body: struct {
+							Text string "json:\"text\""
+						}{Text: msgParts[i-len(msg.Attachments())]}, Action: &struct {
+							Button            string         "json:\"button,omitempty\""
+							Sections          []wacMTSection "json:\"sections,omitempty\""
+							Buttons           []wacMTButton  "json:\"buttons,omitempty\""
+							CatalogID         string         "json:\"catalog_id,omitempty\""
+							ProductRetailerID string         "json:\"product_retailer_id,omitempty\""
+							Name              string         "json:\"name,omitempty\""
+						}{Name: "send_location"}}
+
+						payload.Interactive = &interactive
 					} else {
 						// this is still a msg part
 						text := &wacText{}
@@ -1540,7 +1578,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				}
 			}
 
-		} else if i < len(msg.Attachments()) && len(qrs) == 0 || len(qrs) > 3 && i < len(msg.Attachments()) {
+		} else if i < len(msg.Attachments()) && len(qrs) == 0 || len(qrs) > 3 && i < len(msg.Attachments()) || msg.InteractionType() != "" {
 			attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
 			fileURL := attURL
 
@@ -1596,14 +1634,16 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			}
 			//end
 		} else {
-			if len(qrs) > 0 {
+			if len(qrs) > 0 || msg.InteractionType() != "" {
 				payload.Type = "interactive"
 				// We can use buttons
-				if len(qrs) <= 3 {
+				if len(qrs) <= 3 || msg.InteractionType() != "replies" {
 					hasCaption = true
 					interactive := wacInteractive{Type: "button", Body: struct {
 						Text string "json:\"text\""
-					}{Text: msgParts[i]}}
+					}{Text: msgParts[i]}, Footer: &struct {
+						Text string "json:\"text\""
+					}{Text: msg.ListMessage().ListFooter}}
 
 					if len(msg.Attachments()) > 0 {
 						attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
@@ -1693,27 +1733,50 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						Name              string         "json:\"name,omitempty\""
 					}{Buttons: btns}
 					payload.Interactive = &interactive
-
-				} else if len(qrs) <= 10 {
+				} else if len(qrs) <= 10 || msg.InteractionType() == "list" {
 					interactive := wacInteractive{Type: "list", Body: struct {
 						Text string "json:\"text\""
 					}{Text: msgParts[i-len(msg.Attachments())]}}
 
-					section := wacMTSection{
-						Rows: make([]wacMTSectionRow, len(qrs)),
-					}
-					for i, qr := range qrs {
-						var text string
-						if strings.Contains(qr, "\\/") {
-							text = strings.Replace(qr, "\\", "", -1)
-						} else if strings.Contains(qr, "\\\\") {
-							text = strings.Replace(qr, "\\\\", "\\", -1)
-						} else {
-							text = qr
+					var section wacMTSection
+
+					if len(qrs) > 0 {
+						section = wacMTSection{
+							Rows: make([]wacMTSectionRow, len(qrs)),
 						}
-						section.Rows[i] = wacMTSectionRow{
-							ID:    fmt.Sprint(i),
-							Title: text,
+						for i, qr := range qrs {
+							var text string
+							if strings.Contains(qr, "\\/") {
+								text = strings.Replace(qr, "\\", "", -1)
+							} else if strings.Contains(qr, "\\\\") {
+								text = strings.Replace(qr, "\\\\", "\\", -1)
+							} else {
+								text = qr
+							}
+							section.Rows[i] = wacMTSectionRow{
+								ID:    fmt.Sprint(i),
+								Title: text,
+							}
+						}
+					} else {
+						section = wacMTSection{
+							Rows: make([]wacMTSectionRow, len(msg.ListMessage().ListItems)),
+						}
+						for i, qr := range msg.ListMessage().ListItems {
+							var text string
+							if strings.Contains(qr.Title, "\\/") {
+								text = strings.Replace(qr.Title, "\\", "", -1)
+							} else if strings.Contains(qr.Title, "\\\\") {
+								text = strings.Replace(qr.Title, "\\\\", "\\", -1)
+							} else {
+								text = qr.Title
+							}
+							section.Rows[i] = wacMTSectionRow{
+								ID:          qr.UUID,
+								Title:       text,
+								Description: qr.Description,
+							}
+							section.Title = msg.ListMessage().ListTitle
 						}
 					}
 
@@ -1728,10 +1791,28 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						section,
 					}}
 
+					if msg.TextLanguage() != "" {
+						interactive.Action.Button = languageMenuMap[msg.TextLanguage()]
+					}
+
 					payload.Interactive = &interactive
+					payload.Interactive.Footer.Text = msg.ListMessage().ListFooter
 				} else {
 					return nil, fmt.Errorf("too many quick replies WAC supports only up to 10 quick replies")
 				}
+			} else if msg.InteractionType() == "location" {
+				interactive := wacInteractive{Type: "location_request_message", Body: struct {
+					Text string "json:\"text\""
+				}{Text: msgParts[i-len(msg.Attachments())]}, Action: &struct {
+					Button            string         "json:\"button,omitempty\""
+					Sections          []wacMTSection "json:\"sections,omitempty\""
+					Buttons           []wacMTButton  "json:\"buttons,omitempty\""
+					CatalogID         string         "json:\"catalog_id,omitempty\""
+					ProductRetailerID string         "json:\"product_retailer_id,omitempty\""
+					Name              string         "json:\"name,omitempty\""
+				}{Name: "send_location"}}
+
+				payload.Interactive = &interactive
 			} else {
 				// this is still a msg part
 				text := &wacText{}

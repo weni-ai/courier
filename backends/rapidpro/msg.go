@@ -577,13 +577,13 @@ type DBMsg struct {
 	quickReplies   []string
 	textLanguage   string
 
-	products     map[string][]string
-	header       string
-	body         string
-	footer       string
-	action       string
-	sendAction   bool
-	listMessages courier.ListItems
+	products    map[string][]string
+	header      string
+	body        string
+	footer      string
+	action      string
+	sendAction  bool
+	listMessage courier.ListMessage
 }
 
 func (m *DBMsg) ID() courier.MsgID            { return m.ID_ }
@@ -807,10 +807,26 @@ func (m *DBMsg) ListMessage() courier.ListMessage {
 	if m.Metadata_ == nil {
 		return courier.ListMessage{}
 	}
-	// byteValue, _, _, _ := jsonparser.Get(m.Metadata_, "list_messages")
-	// ListMessages, err := strconv.ParseBool(string(byteValue))
-	// if err != nil {
-	// 	return false
-	// }
-	return courier.ListMessage{}
+
+	m.listMessage = courier.ListMessage{}
+	byteValue, _, _, _ := jsonparser.Get(m.Metadata_, "list_title")
+	m.listMessage.ListTitle = string(byteValue)
+
+	byteValue, _, _, _ = jsonparser.Get(m.Metadata_, "list_footer")
+	m.listMessage.ListFooter = string(byteValue)
+
+	jsonparser.ObjectEach(
+		m.Metadata(),
+		func(key []byte, value []byte, dataType jsonparser.ValueType, offset int) error {
+			var list []courier.ListItems
+			err := json.Unmarshal(value, &list)
+			if err != nil {
+				return err
+			}
+			m.listMessage.ListItems = append(m.listMessage.ListItems, list...)
+			return nil
+		},
+		"list_items")
+
+	return m.listMessage
 }

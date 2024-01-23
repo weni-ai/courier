@@ -1291,7 +1291,7 @@ type wacInteractive struct {
 		Text string `json:"text"`
 	} `json:"body,omitempty"`
 	Footer *struct {
-		Text string `json:"text"`
+		Text string `json:"text,omitempty"`
 	} `json:"footer,omitempty"`
 	Action *struct {
 		Button            string         `json:"button,omitempty"`
@@ -1444,7 +1444,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							Image    wacMTMedia "json:\"image,omitempty\""
 							Document wacMTMedia "json:\"document,omitempty\""
 						}{Type: "text", Text: msgParts[i-len(msg.Attachments())]}, Footer: &struct {
-							Text string "json:\"text\""
+							Text string "json:\"text,omitempty\""
 						}{Text: msg.ListMessage().ListFooter}}
 						payload.Type = "interactive"
 						payload.Interactive = &text
@@ -1457,7 +1457,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							interactive := wacInteractive{Type: "button", Body: struct {
 								Text string "json:\"text\""
 							}{Text: msgParts[i-len(msg.Attachments())]}, Footer: &struct {
-								Text string "json:\"text\""
+								Text string "json:\"text,omitempty\""
 							}{Text: msg.ListMessage().ListFooter}}
 
 							btns := make([]wacMTButton, len(qrs))
@@ -1530,6 +1530,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 									}
 									section.Title = msg.ListMessage().ListTitle
 								}
+								interactive.Footer.Text = msg.ListMessage().ListFooter
 							}
 
 							interactive.Action = &struct {
@@ -1548,7 +1549,6 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							}
 
 							payload.Interactive = &interactive
-							payload.Interactive.Footer.Text = msg.ListMessage().ListFooter
 						} else {
 							return nil, fmt.Errorf("too many quick replies WAC supports only up to 10 quick replies")
 						}
@@ -1637,13 +1637,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			if len(qrs) > 0 || msg.InteractionType() != "" {
 				payload.Type = "interactive"
 				// We can use buttons
-				if len(qrs) <= 3 || msg.InteractionType() != "replies" {
+				if len(qrs) <= 3 || msg.InteractionType() == "replies" {
 					hasCaption = true
 					interactive := wacInteractive{Type: "button", Body: struct {
 						Text string "json:\"text\""
-					}{Text: msgParts[i]}, Footer: &struct {
-						Text string "json:\"text\""
-					}{Text: msg.ListMessage().ListFooter}}
+					}{Text: msgParts[i]}}
 
 					if len(msg.Attachments()) > 0 {
 						attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
@@ -1733,6 +1731,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						Name              string         "json:\"name,omitempty\""
 					}{Buttons: btns}
 					payload.Interactive = &interactive
+					if msg.Footer() != "" {
+						payload.Interactive.Footer.Text = msg.Footer()
+					}
 				} else if len(qrs) <= 10 || msg.InteractionType() == "list" {
 					interactive := wacInteractive{Type: "list", Body: struct {
 						Text string "json:\"text\""
@@ -1778,6 +1779,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							}
 							section.Title = msg.ListMessage().ListTitle
 						}
+						interactive.Footer.Text = msg.ListMessage().ListFooter
 					}
 
 					interactive.Action = &struct {
@@ -1796,7 +1798,6 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					}
 
 					payload.Interactive = &interactive
-					payload.Interactive.Footer.Text = msg.ListMessage().ListFooter
 				} else {
 					return nil, fmt.Errorf("too many quick replies WAC supports only up to 10 quick replies")
 				}
@@ -1912,7 +1913,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 		if msg.Footer() != "" {
 			interactive.Footer = &struct {
-				Text string "json:\"text\""
+				Text string "json:\"text,omitempty\""
 			}{
 				Text: msg.Footer(),
 			}

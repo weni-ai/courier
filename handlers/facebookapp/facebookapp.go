@@ -1361,7 +1361,7 @@ type wacMTProductItem struct {
 func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
 	// can't do anything without an access token
 	accessToken := h.Server().Config().WhatsappAdminSystemUserToken
-	userAccessToken := msg.Channel().StringConfigForKey(courier.ConfigUserAccessToken, "")
+	userAccessToken := msg.Channel().StringConfigForKey(courier.ConfigUserToken, "")
 
 	// check that userAccessToken is not empty
 	token := accessToken

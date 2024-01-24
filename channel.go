@@ -51,8 +51,8 @@ const (
 	ConfigUsername = "username"
 
 	// ConfigUseNational is a constant key for channel configs
-	ConfigUseNational     = "use_national"
-	ConfigUserAccessToken = "wa_user_access_token"
+	ConfigUseNational = "use_national"
+	ConfigUserToken   = "wa_user_token"
 )
 
 // ChannelType is our typing of the two char channel types

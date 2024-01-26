@@ -1,3 +1,7 @@
+1.4.37-courier-7.1.0
+----------
+  * Use userAccessToken to send WAC messages
+
 1.4.36-courier-7.1.0
 ----------
   * WAC channels update last seen on when receive callback status delivered or read

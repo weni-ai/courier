@@ -588,6 +588,16 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					event.WithMetadata(metadata)
 				}
 
+				if msg.Interactive.Type == "nfm_reply" {
+					nfmReplyM := map[string]interface{}{"nfm_reply": msg.Order}
+					nfmReplyJSON, err := json.Marshal(nfmReplyM)
+					if err != nil {
+						courier.LogRequestError(r, channel, err)
+					}
+					metadata := json.RawMessage(nfmReplyJSON)
+					event.WithMetadata(metadata)
+				}
+
 				if mediaURL != "" {
 					event.WithAttachment(mediaURL)
 				}

@@ -215,6 +215,10 @@ type moPayload struct {
 							ID    string `json:"id"`
 							Title string `json:"title"`
 						} `json:"list_reply,omitempty"`
+						NFMReply struct {
+							Name         string `json:"name,omitempty"`
+							ResponseJSON string `json:"response_json"`
+						} `json:"nfm_reply"`
 					} `json:"interactive,omitempty"`
 					Contacts []struct {
 						Name struct {
@@ -589,8 +593,8 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				}
 
 				if msg.Interactive.Type == "nfm_reply" {
-					nfmReplyM := map[string]interface{}{"nfm_reply": msg.Order}
-					nfmReplyJSON, err := json.Marshal(nfmReplyM)
+					nfmReply := map[string]interface{}{"nfm_reply": msg.Interactive.NFMReply}
+					nfmReplyJSON, err := json.Marshal(nfmReply)
 					if err != nil {
 						courier.LogRequestError(r, channel, err)
 					}

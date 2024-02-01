@@ -215,6 +215,10 @@ type moPayload struct {
 							ID    string `json:"id"`
 							Title string `json:"title"`
 						} `json:"list_reply,omitempty"`
+						NFMReply struct {
+							Name         string `json:"name,omitempty"`
+							ResponseJSON string `json:"response_json"`
+						} `json:"nfm_reply"`
 					} `json:"interactive,omitempty"`
 					Contacts []struct {
 						Name struct {
@@ -585,6 +589,16 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 						courier.LogRequestError(r, channel, err)
 					}
 					metadata := json.RawMessage(referral)
+					event.WithMetadata(metadata)
+				}
+
+				if msg.Interactive.Type == "nfm_reply" {
+					nfmReply := map[string]interface{}{"nfm_reply": msg.Interactive.NFMReply}
+					nfmReplyJSON, err := json.Marshal(nfmReply)
+					if err != nil {
+						courier.LogRequestError(r, channel, err)
+					}
+					metadata := json.RawMessage(nfmReplyJSON)
 					event.WithMetadata(metadata)
 				}
 

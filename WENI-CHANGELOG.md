@@ -1,3 +1,7 @@
+1.4.38-courier-7.1.0
+----------
+  * Add nfm_reply in metadata
+
 1.4.37-courier-7.1.0
 ----------
   * Use userAccessToken to send WAC messages

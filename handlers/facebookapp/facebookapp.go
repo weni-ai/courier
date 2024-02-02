@@ -1882,52 +1882,47 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			}
 		} else if len(products) > 0 {
 			if !isUnitaryProduct {
-
-				blockSize := 30
-				sections := []wacMTSection{}
+				actions := [][]wacMTSection{}
 				for key, values := range products {
-					iterations := (len(values) + blockSize - 1) / blockSize
+					j := 0
+					sproducts := []wacMTProductItem{}
+					for _, p := range values {
+						sproducts = append(sproducts, wacMTProductItem{
+							ProductRetailerID: p,
+						})
+					}
 
-					for i := 0; i < iterations; i++ {
-						start := i * blockSize
-						end := (i + 1) * blockSize
-						if end > len(values) {
-							end = len(values)
-						}
-
-						sproducts := []wacMTProductItem{}
-						for _, p := range values[start:end] {
-							sproducts = append(sproducts, wacMTProductItem{
-								ProductRetailerID: p,
-							})
-						}
-
-						if key == "product_retailer_id" {
-							key = "items"
-						}
-
-						sections = append(sections, wacMTSection{Title: key, ProductItems: sproducts})
+					if key == "product_retailer_id" {
+						key = "items"
+					}
+					if len(actions[j]) < 6 {
+						actions[j] = append(actions[j], wacMTSection{Title: key, ProductItems: sproducts})
+					} else {
+						j++
 					}
 				}
 
-				interactive.Action = &struct {
-					Button            string         `json:"button,omitempty"`
-					Sections          []wacMTSection `json:"sections,omitempty"`
-					Buttons           []wacMTButton  `json:"buttons,omitempty"`
-					CatalogID         string         `json:"catalog_id,omitempty"`
-					ProductRetailerID string         `json:"product_retailer_id,omitempty"`
-					Name              string         `json:"name,omitempty"`
-				}{
-					CatalogID: catalogID,
-					Sections:  sections,
-					Name:      msg.Action(),
+				for _, action := range actions {
+					interactive.Action = &struct {
+						Button            string         `json:"button,omitempty"`
+						Sections          []wacMTSection `json:"sections,omitempty"`
+						Buttons           []wacMTButton  `json:"buttons,omitempty"`
+						CatalogID         string         `json:"catalog_id,omitempty"`
+						ProductRetailerID string         `json:"product_retailer_id,omitempty"`
+						Name              string         `json:"name,omitempty"`
+					}{
+						CatalogID: catalogID,
+						Sections:  action,
+						Name:      msg.Action(),
+					}
+
+					payload.Interactive = &interactive
+					status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true)
+					if err != nil {
+						return status, err
+					}
 				}
 
-				payload.Interactive = &interactive
-				status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true)
-				if err != nil {
-					return status, err
-				}
 			} else {
 				interactive.Action = &struct {
 					Button            string         `json:"button,omitempty"`

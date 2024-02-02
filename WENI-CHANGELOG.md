@@ -1,3 +1,7 @@
+1.4.39-courier-7.1.0
+----------
+  * Fix limitation of product sections
+
 1.4.38-courier-7.1.0
 ----------
   * Add nfm_reply in metadata

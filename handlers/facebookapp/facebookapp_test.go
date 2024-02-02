@@ -846,7 +846,7 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		Status: "W", ExternalID: "157b5e14568e8",
 		ResponseBody:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
 		ResponseStatus: 201,
-		RequestBody:    `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"product_list","body":{"text":"Catalog Body Msg"},"action":{"sections":[{"title":"product7","product_items":[{"product_retailer_id":"p31"}]}],"catalog_id":"c4t4l0g-1D","name":"View Products"}}}`,
+		RequestBody:    `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"product_list","body":{"text":"Catalog Body Msg"},"action":{"sections":[{"title":"product4","product_items":[{"product_retailer_id":"p16"},{"product_retailer_id":"p17"},{"product_retailer_id":"p18"},{"product_retailer_id":"p19"},{"product_retailer_id":"p20"}]}],"catalog_id":"c4t4l0g-1D","name":"View Products"}}}`,
 		SendPrep:       setSendURL},
 	{Label: "Send Product Catalog",
 		Metadata: json.RawMessage(`{"body":"Catalog Body Msg", "action": "View Products", "send_catalog":true}`),

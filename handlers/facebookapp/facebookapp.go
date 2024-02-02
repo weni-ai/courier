@@ -1885,9 +1885,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				actions := [][]wacMTSection{}
 				sections := []wacMTSection{}
 				i := 0
+
 				for key, values := range products {
 					i++
 					sproducts := []wacMTProductItem{}
+
 					for _, p := range values {
 						sproducts = append(sproducts, wacMTProductItem{
 							ProductRetailerID: p,
@@ -1897,18 +1899,13 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					if key == "product_retailer_id" {
 						key = "items"
 					}
-					if len(sections) < 6 {
-						sections = append(sections, wacMTSection{Title: key, ProductItems: sproducts})
-					} else {
+
+					sections = append(sections, wacMTSection{Title: key, ProductItems: sproducts})
+
+					if len(sections) == 6 || i == len(products) {
 						actions = append(actions, sections)
 						sections = []wacMTSection{}
-						sections = append(sections, wacMTSection{Title: key, ProductItems: sproducts})
 					}
-
-					if i == len(products) {
-						actions = append(actions, sections)
-					}
-
 				}
 
 				for _, sections := range actions {

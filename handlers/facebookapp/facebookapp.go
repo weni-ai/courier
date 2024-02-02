@@ -1903,15 +1903,12 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						actions = append(actions, sections)
 						sections = []wacMTSection{}
 						sections = append(sections, wacMTSection{Title: key, ProductItems: sproducts})
-
-						if i == len(products) {
-							actions = append(actions, sections)
-						}
 					}
 
-				}
-				if len(actions) == 0 {
-					actions = append(actions, sections)
+					if i == len(products) {
+						actions = append(actions, sections)
+					}
+
 				}
 
 				for _, sections := range actions {

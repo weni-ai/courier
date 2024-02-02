@@ -1883,8 +1883,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		} else if len(products) > 0 {
 			if !isUnitaryProduct {
 				actions := [][]wacMTSection{}
+				sections := []wacMTSection{}
+				i := 0
 				for key, values := range products {
-					j := 0
+					i++
 					sproducts := []wacMTProductItem{}
 					for _, p := range values {
 						sproducts = append(sproducts, wacMTProductItem{
@@ -1895,14 +1897,24 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					if key == "product_retailer_id" {
 						key = "items"
 					}
-					if len(actions[j]) < 6 {
-						actions[j] = append(actions[j], wacMTSection{Title: key, ProductItems: sproducts})
+					if len(sections) < 6 {
+						sections = append(sections, wacMTSection{Title: key, ProductItems: sproducts})
 					} else {
-						j++
+						actions = append(actions, sections)
+						sections = []wacMTSection{}
+						sections = append(sections, wacMTSection{Title: key, ProductItems: sproducts})
+
+						if i == len(products) {
+							actions = append(actions, sections)
+						}
 					}
+
+				}
+				if len(actions) == 0 {
+					actions = append(actions, sections)
 				}
 
-				for _, action := range actions {
+				for _, sections := range actions {
 					interactive.Action = &struct {
 						Button            string         `json:"button,omitempty"`
 						Sections          []wacMTSection `json:"sections,omitempty"`
@@ -1912,7 +1924,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						Name              string         `json:"name,omitempty"`
 					}{
 						CatalogID: catalogID,
-						Sections:  action,
+						Sections:  sections,
 						Name:      msg.Action(),
 					}
 
@@ -1949,7 +1961,6 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 }
 
 func requestWAC(payload wacMTPayload, accessToken string, msg courier.Msg, status courier.MsgStatus, wacPhoneURL *url.URL, zeroIndex bool) (courier.MsgStatus, *wacMTResponse, error) {
-
 	jsonBody, err := json.Marshal(payload)
 	if err != nil {
 		return status, &wacMTResponse{}, err

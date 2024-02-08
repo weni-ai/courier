@@ -377,7 +377,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 
 	webhook := channel.ConfigForKey("webhook", nil)
 	if webhook != nil {
-		er := handlers.SendWebhooks(channel, r, webhook)
+		er := handlers.SendWebhooksExternal(r, webhook)
 		if er != nil {
 			courier.LogRequestError(r, channel, fmt.Errorf("could not send webhook: %s", er))
 		}

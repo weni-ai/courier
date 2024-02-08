@@ -5,11 +5,10 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/utils"
 )
 
-func SendWebhooks(channel courier.Channel, r *http.Request, configWebhook interface{}) error {
+func SendWebhooksExternal(r *http.Request, configWebhook interface{}) error {
 	webhook, ok := configWebhook.(map[string]interface{})
 	if !ok {
 		return fmt.Errorf("conversion error")
@@ -36,6 +35,18 @@ func SendWebhooks(channel courier.Channel, r *http.Request, configWebhook interf
 	for name, value := range headers {
 		req.Header.Set(name, value.(string))
 	}
+
+	resp, err := utils.MakeHTTPRequest(req)
+
+	if resp.StatusCode/100 != 2 {
+		return err
+	}
+
+	return nil
+}
+
+func SendWebhooksInternal(r *http.Request, url string) error {
+	req, _ := http.NewRequest("POST", url, r.Body)
 
 	resp, err := utils.MakeHTTPRequest(req)
 

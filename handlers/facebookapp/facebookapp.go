@@ -1816,11 +1816,12 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 		isUnitaryProduct := true
 		var unitaryProduct string
-		for _, values := range products {
-			if len(values) > 1 || len(products) > 1 {
+		for _, product := range products {
+			retailerIDs := toStringSlice(product["ProductRetailerIDs"])
+			if len(products) > 1 || len(retailerIDs) > 1 {
 				isUnitaryProduct = false
 			} else {
-				unitaryProduct = values[0]
+				unitaryProduct = retailerIDs[0]
 			}
 		}
 
@@ -1886,21 +1887,23 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				sections := []wacMTSection{}
 				i := 0
 
-				for key, values := range products {
+				for _, product := range products {
 					i++
+					retailerIDs := toStringSlice(product["ProductRetailerIDs"])
 					sproducts := []wacMTProductItem{}
 
-					for _, p := range values {
+					for _, p := range retailerIDs {
 						sproducts = append(sproducts, wacMTProductItem{
 							ProductRetailerID: p,
 						})
 					}
 
-					if key == "product_retailer_id" {
-						key = "items"
+					title := product["Product"].(string)
+					if title == "product_retailer_id" {
+						title = "items"
 					}
 
-					sections = append(sections, wacMTSection{Title: key, ProductItems: sproducts})
+					sections = append(sections, wacMTSection{Title: title, ProductItems: sproducts})
 
 					if len(sections) == 6 || i == len(products) {
 						actions = append(actions, sections)
@@ -2360,4 +2363,17 @@ func requestWACMediaUpload(file []byte, mediaURL string, requestUrl string, mime
 		return "", logs, errors.Wrapf(err, "error parsing media id")
 	}
 	return id, logs, nil
+}
+
+func toStringSlice(v interface{}) []string {
+	if list, ok := v.([]interface{}); ok {
+		result := make([]string, len(list))
+		for i, item := range list {
+			if str, ok := item.(string); ok {
+				result[i] = str
+			}
+		}
+		return result
+	}
+	return nil
 }

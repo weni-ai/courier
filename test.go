@@ -599,12 +599,7 @@ type mockMsg struct {
 	sentOn     *time.Time
 	wiredOn    *time.Time
 
-	header      string
-	body        string
-	footer      string
-	products    map[string][]string
-	action      string
-	sendCatalog bool
+	products []map[string]interface{}
 }
 
 func (m *mockMsg) SessionStatus() string { return "" }
@@ -669,7 +664,7 @@ func (m *mockMsg) Footer() string {
 	return string(footer)
 }
 
-func (m *mockMsg) Products() map[string][]string {
+func (m *mockMsg) Products() []map[string]interface{} {
 	if m.products != nil {
 		return m.products
 	}
@@ -678,19 +673,12 @@ func (m *mockMsg) Products() map[string][]string {
 		return nil
 	}
 
-	m.products = map[string][]string{}
-	jsonparser.ObjectEach(
-		m.Metadata(),
-		func(key []byte, value []byte, dataType jsonparser.ValueType, offset int) error {
-			var stringArray []string
-			err := json.Unmarshal(value, &stringArray)
-			if err != nil {
-				return err
-			}
-			m.products[string(key)] = stringArray
-			return nil
-		},
-		"products")
+	p, _, _, _ := jsonparser.Get(m.Metadata(), "products")
+	err := json.Unmarshal(p, &m.products)
+	if err != nil {
+		return nil
+	}
+
 	return m.products
 }
 

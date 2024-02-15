@@ -122,7 +122,7 @@ type Msg interface {
 
 	Status() MsgStatusValue
 
-	Products() map[string][]string
+	Products() []map[string]interface{}
 	Header() string
 	Body() string
 	Footer() string

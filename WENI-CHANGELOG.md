@@ -1,3 +1,7 @@
+1.5.0-courier-7.1.0
+----------
+  * Change product list structure to preserve insertion order
+
 1.4.39-courier-7.1.0
 ----------
   * Fix limitation of product sections

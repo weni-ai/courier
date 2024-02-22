@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+option go_package = "github.com/nyaruka/courier/grpc/billing";
+
+package message;
+
+service FlowsMesssage {
+  rpc CreateMessage (CreateFlowsMessageRequest) returns (CreateFlowsMessageResponse) {}
+}
+
+message CreateFlowsMessageRequest {
+  string contact_uuid = 1;
+  string channel_uuid = 2;
+  string message_date = 3;
+  string message_uuid = 4;
+}
+
+message CreateFlowsMessageResponse {
+  string message = 1;
+}

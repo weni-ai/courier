@@ -1,3 +1,7 @@
+1.5.1-courier-7.1.0
+----------
+  * Send image link in message text to Teams
+
 1.5.0-courier-7.1.0
 ----------
   * Change product list structure to preserve insertion order

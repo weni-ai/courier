@@ -1,3 +1,7 @@
+1.5.2-courier-7.1.0
+----------
+  * Fix handling of text attachments for teams
+
 1.5.1-courier-7.1.0
 ----------
   * Send image link in message text to Teams

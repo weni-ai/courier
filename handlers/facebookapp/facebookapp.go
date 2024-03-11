@@ -495,7 +495,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 				courier.LogRequestError(r, channel, fmt.Errorf("could not send webhook: %s", er))
 			}
 		}
-		er := handlers.SendWebhooksInternal(r, h.Server().Config().WhatsappCloudWebhooksEndpoint)
+		er := handlers.SendWebhookstoIntegrations(r, h.Server().Config().WhatsappCloudWebhooksUrl)
 		if er != nil {
 			courier.LogRequestError(r, channel, fmt.Errorf("could not send webhook: %s", er))
 		}

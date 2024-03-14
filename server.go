@@ -451,99 +451,18 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleCHealth(w http.ResponseWriter, r *http.Request) {
-	done := make(chan bool)
+	healthcheck := NewHealthCheck()
 
-	var wg sync.WaitGroup
-	wg.Add(4)
+	healthcheck.AddCheck("redis", s.CheckRedis)
+	healthcheck.AddCheck("database", s.CheckDB)
+	healthcheck.AddCheck("sentry", s.CheckSentry)
+	healthcheck.AddCheck("s3", s.CheckS3)
 
-	results := map[string]HealthCheckResult{}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+	defer cancel()
+	healthcheck.CheckUp(ctx)
 
-	go CheckComponent("redis", &wg, s.CheckRedis, results)
-
-	go func(wg *sync.WaitGroup, results map[string]HealthCheckResult) {
-		defer wg.Done()
-		serviceKey := "redis"
-		results[serviceKey] = HealthCheckResult{Status: "Timed out", Err: nil}
-		if err := s.CheckRedis(); err != nil {
-			results[serviceKey] = HealthCheckResult{Status: "Error", Err: err}
-			return
-		}
-		results[serviceKey] = HealthCheckResult{Status: "Ok", Err: nil}
-	}(&wg, results)
-	go func(wg *sync.WaitGroup, results map[string]HealthCheckResult) {
-		defer wg.Done()
-		serviceKey := "database"
-		results[serviceKey] = HealthCheckResult{Status: "Timed out", Err: nil}
-		if err := s.CheckDB(); err != nil {
-			results[serviceKey] = HealthCheckResult{Status: "Error", Err: err}
-			return
-		}
-		results[serviceKey] = HealthCheckResult{Status: "Ok", Err: nil}
-	}(&wg, results)
-	go func(wg *sync.WaitGroup, results map[string]HealthCheckResult) {
-		defer wg.Done()
-		serviceKey := "sentry"
-		results[serviceKey] = HealthCheckResult{Status: "Timed out", Err: nil}
-		if err := s.CheckSentry(); err != nil {
-			results[serviceKey] = HealthCheckResult{Status: "Error", Err: err}
-			return
-		}
-		results[serviceKey] = HealthCheckResult{Status: "Ok", Err: nil}
-	}(&wg, results)
-	go func(wg *sync.WaitGroup, results map[string]HealthCheckResult) {
-		defer wg.Done()
-		serviceKey := "s3"
-		results[serviceKey] = HealthCheckResult{Status: "Timed out", Err: nil}
-		if err := s.CheckS3(); err != nil {
-			results[serviceKey] = HealthCheckResult{Status: "Error", Err: err}
-			return
-		}
-		results[serviceKey] = HealthCheckResult{Status: "Ok", Err: nil}
-	}(&wg, results)
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
-	timeout := time.After(15 * time.Second)
-
-	status := "Ok"
-	statusMsg := "all services is working fine!"
-	errorMsgs := ""
-
-	select {
-	case <-done:
-	case <-timeout:
-		status = "Error"
-	}
-
-	details := map[string]map[string]string{}
-	for k, v := range results {
-		statusDetail := map[string]string{}
-		if v.Err != nil {
-			statusDetail["status"] = "error"
-			statusDetail["message"] = v.Err.Error()
-			status = "Error"
-			errorMsgs = errorMsgs + ", " + v.Err.Error()
-
-		} else {
-			statusDetail["status"] = "ok"
-			statusDetail["message"] = fmt.Sprintf("%s ok", k)
-		}
-		details[k] = statusDetail
-	}
-
-	if errorMsgs != "" {
-		statusMsg = errorMsgs
-	}
-
-	healthStatus := HealthStatus{
-		Status:  status,
-		Message: statusMsg,
-		Details: details,
-	}
-
-	hsJSON, err := json.Marshal(healthStatus)
+	hsJSON, err := json.Marshal(healthcheck.HealthStatus)
 	if err != nil {
 		WriteDataResponse(context.Background(), w, http.StatusInternalServerError, "failed to marshal health status", []interface{}{err})
 	}
@@ -619,7 +538,7 @@ func (s *server) CheckS3() error {
 	err := s3storage.Test(ctx)
 	cancel()
 	if err != nil {
-		return errors.New(s3storage.Name() + " S3 storage not available")
+		return errors.New(s3storage.Name() + " S3 storage not available " + err.Error())
 	}
 	return nil
 }

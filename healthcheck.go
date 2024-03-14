@@ -109,24 +109,3 @@ func (c *ComponentCheck) CheckComponent(wg *sync.WaitGroup) {
 	c.result.Status = "Ok"
 	c.result.Err = nil
 }
-
-func CheckHealthComponent(wg *sync.WaitGroup, c *ComponentCheck) {
-	defer wg.Done()
-	if err := c.checkFunction(); err != nil {
-		c.result.Status = "Error"
-		c.result.Err = err
-		return
-	}
-	c.result.Status = "Ok"
-	c.result.Err = nil
-}
-
-func CheckComponent(componentName string, wg *sync.WaitGroup, checkFunc func() error, results map[string]HealthCheckResult) {
-	defer wg.Done()
-	results[componentName] = HealthCheckResult{Status: "Timed out", Err: nil}
-	if err := checkFunc(); err != nil {
-		results[componentName] = HealthCheckResult{Status: "Error", Err: err}
-		return
-	}
-	results[componentName] = HealthCheckResult{Status: "Ok", Err: nil}
-}

@@ -47,6 +47,15 @@ type rabbitmqClient struct {
 	queue   *amqp.Queue
 }
 
+// NewRMQConn creates a new connection to rabbitmq for the given url
+func NewRMQConn(url string) (*amqp.Connection, error) {
+	conn, err := amqp.Dial(url)
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
+}
+
 // NewRMQBillingClient creates a new billing service client implementation using RabbitMQ
 func NewRMQBillingClient(conn *amqp.Connection) (Client, error) {
 	ch, err := conn.Channel()

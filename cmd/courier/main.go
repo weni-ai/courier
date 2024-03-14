@@ -11,6 +11,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	// load channel handler packages
+	"github.com/nyaruka/courier/billing"
 	_ "github.com/nyaruka/courier/handlers/africastalking"
 	_ "github.com/nyaruka/courier/handlers/arabiacell"
 	_ "github.com/nyaruka/courier/handlers/blackmyna"
@@ -116,6 +117,18 @@ func main() {
 	err = server.Start()
 	if err != nil {
 		logrus.Fatalf("Error starting server: %s", err)
+	}
+
+	if config.RabbitmqURL != "" {
+		rmqconn, err := billing.NewRMQConn(config.RabbitmqURL)
+		if err != nil {
+			logrus.Fatalf("Error connecting to RabbitMQ: %v", err)
+		}
+		billingClient, err := billing.NewRMQBillingClient(rmqconn)
+		if err != nil {
+			logrus.Fatalf("Error creating billing RabbitMQ client: %v", err)
+		}
+		server.SetBilling(billingClient)
 	}
 
 	ch := make(chan os.Signal)

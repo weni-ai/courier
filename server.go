@@ -21,6 +21,7 @@ import (
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
 	"github.com/jmoiron/sqlx"
+	"github.com/nyaruka/courier/billing"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/storage"
 	"github.com/nyaruka/librato"
@@ -46,6 +47,9 @@ type Server interface {
 
 	Start() error
 	Stop() error
+
+	SetBilling(billing.Client)
+	Billing() billing.Client
 }
 
 // NewServer creates a new Server for the passed in configuration. The server will have to be started
@@ -225,6 +229,9 @@ func (s *server) Stopped() bool              { return s.stopped }
 func (s *server) Backend() Backend   { return s.backend }
 func (s *server) Router() chi.Router { return s.router }
 
+func (s *server) Billing() billing.Client          { return s.billing }
+func (s *server) SetBilling(client billing.Client) { s.billing = client }
+
 type server struct {
 	backend Backend
 
@@ -241,6 +248,8 @@ type server struct {
 	stopped   bool
 
 	routes []string
+
+	billing billing.Client
 }
 
 func (s *server) initializeChannelHandlers() {

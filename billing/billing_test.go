@@ -8,13 +8,12 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/pkg/errors"
-	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestBillingClient(t *testing.T) {
 
-	conn, err := amqp.Dial("amqp://localhost:5672/")
+	conn, err := NewRMQConn("amqp://localhost:5672/")
 	assert.NoError(t, err)
 	billingClient, err := NewRMQBillingClient(conn)
 	assert.NoError(t, err)

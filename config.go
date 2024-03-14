@@ -49,6 +49,8 @@ type Config struct {
 	// WaitMediaChannels is the list of channels that have the logic of wait for previous media message be delivered before current msg be send
 	// Default is WA, WAC, FB, FBA, IG
 	WaitMediaChannels []string
+
+	RabbitmqURL string `help:"rabbitmq url"`
 }
 
 // NewConfig returns a new default configuration object

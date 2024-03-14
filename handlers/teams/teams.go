@@ -191,9 +191,11 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		for _, att := range payload.Attachments {
 			switch content := att.Content.(type) {
 			case string:
-				if text == "" {
-					text = strings.ReplaceAll(content, "<p>", "")
-					text = strings.ReplaceAll(text, "</p>", "")
+				if strings.Contains(content, "Reply") {
+					substrings := strings.Split(text, "\r\n\r\n")
+					if len(substrings) > 1 {
+						text = substrings[len(substrings)-1]
+					}
 				}
 			case map[string]interface{}:
 				downloadURL, ok := content["downloadUrl"].(string)

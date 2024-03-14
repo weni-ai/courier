@@ -59,6 +59,7 @@ var attachment = `{
 		"id": "a:2811",
 		"tenantId": "cba321"
 	},
+	"text":"Image caption",
 	"id": "56834",
 	"timestamp": "2022-06-06T16:51:00.0000000Z",
 	"serviceUrl": "https://smba.trafficmanager.net/br/",

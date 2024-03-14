@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -129,6 +130,8 @@ func main() {
 			logrus.Fatalf("Error creating billing RabbitMQ client: %v", err)
 		}
 		server.SetBilling(billingClient)
+	} else {
+		logrus.Error(errors.New("rabbitmq url is not configured"))
 	}
 
 	ch := make(chan os.Signal)

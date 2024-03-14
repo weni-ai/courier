@@ -1,3 +1,7 @@
+1.5.3-courier-7.1.0
+----------
+  * Fix handling of message responses in Teams
+
 1.5.2-courier-7.1.0
 ----------
   * Fix handling of text attachments for teams

@@ -725,7 +725,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 	// do we have a template?
 	templating, err := h.getTemplate(msg)
 
-	if templating != nil || len(msg.Attachments()) == 0 && len(msg.Products()) == 0 {
+	if templating != nil || len(msg.Attachments()) == 0 && !(len(msg.Products()) > 0 || msg.SendCatalog()) {
 
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())

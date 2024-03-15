@@ -32,6 +32,12 @@ jobs:
       with:
         go-version: ${{ env.go-version }}
 
+    - name: Install Rabbitmq
+      uses: namoshek/rabbitmq-github-action@v1
+      with:
+        version: '3.9.7'
+        ports: '5672:5672'
+
     - name: Run tests
       run: go test -p=1 -coverprofile=coverage.text -covermode=atomic ./...
 

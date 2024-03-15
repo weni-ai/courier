@@ -519,7 +519,7 @@ type mtInteractivePayload struct {
 
 type mtSection struct {
 	Title        string          `json:"title,omitempty"`
-	Rows         []mtSectionRow  `json:"rows" validate:"required"`
+	Rows         []mtSectionRow  `json:"rows,omitempty"`
 	ProductItems []mtProductItem `json:"product_items,omitempty"`
 }
 
@@ -725,7 +725,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 	// do we have a template?
 	templating, err := h.getTemplate(msg)
 
-	if templating != nil || len(msg.Attachments()) == 0 {
+	if templating != nil || len(msg.Attachments()) == 0 && len(msg.Products()) == 0 {
 
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())
@@ -1031,7 +1031,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 			return payloads, logs, errors.New("Catalog ID not found in channel config")
 		}
 
-		payload := mtInteractivePayload{To: msg.URN().Path()}
+		payload := mtInteractivePayload{Type: "interactive", To: msg.URN().Path()}
 
 		products := msg.Products()
 

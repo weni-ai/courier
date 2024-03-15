@@ -467,10 +467,9 @@ type mtTextPayload struct {
 }
 
 type mtInteractivePayload struct {
-	To            string `json:"to" validate:"required"`
-	Type          string `json:"type" validate:"required"`
-	RecipientType string `json:"recipient_type"`
-	Interactive   struct {
+	To          string `json:"to" validate:"required"`
+	Type        string `json:"type" validate:"required"`
+	Interactive struct {
 		Type   string `json:"type" validate:"required"` //"text" | "image" | "video" | "document"
 		Header *struct {
 			Type     string `json:"type"`
@@ -485,7 +484,7 @@ type mtInteractivePayload struct {
 		Footer *struct {
 			Text string `json:"text"`
 		} `json:"footer,omitempty"`
-		Action *struct {
+		Action struct {
 			Button            string      `json:"button,omitempty"`
 			Sections          []mtSection `json:"sections,omitempty"`
 			Buttons           []mtButton  `json:"buttons,omitempty"`
@@ -1010,7 +1009,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 			return payloads, logs, errors.New("Catalog ID not found in channel config")
 		}
 
-		payload := mtInteractivePayload{RecipientType: "individual", To: msg.URN().Path()}
+		payload := mtInteractivePayload{To: msg.URN().Path()}
 
 		products := msg.Products()
 
@@ -1064,7 +1063,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 		}
 
 		if msg.SendCatalog() {
-			payload.Interactive.Action = &struct {
+			payload.Interactive.Action = struct {
 				Button            string      `json:"button,omitempty"`
 				Sections          []mtSection `json:"sections,omitempty"`
 				Buttons           []mtButton  `json:"buttons,omitempty"`
@@ -1106,7 +1105,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 				}
 
 				for _, sections := range actions {
-					payload.Interactive.Action = &struct {
+					payload.Interactive.Action = struct {
 						Button            string      `json:"button,omitempty"`
 						Sections          []mtSection `json:"sections,omitempty"`
 						Buttons           []mtButton  `json:"buttons,omitempty"`
@@ -1123,7 +1122,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 				}
 
 			} else {
-				payload.Interactive.Action = &struct {
+				payload.Interactive.Action = struct {
 					Button            string      `json:"button,omitempty"`
 					Sections          []mtSection `json:"sections,omitempty"`
 					Buttons           []mtButton  `json:"buttons,omitempty"`

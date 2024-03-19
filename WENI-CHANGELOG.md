@@ -1,3 +1,7 @@
+1.6.0-courier-7.1.0
+----------
+  * Support sending catalog messages in WA
+
 1.5.3-courier-7.1.0
 ----------
   * Fix handling of message responses in Teams

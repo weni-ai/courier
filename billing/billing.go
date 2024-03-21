@@ -16,23 +16,23 @@ const QUEUE_NAME = "billing_message"
 //	{
 //		  "contact_uuid": "69625dca-7922-477c-97c6-9dae8ffff46d",
 //		  "channel_uuid": "9d24bce2-145f-4e65-b9ed-72ef19ee81e0",
-//		  "message_uuid": "dc71bdf1-bb97-4c7d-a88d-b924dc9f414b",
+//		  "message_id": "54398",
 //		  "message_date": "2024-03-08T16:08:19-03:00"
 //	 }
 type Message struct {
 	ContactUUID string `json:"contact_uuid,omitempty"`
 	ChannelUUID string `json:"channel_uuid,omitempty"`
-	MessageUUID string `json:"message_uuid,omitempty"`
+	MessageID   string `json:"message_id,omitempty"`
 	MessageDate string `json:"message_date,omitempty"`
 }
 
 // Create a new message
-func NewMessage(contactUUID, channelUUID, messageUUID, messageDate string) *Message {
+func NewMessage(contactUUID, channelUUID, messageID, messageDate string) *Message {
 	return &Message{
 		ContactUUID: contactUUID,
 		ChannelUUID: channelUUID,
 		MessageDate: messageDate,
-		MessageUUID: messageUUID,
+		MessageID:   messageID,
 	}
 }
 

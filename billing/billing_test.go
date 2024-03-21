@@ -64,5 +64,5 @@ func TestBillingClient(t *testing.T) {
 	}()
 
 	wg.Wait()
-	assert.Equal(t, cmsg.MessageUUID, msg.MessageUUID)
+	assert.Equal(t, cmsg.MessageID, msg.MessageID)
 }

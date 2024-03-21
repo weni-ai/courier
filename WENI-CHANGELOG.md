@@ -1,3 +1,7 @@
+1.6.1-courier-7.1.0
+----------
+ * /health do health check for redis, database, sentry and s3
+
 1.6.0-courier-7.1.0
 ----------
   * Support sending catalog messages in WA

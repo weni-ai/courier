@@ -21,6 +21,7 @@ import (
 	"github.com/buger/jsonparser"
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/nyaruka/courier"
+	"github.com/nyaruka/courier/billing"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/rcache"
@@ -658,6 +659,19 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					if err != nil {
 						handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 						continue
+					}
+
+					if h.Server().Billing() != nil {
+						billingMsg := billing.NewMessage(
+							contactTo.UUID().String(),
+							channel.UUID().String(),
+							status.ID,
+							time.Now().Format(time.RFC3339),
+						)
+						err := h.Server().Billing().Send(*billingMsg)
+						if err != nil {
+							handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+						}
 					}
 				}
 

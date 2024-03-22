@@ -195,6 +195,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 					substrings := strings.Split(text, "\r\n\r\n")
 					if len(substrings) > 1 {
 						text = substrings[len(substrings)-1]
+						text = strings.TrimRight(text, "\r\n")
 					}
 				}
 			case map[string]interface{}:

@@ -1,3 +1,8 @@
+1.6.2-courier-7.1.0
+----------
+ * Remove line break from end of text for TM
+ * Add Billing integration for WAC channels with rabbitmq 
+
 1.6.1-courier-7.1.0
 ----------
  * /health do health check for redis, database, sentry and s3

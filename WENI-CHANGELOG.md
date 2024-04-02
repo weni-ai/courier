@@ -1,3 +1,7 @@
+1.6.3-courier-7.1.0
+----------
+ * Defer db connection close on health check
+
 1.6.2-courier-7.1.0
 ----------
  * Remove line break from end of text for TM

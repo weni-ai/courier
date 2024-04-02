@@ -507,6 +507,7 @@ func (s *server) CheckDB() error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to database: %s", err.Error())
 	}
+	defer db.Close()
 	if err := db.Ping(); err != nil {
 		return fmt.Errorf("failed tot ping database: %s", err.Error())
 	}

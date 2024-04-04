@@ -407,7 +407,7 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 			if er != nil {
 				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
 			}
-			return nil, nil
+			return nil, fmt.Errorf("template update, so ignore")
 		}
 		channelAddress = payload.Entry[0].Changes[0].Value.Metadata.PhoneNumberID
 		if channelAddress == "" {

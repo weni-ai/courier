@@ -48,39 +48,41 @@ func SendWebhooksExternal(r *http.Request, configWebhook interface{}) error {
 	return nil
 }
 
+type moTemplatesPayload struct {
+	Object string `json:"object"`
+	Entry  []struct {
+		ID      string `json:"id"`
+		Time    int64  `json:"time"`
+		Changes []struct {
+			Field string `json:"field"`
+			Value struct {
+				BanInfo struct {
+					WabaBanState []string `json:"waba_ban_state"`
+					WabaBanDate  string   `json:"waba_ban_date"`
+				} `json:"ban_info"`
+				CurrentLimit                 string `json:"current_limit"`
+				Decision                     string `json:"decision"`
+				DisplayPhoneNumber           string `json:"display_phone_number"`
+				Event                        string `json:"event"`
+				MaxDailyConversationPerPhone int    `json:"max_daily_conversation_per_phone"`
+				MaxPhoneNumbersPerBusiness   int    `json:"max_phone_numbers_per_business"`
+				MaxPhoneNumbersPerWaba       int    `json:"max_phone_numbers_per_waba"`
+				Reason                       string `json:"reason"`
+				RequestedVerifiedName        string `json:"requested_verified_name"`
+				RestrictionInfo              []struct {
+					RestrictionType string `json:"restriction_type"`
+					Expiration      string `json:"expiration"`
+				} `json:"restriction_info"`
+				MessageTemplateID       int    `json:"message_template_id"`
+				MessageTemplateName     string `json:"message_template_name"`
+				MessageTemplateLanguage string `json:"message_template_language"`
+			} `json:"value"`
+		} `json:"changes"`
+	} `json:"entry"`
+}
+
 func SendWebhooksToIntegrations(r *http.Request, url string) error {
-	moTemplatesPayload := &struct {
-		Object string `json:"object"`
-		Entry  []struct {
-			ID      string `json:"id"`
-			Time    int64  `json:"time"`
-			Changes []struct {
-				Field string `json:"field"`
-				Value struct {
-					BanInfo struct {
-						WabaBanState []string `json:"waba_ban_state"`
-						WabaBanDate  string   `json:"waba_ban_date"`
-					} `json:"ban_info"`
-					CurrentLimit                 string `json:"current_limit"`
-					Decision                     string `json:"decision"`
-					DisplayPhoneNumber           string `json:"display_phone_number"`
-					Event                        string `json:"event"`
-					MaxDailyConversationPerPhone int    `json:"max_daily_conversation_per_phone"`
-					MaxPhoneNumbersPerBusiness   int    `json:"max_phone_numbers_per_business"`
-					MaxPhoneNumbersPerWaba       int    `json:"max_phone_numbers_per_waba"`
-					Reason                       string `json:"reason"`
-					RequestedVerifiedName        string `json:"requested_verified_name"`
-					RestrictionInfo              []struct {
-						RestrictionType string `json:"restriction_type"`
-						Expiration      string `json:"expiration"`
-					} `json:"restriction_info"`
-					MessageTemplateID       int    `json:"message_template_id"`
-					MessageTemplateName     string `json:"message_template_name"`
-					MessageTemplateLanguage string `json:"message_template_language"`
-				} `json:"value"`
-			} `json:"changes"`
-		} `json:"entry"`
-	}{}
+	moTemplatesPayload := &moTemplatesPayload{}
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {

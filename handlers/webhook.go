@@ -45,7 +45,7 @@ func SendWebhooksExternal(r *http.Request, configWebhook interface{}) error {
 	return nil
 }
 
-func SendWebhookstoIntegrations(r *http.Request, url string) error {
+func SendWebhooksToIntegrations(r *http.Request, url string) error {
 	req, _ := http.NewRequest("POST", url+"/api/v1/webhook/facebook/api/notification/", r.Body)
 
 	resp, err := utils.MakeHTTPRequest(req)

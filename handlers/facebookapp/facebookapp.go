@@ -402,12 +402,12 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 		if len(payload.Entry[0].Changes) == 0 {
 			return nil, fmt.Errorf("no changes found")
 		}
-		if payload.Entry[0].Changes[0].Field == "message_template_status_update" {
-			channelAddress = payload.Entry[0].ID
-			if channelAddress == "" {
-				return nil, fmt.Errorf("no channel address found")
+		if payload.Entry[0].Changes[0].Field == "message_template_status_update" || payload.Entry[0].Changes[0].Field == "template_category_update" || payload.Entry[0].Changes[0].Field == "message_template_quality_update" {
+			er := handlers.SendWebhooksToIntegrations(r, h.Server().Config().WhatsappCloudWebhooksUrl)
+			if er != nil {
+				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
 			}
-			return h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WAC"), courier.ChannelAddress(channelAddress))
+			return nil, nil
 		}
 		channelAddress = payload.Entry[0].Changes[0].Value.Metadata.PhoneNumberID
 		if channelAddress == "" {
@@ -494,10 +494,6 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 			if er != nil {
 				courier.LogRequestError(r, channel, fmt.Errorf("could not send webhook: %s", er))
 			}
-		}
-		er := handlers.SendWebhookstoIntegrations(r, h.Server().Config().WhatsappCloudWebhooksUrl)
-		if er != nil {
-			courier.LogRequestError(r, channel, fmt.Errorf("could not send webhook: %s", er))
 		}
 	}
 

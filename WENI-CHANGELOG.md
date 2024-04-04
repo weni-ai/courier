@@ -1,3 +1,7 @@
+1.7.0-courier-7.1.0
+----------
+ * Send template update webhooks to Integrations
+
 1.6.3-courier-7.1.0
 ----------
  * Defer db connection close on health check

@@ -275,6 +275,26 @@ type moPayload struct {
 					Code  int    `json:"code"`
 					Title string `json:"title"`
 				} `json:"errors"`
+				BanInfo struct {
+					WabaBanState []string `json:"waba_ban_state"`
+					WabaBanDate  string   `json:"waba_ban_date"`
+				} `json:"ban_info"`
+				CurrentLimit                 string `json:"current_limit"`
+				Decision                     string `json:"decision"`
+				DisplayPhoneNumber           string `json:"display_phone_number"`
+				Event                        string `json:"event"`
+				MaxDailyConversationPerPhone int    `json:"max_daily_conversation_per_phone"`
+				MaxPhoneNumbersPerBusiness   int    `json:"max_phone_numbers_per_business"`
+				MaxPhoneNumbersPerWaba       int    `json:"max_phone_numbers_per_waba"`
+				Reason                       string `json:"reason"`
+				RequestedVerifiedName        string `json:"requested_verified_name"`
+				RestrictionInfo              []struct {
+					RestrictionType string `json:"restriction_type"`
+					Expiration      string `json:"expiration"`
+				} `json:"restriction_info"`
+				MessageTemplateID       int    `json:"message_template_id"`
+				MessageTemplateName     string `json:"message_template_name"`
+				MessageTemplateLanguage string `json:"message_template_language"`
 			} `json:"value"`
 		} `json:"changes"`
 		Messaging []struct {
@@ -383,7 +403,13 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 		if len(payload.Entry[0].Changes) == 0 {
 			return nil, fmt.Errorf("no changes found")
 		}
-
+		if payload.Entry[0].Changes[0].Field == "message_template_status_update" || payload.Entry[0].Changes[0].Field == "template_category_update" || payload.Entry[0].Changes[0].Field == "message_template_quality_update" {
+			er := handlers.SendWebhooksToIntegrations(r, h.Server().Config().WhatsappCloudWebhooksUrl)
+			if er != nil {
+				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
+			}
+			return nil, fmt.Errorf("template update, so ignore")
+		}
 		channelAddress = payload.Entry[0].Changes[0].Value.Metadata.PhoneNumberID
 		if channelAddress == "" {
 			return nil, fmt.Errorf("no channel address found")
@@ -465,7 +491,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		events, data, err = h.processCloudWhatsAppPayload(ctx, channel, payload, w, r)
 		webhook := channel.ConfigForKey("webhook", nil)
 		if webhook != nil {
-			er := handlers.SendWebhooks(channel, r, webhook)
+			er := handlers.SendWebhooksExternal(r, webhook)
 			if er != nil {
 				courier.LogRequestError(r, channel, fmt.Errorf("could not send webhook: %s", er))
 			}

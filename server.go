@@ -288,6 +288,10 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 
 		channel, err := handler.GetChannel(ctx, r)
 		if err != nil {
+			if err.Error() == "template update, so ignore" {
+				WriteStatusSuccess(ctx, w, r, nil)
+				return
+			}
 			WriteError(ctx, w, r, err)
 			return
 		}

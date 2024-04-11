@@ -1458,7 +1458,14 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								Text string "json:\"text\""
 							}{Text: msgParts[i-len(msg.Attachments())]}, Footer: &struct {
 								Text string "json:\"text,omitempty\""
-							}{Text: msg.ListMessage().ListFooter}}
+							}{Text: msg.Footer()}, Header: &struct {
+								Type     string     "json:\"type\""
+								Text     string     "json:\"text,omitempty\""
+								Video    wacMTMedia "json:\"video,omitempty\""
+								Image    wacMTMedia "json:\"image,omitempty\""
+								Document wacMTMedia "json:\"document,omitempty\""
+							}{Type: "text", Text: msg.HeaderText()},
+							}
 
 							btns := make([]wacMTButton, len(qrs))
 							for i, qr := range qrs {

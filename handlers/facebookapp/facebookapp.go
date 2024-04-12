@@ -1943,6 +1943,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						title = "items"
 					}
 
+					if len(title) > 24 {
+						title = title[:24]
+					}
+
 					sections = append(sections, wacMTSection{Title: title, ProductItems: sproducts})
 
 					if len(sections) == 6 || i == len(products) {

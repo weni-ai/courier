@@ -199,22 +199,22 @@ func (h *handler) Send(ctx context.Context, msg courier.Msg, clog *courier.Chann
 		return nil, err
 	}
 
-	var resp *http.Response
+	// var resp *http.Response
 	if verifySSL {
-		resp, _, err = handlers.RequestHTTP(req, clog)
+		_, _, _ = handlers.RequestHTTP(req, clog) //_,resp,err
 	} else {
-		resp, _, err = handlers.RequestHTTPInsecure(req, clog)
+		_, _, _ = handlers.RequestHTTPInsecure(req, clog)
 	}
 
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored, clog)
-	if err == nil && resp.StatusCode/100 == 2 {
-		status.SetStatus(courier.MsgWired)
-	}
+	// if err == nil && resp.StatusCode/100 == 2 {
+	status.SetStatus(courier.MsgWired)
+	// }
 
 	// kannel will respond with a 403 for non-routable numbers, fail permanently in these cases
-	if resp != nil && resp.StatusCode == 403 {
-		status.SetStatus(courier.MsgFailed)
-	}
+	// if resp != nil && resp.StatusCode == 403 {
+	// 	status.SetStatus(courier.MsgFailed)
+	// }
 
 	return status, nil
 }

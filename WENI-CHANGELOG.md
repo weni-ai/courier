@@ -1,3 +1,7 @@
+1.7.1-courier-7.1.0
+----------
+ * Fix to truncate section titles to 24 characters
+
 1.7.0-courier-7.1.0
 ----------
  * Send template update webhooks to Integrations

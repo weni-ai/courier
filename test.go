@@ -715,17 +715,11 @@ func (m *mockMsg) SendCatalog() bool {
 	return sendCatalog
 }
 
+// update func
 func (m *mockMsg) ListMessage() ListMessage {
 	if m.metadata == nil {
 		return ListMessage{}
 	}
-
-	m.listMessage = ListMessage{}
-	byteValue, _, _, _ := jsonparser.Get(m.metadata, "list_title")
-	m.listMessage.ListTitle = string(byteValue)
-
-	byteValue, _, _, _ = jsonparser.Get(m.metadata, "list_footer")
-	m.listMessage.ListFooter = string(byteValue)
 
 	jsonparser.ObjectEach(
 		m.Metadata(),

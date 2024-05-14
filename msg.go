@@ -135,8 +135,7 @@ type Msg interface {
 }
 
 type ListMessage struct {
-	ListTitle  string      `json:"list_title"`
-	ListFooter string      `json:"list_footer"`
+	ButtonText string      `json:"button_text"`
 	ListItems  []ListItems `json:"list_items"`
 }
 

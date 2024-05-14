@@ -808,25 +808,32 @@ func (m *DBMsg) ListMessage() courier.ListMessage {
 		return courier.ListMessage{}
 	}
 
-	m.listMessage = courier.ListMessage{}
-	byteValue, _, _, _ := jsonparser.Get(m.Metadata_, "list_title")
-	m.listMessage.ListTitle = string(byteValue)
+	var metadata map[string]interface{}
+	err := json.Unmarshal(m.Metadata_, &metadata)
+	if err != nil {
+		return m.listMessage
+	}
 
-	byteValue, _, _, _ = jsonparser.Get(m.Metadata_, "list_footer")
-	m.listMessage.ListFooter = string(byteValue)
+	byteValue, _, _, _ := jsonparser.Get(m.Metadata_, "interaction_type")
+	interactionType := string(byteValue)
 
-	jsonparser.ObjectEach(
-		m.Metadata(),
-		func(key []byte, value []byte, dataType jsonparser.ValueType, offset int) error {
-			var list []courier.ListItems
-			err := json.Unmarshal(value, &list)
-			if err != nil {
-				return err
+	if interactionType == "list" {
+		m.listMessage = courier.ListMessage{}
+		m.listMessage.ButtonText = metadata["list_message"].(map[string]interface{})["button_text"].(string)
+
+		listItems := metadata["list_message"].(map[string]interface{})["list_items"].([]interface{})
+		m.listMessage.ListItems = make([]courier.ListItems, len(listItems))
+		for i, item := range listItems {
+			itemMap := item.(map[string]interface{})
+			m.listMessage.ListItems[i] = courier.ListItems{
+				Title: itemMap["title"].(string),
+				UUID:  itemMap["uuid"].(string),
 			}
-			m.listMessage.ListItems = append(m.listMessage.ListItems, list...)
-			return nil
-		},
-		"list_items")
 
+			if itemMap["description"] != nil {
+				m.listMessage.ListItems[i].Description = itemMap["description"].(string)
+			}
+		}
+	}
 	return m.listMessage
 }

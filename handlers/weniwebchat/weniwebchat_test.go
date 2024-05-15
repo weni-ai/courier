@@ -171,7 +171,7 @@ var sendTestCases = []ChannelSendTestCase{
 		Status:         string(courier.MsgSent),
 		Path:           "/send",
 		Headers:        map[string]string{"Content-type": "application/json"},
-		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"text","timestamp":"1616700878","text":"Simple Message"}}`,
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"text","timestamp":"1616700878","text":"Simple Message"},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
 		ResponseStatus: 200,
 		SendPrep:       prepareSendMsg,
 	},
@@ -182,7 +182,7 @@ var sendTestCases = []ChannelSendTestCase{
 		Status:         string(courier.MsgSent),
 		Path:           "/send",
 		Headers:        map[string]string{"Content-type": "application/json"},
-		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"text","timestamp":"1616700878","text":"☺"}}`,
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"text","timestamp":"1616700878","text":"☺"},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
 		ResponseStatus: 200,
 		SendPrep:       prepareSendMsg,
 	},
@@ -193,8 +193,10 @@ var sendTestCases = []ChannelSendTestCase{
 		Status:      string(courier.MsgFailed),
 		Path:        "/send",
 		Headers:     map[string]string{"Content-type": "application/json"},
-		RequestBody: `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"text","timestamp":"1616700878","text":"Error"}}`,
+		RequestBody: `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"text","timestamp":"1616700878","text":"Error"},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
 		SendPrep:    prepareSendMsg,
+
+		ResponseStatus: 500,
 	},
 	{
 		Label: "Medias Send",
@@ -226,6 +228,8 @@ var sendTestCases = []ChannelSendTestCase{
 		URN:         "ext:371298371241",
 		Status:      string(courier.MsgFailed),
 		SendPrep:    prepareSendMsg,
+
+		ResponseStatus: 500,
 	},
 	{
 		Label:          "No Timestamp Prepare",
@@ -246,7 +250,7 @@ var sendTestCases = []ChannelSendTestCase{
 		Status:         string(courier.MsgSent),
 		Path:           "/send",
 		Headers:        map[string]string{"Content-type": "application/json"},
-		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"text","timestamp":"1616700878","text":"Simple Message","quick_replies":["Yes","No","/Slash","\\Backslash"]}}`,
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"text","timestamp":"1616700878","text":"Simple Message","quick_replies":["Yes","No","/Slash","\\Backslash"]},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
 		ResponseStatus: 200,
 		SendPrep:       prepareSendMsg,
 	},

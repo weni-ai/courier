@@ -1,3 +1,60 @@
+1.7.1-courier-7.1.0
+----------
+ * Fix to truncate section titles to 24 characters
+
+1.7.0-courier-7.1.0
+----------
+ * Send template update webhooks to Integrations
+
+1.6.3-courier-7.1.0
+----------
+ * Defer db connection close on health check
+
+1.6.2-courier-7.1.0
+----------
+ * Remove line break from end of text for TM
+ * Add Billing integration for WAC channels with rabbitmq 
+
+1.6.1-courier-7.1.0
+----------
+ * /health do health check for redis, database, sentry and s3
+
+1.6.0-courier-7.1.0
+----------
+  * Support sending catalog messages in WA
+
+1.5.3-courier-7.1.0
+----------
+  * Fix handling of message responses in Teams
+
+1.5.2-courier-7.1.0
+----------
+  * Fix handling of text attachments for teams
+
+1.5.1-courier-7.1.0
+----------
+  * Send image link in message text to Teams
+
+1.5.0-courier-7.1.0
+----------
+  * Change product list structure to preserve insertion order
+
+1.4.39-courier-7.1.0
+----------
+  * Fix limitation of product sections
+
+1.4.38-courier-7.1.0
+----------
+  * Add nfm_reply in metadata
+
+1.4.37-courier-7.1.0
+----------
+  * Use userAccessToken to send WAC messages
+
+1.4.36-courier-7.1.0
+----------
+  * WAC channels update last seen on when receive callback status delivered or read
+
 1.4.35-courier-7.1.0
 ----------
   * Send attachment link in Teams 

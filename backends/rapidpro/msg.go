@@ -577,12 +577,7 @@ type DBMsg struct {
 	quickReplies   []string
 	textLanguage   string
 
-	products    map[string][]string
-	header      string
-	body        string
-	footer      string
-	action      string
-	sendAction  bool
+	products    []map[string]interface{}
 	listMessage courier.ListMessage
 }
 
@@ -708,7 +703,7 @@ func GetMsgByUUID(b *backend, uuid string) (*DBMsg, error) {
 
 func (m *DBMsg) Status() courier.MsgStatusValue { return m.Status_ }
 
-func (m *DBMsg) Products() map[string][]string {
+func (m *DBMsg) Products() []map[string]interface{} {
 	if m.products != nil {
 		return m.products
 	}
@@ -717,21 +712,11 @@ func (m *DBMsg) Products() map[string][]string {
 		return nil
 	}
 
-	m.products = map[string][]string{}
-	jsonparser.ObjectEach(
-		m.Metadata_,
-		func(key []byte, value []byte, dataType jsonparser.ValueType, offset int) error {
-			var stringArray []string
-			err := json.Unmarshal(value, &stringArray)
-			if err != nil {
-				return err
-			}
-
-			m.products[string(key)] = stringArray
-
-			return nil
-		},
-		"products")
+	p, _, _, _ := jsonparser.Get(m.Metadata_, "products")
+	err := json.Unmarshal(p, &m.products)
+	if err != nil {
+		return nil
+	}
 	return m.products
 }
 

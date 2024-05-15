@@ -191,8 +191,13 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		for _, att := range payload.Attachments {
 			switch content := att.Content.(type) {
 			case string:
-				text = strings.ReplaceAll(content, "<p>", "")
-				text = strings.ReplaceAll(text, "</p>", "")
+				if strings.Contains(content, "Reply") {
+					substrings := strings.Split(text, "\r\n\r\n")
+					if len(substrings) > 1 {
+						text = substrings[len(substrings)-1]
+						text = strings.TrimRight(text, "\r\n")
+					}
+				}
 			case map[string]interface{}:
 				downloadURL, ok := content["downloadUrl"].(string)
 				if ok && downloadURL != "" {
@@ -397,10 +402,10 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		// Process each attachment separately
 		mimeType, attURL := handlers.SplitAttachment(attachment)
 		attType := strings.Split(mimeType, "/")[0]
-		filename, err := utils.BasePathForURL(attURL)
-		if err != nil {
-			logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("Error while parsing the media URL")
-		}
+		//filename, err := utils.BasePathForURL(attURL)
+		// if err != nil {
+		// 	logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("Error while parsing the media URL")
+		// }
 
 		if attType == "application" {
 			attType = "document"
@@ -408,15 +413,17 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 		// Create a new payload for each attachment
 		attPayload := Activity{Type: "message"}
-		if attType == "video" || attType == "document" || attType == "audio" {
+		if attType == "video" || attType == "document" || attType == "audio" || attType == "image" {
 			attPayload.Text = attURL
-		} else {
+		}
+		// make code snippet unusable while image upload is not working
+		/*else {
 			attPayload.Attachments = append(attPayload.Attachments, Attachment{mimeType, attURL, filename, struct {
 				DownloadUrl string "json:\"downloadUrl,omitempty\""
 				UniqueId    string "json:\"uniqueId,omitempty\""
 				FileType    string "json:\"fileType,omitempty\""
 			}{}})
-		}
+		}*/
 
 		payloadArray = append(payloadArray, attPayload)
 	}

@@ -40,6 +40,13 @@ const (
 	interactiveMsgMinSupVersion = "v2.35.2"
 )
 
+const (
+	InteractiveProductSingleType         = "product"
+	InteractiveProductListType           = "product_list"
+	InteractiveProductCatalogType        = "catalog_product"
+	InteractiveProductCatalogMessageType = "catalog_message"
+)
+
 var (
 	retryParam = ""
 )
@@ -194,6 +201,16 @@ type eventPayload struct {
 				Sha256   string `json:"sha256"    validate:"required"`
 			} `json:"video"`
 		} `json:"referral"`
+		Order struct {
+			CatalogID    string `json:"catalog_id"`
+			Text         string `json:"text"`
+			ProductItems []struct {
+				ProductRetailerID string  `json:"product_retailer_id"`
+				Quantity          int     `json:"quantity"`
+				ItemPrice         float64 `json:"item_price"`
+				Currency          string  `json:"currency"`
+			} `json:"product_items"`
+		} `json:"order"`
 	} `json:"messages"`
 	Statuses []struct {
 		ID          string `json:"id"           validate:"required"`
@@ -296,6 +313,8 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 			mediaURL, err = resolveMediaURL(channel, msg.Video.ID)
 		} else if msg.Type == "voice" && msg.Voice != nil {
 			mediaURL, err = resolveMediaURL(channel, msg.Voice.ID)
+		} else if msg.Type == "order" {
+			text = msg.Order.Text
 		} else if msg.Type == "contacts" {
 			if len(msg.Contacts) == 0 {
 				return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("no shared contact"))
@@ -319,6 +338,16 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		// we had an error downloading media
 		if err != nil {
 			courier.LogRequestError(r, channel, err)
+		}
+
+		if msg.Type == "order" {
+			orderM := map[string]interface{}{"order": msg.Order}
+			orderJSON, err := json.Marshal(orderM)
+			if err != nil {
+				courier.LogRequestError(r, channel, err)
+			}
+			metadata := json.RawMessage(orderJSON)
+			event.WithMetadata(metadata)
 		}
 
 		if msg.Referral.Headline != "" {
@@ -377,7 +406,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 
 	webhook := channel.ConfigForKey("webhook", nil)
 	if webhook != nil {
-		er := handlers.SendWebhooks(channel, r, webhook)
+		er := handlers.SendWebhooksExternal(r, webhook)
 		if er != nil {
 			courier.LogRequestError(r, channel, fmt.Errorf("could not send webhook: %s", er))
 		}
@@ -478,16 +507,24 @@ type mtInteractivePayload struct {
 			Text string `json:"text"`
 		} `json:"footer,omitempty"`
 		Action struct {
-			Button   string      `json:"button,omitempty"`
-			Sections []mtSection `json:"sections,omitempty"`
-			Buttons  []mtButton  `json:"buttons,omitempty"`
+			Button            string      `json:"button,omitempty"`
+			Sections          []mtSection `json:"sections,omitempty"`
+			Buttons           []mtButton  `json:"buttons,omitempty"`
+			CatalogID         string      `json:"catalog_id,omitempty"`
+			ProductRetailerID string      `json:"product_retailer_id,omitempty"`
+			Name              string      `json:"name,omitempty"`
 		} `json:"action" validate:"required"`
 	} `json:"interactive"`
 }
 
 type mtSection struct {
-	Title string         `json:"title,omitempty"`
-	Rows  []mtSectionRow `json:"rows" validate:"required"`
+	Title        string          `json:"title,omitempty"`
+	Rows         []mtSectionRow  `json:"rows,omitempty"`
+	ProductItems []mtProductItem `json:"product_items,omitempty"`
+}
+
+type mtProductItem struct {
+	ProductRetailerID string `json:"product_retailer_id" validate:"required"`
 }
 
 type mtSectionRow struct {
@@ -688,7 +725,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 	// do we have a template?
 	templating, err := h.getTemplate(msg)
 
-	if templating != nil || len(msg.Attachments()) == 0 {
+	if templating != nil || len(msg.Attachments()) == 0 && !(len(msg.Products()) > 0 || msg.SendCatalog()) {
 
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())
@@ -986,6 +1023,144 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 			}
 		}
 	}
+
+	if len(msg.Products()) > 0 || msg.SendCatalog() {
+
+		catalogID := msg.Channel().StringConfigForKey("catalog_id", "")
+		if catalogID == "" {
+			return payloads, logs, errors.New("Catalog ID not found in channel config")
+		}
+
+		payload := mtInteractivePayload{Type: "interactive", To: msg.URN().Path()}
+
+		products := msg.Products()
+
+		isUnitaryProduct := true
+		var unitaryProduct string
+		for _, product := range products {
+			retailerIDs := toStringSlice(product["ProductRetailerIDs"])
+			if len(products) > 1 || len(retailerIDs) > 1 {
+				isUnitaryProduct = false
+			} else {
+				unitaryProduct = retailerIDs[0]
+			}
+		}
+
+		var interactiveType string
+		if msg.SendCatalog() {
+			interactiveType = InteractiveProductCatalogMessageType
+		} else if !isUnitaryProduct {
+			interactiveType = InteractiveProductListType
+		} else {
+			interactiveType = InteractiveProductSingleType
+		}
+
+		payload.Interactive.Type = interactiveType
+
+		payload.Interactive.Body = struct {
+			Text string `json:"text"`
+		}{
+			Text: msg.Body(),
+		}
+
+		if msg.Header() != "" && !isUnitaryProduct && !msg.SendCatalog() {
+			payload.Interactive.Header = &struct {
+				Type     string `json:"type"`
+				Text     string `json:"text,omitempty"`
+				Video    string `json:"video,omitempty"`
+				Image    string `json:"image,omitempty"`
+				Document string `json:"document,omitempty"`
+			}{
+				Type: "text",
+				Text: msg.Header(),
+			}
+		}
+
+		if msg.Footer() != "" {
+			payload.Interactive.Footer = &struct {
+				Text string "json:\"text\""
+			}{
+				Text: msg.Footer(),
+			}
+		}
+
+		if msg.SendCatalog() {
+			payload.Interactive.Action = struct {
+				Button            string      `json:"button,omitempty"`
+				Sections          []mtSection `json:"sections,omitempty"`
+				Buttons           []mtButton  `json:"buttons,omitempty"`
+				CatalogID         string      `json:"catalog_id,omitempty"`
+				ProductRetailerID string      `json:"product_retailer_id,omitempty"`
+				Name              string      `json:"name,omitempty"`
+			}{
+				Name: "catalog_message",
+			}
+			payloads = append(payloads, payload)
+		} else if len(products) > 0 {
+			if !isUnitaryProduct {
+				actions := [][]mtSection{}
+				sections := []mtSection{}
+				i := 0
+
+				for _, product := range products {
+					i++
+					retailerIDs := toStringSlice(product["ProductRetailerIDs"])
+					sproducts := []mtProductItem{}
+
+					for _, p := range retailerIDs {
+						sproducts = append(sproducts, mtProductItem{
+							ProductRetailerID: p,
+						})
+					}
+
+					title := product["Product"].(string)
+					if title == "product_retailer_id" {
+						title = "items"
+					}
+
+					sections = append(sections, mtSection{Title: title, ProductItems: sproducts})
+
+					if len(sections) == 6 || i == len(products) {
+						actions = append(actions, sections)
+						sections = []mtSection{}
+					}
+				}
+
+				for _, sections := range actions {
+					payload.Interactive.Action = struct {
+						Button            string      `json:"button,omitempty"`
+						Sections          []mtSection `json:"sections,omitempty"`
+						Buttons           []mtButton  `json:"buttons,omitempty"`
+						CatalogID         string      `json:"catalog_id,omitempty"`
+						ProductRetailerID string      `json:"product_retailer_id,omitempty"`
+						Name              string      `json:"name,omitempty"`
+					}{
+						CatalogID: catalogID,
+						Sections:  sections,
+						Name:      msg.Action(),
+					}
+
+					payloads = append(payloads, payload)
+				}
+
+			} else {
+				payload.Interactive.Action = struct {
+					Button            string      `json:"button,omitempty"`
+					Sections          []mtSection `json:"sections,omitempty"`
+					Buttons           []mtButton  `json:"buttons,omitempty"`
+					CatalogID         string      `json:"catalog_id,omitempty"`
+					ProductRetailerID string      `json:"product_retailer_id,omitempty"`
+					Name              string      `json:"name,omitempty"`
+				}{
+					CatalogID:         catalogID,
+					Name:              msg.Action(),
+					ProductRetailerID: unitaryProduct,
+				}
+				payloads = append(payloads, payload)
+			}
+		}
+	}
+
 	return payloads, logs, err
 }
 
@@ -1408,4 +1583,17 @@ var languageMenuMap = map[string]string{
 	"zh-HK": "菜單",
 	"zh-TW": "菜單",
 	"ar-JO": "قائمة",
+}
+
+func toStringSlice(v interface{}) []string {
+	if list, ok := v.([]interface{}); ok {
+		result := make([]string, len(list))
+		for i, item := range list {
+			if str, ok := item.(string); ok {
+				result[i] = str
+			}
+		}
+		return result
+	}
+	return nil
 }

@@ -195,6 +195,32 @@ var interactiveListMsg = `{
 	}]
 }`
 
+var orderMsg = `{
+	"messages": [{
+		"from": "250788123123",
+		"id": "41",
+		"order": {
+			"catalog_id": "800683284849775",
+			"product_items": [
+			  {
+				"product_retailer_id": "1031",
+				"quantity": 1,
+				"item_price": 599.9,
+				"currency": "BRL"
+			  },
+			  {
+				"product_retailer_id": "10320",
+				"quantity": 1,
+				"item_price": 2399,
+				"currency": "BRL"
+			  }
+			]
+		  },
+		"timestamp": "1454119029",
+		"type": "order"
+	}]
+}`
+
 var locationMsg = `{
 	"messages": [{
 		"from": "250788123123",
@@ -403,7 +429,7 @@ var waTestCases = []ChannelHandleTestCase{
 		Text: Sp(""), Attachment: Sp("https://foo.bar/v1/media/41"), URN: Sp("whatsapp:250788123123"), ExternalID: Sp("41"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC))},
 	{Label: "Receive Valid Contact Message", URL: waReceiveURL, Data: contactMsg, Status: 200, Response: `"type":"msg"`,
 		Text: Sp("+1 415-858-6273, +1 415-858-6274"), URN: Sp("whatsapp:250788123123"), ExternalID: Sp("41"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC))},
-	{Label: "Receive Referral WAC", URL: waReceiveURL, Data: referralMsg, Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+	{Label: "Receive Referral WA", URL: waReceiveURL, Data: referralMsg, Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("Hello World"), URN: Sp("whatsapp:250788123123"), ExternalID: Sp("41"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(&struct {
 			Headline   string `json:"headline"`
 			Body       string `json:"body"`
@@ -425,6 +451,27 @@ var waTestCases = []ChannelHandleTestCase{
 				SHA256   string `json:"sha256"`
 			} `json:"video"`
 		}{Headline: "Our new product", Body: "This is a great product", SourceType: "SOURCE_TYPE", SourceID: "SOURCE_ID", SourceURL: "SOURCE_URL", Image: nil, Video: nil})},
+	{Label: "Receive Order WA", URL: waReceiveURL, Data: orderMsg, Status: 200, Response: `"type":"msg"`,
+		URN: Sp("whatsapp:250788123123"), ExternalID: Sp("41"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), NoQueueErrorCheck: false, NoInvalidChannelCheck: true, Metadata: Jp(map[string]interface{}{
+			"order": map[string]interface{}{
+				"catalog_id": "800683284849775",
+				"text":       "",
+				"product_items": []map[string]interface{}{
+					{
+						"product_retailer_id": "1031",
+						"quantity":            1,
+						"item_price":          599.9,
+						"currency":            "BRL",
+					},
+					{
+						"product_retailer_id": "10320",
+						"quantity":            1,
+						"item_price":          2399,
+						"currency":            "BRL",
+					},
+				},
+			},
+		})},
 	{Label: "Receive Invalid JSON", URL: waReceiveURL, Data: invalidMsg, Status: 400, Response: "unable to parse"},
 	{Label: "Receive Invalid From", URL: waReceiveURL, Data: invalidFrom, Status: 400, Response: "invalid whatsapp id"},
 	{Label: "Receive Invalid Timestamp", URL: waReceiveURL, Data: invalidTimestamp, Status: 400, Response: "invalid timestamp"},
@@ -787,6 +834,27 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		RequestBody: `{"to":"5511987654321","type":"text","text":{"body":"Simple Message"}}`,
 		SendPrep:    setSendURL,
 		NewURN:      "whatsapp:551187654321"},
+	{Label: "Catalog Message Send 1 product",
+		Metadata: json.RawMessage(`{"body":"Catalog Body Msg", "products":[{"Product": "Product1","ProductRetailerIDs":["p90duct-23t41l32-1D"]}], "action": "View Products", "send_catalog":false}`),
+		Text:     "Catalog Msg", URN: "whatsapp:5511987654321",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"to":"5511987654321","type":"interactive","interactive":{"type":"product","body":{"text":"Catalog Body Msg"},"action":{"catalog_id":"c4t4l0g-1D","product_retailer_id":"p90duct-23t41l32-1D","name":"View Products"}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Catalog Message Send 2 products",
+		Metadata: json.RawMessage(`{"body":"Catalog Body Msg", "products": [{"Product": "product1","ProductRetailerIDs":["p1"]},{"Product": "product2","ProductRetailerIDs":["p2"]}], "action": "View Products", "send_catalog":false}`),
+		Text:     "Catalog Msg", URN: "whatsapp:5511987654321",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"to":"5511987654321","type":"interactive","interactive":{"type":"product_list","body":{"text":"Catalog Body Msg"},"action":{"sections":[{"title":"product1","product_items":[{"product_retailer_id":"p1"}]},{"title":"product2","product_items":[{"product_retailer_id":"p2"}]}],"catalog_id":"c4t4l0g-1D","name":"View Products"}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Send Product Catalog",
+		Metadata: json.RawMessage(`{"body":"Catalog Body Msg", "action": "View Products", "send_catalog":true}`),
+		Text:     "Catalog Msg", URN: "whatsapp:5511987654321",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"to":"5511987654321","type":"interactive","interactive":{"type":"catalog_message","body":{"text":"Catalog Body Msg"},"action":{"name":"catalog_message"}}}`,
+		SendPrep:    setSendURL},
 }
 
 var mediaCacheSendTestCases = []ChannelSendTestCase{
@@ -952,6 +1020,7 @@ func TestSending(t *testing.T) {
 			"base_url":     "https://foo.bar/",
 			"fb_namespace": "waba_namespace",
 			"version":      "v2.35.2",
+			"catalog_id":   "c4t4l0g-1D",
 		})
 
 	var hsmSupportChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WA", "250788383383", "US",
@@ -961,6 +1030,7 @@ func TestSending(t *testing.T) {
 			"fb_namespace": "waba_namespace",
 			"hsm_support":  true,
 			"version":      "v2.35.2",
+			"catalog_id":   "c4t4l0g-1D",
 		})
 
 	var d3Channel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "D3", "250788383383", "US",
@@ -969,6 +1039,7 @@ func TestSending(t *testing.T) {
 			"base_url":     "https://foo.bar/",
 			"fb_namespace": "waba_namespace",
 			"version":      "v2.35.2",
+			"catalog_id":   "c4t4l0g-1D",
 		})
 
 	var txwChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "TXW", "250788383383", "US",
@@ -977,6 +1048,7 @@ func TestSending(t *testing.T) {
 			"base_url":     "https://foo.bar/",
 			"fb_namespace": "waba_namespace",
 			"version":      "v2.35.2",
+			"catalog_id":   "c4t4l0g-1D",
 		})
 
 	RunChannelSendTestCases(t, defaultChannel, newWAHandler(courier.ChannelType("WA"), "WhatsApp"), defaultSendTestCases, nil)

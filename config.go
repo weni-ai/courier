@@ -33,6 +33,7 @@ type Config struct {
 	WhatsappAdminSystemUserToken   string `help:"the token of the admin system user for WhatsApp"`
 	WhatsappCloudApplicationSecret string `help:"the Whatsapp Cloud app secret"`
 	WhatsappCloudWebhookSecret     string `help:"the secret for WhatsApp Cloud webhook URL verification"`
+	WhatsappCloudWebhooksUrl       string `help:"the url where all WhatsApp Cloud webhooks will be sent"`
 
 	// IncludeChannels is the list of channels to enable, empty means include all
 	IncludeChannels []string
@@ -49,6 +50,8 @@ type Config struct {
 	// WaitMediaChannels is the list of channels that have the logic of wait for previous media message be delivered before current msg be send
 	// Default is WA, WAC, FB, FBA, IG
 	WaitMediaChannels []string
+
+	RabbitmqURL string `help:"rabbitmq url"`
 }
 
 // NewConfig returns a new default configuration object

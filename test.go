@@ -715,25 +715,38 @@ func (m *mockMsg) SendCatalog() bool {
 	return sendCatalog
 }
 
-// update func
 func (m *mockMsg) ListMessage() ListMessage {
 	if m.metadata == nil {
 		return ListMessage{}
 	}
 
-	jsonparser.ObjectEach(
-		m.Metadata(),
-		func(key []byte, value []byte, dataType jsonparser.ValueType, offset int) error {
-			var list []ListItems
-			err := json.Unmarshal(value, &list)
-			if err != nil {
-				return err
-			}
-			m.listMessage.ListItems = append(m.listMessage.ListItems, list...)
-			return nil
-		},
-		"list_items")
+	var metadata map[string]interface{}
+	err := json.Unmarshal(m.metadata, &metadata)
+	if err != nil {
+		return m.listMessage
+	}
 
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "interaction_type")
+	interactionType := string(byteValue)
+
+	if interactionType == "list" {
+		m.listMessage = ListMessage{}
+		m.listMessage.ButtonText = metadata["list_message"].(map[string]interface{})["button_text"].(string)
+
+		listItems := metadata["list_message"].(map[string]interface{})["list_items"].([]interface{})
+		m.listMessage.ListItems = make([]ListItems, len(listItems))
+		for i, item := range listItems {
+			itemMap := item.(map[string]interface{})
+			m.listMessage.ListItems[i] = ListItems{
+				Title: itemMap["title"].(string),
+				UUID:  itemMap["uuid"].(string),
+			}
+
+			if itemMap["description"] != nil {
+				m.listMessage.ListItems[i].Description = itemMap["description"].(string)
+			}
+		}
+	}
 	return m.listMessage
 }
 

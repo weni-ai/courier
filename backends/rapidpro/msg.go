@@ -799,26 +799,35 @@ func (m *DBMsg) ListMessage() courier.ListMessage {
 		return m.listMessage
 	}
 
-	byteValue, _, _, _ := jsonparser.Get(m.Metadata_, "interaction_type")
-	interactionType := string(byteValue)
+	if metadata == nil {
+		return courier.ListMessage{}
+	}
 
-	if interactionType == "list" {
+	if interactionType, ok := metadata["interaction_type"].(string); ok && interactionType == "list" {
 		m.listMessage = courier.ListMessage{}
-		m.listMessage.ButtonText = metadata["list_message"].(map[string]interface{})["button_text"].(string)
 
-		listItems := metadata["list_message"].(map[string]interface{})["list_items"].([]interface{})
-		m.listMessage.ListItems = make([]courier.ListItems, len(listItems))
-		for i, item := range listItems {
-			itemMap := item.(map[string]interface{})
-			m.listMessage.ListItems[i] = courier.ListItems{
-				Title: itemMap["title"].(string),
-				UUID:  itemMap["uuid"].(string),
+		if listMessageData, ok := metadata["list_message"].(map[string]interface{}); ok {
+			if buttonText, ok := listMessageData["button_text"].(string); ok {
+				m.listMessage.ButtonText = buttonText
 			}
 
-			if itemMap["description"] != nil {
-				m.listMessage.ListItems[i].Description = itemMap["description"].(string)
+			if listItems, ok := listMessageData["list_items"].([]interface{}); ok {
+				m.listMessage.ListItems = make([]courier.ListItems, len(listItems))
+				for i, item := range listItems {
+					if itemMap, ok := item.(map[string]interface{}); ok {
+						m.listMessage.ListItems[i] = courier.ListItems{
+							Title: itemMap["title"].(string),
+							UUID:  itemMap["uuid"].(string),
+						}
+
+						if description, ok := itemMap["description"].(string); ok {
+							m.listMessage.ListItems[i].Description = description
+						}
+					}
+				}
 			}
 		}
 	}
+
 	return m.listMessage
 }

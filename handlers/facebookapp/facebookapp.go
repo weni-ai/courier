@@ -38,9 +38,10 @@ var (
 	signatureHeader = "X-Hub-Signature"
 
 	// max for the body
-	maxMsgLengthIG  = 1000
-	maxMsgLengthFBA = 2000
-	maxMsgLengthWAC = 4096
+	maxMsgLengthIG             = 1000
+	maxMsgLengthFBA            = 2000
+	maxMsgLengthWAC            = 4096
+	maxMsgLengthInteractiveWAC = 1024
 
 	// Sticker ID substitutions
 	stickerIDToEmoji = map[int64]string{
@@ -1435,7 +1436,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 	msgParts := make([]string, 0)
 	if msg.Text() != "" {
-		msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthWAC)
+		if len(msg.ListMessage().ListItems) > 0 || len(msg.QuickReplies()) > 0 || msg.InteractionType() == "location" {
+			msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthInteractiveWAC)
+		} else {
+			msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthWAC)
+		}
 	}
 	qrs := msg.QuickReplies()
 
@@ -1508,13 +1513,16 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					payload.Template.Components = append(payload.Template.Components, header)
 				}
 
-			} else { // aqui é mensagem que nao é template e nao tem mídia
+			} else {
 				if i < (len(msgParts) + len(msg.Attachments()) - 1) {
 					if strings.Contains(msgParts[i-len(msg.Attachments())], "https://") || strings.Contains(msgParts[i-len(msg.Attachments())], "http://") {
 						text := wacText{}
 						text.PreviewURL = true
 						text.Body = msgParts[i-len(msg.Attachments())]
 						payload.Text = &text
+					} else {
+						payload.Type = "text"
+						payload.Text = &wacText{Body: msgParts[i-len(msg.Attachments())]}
 					}
 				} else {
 					if len(qrs) > 0 || len(msg.ListMessage().ListItems) > 0 {

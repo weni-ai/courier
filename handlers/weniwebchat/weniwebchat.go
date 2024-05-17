@@ -104,10 +104,11 @@ func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w htt
 var timestamp = ""
 
 type moPayload struct {
-	Type    string    `json:"type" validate:"required"`
-	To      string    `json:"to"   validate:"required"`
-	From    string    `json:"from" validate:"required"`
-	Message moMessage `json:"message"`
+	Type        string    `json:"type" validate:"required"`
+	To          string    `json:"to"   validate:"required"`
+	From        string    `json:"from" validate:"required"`
+	Message     moMessage `json:"message"`
+	ChannelUUID string    `json:"channel_uuid" validate:"required"`
 }
 
 type moMessage struct {
@@ -134,7 +135,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	var logs []*courier.ChannelLog
 
-	payload := newOutgoingMessage("message", msg.URN().Path(), msg.Channel().Address(), msg.QuickReplies())
+	payload := newOutgoingMessage("message", msg.URN().Path(), msg.Channel().Address(), msg.QuickReplies(), msg.Channel().UUID().String())
 	lenAttachments := len(msg.Attachments())
 	if lenAttachments > 0 {
 
@@ -241,7 +242,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	return status, nil
 }
 
-func newOutgoingMessage(payType, to, from string, quickReplies []string) *moPayload {
+func newOutgoingMessage(payType, to, from string, quickReplies []string, channelUUID string) *moPayload {
 	return &moPayload{
 		Type: payType,
 		To:   to,
@@ -249,6 +250,7 @@ func newOutgoingMessage(payType, to, from string, quickReplies []string) *moPayl
 		Message: moMessage{
 			QuickReplies: quickReplies,
 		},
+		ChannelUUID: channelUUID,
 	}
 }
 

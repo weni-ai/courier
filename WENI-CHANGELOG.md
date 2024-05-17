@@ -1,3 +1,7 @@
+1.7.2-courier-7.1.0
+----------
+ * Add channel uuid attribute on weni webchat mopayload
+
 1.7.1-courier-7.1.0
 ----------
  * Fix to truncate section titles to 24 characters

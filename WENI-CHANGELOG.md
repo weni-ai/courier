@@ -1,3 +1,7 @@
+1.7.3-courier-7.1.0
+----------
+ * Add text size check for audio and sticker
+
 1.7.2-courier-7.1.0
 ----------
  * Add channel uuid attribute on weni webchat mopayload

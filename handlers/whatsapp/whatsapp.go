@@ -953,7 +953,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					}
 					payload.Audio = mediaPayload
 					payloads = append(payloads, payload)
-					if attachmentCount == 0 {
+					if attachmentCount == 0 && len(msg.Text()) > 0 {
 						payloadText := mtTextPayload{
 							To:   msg.URN().Path(),
 							Type: "text",
@@ -984,7 +984,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 							Type:    "sticker",
 							Sticker: mediaPayload,
 						}
-						if attachmentCount == 0 {
+						if attachmentCount == 0 && len(msg.Text()) > 0 {
 							payloadText := mtTextPayload{
 								To:   msg.URN().Path(),
 								Type: "text",

@@ -317,6 +317,8 @@ func (w *Sender) sendMessage(msg Msg) {
 					err = w.foreman.server.Billing().Send(*billingMsg)
 					if err != nil {
 						log.WithError(err).Info("fail to send msg to billing service")
+					} else {
+						log.Info("msg was sent and pushed to billing")
 					}
 				}
 			}

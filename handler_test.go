@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nyaruka/courier/billing"
 	"github.com/nyaruka/gocommon/urns"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -37,6 +39,19 @@ func (h *dummyHandler) GetChannel(ctx context.Context, r *http.Request) (Channel
 
 // Initialize is called by the engine once everything is loaded
 func (h *dummyHandler) Initialize(s Server) error {
+
+	{ // initialize billing
+		rmqconn, err := billing.NewRMQConn("amqp://localhost:5672/")
+		if err != nil {
+			logrus.Fatalf("Error connecting to RabbitMQ: %v", err)
+		}
+		billingClient, err := billing.NewRMQBillingClient(rmqconn)
+		if err != nil {
+			logrus.Fatalf("Error creating billing RabbitMQ client: %v", err)
+		}
+		s.SetBilling(billingClient)
+	}
+
 	h.server = s
 	h.backend = s.Backend()
 	s.AddHandlerRoute(h, http.MethodGet, "receive", h.receiveMsg)

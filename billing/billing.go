@@ -20,10 +20,15 @@ const QUEUE_NAME = "billing_message"
 //		  "message_date": "2024-03-08T16:08:19-03:00"
 //	 }
 type Message struct {
-	ContactUUID string `json:"contact_uuid,omitempty"`
-	ChannelUUID string `json:"channel_uuid,omitempty"`
-	MessageID   string `json:"message_id,omitempty"`
-	MessageDate string `json:"message_date,omitempty"`
+	ContactUUID  string   `json:"contact_uuid,omitempty"`
+	ChannelUUID  string   `json:"channel_uuid,omitempty"`
+	MessageID    string   `json:"message_id,omitempty"`
+	MessageDate  string   `json:"message_date,omitempty"`
+	Direction    string   `json:"direction,omitempty"`
+	ChannelType  string   `json:"channel_type,omitempty"`
+	Text         string   `json:"text,omitempty"`
+	Attachments  []string `json:"attachments,omitempty"`
+	QuickReplies []string `json:"quick_replies,omitempty"`
 }
 
 // Create a new message
@@ -86,7 +91,7 @@ func (c *rabbitmqClient) Send(msg Message) error {
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 	err = c.channel.PublishWithContext(
 		ctx,

@@ -674,29 +674,29 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					urn, err := urns.NewWhatsAppURN(status.RecipientID)
 					if err != nil {
 						handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
-						continue
-					}
-					contactTo, err := h.Backend().GetContact(ctx, channel, urn, "", "")
-					if err != nil {
-						handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
-						continue
-					}
-					err = h.Backend().UpdateContactLastSeenOn(ctx, contactTo.UUID(), time.Now())
-					if err != nil {
-						handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
-						continue
-					}
-
-					if h.Server().Billing() != nil {
-						billingMsg := billing.NewMessage(
-							contactTo.UUID().String(),
-							channel.UUID().String(),
-							status.ID,
-							time.Now().Format(time.RFC3339),
-						)
-						err := h.Server().Billing().Send(*billingMsg)
+					} else {
+						contactTo, err := h.Backend().GetContact(ctx, channel, urn, "", "")
 						if err != nil {
 							handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+						} else {
+							err = h.Backend().UpdateContactLastSeenOn(ctx, contactTo.UUID(), time.Now())
+							if err != nil {
+								handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+							} else {
+								if h.Server().Billing() != nil {
+									billingMsg := billing.NewMessage(
+										contactTo.UUID().String(),
+										channel.UUID().String(),
+										status.ID,
+										time.Now().Format(time.RFC3339),
+									)
+									billingMsg.ChannelType = string(channel.ChannelType())
+									err := h.Server().Billing().Send(*billingMsg)
+									if err != nil {
+										handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+									}
+								}
+							}
 						}
 					}
 				}

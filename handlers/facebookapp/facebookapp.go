@@ -1459,8 +1459,8 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg, 
 								section,
 							}}
 
-							if msg.TextLanguage() != "" {
-								interactive.Action.Button = languageMenuMap[msg.TextLanguage()]
+							if msg.Locale() != "" {
+								interactive.Action.Button = languageMenuMap[msg.Locale()]
 							}
 
 							payload.Interactive = &interactive

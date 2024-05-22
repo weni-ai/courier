@@ -25,7 +25,7 @@ type mockMsg struct {
 	metadata             json.RawMessage
 	alreadyWritten       bool
 	isResend             bool
-	textLanguage         string
+	locale               string
 
 	flow *courier.FlowReference
 
@@ -77,7 +77,7 @@ func (m *mockMsg) Topic() string                { return m.topic }
 func (m *mockMsg) ResponseToExternalID() string { return m.responseToExternalID }
 func (m *mockMsg) Metadata() json.RawMessage    { return m.metadata }
 func (m *mockMsg) IsResend() bool               { return m.isResend }
-func (m *mockMsg) TextLanguage() string         { return m.textLanguage }
+func (m *mockMsg) Locale() string               { return m.locale }
 
 func (m *mockMsg) ReceivedOn() *time.Time { return m.receivedOn }
 func (m *mockMsg) SentOn() *time.Time     { return m.sentOn }

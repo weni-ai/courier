@@ -371,7 +371,7 @@ type DBMsg struct {
 	workerToken    queue.WorkerToken
 	alreadyWritten bool
 	quickReplies   []string
-	textLanguage   string
+	locale         string
 }
 
 func (m *DBMsg) ID() courier.MsgID            { return m.ID_ }
@@ -435,16 +435,16 @@ func (m *DBMsg) Topic() string {
 	return string(topic)
 }
 
-func (m *DBMsg) TextLanguage() string {
-	if m.textLanguage != "" {
-		return m.textLanguage
+func (m *DBMsg) Locale() string {
+	if m.locale != "" {
+		return m.locale
 	}
 	if m.Metadata_ == nil {
 		return ""
 	}
 
-	textLanguage, _, _, _ := jsonparser.Get(m.Metadata_, "text_language")
-	return string(textLanguage)
+	locale, _, _, _ := jsonparser.Get(m.Metadata_, "locale")
+	return string(locale)
 }
 
 // Metadata returns the metadata for this message

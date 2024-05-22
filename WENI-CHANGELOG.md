@@ -1,3 +1,7 @@
+1.5.3-courier-7.5.66
+----------
+  * Update to v7.5.66
+
 1.5.3-courier-7.5.64
 ----------
   * Temporarily remove fault status for kannel channels

@@ -881,8 +881,8 @@ func buildPayloads(msg courier.Msg, h *handler, clog *courier.ChannelLog) ([]int
 						} else {
 							payload.Interactive.Type = "list"
 							payload.Interactive.Body.Text = part
-							if msg.TextLanguage() != "" {
-								payload.Interactive.Action.Button = languageMenuMap[msg.TextLanguage()]
+							if msg.Locale() != "" {
+								payload.Interactive.Action.Button = languageMenuMap[msg.Locale()]
 							} else {
 								payload.Interactive.Action.Button = "Menu"
 							}

@@ -5,7 +5,6 @@ import (
 	"compress/flate"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -25,6 +24,7 @@ import (
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/storage"
 	"github.com/nyaruka/librato"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -361,6 +361,11 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 				logs = append(logs, NewChannelLog("Message Received", channel, e.ID(), r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
 				librato.Gauge(fmt.Sprintf("courier.msg_receive_%s", channel.ChannelType()), secondDuration)
 				LogMsgReceived(r, e)
+
+				if err := handleBilling(s, e); err != nil {
+					logrus.WithError(err).Info("Error handle billing on receive msg")
+				}
+
 			case ChannelEvent:
 				logs = append(logs, NewChannelLog("Event Received", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
 				librato.Gauge(fmt.Sprintf("courier.evt_receive_%s", channel.ChannelType()), secondDuration)
@@ -553,6 +558,30 @@ func (s *server) CheckS3() error {
 	cancel()
 	if err != nil {
 		return errors.New(s3storage.Name() + " S3 storage not available " + err.Error())
+	}
+	return nil
+}
+
+func handleBilling(s *server, msg Msg) error {
+	billingMsg := billing.NewMessage(
+		msg.URN().String(),
+		"",
+		msg.Channel().UUID().String(),
+		msg.ExternalID(),
+		time.Now().Format(time.RFC3339),
+		"I",
+		msg.Channel().ChannelType().String(),
+		msg.Text(),
+		msg.Attachments(),
+		msg.QuickReplies(),
+	)
+	billingMsg.ChannelType = string(msg.Channel().ChannelType())
+	billingMsg.Text = msg.Text()
+	billingMsg.Attachments = msg.Attachments()
+	billingMsg.QuickReplies = msg.QuickReplies()
+	err := s.Billing().Send(*billingMsg)
+	if err != nil {
+		return errors.Wrap(err, "fail to send msg to billing service")
 	}
 	return nil
 }

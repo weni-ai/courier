@@ -305,15 +305,17 @@ func (w *Sender) sendMessage(msg Msg) {
 						log.WithError(err).Info("error updating contact last seen on")
 					}
 					billingMsg := billing.NewMessage(
+						msg.URN().String(),
 						ctt.UUID().String(),
 						msg.Channel().UUID().String(),
 						msg.ExternalID(),
 						time.Now().Format(time.RFC3339),
+						"O",
+						msg.Channel().ChannelType().String(),
+						msg.Text(),
+						msg.Attachments(),
+						msg.QuickReplies(),
 					)
-					billingMsg.ChannelType = string(msg.Channel().ChannelType())
-					billingMsg.Text = msg.Text()
-					billingMsg.Attachments = msg.Attachments()
-					billingMsg.QuickReplies = msg.QuickReplies()
 					err = w.foreman.server.Billing().Send(*billingMsg)
 					if err != nil {
 						log.WithError(err).Info("fail to send msg to billing service")

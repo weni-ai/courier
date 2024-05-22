@@ -685,12 +685,17 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 							} else {
 								if h.Server().Billing() != nil {
 									billingMsg := billing.NewMessage(
+										string(urn.Identity()),
 										contactTo.UUID().String(),
 										channel.UUID().String(),
 										status.ID,
 										time.Now().Format(time.RFC3339),
+										"",
+										channel.ChannelType().String(),
+										"",
+										nil,
+										nil,
 									)
-									billingMsg.ChannelType = string(channel.ChannelType())
 									err := h.Server().Billing().Send(*billingMsg)
 									if err != nil {
 										handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)

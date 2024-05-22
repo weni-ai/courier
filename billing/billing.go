@@ -20,6 +20,7 @@ const QUEUE_NAME = "billing_message"
 //		  "message_date": "2024-03-08T16:08:19-03:00"
 //	 }
 type Message struct {
+	ContactURN   string   `json:"contact_urn,omitempty"`
 	ContactUUID  string   `json:"contact_uuid,omitempty"`
 	ChannelUUID  string   `json:"channel_uuid,omitempty"`
 	MessageID    string   `json:"message_id,omitempty"`
@@ -32,12 +33,18 @@ type Message struct {
 }
 
 // Create a new message
-func NewMessage(contactUUID, channelUUID, messageID, messageDate string) *Message {
+func NewMessage(contactURN, contactUUID, channelUUID, messageID, messageDate, direction, channelType, text string, attachments, quickreplies []string) *Message {
 	return &Message{
-		ContactUUID: contactUUID,
-		ChannelUUID: channelUUID,
-		MessageDate: messageDate,
-		MessageID:   messageID,
+		ContactURN:   contactURN,
+		ContactUUID:  contactUUID,
+		ChannelUUID:  channelUUID,
+		MessageID:    messageID,
+		MessageDate:  messageDate,
+		Direction:    direction,
+		ChannelType:  channelType,
+		Text:         text,
+		Attachments:  attachments,
+		QuickReplies: quickreplies,
 	}
 }
 

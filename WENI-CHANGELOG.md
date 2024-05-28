@@ -1,3 +1,7 @@
+1.8.0-courier-7.1.0
+----------
+ * Billing integration for all channel types, both for sending and receiving messages
+
 1.7.3-courier-7.1.0
 ----------
  * Add text size check for audio and sticker

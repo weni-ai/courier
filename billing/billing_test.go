@@ -20,20 +20,32 @@ func TestBillingClient(t *testing.T) {
 
 	msgUUID, _ := uuid.NewV4()
 
+	ch, err := conn.Channel()
+	if err != nil {
+		t.Fatal(errors.Wrap(err, "failed to declare a channel for consumer"))
+	}
+
+	_, err = ch.QueuePurge(QUEUE_NAME, true)
+	if err != nil {
+		t.Fatal(errors.Wrap(err, "Failed to purge queue"))
+	}
+
 	msg := NewMessage(
+		"telegram:123456789",
 		"02a6abf4-2145-4a2d-bf71-62d4039a2586",
 		"64a75af3-7e8d-41a5-8ef8-c273056c4fca",
-		msgUUID.String(),
 		time.Now().Format(time.RFC3339),
+		msgUUID.String(),
+		"O",
+		"TG",
+		"hello",
+		nil,
+		nil,
 	)
 
 	err = billingClient.Send(*msg)
 	assert.NoError(t, err)
 
-	ch, err := conn.Channel()
-	if err != nil {
-		t.Fatal(errors.Wrap(err, "failed to declare a channel for consumer"))
-	}
 	msgs, err := ch.Consume(
 		QUEUE_NAME,
 		"",

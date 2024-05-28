@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/nyaruka/courier/billing"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/librato"
 	"github.com/pkg/errors"
@@ -293,14 +294,34 @@ func (w *Sender) sendMessage(msg Msg) {
 
 		// update last seen on if message is no error and no fail
 		if status.Status() != MsgErrored && status.Status() != MsgFailed {
-			ctt, err := w.foreman.server.Backend().GetContact(context.Background(), msg.Channel(), msg.URN(), "", "")
-			if err != nil {
-				log.WithError(err).Info("error getting contact")
-			}
 			if msg.Channel().ChannelType() != "WAC" {
-				err = w.foreman.server.Backend().UpdateContactLastSeenOn(context.Background(), ctt.UUID(), time.Now())
+				ctt, err := w.foreman.server.Backend().GetContact(context.Background(), msg.Channel(), msg.URN(), "", "")
 				if err != nil {
-					log.WithError(err).Info("error updating contact last seen on")
+					log.WithError(err).Info("error getting contact")
+				}
+				if ctt != nil {
+					err = w.foreman.server.Backend().UpdateContactLastSeenOn(context.Background(), ctt.UUID(), time.Now())
+					if err != nil {
+						log.WithError(err).Info("error updating contact last seen on")
+					}
+					billingMsg := billing.NewMessage(
+						string(msg.URN().Identity()),
+						ctt.UUID().String(),
+						msg.Channel().UUID().String(),
+						msg.ExternalID(),
+						time.Now().Format(time.RFC3339),
+						"O",
+						msg.Channel().ChannelType().String(),
+						msg.Text(),
+						msg.Attachments(),
+						msg.QuickReplies(),
+					)
+					err = w.foreman.server.Billing().Send(*billingMsg)
+					if err != nil {
+						log.WithError(err).Info("fail to send msg to billing service")
+					} else {
+						log.Info("msg was sent and pushed to billing")
+					}
 				}
 			}
 		}

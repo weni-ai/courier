@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nyaruka/courier/billing"
 	"github.com/nyaruka/courier/utils"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -19,6 +20,16 @@ func TestServer(t *testing.T) {
 	server := NewServerWithLogger(config, NewMockBackend(), logger)
 	server.Start()
 	defer server.Stop()
+
+	rmqconn, err := billing.NewRMQConn("amqp://localhost:5672/")
+	if err != nil {
+		logrus.Fatalf("Error connecting to RabbitMQ: %v", err)
+	}
+	billingClient, err := billing.NewRMQBillingClient(rmqconn)
+	if err != nil {
+		logrus.Fatalf("Error creating billing RabbitMQ client: %v", err)
+	}
+	server.SetBilling(billingClient)
 
 	// wait for server to come up
 	time.Sleep(100 * time.Millisecond)

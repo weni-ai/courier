@@ -121,11 +121,8 @@ func main() {
 	}
 
 	if config.RabbitmqURL != "" {
-		rmqconn, err := billing.NewRMQConn(config.RabbitmqURL)
-		if err != nil {
-			logrus.Fatalf("Error connecting to RabbitMQ: %v", err)
-		}
-		billingClient, err := billing.NewRMQBillingClient(rmqconn)
+		billingClient, err := billing.NewRMQBillingResilientClient(
+			config.RabbitmqURL, config.RabbitmqRetryPubAttempts, config.RabbitmqRetryPubDelay)
 		if err != nil {
 			logrus.Fatalf("Error creating billing RabbitMQ client: %v", err)
 		}

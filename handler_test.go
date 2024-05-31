@@ -41,11 +41,11 @@ func (h *dummyHandler) GetChannel(ctx context.Context, r *http.Request) (Channel
 func (h *dummyHandler) Initialize(s Server) error {
 
 	{ // initialize billing
-		rmqconn, err := billing.NewRMQConn("amqp://localhost:5672/")
-		if err != nil {
-			logrus.Fatalf("Error connecting to RabbitMQ: %v", err)
-		}
-		billingClient, err := billing.NewRMQBillingClient(rmqconn)
+		billingClient, err := billing.NewRMQBillingResilientClient(
+			"amqp://localhost:5672/",
+			3,
+			100,
+		)
 		if err != nil {
 			logrus.Fatalf("Error creating billing RabbitMQ client: %v", err)
 		}

@@ -8,14 +8,13 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/pkg/errors"
+	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestBillingClient(t *testing.T) {
-
-	conn, err := NewRMQConn("amqp://localhost:5672/")
-	assert.NoError(t, err)
-	billingClient, err := NewRMQBillingClient(conn)
+func TestBillingResilientClient(t *testing.T) {
+	connURL := "amqp://localhost:5672/"
+	conn, err := amqp.Dial(connURL)
 	assert.NoError(t, err)
 
 	msgUUID, _ := uuid.NewV4()
@@ -25,10 +24,7 @@ func TestBillingClient(t *testing.T) {
 		t.Fatal(errors.Wrap(err, "failed to declare a channel for consumer"))
 	}
 
-	_, err = ch.QueuePurge(QUEUE_NAME, true)
-	if err != nil {
-		t.Fatal(errors.Wrap(err, "Failed to purge queue"))
-	}
+	ch.QueuePurge(QUEUE_NAME, false)
 
 	msg := NewMessage(
 		"telegram:123456789",
@@ -43,9 +39,21 @@ func TestBillingClient(t *testing.T) {
 		nil,
 	)
 
+	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000)
+	time.Sleep(1 * time.Second)
+	assert.NoError(t, err)
 	err = billingClient.Send(*msg)
 	assert.NoError(t, err)
 
+	_, err = ch.QueueDeclare(
+		QUEUE_NAME,
+		false,
+		false,
+		false,
+		false,
+		nil,
+	)
+	assert.NoError(t, err)
 	msgs, err := ch.Consume(
 		QUEUE_NAME,
 		"",

@@ -51,7 +51,9 @@ type Config struct {
 	// Default is WA, WAC, FB, FBA, IG
 	WaitMediaChannels []string
 
-	RabbitmqURL string `help:"rabbitmq url"`
+	RabbitmqURL              string `help:"rabbitmq url"`
+	RabbitmqRetryPubAttempts int    `help:"rabbitmq retry attempts"`
+	RabbitmqRetryPubDelay    int    `help:"rabbitmq retry delay"`
 }
 
 // NewConfig returns a new default configuration object
@@ -81,6 +83,8 @@ func NewConfig() *Config {
 		WaitMediaCount:               10,
 		WaitMediaSleepDuration:       1000,
 		WaitMediaChannels:            []string{},
+		RabbitmqRetryPubAttempts:     3,
+		RabbitmqRetryPubDelay:        1000,
 	}
 }
 

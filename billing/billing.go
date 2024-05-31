@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/furdarius/rabbitroutine"
 	"github.com/pkg/errors"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/sirupsen/logrus"
 )
 
 const QUEUE_NAME = "billing_message"
@@ -113,6 +115,75 @@ func (c *rabbitmqClient) Send(msg Message) error {
 	)
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+// rabbitmqRetryClient represents struct that implements billing service client interface
+type rabbitmqRetryClient struct {
+	publisher rabbitroutine.Publisher
+	conn      *rabbitroutine.Connector
+}
+
+// NewRMQBillingResilientClient creates a new billing service client implementation using RabbitMQ with publish retry and reconnect features
+func NewRMQBillingResilientClient(url string, retryAttempts int, retryDelay int) (Client, error) {
+	ctx := context.Background()
+
+	conn := rabbitroutine.NewConnector(rabbitroutine.Config{
+		ReconnectAttempts: 1000,
+		Wait:              2 * time.Second,
+	})
+
+	conn.AddRetriedListener(func(r rabbitroutine.Retried) {
+		logrus.Infof("try to connect to RabbitMQ: attempt=%d, error=\"%v\"",
+			r.ReconnectAttempt, r.Error)
+	})
+
+	conn.AddDialedListener(func(_ rabbitroutine.Dialed) {
+		logrus.Info("RabbitMQ connection successfully established")
+	})
+
+	conn.AddAMQPNotifiedListener(func(n rabbitroutine.AMQPNotified) {
+		logrus.Errorf("RabbitMQ error received: %v", n.Error)
+	})
+
+	pool := rabbitroutine.NewPool(conn)
+	ensurePub := rabbitroutine.NewEnsurePublisher(pool)
+	pub := rabbitroutine.NewRetryPublisher(
+		ensurePub,
+		rabbitroutine.PublishMaxAttemptsSetup(uint(retryAttempts)),
+		rabbitroutine.PublishDelaySetup(
+			rabbitroutine.LinearDelay(time.Duration(retryDelay)*time.Millisecond),
+		),
+	)
+
+	go func() {
+		err := conn.Dial(ctx, url)
+		if err != nil {
+			logrus.Error("failed to establish RabbitMQ connection")
+		}
+	}()
+
+	return &rabbitmqRetryClient{
+		publisher: pub,
+		conn:      conn,
+	}, nil
+}
+
+func (c *rabbitmqRetryClient) Send(msg Message) error {
+	msgMarshalled, _ := json.Marshal(msg)
+	ctx := context.Background()
+	err := c.publisher.Publish(
+		ctx,
+		"",
+		QUEUE_NAME,
+		amqp.Publishing{
+			ContentType: "application/json",
+			Body:        msgMarshalled,
+		},
+	)
+	if err != nil {
+		return errors.Wrap(err, "failed to publish msg to billing")
 	}
 	return nil
 }

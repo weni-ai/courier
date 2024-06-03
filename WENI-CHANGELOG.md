@@ -1,3 +1,7 @@
+1.8.1
+----------
+ * Billing integration with retry and reconnect capabilities
+
 1.8.0-courier-7.1.0
 ----------
  * Billing integration for all channel types, both for sending and receiving messages

@@ -696,10 +696,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 										nil,
 										nil,
 									)
-									err := h.Server().Billing().Send(*billingMsg)
-									if err != nil {
-										handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
-									}
+									h.Server().Billing().SendAsync(billingMsg, nil, nil)
 								}
 							}
 						}

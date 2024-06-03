@@ -42,10 +42,13 @@ require (
 	gopkg.in/go-playground/assert.v1 v1.2.1
 )
 
+require golang.org/x/sync v0.6.0 // indirect
+
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.0-20210816181553-5444fa50b93d // indirect
 	github.com/fatih/structs v1.0.0 // indirect
+	github.com/furdarius/rabbitroutine v0.8.2
 	github.com/goccy/go-json v0.9.7 // indirect
 	github.com/golang/protobuf v1.3.2 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect

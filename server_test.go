@@ -21,11 +21,11 @@ func TestServer(t *testing.T) {
 	server.Start()
 	defer server.Stop()
 
-	rmqconn, err := billing.NewRMQConn("amqp://localhost:5672/")
-	if err != nil {
-		logrus.Fatalf("Error connecting to RabbitMQ: %v", err)
-	}
-	billingClient, err := billing.NewRMQBillingClient(rmqconn)
+	billingClient, err := billing.NewRMQBillingResilientClient(
+		"amqp://localhost:5672/",
+		config.RabbitmqRetryPubAttempts,
+		config.RabbitmqRetryPubDelay,
+	)
 	if err != nil {
 		logrus.Fatalf("Error creating billing RabbitMQ client: %v", err)
 	}

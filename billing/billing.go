@@ -3,10 +3,13 @@ package billing
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
+	"github.com/furdarius/rabbitroutine"
 	"github.com/pkg/errors"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/sirupsen/logrus"
 )
 
 const QUEUE_NAME = "billing_message"
@@ -33,8 +36,8 @@ type Message struct {
 }
 
 // Create a new message
-func NewMessage(contactURN, contactUUID, channelUUID, messageID, messageDate, direction, channelType, text string, attachments, quickreplies []string) *Message {
-	return &Message{
+func NewMessage(contactURN, contactUUID, channelUUID, messageID, messageDate, direction, channelType, text string, attachments, quickreplies []string) Message {
+	return Message{
 		ContactURN:   contactURN,
 		ContactUUID:  contactUUID,
 		ChannelUUID:  channelUUID,
@@ -51,30 +54,29 @@ func NewMessage(contactURN, contactUUID, channelUUID, messageID, messageDate, di
 // Client represents a client interface for billing service
 type Client interface {
 	Send(msg Message) error
+	SendAsync(msg Message, pre func(), post func())
 }
 
-// rabbitmqClient represents struct that implements billing service client interface
-type rabbitmqClient struct {
-	channel *amqp.Channel
-	queue   *amqp.Queue
+// rabbitmqRetryClient represents struct that implements billing service client interface
+type rabbitmqRetryClient struct {
+	publisher rabbitroutine.Publisher
+	conn      *rabbitroutine.Connector
 }
 
-// NewRMQConn creates a new connection to rabbitmq for the given url
-func NewRMQConn(url string) (*amqp.Connection, error) {
-	conn, err := amqp.Dial(url)
+// NewRMQBillingResilientClient creates a new billing service client implementation using RabbitMQ with publish retry and reconnect features
+func NewRMQBillingResilientClient(url string, retryAttempts int, retryDelay int) (Client, error) {
+	cconn, err := amqp.Dial(url)
 	if err != nil {
 		return nil, err
 	}
-	return conn, nil
-}
+	defer cconn.Close()
 
-// NewRMQBillingClient creates a new billing service client implementation using RabbitMQ
-func NewRMQBillingClient(conn *amqp.Connection) (Client, error) {
-	ch, err := conn.Channel()
+	ch, err := cconn.Channel()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to open a channel to rabbitmq")
 	}
-	q, err := ch.QueueDeclare(
+	defer ch.Close()
+	_, err = ch.QueueDeclare(
 		QUEUE_NAME,
 		false,
 		false,
@@ -85,34 +87,82 @@ func NewRMQBillingClient(conn *amqp.Connection) (Client, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to declare a queue for billing publisher")
 	}
-	return &rabbitmqClient{
-		queue:   &q,
-		channel: ch,
+
+	conn := rabbitroutine.NewConnector(rabbitroutine.Config{
+		ReconnectAttempts: 1000,
+		Wait:              2 * time.Second,
+	})
+
+	conn.AddRetriedListener(func(r rabbitroutine.Retried) {
+		logrus.Infof("try to connect to RabbitMQ: attempt=%d, error=\"%v\"",
+			r.ReconnectAttempt, r.Error)
+	})
+
+	conn.AddDialedListener(func(_ rabbitroutine.Dialed) {
+		logrus.Info("RabbitMQ connection successfully established")
+	})
+
+	conn.AddAMQPNotifiedListener(func(n rabbitroutine.AMQPNotified) {
+		logrus.Errorf("RabbitMQ error received: %v", n.Error)
+	})
+
+	pool := rabbitroutine.NewPool(conn)
+	ensurePub := rabbitroutine.NewEnsurePublisher(pool)
+	pub := rabbitroutine.NewRetryPublisher(
+		ensurePub,
+		rabbitroutine.PublishMaxAttemptsSetup(uint(retryAttempts)),
+		rabbitroutine.PublishDelaySetup(
+			rabbitroutine.LinearDelay(time.Duration(retryDelay)*time.Millisecond),
+		),
+	)
+
+	go func() {
+		err := conn.Dial(context.Background(), url)
+		if err != nil {
+			logrus.Error("failed to establish RabbitMQ connection")
+		}
+	}()
+
+	return &rabbitmqRetryClient{
+		publisher: pub,
+		conn:      conn,
 	}, nil
 }
 
-// Send sends a message to Billing service
-func (c *rabbitmqClient) Send(msg Message) error {
-	msgMarshalled, err := json.Marshal(msg)
-	if err != nil {
-		return err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-	defer cancel()
-	err = c.channel.PublishWithContext(
+func (c *rabbitmqRetryClient) Send(msg Message) error {
+	msgMarshalled, _ := json.Marshal(msg)
+	ctx := context.Background()
+	err := c.publisher.Publish(
 		ctx,
 		"",
-		c.queue.Name,
-		false,
-		false,
+		QUEUE_NAME,
 		amqp.Publishing{
 			ContentType: "application/json",
 			Body:        msgMarshalled,
 		},
 	)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "failed to publish msg to billing")
 	}
 	return nil
+}
+
+func (c *rabbitmqRetryClient) SendAsync(msg Message, pre func(), post func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.Error(fmt.Sprintf("Recovering from: %v", r))
+			}
+		}()
+		if pre != nil {
+			pre()
+		}
+		err := c.Send(msg)
+		if err != nil {
+			logrus.WithError(err).Error("fail to send msg to billing service")
+		}
+		if post != nil {
+			post()
+		}
+	}()
 }

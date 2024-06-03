@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/furdarius/rabbitroutine"
@@ -35,8 +36,8 @@ type Message struct {
 }
 
 // Create a new message
-func NewMessage(contactURN, contactUUID, channelUUID, messageID, messageDate, direction, channelType, text string, attachments, quickreplies []string) *Message {
-	return &Message{
+func NewMessage(contactURN, contactUUID, channelUUID, messageID, messageDate, direction, channelType, text string, attachments, quickreplies []string) Message {
+	return Message{
 		ContactURN:   contactURN,
 		ContactUUID:  contactUUID,
 		ChannelUUID:  channelUUID,
@@ -53,6 +54,7 @@ func NewMessage(contactURN, contactUUID, channelUUID, messageID, messageDate, di
 // Client represents a client interface for billing service
 type Client interface {
 	Send(msg Message) error
+	SendAsync(msg Message, pre func(), post func())
 }
 
 // rabbitmqRetryClient represents struct that implements billing service client interface
@@ -63,7 +65,28 @@ type rabbitmqRetryClient struct {
 
 // NewRMQBillingResilientClient creates a new billing service client implementation using RabbitMQ with publish retry and reconnect features
 func NewRMQBillingResilientClient(url string, retryAttempts int, retryDelay int) (Client, error) {
-	ctx := context.Background()
+	cconn, err := amqp.Dial(url)
+	if err != nil {
+		return nil, err
+	}
+	defer cconn.Close()
+
+	ch, err := cconn.Channel()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to open a channel to rabbitmq")
+	}
+	defer ch.Close()
+	_, err = ch.QueueDeclare(
+		QUEUE_NAME,
+		false,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to declare a queue for billing publisher")
+	}
 
 	conn := rabbitroutine.NewConnector(rabbitroutine.Config{
 		ReconnectAttempts: 1000,
@@ -94,7 +117,7 @@ func NewRMQBillingResilientClient(url string, retryAttempts int, retryDelay int)
 	)
 
 	go func() {
-		err := conn.Dial(ctx, url)
+		err := conn.Dial(context.Background(), url)
 		if err != nil {
 			logrus.Error("failed to establish RabbitMQ connection")
 		}
@@ -122,4 +145,24 @@ func (c *rabbitmqRetryClient) Send(msg Message) error {
 		return errors.Wrap(err, "failed to publish msg to billing")
 	}
 	return nil
+}
+
+func (c *rabbitmqRetryClient) SendAsync(msg Message, pre func(), post func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.Error(fmt.Sprintf("Recovering from: %v", r))
+			}
+		}()
+		if pre != nil {
+			pre()
+		}
+		err := c.Send(msg)
+		if err != nil {
+			logrus.WithError(err).Error("fail to send msg to billing service")
+		}
+		if post != nil {
+			post()
+		}
+	}()
 }

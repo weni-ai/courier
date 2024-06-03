@@ -579,9 +579,7 @@ func handleBilling(s *server, msg Msg) error {
 	billingMsg.Text = msg.Text()
 	billingMsg.Attachments = msg.Attachments()
 	billingMsg.QuickReplies = msg.QuickReplies()
-	err := s.Billing().Send(*billingMsg)
-	if err != nil {
-		return errors.Wrap(err, "fail to send msg to billing service")
-	}
+	s.Billing().SendAsync(billingMsg, nil, nil)
+
 	return nil
 }

@@ -273,11 +273,6 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 		}
 	}
 
-	// to allow download media from wac when receive media message
-	if channel.ChannelType() == "WAC" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", b.config.WhatsappAdminSystemUserToken))
-	}
-
 	switch channel.ChannelType() {
 	case "WAC":
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", b.config.WhatsappAdminSystemUserToken))
@@ -582,12 +577,8 @@ type DBMsg struct {
 	quickReplies   []string
 	textLanguage   string
 
-	products   []map[string]interface{}
-	header     string
-	body       string
-	footer     string
-	action     string
-	sendAction bool
+	products    []map[string]interface{}
+	listMessage courier.ListMessage
 }
 
 func (m *DBMsg) ID() courier.MsgID            { return m.ID_ }
@@ -771,4 +762,72 @@ func (m *DBMsg) SendCatalog() bool {
 		return false
 	}
 	return sendCatalog
+}
+
+func (m *DBMsg) HeaderType() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.Metadata_, "header_type")
+	return string(byteValue)
+}
+
+func (m *DBMsg) HeaderText() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.Metadata_, "header_text")
+	return string(byteValue)
+}
+
+func (m *DBMsg) InteractionType() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.Metadata_, "interaction_type")
+	return string(byteValue)
+}
+
+func (m *DBMsg) ListMessage() courier.ListMessage {
+	if m.Metadata_ == nil {
+		return courier.ListMessage{}
+	}
+
+	var metadata map[string]interface{}
+	err := json.Unmarshal(m.Metadata_, &metadata)
+	if err != nil {
+		return m.listMessage
+	}
+
+	if metadata == nil {
+		return courier.ListMessage{}
+	}
+
+	if interactionType, ok := metadata["interaction_type"].(string); ok && interactionType == "list" {
+		m.listMessage = courier.ListMessage{}
+
+		if listMessageData, ok := metadata["list_message"].(map[string]interface{}); ok {
+			if buttonText, ok := listMessageData["button_text"].(string); ok {
+				m.listMessage.ButtonText = buttonText
+			}
+
+			if listItems, ok := listMessageData["list_items"].([]interface{}); ok {
+				m.listMessage.ListItems = make([]courier.ListItems, len(listItems))
+				for i, item := range listItems {
+					if itemMap, ok := item.(map[string]interface{}); ok {
+						m.listMessage.ListItems[i] = courier.ListItems{
+							Title: itemMap["title"].(string),
+							UUID:  itemMap["uuid"].(string),
+						}
+
+						if description, ok := itemMap["description"].(string); ok {
+							m.listMessage.ListItems[i].Description = description
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return m.listMessage
 }

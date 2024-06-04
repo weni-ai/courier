@@ -128,6 +128,21 @@ type Msg interface {
 	Footer() string
 	Action() string
 	SendCatalog() bool
+	HeaderType() string
+	HeaderText() string
+	ListMessage() ListMessage
+	InteractionType() string
+}
+
+type ListMessage struct {
+	ButtonText string      `json:"button_text"`
+	ListItems  []ListItems `json:"list_items"`
+}
+
+type ListItems struct {
+	UUID        string `json:"uuid"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
 }
 
 type RunEvent struct {

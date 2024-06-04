@@ -38,9 +38,10 @@ var (
 	signatureHeader = "X-Hub-Signature"
 
 	// max for the body
-	maxMsgLengthIG  = 1000
-	maxMsgLengthFBA = 2000
-	maxMsgLengthWAC = 4096
+	maxMsgLengthIG             = 1000
+	maxMsgLengthFBA            = 2000
+	maxMsgLengthWAC            = 4096
+	maxMsgLengthInteractiveWAC = 1024
 
 	// Sticker ID substitutions
 	stickerIDToEmoji = map[int64]string{
@@ -1365,7 +1366,7 @@ type wacInteractive struct {
 		Text string `json:"text"`
 	} `json:"body,omitempty"`
 	Footer *struct {
-		Text string `json:"text"`
+		Text string `json:"text,omitempty"`
 	} `json:"footer,omitempty"`
 	Action *struct {
 		Button            string         `json:"button,omitempty"`
@@ -1437,7 +1438,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 	msgParts := make([]string, 0)
 	if msg.Text() != "" {
-		msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthWAC)
+		if len(msg.ListMessage().ListItems) > 0 || len(msg.QuickReplies()) > 0 || msg.InteractionType() == "location" {
+			msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthInteractiveWAC)
+		} else {
+			msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthWAC)
+		}
 	}
 	qrs := msg.QuickReplies()
 
@@ -1512,22 +1517,42 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 			} else {
 				if i < (len(msgParts) + len(msg.Attachments()) - 1) {
-					// this is still a msg part
-					text := &wacText{}
-					payload.Type = "text"
 					if strings.Contains(msgParts[i-len(msg.Attachments())], "https://") || strings.Contains(msgParts[i-len(msg.Attachments())], "http://") {
+						text := wacText{}
 						text.PreviewURL = true
+						text.Body = msgParts[i-len(msg.Attachments())]
+						payload.Text = &text
+					} else {
+						payload.Type = "text"
+						payload.Text = &wacText{Body: msgParts[i-len(msg.Attachments())]}
 					}
-					text.Body = msgParts[i-len(msg.Attachments())]
-					payload.Text = text
 				} else {
-					if len(qrs) > 0 {
+					if len(qrs) > 0 || len(msg.ListMessage().ListItems) > 0 {
 						payload.Type = "interactive"
 						// We can use buttons
-						if len(qrs) <= 3 {
-							interactive := wacInteractive{Type: "button", Body: struct {
-								Text string "json:\"text\""
-							}{Text: msgParts[i-len(msg.Attachments())]}}
+						if len(qrs) > 0 && len(qrs) <= 3 {
+							interactive := wacInteractive{
+								Type: "button",
+								Body: struct {
+									Text string "json:\"text\""
+								}{Text: msgParts[i-len(msg.Attachments())]},
+							}
+
+							if msg.Footer() != "" {
+								interactive.Footer = &struct {
+									Text string "json:\"text,omitempty\""
+								}{Text: msg.Footer()}
+							}
+
+							if msg.HeaderText() != "" {
+								interactive.Header = &struct {
+									Type     string     "json:\"type\""
+									Text     string     "json:\"text,omitempty\""
+									Video    wacMTMedia "json:\"video,omitempty\""
+									Image    wacMTMedia "json:\"image,omitempty\""
+									Document wacMTMedia "json:\"document,omitempty\""
+								}{Type: "text", Text: msg.HeaderText()}
+							}
 
 							btns := make([]wacMTButton, len(qrs))
 							for i, qr := range qrs {
@@ -1554,26 +1579,54 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								Name              string         "json:\"name,omitempty\""
 							}{Buttons: btns}
 							payload.Interactive = &interactive
-						} else if len(qrs) <= 10 {
-							interactive := wacInteractive{Type: "list", Body: struct {
-								Text string "json:\"text\""
-							}{Text: msgParts[i-len(msg.Attachments())]}}
-
-							section := wacMTSection{
-								Rows: make([]wacMTSectionRow, len(qrs)),
+						} else if len(qrs) <= 10 || len(msg.ListMessage().ListItems) > 0 {
+							interactive := wacInteractive{
+								Type: "list",
+								Body: struct {
+									Text string "json:\"text\""
+								}{Text: msgParts[i-len(msg.Attachments())]},
 							}
-							for i, qr := range qrs {
-								var text string
-								if strings.Contains(qr, "\\/") {
-									text = strings.Replace(qr, "\\", "", -1)
-								} else if strings.Contains(qr, "\\\\") {
-									text = strings.Replace(qr, "\\\\", "\\", -1)
-								} else {
-									text = qr
+
+							var section wacMTSection
+
+							if len(qrs) > 0 {
+								section = wacMTSection{
+									Rows: make([]wacMTSectionRow, len(qrs)),
 								}
-								section.Rows[i] = wacMTSectionRow{
-									ID:    fmt.Sprint(i),
-									Title: text,
+								for i, qr := range qrs {
+									text := parseBacklashes(qr)
+									section.Rows[i] = wacMTSectionRow{
+										ID:    fmt.Sprint(i),
+										Title: text,
+									}
+								}
+							} else if len(msg.ListMessage().ListItems) > 0 {
+								section = wacMTSection{
+									Rows: make([]wacMTSectionRow, len(msg.ListMessage().ListItems)),
+								}
+								for i, listItem := range msg.ListMessage().ListItems {
+									titleText := parseBacklashes(listItem.Title)
+									descriptionText := parseBacklashes(listItem.Description)
+									section.Rows[i] = wacMTSectionRow{
+										ID:          listItem.UUID,
+										Title:       titleText,
+										Description: descriptionText,
+									}
+								}
+								if msg.Footer() != "" {
+									interactive.Footer = &struct {
+										Text string "json:\"text,omitempty\""
+									}{Text: msg.Footer()}
+								}
+
+								if msg.HeaderText() != "" {
+									interactive.Header = &struct {
+										Type     string     "json:\"type\""
+										Text     string     "json:\"text,omitempty\""
+										Video    wacMTMedia "json:\"video,omitempty\""
+										Image    wacMTMedia "json:\"image,omitempty\""
+										Document wacMTMedia "json:\"document,omitempty\""
+									}{Type: "text", Text: msg.HeaderText()}
 								}
 							}
 
@@ -1588,7 +1641,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								section,
 							}}
 
-							if msg.TextLanguage() != "" {
+							if msg.ListMessage().ButtonText != "" {
+								interactive.Action.Button = msg.ListMessage().ButtonText
+							} else if msg.TextLanguage() != "" {
 								interactive.Action.Button = languageMenuMap[msg.TextLanguage()]
 							}
 
@@ -1596,6 +1651,24 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						} else {
 							return nil, fmt.Errorf("too many quick replies WAC supports only up to 10 quick replies")
 						}
+					} else if msg.InteractionType() == "location" {
+						payload.Type = "interactive"
+						interactive := wacInteractive{
+							Type: "location_request_message",
+							Body: struct {
+								Text string "json:\"text\""
+							}{Text: msgParts[i-len(msg.Attachments())]},
+							Action: &struct {
+								Button            string         "json:\"button,omitempty\""
+								Sections          []wacMTSection "json:\"sections,omitempty\""
+								Buttons           []wacMTButton  "json:\"buttons,omitempty\""
+								CatalogID         string         "json:\"catalog_id,omitempty\""
+								ProductRetailerID string         "json:\"product_retailer_id,omitempty\""
+								Name              string         "json:\"name,omitempty\""
+							}{Name: "send_location"},
+						}
+
+						payload.Interactive = &interactive
 					} else {
 						// this is still a msg part
 						text := &wacText{}
@@ -1609,7 +1682,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				}
 			}
 
-		} else if i < len(msg.Attachments()) && len(qrs) == 0 || len(qrs) > 3 && i < len(msg.Attachments()) {
+		} else if (i < len(msg.Attachments()) && len(qrs) == 0 && len(msg.ListMessage().ListItems) == 0) ||
+			len(qrs) > 3 && i < len(msg.Attachments()) ||
+			len(msg.ListMessage().ListItems) > 0 && i < len(msg.Attachments()) {
 			attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
 			fileURL := attURL
 
@@ -1639,7 +1714,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			}
 			payload.Type = attType
 			media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
-			if len(msgParts) == 1 && (attType != "audio" && attFormat != "webp") && len(msg.Attachments()) == 1 && len(msg.QuickReplies()) == 0 {
+			if len(msgParts) == 1 && (attType != "audio" && attFormat != "webp") && len(msg.Attachments()) == 1 && len(msg.QuickReplies()) == 0 && len(msg.ListMessage().ListItems) == 0 {
 				media.Caption = msgParts[i]
 				hasCaption = true
 			}
@@ -1665,14 +1740,17 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			}
 			//end
 		} else {
-			if len(qrs) > 0 {
+			if len(qrs) > 0 || len(msg.ListMessage().ListItems) > 0 {
 				payload.Type = "interactive"
 				// We can use buttons
-				if len(qrs) <= 3 {
+				if len(qrs) <= 3 && len(msg.ListMessage().ListItems) == 0 {
 					hasCaption = true
-					interactive := wacInteractive{Type: "button", Body: struct {
-						Text string "json:\"text\""
-					}{Text: msgParts[i]}}
+					interactive := wacInteractive{
+						Type: "button",
+						Body: struct {
+							Text string "json:\"text\""
+						}{Text: msgParts[i]},
+					}
 
 					if len(msg.Attachments()) > 0 {
 						attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
@@ -1743,14 +1821,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							Type: "reply",
 						}
 						btns[i].Reply.ID = fmt.Sprint(i)
-						var text string
-						if strings.Contains(qr, "\\/") {
-							text = strings.Replace(qr, "\\", "", -1)
-						} else if strings.Contains(qr, "\\\\") {
-							text = strings.Replace(qr, "\\\\", "\\", -1)
-						} else {
-							text = qr
-						}
+						text := parseBacklashes(qr)
 						btns[i].Reply.Title = text
 					}
 					interactive.Action = &struct {
@@ -1762,27 +1833,49 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						Name              string         "json:\"name,omitempty\""
 					}{Buttons: btns}
 					payload.Interactive = &interactive
-
-				} else if len(qrs) <= 10 {
-					interactive := wacInteractive{Type: "list", Body: struct {
-						Text string "json:\"text\""
-					}{Text: msgParts[i-len(msg.Attachments())]}}
-
-					section := wacMTSection{
-						Rows: make([]wacMTSectionRow, len(qrs)),
+					if msg.Footer() != "" {
+						payload.Interactive.Footer = &struct {
+							Text string "json:\"text,omitempty\""
+						}{Text: msg.Footer()}
 					}
-					for i, qr := range qrs {
-						var text string
-						if strings.Contains(qr, "\\/") {
-							text = strings.Replace(qr, "\\", "", -1)
-						} else if strings.Contains(qr, "\\\\") {
-							text = strings.Replace(qr, "\\\\", "\\", -1)
-						} else {
-							text = qr
+				} else if len(qrs) <= 10 || len(msg.ListMessage().ListItems) > 0 {
+					interactive := wacInteractive{
+						Type: "list",
+						Body: struct {
+							Text string "json:\"text\""
+						}{Text: msgParts[i-len(msg.Attachments())]},
+					}
+
+					var section wacMTSection
+
+					if len(qrs) > 0 {
+						section = wacMTSection{
+							Rows: make([]wacMTSectionRow, len(qrs)),
 						}
-						section.Rows[i] = wacMTSectionRow{
-							ID:    fmt.Sprint(i),
-							Title: text,
+						for i, qr := range qrs {
+							text := parseBacklashes(qr)
+							section.Rows[i] = wacMTSectionRow{
+								ID:    fmt.Sprint(i),
+								Title: text,
+							}
+						}
+					} else {
+						section = wacMTSection{
+							Rows: make([]wacMTSectionRow, len(msg.ListMessage().ListItems)),
+						}
+						for i, listItem := range msg.ListMessage().ListItems {
+							titleText := parseBacklashes(listItem.Title)
+							descriptionText := parseBacklashes(listItem.Description)
+							section.Rows[i] = wacMTSectionRow{
+								ID:          listItem.UUID,
+								Title:       titleText,
+								Description: descriptionText,
+							}
+						}
+						if msg.Footer() != "" {
+							interactive.Footer = &struct {
+								Text string "json:\"text,omitempty\""
+							}{Text: msg.Footer()}
 						}
 					}
 
@@ -1797,10 +1890,29 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						section,
 					}}
 
+					if msg.ListMessage().ButtonText != "" {
+						interactive.Action.Button = msg.ListMessage().ButtonText
+					} else if msg.TextLanguage() != "" {
+						interactive.Action.Button = languageMenuMap[msg.TextLanguage()]
+					}
+
 					payload.Interactive = &interactive
 				} else {
 					return nil, fmt.Errorf("too many quick replies WAC supports only up to 10 quick replies")
 				}
+			} else if msg.InteractionType() == "location" {
+				interactive := wacInteractive{Type: "location_request_message", Body: struct {
+					Text string "json:\"text\""
+				}{Text: msgParts[i-len(msg.Attachments())]}, Action: &struct {
+					Button            string         "json:\"button,omitempty\""
+					Sections          []wacMTSection "json:\"sections,omitempty\""
+					Buttons           []wacMTButton  "json:\"buttons,omitempty\""
+					CatalogID         string         "json:\"catalog_id,omitempty\""
+					ProductRetailerID string         "json:\"product_retailer_id,omitempty\""
+					Name              string         "json:\"name,omitempty\""
+				}{Name: "send_location"}}
+
+				payload.Interactive = &interactive
 			} else {
 				// this is still a msg part
 				text := &wacText{}
@@ -1901,7 +2013,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 		if msg.Footer() != "" {
 			interactive.Footer = &struct {
-				Text string "json:\"text\""
+				Text string "json:\"text,omitempty\""
 			}{
 				Text: msg.Footer(),
 			}
@@ -2001,6 +2113,18 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 	}
 
 	return status, nil
+}
+
+func parseBacklashes(baseText string) string {
+	var text string
+	if strings.Contains(baseText, "\\/") {
+		text = strings.Replace(baseText, "\\", "", -1)
+	} else if strings.Contains(baseText, "\\\\") {
+		text = strings.Replace(baseText, "\\\\", "\\", -1)
+	} else {
+		text = baseText
+	}
+	return text
 }
 
 func requestWAC(payload wacMTPayload, accessToken string, msg courier.Msg, status courier.MsgStatus, wacPhoneURL *url.URL, zeroIndex bool) (courier.MsgStatus, *wacMTResponse, error) {

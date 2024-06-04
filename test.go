@@ -599,7 +599,8 @@ type mockMsg struct {
 	sentOn     *time.Time
 	wiredOn    *time.Time
 
-	products []map[string]interface{}
+	products    []map[string]interface{}
+	listMessage ListMessage
 }
 
 func (m *mockMsg) SessionStatus() string { return "" }
@@ -700,6 +701,65 @@ func (m *mockMsg) SendCatalog() bool {
 		return false
 	}
 	return sendCatalog
+}
+
+func (m *mockMsg) ListMessage() ListMessage {
+	if m.metadata == nil {
+		return ListMessage{}
+	}
+
+	var metadata map[string]interface{}
+	err := json.Unmarshal(m.metadata, &metadata)
+	if err != nil {
+		return m.listMessage
+	}
+
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "interaction_type")
+	interactionType := string(byteValue)
+
+	if interactionType == "list" {
+		m.listMessage = ListMessage{}
+		m.listMessage.ButtonText = metadata["list_message"].(map[string]interface{})["button_text"].(string)
+
+		listItems := metadata["list_message"].(map[string]interface{})["list_items"].([]interface{})
+		m.listMessage.ListItems = make([]ListItems, len(listItems))
+		for i, item := range listItems {
+			itemMap := item.(map[string]interface{})
+			m.listMessage.ListItems[i] = ListItems{
+				Title: itemMap["title"].(string),
+				UUID:  itemMap["uuid"].(string),
+			}
+
+			if itemMap["description"] != nil {
+				m.listMessage.ListItems[i].Description = itemMap["description"].(string)
+			}
+		}
+	}
+	return m.listMessage
+}
+
+func (m *mockMsg) HeaderType() string {
+	if m.metadata == nil {
+		return ""
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "header_type")
+	return string(byteValue)
+}
+
+func (m *mockMsg) HeaderText() string {
+	if m.metadata == nil {
+		return ""
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "header_text")
+	return string(byteValue)
+}
+
+func (m *mockMsg) InteractionType() string {
+	if m.metadata == nil {
+		return ""
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "interaction_type")
+	return string(byteValue)
 }
 
 //-----------------------------------------------------------------------------

@@ -1,4 +1,8 @@
-1.8.1
+1.9.0-courier-7.1.0
+----------
+ * Add support for WhatsApp message sending card
+
+1.8.1-courier-7.1.0
 ----------
  * Billing integration with retry and reconnect capabilities
 

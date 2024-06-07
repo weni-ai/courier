@@ -360,6 +360,11 @@ type moPayload struct {
 	} `json:"entry"`
 }
 
+type NFMReply struct {
+	Name         string                 `json:"name,omitempty"`
+	ResponseJSON map[string]interface{} `json:"response_json"`
+}
+
 type FeedbackQuestion struct {
 	Type     string `json:"type"`
 	Payload  string `json:"payload"`
@@ -621,7 +626,18 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				}
 
 				if msg.Interactive.Type == "nfm_reply" {
-					nfmReply := map[string]interface{}{"nfm_reply": msg.Interactive.NFMReply}
+
+					var responseJSON map[string]interface{}
+					err := json.Unmarshal([]byte(msg.Interactive.NFMReply.ResponseJSON), &responseJSON)
+					if err != nil {
+						courier.LogRequestError(r, channel, err)
+					}
+
+					nfmReply := NFMReply{
+						Name:         msg.Interactive.NFMReply.Name,
+						ResponseJSON: responseJSON,
+					}
+
 					nfmReplyJSON, err := json.Marshal(nfmReply)
 					if err != nil {
 						courier.LogRequestError(r, channel, err)

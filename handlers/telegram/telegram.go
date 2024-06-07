@@ -20,6 +20,8 @@ import (
 
 var apiURL = "https://api.telegram.org"
 
+var defaultParseMode = "MarkdownV2"
+
 func init() {
 	courier.RegisterHandler(newHandler())
 }
@@ -203,6 +205,11 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		form := url.Values{
 			"chat_id": []string{msg.URN().Path()},
 			"text":    []string{msg.Text()},
+		}
+
+		parseMode := msg.Channel().ConfigForKey("parse_mode", defaultParseMode)
+		if parseMode != "" {
+			form.Set("parse_mode", fmt.Sprint(parseMode))
 		}
 
 		externalID, log, err := h.sendMsgPart(msg, authToken, "sendMessage", form, msgKeyBoard)

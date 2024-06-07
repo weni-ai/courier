@@ -206,7 +206,7 @@ func (h *handler) Send(ctx context.Context, msg courier.Msg, clog *courier.Chann
 		_, _, _ = handlers.RequestHTTPInsecure(req, clog)
 	}
 
-	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored, clog)
+	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgWired, clog)
 	// if err == nil && resp.StatusCode/100 == 2 {
 	status.SetStatus(courier.MsgWired)
 	// }

@@ -360,6 +360,10 @@ type moPayload struct {
 	} `json:"entry"`
 }
 
+type Flow struct {
+	NFMReply NFMReply `json:"nfm_reply"`
+}
+
 type NFMReply struct {
 	Name         string                 `json:"name,omitempty"`
 	ResponseJSON map[string]interface{} `json:"response_json"`
@@ -633,9 +637,11 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 						courier.LogRequestError(r, channel, err)
 					}
 
-					nfmReply := NFMReply{
-						Name:         msg.Interactive.NFMReply.Name,
-						ResponseJSON: responseJSON,
+					nfmReply := Flow{
+						NFMReply: NFMReply{
+							Name:         msg.Interactive.NFMReply.Name,
+							ResponseJSON: responseJSON,
+						},
 					}
 
 					nfmReplyJSON, err := json.Marshal(nfmReply)

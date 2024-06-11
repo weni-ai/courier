@@ -1,3 +1,7 @@
+1.5.4-courier-7.5.66
+----------
+  * Remove errored status for kannel channel
+
 1.5.3-courier-7.5.66
 ----------
   * Update to v7.5.66

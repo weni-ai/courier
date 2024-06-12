@@ -132,11 +132,17 @@ type Msg interface {
 	HeaderText() string
 	ListMessage() ListMessage
 	InteractionType() string
+	CTAMessage() *CTAMessage
 }
 
 type ListMessage struct {
 	ButtonText string      `json:"button_text"`
 	ListItems  []ListItems `json:"list_items"`
+}
+
+type CTAMessage struct {
+	URL         string `json:"url"`
+	DisplayText string `json:"display_text"`
 }
 
 type ListItems struct {

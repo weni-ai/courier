@@ -831,3 +831,33 @@ func (m *DBMsg) ListMessage() courier.ListMessage {
 
 	return m.listMessage
 }
+
+func (m *DBMsg) CTAMessage() *courier.CTAMessage {
+	if m.Metadata_ == nil {
+		return nil
+	}
+
+	var metadata map[string]interface{}
+	err := json.Unmarshal(m.Metadata_, &metadata)
+	if err != nil {
+		return nil
+	}
+
+	if metadata == nil {
+		return nil
+	}
+
+	if interactionType, ok := metadata["interaction_type"].(string); ok && interactionType == "cta_url" {
+		if ctaMessageData, ok := metadata["cta_message"].(map[string]interface{}); ok {
+			ctaMessage := &courier.CTAMessage{}
+			if displayText, ok := ctaMessageData["display_text"].(string); ok {
+				ctaMessage.DisplayText = displayText
+			}
+			if actionURL, ok := ctaMessageData["url"].(string); ok {
+				ctaMessage.URL = actionURL
+			}
+			return ctaMessage
+		}
+	}
+	return nil
+}

@@ -1,3 +1,7 @@
+1.9.1-courier-7.1.0
+----------
+ * Add telegram parse_mode channel config for formmating text using MarkdownV2 as default
+
 1.9.0-courier-7.1.0
 ----------
  * Add support for WhatsApp message sending card

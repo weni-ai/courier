@@ -121,19 +121,22 @@ func (h *handler) receiveStatus(ctx context.Context, channel courier.Channel, w 
 
 // SendMsg sends the passed in message, returning any error
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
+	// record our status and log
+	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgWired)
+
 	username := msg.Channel().StringConfigForKey(courier.ConfigUsername, "")
 	if username == "" {
-		return nil, fmt.Errorf("no username set for KN channel")
+		return status, fmt.Errorf("no username set for KN channel")
 	}
 
 	password := msg.Channel().StringConfigForKey(courier.ConfigPassword, "")
 	if password == "" {
-		return nil, fmt.Errorf("no password set for KN channel")
+		return status, fmt.Errorf("no password set for KN channel")
 	}
 
 	sendURL := msg.Channel().StringConfigForKey(courier.ConfigSendURL, "")
 	if sendURL == "" {
-		return nil, fmt.Errorf("no send url set for KN channel")
+		return status, fmt.Errorf("no send url set for KN channel")
 	}
 
 	dlrMask := msg.Channel().StringConfigForKey(configDLRMask, defaultDLRMask)
@@ -198,7 +201,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	req, err := http.NewRequest(http.MethodGet, sendURL, nil)
 	if err != nil {
-		return nil, err
+		return status, err
 	}
 	var rr *utils.RequestResponse
 
@@ -208,17 +211,15 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		rr, err = utils.MakeInsecureHTTPRequest(req)
 	}
 
-	// record our status and log
-	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
 	status.AddLog(courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err))
-	if err == nil {
-		status.SetStatus(courier.MsgWired)
-	}
+	// if err == nil {
+	status.SetStatus(courier.MsgWired)
+	// }
 
 	// kannel will respond with a 403 for non-routable numbers, fail permanently in these cases
-	if rr.StatusCode == 403 {
-		status.SetStatus(courier.MsgFailed)
-	}
+	// if rr.StatusCode == 403 {
+	// 	status.SetStatus(courier.MsgFailed)
+	// }
 
 	return status, nil
 }

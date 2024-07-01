@@ -119,19 +119,21 @@ func (h *handler) receiveStatus(ctx context.Context, channel courier.Channel, w 
 
 // Send sends the given message, logging any HTTP calls or errors
 func (h *handler) Send(ctx context.Context, msg courier.Msg, clog *courier.ChannelLog) (courier.MsgStatus, error) {
+	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgWired, clog)
+
 	username := msg.Channel().StringConfigForKey(courier.ConfigUsername, "")
 	if username == "" {
-		return nil, fmt.Errorf("no username set for KN channel")
+		return status, fmt.Errorf("no username set for KN channel")
 	}
 
 	password := msg.Channel().StringConfigForKey(courier.ConfigPassword, "")
 	if password == "" {
-		return nil, fmt.Errorf("no password set for KN channel")
+		return status, fmt.Errorf("no password set for KN channel")
 	}
 
 	sendURL := msg.Channel().StringConfigForKey(courier.ConfigSendURL, "")
 	if sendURL == "" {
-		return nil, fmt.Errorf("no send url set for KN channel")
+		return status, fmt.Errorf("no send url set for KN channel")
 	}
 
 	dlrMask := msg.Channel().StringConfigForKey(configDLRMask, defaultDLRMask)
@@ -196,7 +198,7 @@ func (h *handler) Send(ctx context.Context, msg courier.Msg, clog *courier.Chann
 
 	req, err := http.NewRequest(http.MethodGet, sendURL, nil)
 	if err != nil {
-		return nil, err
+		return status, err
 	}
 
 	// var resp *http.Response
@@ -206,9 +208,8 @@ func (h *handler) Send(ctx context.Context, msg courier.Msg, clog *courier.Chann
 		_, _, _ = handlers.RequestHTTPInsecure(req, clog)
 	}
 
-	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgWired, clog)
 	// if err == nil && resp.StatusCode/100 == 2 {
-	status.SetStatus(courier.MsgWired)
+	// status.SetStatus(courier.MsgWired)
 	// }
 
 	// kannel will respond with a 403 for non-routable numbers, fail permanently in these cases

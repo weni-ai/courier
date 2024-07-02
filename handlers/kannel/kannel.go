@@ -203,15 +203,15 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	if err != nil {
 		return status, err
 	}
-	// var rr *utils.RequestResponse
+	var rr *utils.RequestResponse
 
 	if verifySSL {
-		_, _ = utils.MakeHTTPRequest(req)
+		rr, _ = utils.MakeHTTPRequest(req)
 	} else {
-		_, _ = utils.MakeInsecureHTTPRequest(req)
+		rr, _ = utils.MakeInsecureHTTPRequest(req)
 	}
 
-	// status.AddLog(courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr))
+	status.AddLog(courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", nil))
 	// if err == nil {
 	status.SetStatus(courier.MsgWired)
 	// }

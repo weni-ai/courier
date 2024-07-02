@@ -207,9 +207,9 @@ func (h *handler) Send(ctx context.Context, msg courier.Msg, clog *courier.Chann
 	} else {
 		_, _, _ = handlers.RequestHTTPInsecure(req, clog)
 	}
-
+	status = h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgSent, clog)
 	// if err == nil && resp.StatusCode/100 == 2 {
-	// status.SetStatus(courier.MsgWired)
+	status.SetStatus(courier.MsgSent)
 	// }
 
 	// kannel will respond with a 403 for non-routable numbers, fail permanently in these cases

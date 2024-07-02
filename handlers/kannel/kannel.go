@@ -211,7 +211,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		rr, _ = utils.MakeInsecureHTTPRequest(req)
 	}
 
-	status.AddLog(courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", nil))
+	status.AddLog(courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err))
 	// if err == nil {
 	status.SetStatus(courier.MsgWired)
 	// }

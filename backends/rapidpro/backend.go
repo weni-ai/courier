@@ -340,9 +340,11 @@ func (b *backend) WriteMsgStatus(ctx context.Context, status courier.MsgStatus) 
 	if status.HasUpdatedURN() {
 		err := b.updateContactURN(ctx, status)
 		if err != nil {
+			fmt.Println("erro em updateContactURN", err)
 			return errors.Wrap(err, "error updating contact URN")
 		}
 	}
+	fmt.Println("status antes de writeMsgStatus: ", status.Status())
 	// if we have an ID, we can have our batch commit for us
 	if status.ID() != courier.NilMsgID {
 		b.statusCommitter.Queue(status.(*DBMsgStatus))
@@ -350,10 +352,11 @@ func (b *backend) WriteMsgStatus(ctx context.Context, status courier.MsgStatus) 
 		// otherwise, write normally (synchronously)
 		err := writeMsgStatus(timeout, b, status)
 		if err != nil {
+			fmt.Println("erro em writeMsgStatus", err)
 			return err
 		}
 	}
-
+	fmt.Println("status depois de writeMsgStatus: ", status.Status())
 	// if we have an id and are marking an outgoing msg as errored, then clear our sent flag
 	if status.ID() != courier.NilMsgID && status.Status() == courier.MsgErrored {
 		err := b.ClearMsgSent(ctx, status.ID())

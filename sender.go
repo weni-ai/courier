@@ -274,10 +274,12 @@ func (w *Sender) sendMessage(msg Msg) {
 		status, err = server.SendMsg(nsendCTX, msg)
 		duration := time.Now().Sub(start)
 		secondDuration := float64(duration) / float64(time.Second)
-
+		fmt.Println("status: ", status.Status())
 		if err != nil {
+			fmt.Println("erro: ", err)
 			log.WithError(err).WithField("elapsed", duration).Error("error sending message")
 			if status == nil {
+				fmt.Println("status vazio")
 				status = backend.NewMsgStatusForID(msg.Channel(), msg.ID(), MsgErrored)
 				status.AddLog(NewChannelLogFromError("Sending Error", msg.Channel(), msg.ID(), duration, err))
 			}
@@ -285,6 +287,7 @@ func (w *Sender) sendMessage(msg Msg) {
 
 		// report to librato and log locally
 		if status.Status() == MsgErrored || status.Status() == MsgFailed {
+			fmt.Println("status igual errored")
 			log.WithField("elapsed", duration).Warning("msg errored")
 			librato.Gauge(fmt.Sprintf("courier.msg_send_error_%s", msg.Channel().ChannelType()), secondDuration)
 		} else {
@@ -294,6 +297,7 @@ func (w *Sender) sendMessage(msg Msg) {
 
 		// update last seen on if message is no error and no fail
 		if status.Status() != MsgErrored && status.Status() != MsgFailed {
+			fmt.Println("status diferente de errored")
 			if msg.Channel().ChannelType() != "WAC" {
 				ctt, err := w.foreman.server.Backend().GetContact(context.Background(), msg.Channel(), msg.URN(), "", "")
 				if err != nil {

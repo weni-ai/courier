@@ -206,14 +206,14 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	var rr *utils.RequestResponse
 
 	if verifySSL {
-		rr, _ = utils.MakeHTTPRequest(req)
+		rr, err = utils.MakeHTTPRequest(req)
 	} else {
-		rr, _ = utils.MakeInsecureHTTPRequest(req)
+		rr, err = utils.MakeInsecureHTTPRequest(req)
 	}
 
 	status.AddLog(courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err))
 	// if err == nil {
-	status.SetStatus(courier.MsgWired)
+	status.SetStatus(courier.MsgErrored)
 	// }
 
 	// kannel will respond with a 403 for non-routable numbers, fail permanently in these cases
@@ -221,5 +221,5 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	// 	status.SetStatus(courier.MsgFailed)
 	// }
 
-	return status, nil
+	return status, err
 }

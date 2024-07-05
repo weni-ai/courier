@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/url"
 	"path"
 	"strings"
@@ -62,12 +63,6 @@ func (b *backend) GetChannelByAddress(ctx context.Context, ct courier.ChannelTyp
 func (b *backend) GetContact(ctx context.Context, c courier.Channel, urn urns.URN, auth string, name string) (courier.Contact, error) {
 	dbChannel := c.(*DBChannel)
 	return contactForURN(ctx, b, dbChannel.OrgID_, dbChannel, urn, auth, name)
-}
-
-// UpdateContactLastSeenOn updates last seen on (and modified on) on the passed in contact
-func (b *backend) UpdateContactLastSeenOn(ctx context.Context, contactUUID courier.ContactUUID, lastSeenOn time.Time) error {
-	_, err := b.db.ExecContext(ctx, `UPDATE contacts_contact SET last_seen_on = $2, modified_on = NOW() WHERE uuid = $1`, contactUUID.String(), lastSeenOn)
-	return err
 }
 
 // AddURNtoContact adds a URN to the passed in contact
@@ -187,6 +182,8 @@ func (b *backend) PopNextOutgoingMsg(ctx context.Context) (courier.Msg, error) {
 		clearMsgSeen(rc, dbMsg)
 
 		return dbMsg, nil
+	} else {
+		log.Println(msgJSON)
 	}
 
 	return nil, nil

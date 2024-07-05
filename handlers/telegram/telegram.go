@@ -207,11 +207,6 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			"text":    []string{msg.Text()},
 		}
 
-		parseMode := msg.Channel().ConfigForKey("parse_mode", defaultParseMode)
-		if parseMode != "" {
-			form.Set("parse_mode", fmt.Sprint(parseMode))
-		}
-
 		externalID, log, err := h.sendMsgPart(msg, authToken, "sendMessage", form, msgKeyBoard)
 		status.SetExternalID(externalID)
 		hasError = err != nil

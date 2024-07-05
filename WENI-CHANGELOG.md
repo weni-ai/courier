@@ -1,3 +1,8 @@
+1.9.2-courier-7.1.0
+----------
+ * Remove updates for last_seen_on
+ * Remove telegram parse_mode
+
 1.9.1-courier-7.1.0
 ----------
  * Add telegram parse_mode channel config for formmating text using MarkdownV2 as default

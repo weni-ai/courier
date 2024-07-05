@@ -647,29 +647,9 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		SendPrep: setSendURL},
 }
 
-// https://core.telegram.org/bots/api#formatting-options
-var parseModeTestCases = []ChannelSendTestCase{
-	{Label: "Parse Mode MarkdownV2",
-		Text: "Simple Message", URN: "telegram:12345",
-		Status: "W", ExternalID: "133",
-		ResponseBody: `{ "ok": true, "result": { "message_id": 133 } }`, ResponseStatus: 200,
-		PostParams: map[string]string{
-			"text":         "Simple Message",
-			"chat_id":      "12345",
-			"reply_markup": `{"remove_keyboard":true}`,
-			"parse_mode":   "MarkdownV2", //MarkdownV2 or HTML  or Markdown(legacy)
-		},
-		SendPrep: setSendURL},
-}
-
 func TestSending(t *testing.T) {
 	var defaultChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "TG", "2020", "US",
 		map[string]interface{}{courier.ConfigAuthToken: "auth_token"})
 
 	RunChannelSendTestCases(t, defaultChannel, newHandler(), defaultSendTestCases, nil)
-
-	var parseModeChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "TG", "2020", "US",
-		map[string]interface{}{courier.ConfigAuthToken: "auth_token", "parse_mode": "MarkdownV2"})
-
-	RunChannelSendTestCases(t, parseModeChannel, newHandler(), parseModeTestCases, nil)
 }

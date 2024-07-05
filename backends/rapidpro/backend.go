@@ -64,12 +64,6 @@ func (b *backend) GetContact(ctx context.Context, c courier.Channel, urn urns.UR
 	return contactForURN(ctx, b, dbChannel.OrgID_, dbChannel, urn, auth, name)
 }
 
-// UpdateContactLastSeenOn updates last seen on (and modified on) on the passed in contact
-func (b *backend) UpdateContactLastSeenOn(ctx context.Context, contactUUID courier.ContactUUID, lastSeenOn time.Time) error {
-	_, err := b.db.ExecContext(ctx, `UPDATE contacts_contact SET last_seen_on = $2, modified_on = NOW() WHERE uuid = $1`, contactUUID.String(), lastSeenOn)
-	return err
-}
-
 // AddURNtoContact adds a URN to the passed in contact
 func (b *backend) AddURNtoContact(ctx context.Context, c courier.Channel, contact courier.Contact, urn urns.URN) (urns.URN, error) {
 	tx, err := b.db.BeginTxx(ctx, nil)

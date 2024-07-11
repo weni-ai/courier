@@ -1,3 +1,7 @@
+1.9.3-courier-7.1.0
+----------
+ * Add 'S' status to updateMsgID query
+
 1.9.2-courier-7.1.0
 ----------
  * Remove updates for last_seen_on

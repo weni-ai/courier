@@ -1,3 +1,7 @@
+1.9.4-courier-7.1.0
+----------
+ * Add telegram Markdown legacy support
+
 1.9.3-courier-7.1.0
 ----------
  * Add 'S' status to updateMsgID query

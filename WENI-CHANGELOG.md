@@ -1,3 +1,7 @@
+1.9.5-courier-7.1.0
+----------
+ * Escape telegram text messages for markdown parse mode requirements
+
 1.9.4-courier-7.1.0
 ----------
  * Add telegram Markdown legacy support

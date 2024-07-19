@@ -1673,6 +1673,32 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						}
 
 						payload.Interactive = &interactive
+					} else if msg.InteractionType() == "cta_url" {
+						if ctaMessage := msg.CTAMessage(); ctaMessage != nil {
+							payload.Type = "interactive"
+							interactive := wacInteractive{
+								Type: "cta_url",
+								Body: struct {
+									Text string "json:\"text\""
+								}{Text: msgParts[i-len(msg.Attachments())]},
+								Action: &struct {
+									Button            string            "json:\"button,omitempty\""
+									Sections          []wacMTSection    "json:\"sections,omitempty\""
+									Buttons           []wacMTButton     "json:\"buttons,omitempty\""
+									CatalogID         string            "json:\"catalog_id,omitempty\""
+									ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+									Name              string            "json:\"name,omitempty\""
+									Parameters        map[string]string "json:\"parameters,omitempty\""
+								}{
+									Name: "cta_url",
+									Parameters: map[string]string{
+										"display_text": ctaMessage.DisplayText,
+										"url":          ctaMessage.URL,
+									},
+								},
+							}
+							payload.Interactive = &interactive
+						}
 					} else {
 						// this is still a msg part
 						text := &wacText{}

@@ -1,3 +1,7 @@
+1.10.0-courier-7.1.0
+----------
+ * Support for CTA message for whatsapp cloud channels
+
 1.9.5-courier-7.1.0
 ----------
  * Escape telegram text messages for markdown parse mode requirements

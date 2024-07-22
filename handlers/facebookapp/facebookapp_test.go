@@ -847,6 +847,13 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"catalog_message","body":{"text":"Catalog Body Msg"},"action":{"name":"catalog_message"}}}`,
 		SendPrep:    setSendURL},
+	{Label: "Send CTA Url",
+		Metadata: json.RawMessage(`{"cta_message":{"display_text":"link button","url":"https://foo.bar"},"footer":"footer text","header_text":"header text","header_type":"text","interaction_type":"cta_url","text":"msgs text"}`),
+		Text:     "msg text", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"cta_url","header":{"type":"text","text":"header text","video":{},"image":{},"document":{}},"body":{"text":"msg text"},"footer":{"text":"footer text"},"action":{"name":"cta_url","parameters":{"display_text":"link button","url":"https://foo.bar"}}}}`,
+		SendPrep:    setSendURL},
 }
 
 func TestSending(t *testing.T) {

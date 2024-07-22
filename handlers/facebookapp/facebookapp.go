@@ -1359,12 +1359,13 @@ type wacInteractive struct {
 		Text string `json:"text,omitempty"`
 	} `json:"footer,omitempty"`
 	Action *struct {
-		Button            string         `json:"button,omitempty"`
-		Sections          []wacMTSection `json:"sections,omitempty"`
-		Buttons           []wacMTButton  `json:"buttons,omitempty"`
-		CatalogID         string         `json:"catalog_id,omitempty"`
-		ProductRetailerID string         `json:"product_retailer_id,omitempty"`
-		Name              string         `json:"name,omitempty"`
+		Button            string            `json:"button,omitempty"`
+		Sections          []wacMTSection    `json:"sections,omitempty"`
+		Buttons           []wacMTButton     `json:"buttons,omitempty"`
+		CatalogID         string            `json:"catalog_id,omitempty"`
+		ProductRetailerID string            `json:"product_retailer_id,omitempty"`
+		Name              string            `json:"name,omitempty"`
+		Parameters        map[string]string `json:"parameters,omitempty"`
 	} `json:"action,omitempty"`
 }
 
@@ -1561,12 +1562,13 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								btns[i].Reply.Title = text
 							}
 							interactive.Action = &struct {
-								Button            string         "json:\"button,omitempty\""
-								Sections          []wacMTSection "json:\"sections,omitempty\""
-								Buttons           []wacMTButton  "json:\"buttons,omitempty\""
-								CatalogID         string         "json:\"catalog_id,omitempty\""
-								ProductRetailerID string         "json:\"product_retailer_id,omitempty\""
-								Name              string         "json:\"name,omitempty\""
+								Button            string            "json:\"button,omitempty\""
+								Sections          []wacMTSection    "json:\"sections,omitempty\""
+								Buttons           []wacMTButton     "json:\"buttons,omitempty\""
+								CatalogID         string            "json:\"catalog_id,omitempty\""
+								ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+								Name              string            "json:\"name,omitempty\""
+								Parameters        map[string]string "json:\"parameters,omitempty\""
 							}{Buttons: btns}
 							payload.Interactive = &interactive
 						} else if len(qrs) <= 10 || len(msg.ListMessage().ListItems) > 0 {
@@ -1621,12 +1623,13 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							}
 
 							interactive.Action = &struct {
-								Button            string         "json:\"button,omitempty\""
-								Sections          []wacMTSection "json:\"sections,omitempty\""
-								Buttons           []wacMTButton  "json:\"buttons,omitempty\""
-								CatalogID         string         "json:\"catalog_id,omitempty\""
-								ProductRetailerID string         "json:\"product_retailer_id,omitempty\""
-								Name              string         "json:\"name,omitempty\""
+								Button            string            "json:\"button,omitempty\""
+								Sections          []wacMTSection    "json:\"sections,omitempty\""
+								Buttons           []wacMTButton     "json:\"buttons,omitempty\""
+								CatalogID         string            "json:\"catalog_id,omitempty\""
+								ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+								Name              string            "json:\"name,omitempty\""
+								Parameters        map[string]string "json:\"parameters,omitempty\""
 							}{Button: "Menu", Sections: []wacMTSection{
 								section,
 							}}
@@ -1649,16 +1652,58 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								Text string "json:\"text\""
 							}{Text: msgParts[i-len(msg.Attachments())]},
 							Action: &struct {
-								Button            string         "json:\"button,omitempty\""
-								Sections          []wacMTSection "json:\"sections,omitempty\""
-								Buttons           []wacMTButton  "json:\"buttons,omitempty\""
-								CatalogID         string         "json:\"catalog_id,omitempty\""
-								ProductRetailerID string         "json:\"product_retailer_id,omitempty\""
-								Name              string         "json:\"name,omitempty\""
+								Button            string            "json:\"button,omitempty\""
+								Sections          []wacMTSection    "json:\"sections,omitempty\""
+								Buttons           []wacMTButton     "json:\"buttons,omitempty\""
+								CatalogID         string            "json:\"catalog_id,omitempty\""
+								ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+								Name              string            "json:\"name,omitempty\""
+								Parameters        map[string]string "json:\"parameters,omitempty\""
 							}{Name: "send_location"},
 						}
 
 						payload.Interactive = &interactive
+					} else if msg.InteractionType() == "cta_url" {
+						if ctaMessage := msg.CTAMessage(); ctaMessage != nil {
+							payload.Type = "interactive"
+							interactive := wacInteractive{
+								Type: "cta_url",
+								Body: struct {
+									Text string "json:\"text\""
+								}{Text: msgParts[i-len(msg.Attachments())]},
+								Action: &struct {
+									Button            string            "json:\"button,omitempty\""
+									Sections          []wacMTSection    "json:\"sections,omitempty\""
+									Buttons           []wacMTButton     "json:\"buttons,omitempty\""
+									CatalogID         string            "json:\"catalog_id,omitempty\""
+									ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+									Name              string            "json:\"name,omitempty\""
+									Parameters        map[string]string "json:\"parameters,omitempty\""
+								}{
+									Name: "cta_url",
+									Parameters: map[string]string{
+										"display_text": ctaMessage.DisplayText,
+										"url":          ctaMessage.URL,
+									},
+								},
+							}
+							if msg.Footer() != "" {
+								interactive.Footer = &struct {
+									Text string "json:\"text,omitempty\""
+								}{Text: msg.Footer()}
+							}
+
+							if msg.HeaderText() != "" {
+								interactive.Header = &struct {
+									Type     string     "json:\"type\""
+									Text     string     "json:\"text,omitempty\""
+									Video    wacMTMedia "json:\"video,omitempty\""
+									Image    wacMTMedia "json:\"image,omitempty\""
+									Document wacMTMedia "json:\"document,omitempty\""
+								}{Type: "text", Text: msg.HeaderText()}
+							}
+							payload.Interactive = &interactive
+						}
 					} else {
 						// this is still a msg part
 						text := &wacText{}
@@ -1815,12 +1860,13 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						btns[i].Reply.Title = text
 					}
 					interactive.Action = &struct {
-						Button            string         "json:\"button,omitempty\""
-						Sections          []wacMTSection "json:\"sections,omitempty\""
-						Buttons           []wacMTButton  "json:\"buttons,omitempty\""
-						CatalogID         string         "json:\"catalog_id,omitempty\""
-						ProductRetailerID string         "json:\"product_retailer_id,omitempty\""
-						Name              string         "json:\"name,omitempty\""
+						Button            string            "json:\"button,omitempty\""
+						Sections          []wacMTSection    "json:\"sections,omitempty\""
+						Buttons           []wacMTButton     "json:\"buttons,omitempty\""
+						CatalogID         string            "json:\"catalog_id,omitempty\""
+						ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+						Name              string            "json:\"name,omitempty\""
+						Parameters        map[string]string "json:\"parameters,omitempty\""
 					}{Buttons: btns}
 					payload.Interactive = &interactive
 					if msg.Footer() != "" {
@@ -1870,12 +1916,13 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					}
 
 					interactive.Action = &struct {
-						Button            string         "json:\"button,omitempty\""
-						Sections          []wacMTSection "json:\"sections,omitempty\""
-						Buttons           []wacMTButton  "json:\"buttons,omitempty\""
-						CatalogID         string         "json:\"catalog_id,omitempty\""
-						ProductRetailerID string         "json:\"product_retailer_id,omitempty\""
-						Name              string         "json:\"name,omitempty\""
+						Button            string            "json:\"button,omitempty\""
+						Sections          []wacMTSection    "json:\"sections,omitempty\""
+						Buttons           []wacMTButton     "json:\"buttons,omitempty\""
+						CatalogID         string            "json:\"catalog_id,omitempty\""
+						ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+						Name              string            "json:\"name,omitempty\""
+						Parameters        map[string]string "json:\"parameters,omitempty\""
 					}{Button: "Menu", Sections: []wacMTSection{
 						section,
 					}}
@@ -1894,15 +1941,57 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				interactive := wacInteractive{Type: "location_request_message", Body: struct {
 					Text string "json:\"text\""
 				}{Text: msgParts[i-len(msg.Attachments())]}, Action: &struct {
-					Button            string         "json:\"button,omitempty\""
-					Sections          []wacMTSection "json:\"sections,omitempty\""
-					Buttons           []wacMTButton  "json:\"buttons,omitempty\""
-					CatalogID         string         "json:\"catalog_id,omitempty\""
-					ProductRetailerID string         "json:\"product_retailer_id,omitempty\""
-					Name              string         "json:\"name,omitempty\""
+					Button            string            "json:\"button,omitempty\""
+					Sections          []wacMTSection    "json:\"sections,omitempty\""
+					Buttons           []wacMTButton     "json:\"buttons,omitempty\""
+					CatalogID         string            "json:\"catalog_id,omitempty\""
+					ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+					Name              string            "json:\"name,omitempty\""
+					Parameters        map[string]string "json:\"parameters,omitempty\""
 				}{Name: "send_location"}}
 
 				payload.Interactive = &interactive
+			} else if msg.InteractionType() == "cta_url" {
+				if ctaMessage := msg.CTAMessage(); ctaMessage != nil {
+					interactive := wacInteractive{
+						Type: "cta_url",
+						Body: struct {
+							Text string "json:\"text\""
+						}{Text: msgParts[i-len(msg.Attachments())]},
+						Action: &struct {
+							Button            string            "json:\"button,omitempty\""
+							Sections          []wacMTSection    "json:\"sections,omitempty\""
+							Buttons           []wacMTButton     "json:\"buttons,omitempty\""
+							CatalogID         string            "json:\"catalog_id,omitempty\""
+							ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+							Name              string            "json:\"name,omitempty\""
+							Parameters        map[string]string "json:\"parameters,omitempty\""
+						}{
+							Name: "cta_url",
+							Parameters: map[string]string{
+								"display_text": ctaMessage.DisplayText,
+								"url":          ctaMessage.URL,
+							},
+						},
+					}
+
+					if msg.Footer() != "" {
+						interactive.Footer = &struct {
+							Text string "json:\"text,omitempty\""
+						}{Text: msg.Footer()}
+					}
+
+					if msg.HeaderText() != "" {
+						interactive.Header = &struct {
+							Type     string     "json:\"type\""
+							Text     string     "json:\"text,omitempty\""
+							Video    wacMTMedia "json:\"video,omitempty\""
+							Image    wacMTMedia "json:\"image,omitempty\""
+							Document wacMTMedia "json:\"document,omitempty\""
+						}{Type: "text", Text: msg.HeaderText()}
+					}
+					payload.Interactive = &interactive
+				}
 			} else {
 				// this is still a msg part
 				text := &wacText{}
@@ -2011,12 +2100,13 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 		if msg.SendCatalog() {
 			interactive.Action = &struct {
-				Button            string         `json:"button,omitempty"`
-				Sections          []wacMTSection `json:"sections,omitempty"`
-				Buttons           []wacMTButton  `json:"buttons,omitempty"`
-				CatalogID         string         `json:"catalog_id,omitempty"`
-				ProductRetailerID string         `json:"product_retailer_id,omitempty"`
-				Name              string         `json:"name,omitempty"`
+				Button            string            `json:"button,omitempty"`
+				Sections          []wacMTSection    `json:"sections,omitempty"`
+				Buttons           []wacMTButton     `json:"buttons,omitempty"`
+				CatalogID         string            `json:"catalog_id,omitempty"`
+				ProductRetailerID string            `json:"product_retailer_id,omitempty"`
+				Name              string            `json:"name,omitempty"`
+				Parameters        map[string]string "json:\"parameters,omitempty\""
 			}{
 				Name: "catalog_message",
 			}
@@ -2061,12 +2151,13 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 				for _, sections := range actions {
 					interactive.Action = &struct {
-						Button            string         `json:"button,omitempty"`
-						Sections          []wacMTSection `json:"sections,omitempty"`
-						Buttons           []wacMTButton  `json:"buttons,omitempty"`
-						CatalogID         string         `json:"catalog_id,omitempty"`
-						ProductRetailerID string         `json:"product_retailer_id,omitempty"`
-						Name              string         `json:"name,omitempty"`
+						Button            string            `json:"button,omitempty"`
+						Sections          []wacMTSection    `json:"sections,omitempty"`
+						Buttons           []wacMTButton     `json:"buttons,omitempty"`
+						CatalogID         string            `json:"catalog_id,omitempty"`
+						ProductRetailerID string            `json:"product_retailer_id,omitempty"`
+						Name              string            `json:"name,omitempty"`
+						Parameters        map[string]string "json:\"parameters,omitempty\""
 					}{
 						CatalogID: catalogID,
 						Sections:  sections,
@@ -2082,12 +2173,13 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 			} else {
 				interactive.Action = &struct {
-					Button            string         `json:"button,omitempty"`
-					Sections          []wacMTSection `json:"sections,omitempty"`
-					Buttons           []wacMTButton  `json:"buttons,omitempty"`
-					CatalogID         string         `json:"catalog_id,omitempty"`
-					ProductRetailerID string         `json:"product_retailer_id,omitempty"`
-					Name              string         `json:"name,omitempty"`
+					Button            string            `json:"button,omitempty"`
+					Sections          []wacMTSection    `json:"sections,omitempty"`
+					Buttons           []wacMTButton     `json:"buttons,omitempty"`
+					CatalogID         string            `json:"catalog_id,omitempty"`
+					ProductRetailerID string            `json:"product_retailer_id,omitempty"`
+					Name              string            `json:"name,omitempty"`
+					Parameters        map[string]string "json:\"parameters,omitempty\""
 				}{
 					CatalogID:         catalogID,
 					Name:              msg.Action(),

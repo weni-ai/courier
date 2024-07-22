@@ -757,6 +757,36 @@ func (m *mockMsg) InteractionType() string {
 	return string(byteValue)
 }
 
+func (m *mockMsg) CTAMessage() *CTAMessage {
+	if m.metadata == nil {
+		return nil
+	}
+
+	var metadata map[string]interface{}
+	err := json.Unmarshal(m.metadata, &metadata)
+	if err != nil {
+		return nil
+	}
+
+	if metadata == nil {
+		return nil
+	}
+
+	if interactionType, ok := metadata["interaction_type"].(string); ok && interactionType == "cta_url" {
+		if ctaMessageData, ok := metadata["cta_message"].(map[string]interface{}); ok {
+			ctaMessage := &CTAMessage{}
+			if displayText, ok := ctaMessageData["display_text"].(string); ok {
+				ctaMessage.DisplayText = displayText
+			}
+			if actionURL, ok := ctaMessageData["url"].(string); ok {
+				ctaMessage.URL = actionURL
+			}
+			return ctaMessage
+		}
+	}
+	return nil
+}
+
 //-----------------------------------------------------------------------------
 // Mock status implementation
 //-----------------------------------------------------------------------------

@@ -10,6 +10,7 @@ import (
 
 	"github.com/nyaruka/courier"
 	. "github.com/nyaruka/courier/handlers"
+	"github.com/stretchr/testify/assert"
 )
 
 var testChannels = []courier.Channel{
@@ -647,9 +648,38 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		SendPrep: setSendURL},
 }
 
+// https://core.telegram.org/bots/api#formatting-options
+var parseModeTestCases = []ChannelSendTestCase{
+	{Label: "Parse Mode Markdown",
+		Text: "Simple Message With _Italic_ & *Bold* text & text_with_underscore & 1*1=1", URN: "telegram:12345",
+		Status: "W", ExternalID: "133",
+		ResponseBody: `{ "ok": true, "result": { "message_id": 133 } }`, ResponseStatus: 200,
+		PostParams: map[string]string{
+			"text":         "Simple Message With _Italic_ & *Bold* text & text\\_with\\_underscore & 1\\*1=1",
+			"chat_id":      "12345",
+			"reply_markup": `{"remove_keyboard":true}`,
+			"parse_mode":   "Markdown",
+		},
+		SendPrep: setSendURL},
+}
+
 func TestSending(t *testing.T) {
 	var defaultChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "TG", "2020", "US",
 		map[string]interface{}{courier.ConfigAuthToken: "auth_token"})
 
 	RunChannelSendTestCases(t, defaultChannel, newHandler(), defaultSendTestCases, nil)
+
+	var parseModeChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "TG", "2020", "US",
+		map[string]interface{}{courier.ConfigAuthToken: "auth_token"})
+
+	RunChannelSendTestCases(t, parseModeChannel, newHandler(), parseModeTestCases, nil)
+}
+
+func TestEscapeMarkdown(t *testing.T) {
+	text := `This is a string with_underscores and words_without, - so one _ outside _now now_ and _now_ https://meusite.com/do_checkout i know_ *BOLD* not*bold [secret] is cold $!@#`
+
+	result := escapeTextForMarkdown(text)
+
+	expected := `This is a string with\_underscores and words\_without, - so one _ outside _now now_ and _now_ https://meusite.com/do\_checkout i know_ *BOLD* not\*bold \[secret\] is cold $!@#`
+	assert.Equal(t, result, expected)
 }

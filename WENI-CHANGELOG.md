@@ -1,3 +1,24 @@
+1.9.5-courier-7.1.0
+----------
+ * Escape telegram text messages for markdown parse mode requirements
+
+1.9.4-courier-7.1.0
+----------
+ * Add telegram Markdown legacy support
+
+1.9.3-courier-7.1.0
+----------
+ * Add 'S' status to updateMsgID query
+
+1.9.2-courier-7.1.0
+----------
+ * Remove updates for last_seen_on
+ * Remove telegram parse_mode
+
+1.9.1-courier-7.1.0
+----------
+ * Add telegram parse_mode channel config for formmating text using MarkdownV2 as default
+
 1.9.0-courier-7.1.0
 ----------
  * Add support for WhatsApp message sending card

@@ -1,3 +1,8 @@
+1.11.0-courier-7.1.0
+----------
+ * Fix local channel cache by address
+ * Lock subsequent load channel from db to best use of local cache
+
 1.10.0-courier-7.1.0
 ----------
  * Support for CTA message for whatsapp cloud channels

@@ -494,11 +494,11 @@ type mtInteractivePayload struct {
 	Interactive struct {
 		Type   string `json:"type" validate:"required"` //"text" | "image" | "video" | "document"
 		Header *struct {
-			Type     string `json:"type"`
-			Text     string `json:"text,omitempty"`
-			Video    string `json:"video,omitempty"`
-			Image    string `json:"image,omitempty"`
-			Document string `json:"document,omitempty"`
+			Type     string      `json:"type"`
+			Text     string      `json:"text,omitempty"`
+			Video    mediaObject `json:"video,omitempty"`
+			Image    mediaObject `json:"image,omitempty"`
+			Document mediaObject `json:"document,omitempty"`
 		} `json:"header,omitempty"`
 		Body struct {
 			Text string `json:"text"`
@@ -724,6 +724,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 
 	// do we have a template?
 	templating, err := h.getTemplate(msg)
+	qrs := msg.QuickReplies()
 
 	if templating != nil || len(msg.Attachments()) == 0 && !(len(msg.Products()) > 0 || msg.SendCatalog()) {
 
@@ -825,11 +826,9 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 			}
 		} else {
 			parts := handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLength)
-
-			qrs := msg.QuickReplies()
 			wppVersion := msg.Channel().ConfigForKey("version", "0").(string)
 			isInteractiveMsgCompatible := semver.Compare(wppVersion, interactiveMsgMinSupVersion)
-			isInteractiveMsg := (isInteractiveMsgCompatible >= 0) && (len(qrs) > 0)
+			isInteractiveMsg := (isInteractiveMsgCompatible >= 0) && (len(qrs) > 0) || (isInteractiveMsgCompatible >= 0) && len(msg.ListMessage().ListItems) > 0
 
 			if isInteractiveMsg {
 				for i, part := range parts {
@@ -851,25 +850,33 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 						if len(qrs) <= 3 {
 							payload.Interactive.Type = "button"
 							payload.Interactive.Body.Text = part
+
+							if msg.Footer() != "" {
+								payload.Interactive.Footer.Text = msg.Footer()
+							}
+
+							if msg.HeaderText() != "" {
+								payload.Interactive.Header = &struct {
+									Type     string      "json:\"type\""
+									Text     string      "json:\"text,omitempty\""
+									Video    mediaObject "json:\"video,omitempty\""
+									Image    mediaObject "json:\"image,omitempty\""
+									Document mediaObject "json:\"document,omitempty\""
+								}{Type: "text", Text: msg.HeaderText()}
+							}
+
 							btns := make([]mtButton, len(qrs))
 							for i, qr := range qrs {
 								btns[i] = mtButton{
 									Type: "reply",
 								}
 								btns[i].Reply.ID = fmt.Sprint(i)
-								var text string
-								if strings.Contains(qr, "\\/") {
-									text = strings.Replace(qr, "\\", "", -1)
-								} else if strings.Contains(qr, "\\\\") {
-									text = strings.Replace(qr, "\\\\", "\\", -1)
-								} else {
-									text = qr
-								}
+								text := parseBacklashes(qr)
 								btns[i].Reply.Title = text
 							}
 							payload.Interactive.Action.Buttons = btns
 							payloads = append(payloads, payload)
-						} else {
+						} else if len(qrs) <= 10 || len(msg.ListMessage().ListItems) > 0 {
 							payload.Interactive.Type = "list"
 							payload.Interactive.Body.Text = part
 							if msg.TextLanguage() != "" {
@@ -877,26 +884,44 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 							} else {
 								payload.Interactive.Action.Button = "Menu"
 							}
-							section := mtSection{
-								Rows: make([]mtSectionRow, len(qrs)),
-							}
-							for i, qr := range qrs {
-								var text string
-								if strings.Contains(qr, "\\/") {
-									text = strings.Replace(qr, "\\", "", -1)
-								} else if strings.Contains(qr, "\\\\") {
-									text = strings.Replace(qr, "\\\\", "\\", -1)
-								} else {
-									text = qr
+							var section mtSection
+							if len(qrs) > 0 {
+								section = mtSection{
+									Rows: make([]mtSectionRow, len(qrs)),
 								}
-								section.Rows[i] = mtSectionRow{
-									ID:    fmt.Sprint(i),
-									Title: text,
+								for i, qr := range qrs {
+									text := parseBacklashes(qr)
+									section.Rows[i] = mtSectionRow{
+										ID:    fmt.Sprint(i),
+										Title: text,
+									}
+								}
+							} else if len(msg.ListMessage().ListItems) > 0 {
+								section = mtSection{
+									Rows: make([]mtSectionRow, len(qrs)),
+								}
+								for i, listItem := range msg.ListMessage().ListItems {
+									titleText := parseBacklashes(listItem.Title)
+									descriptionText := parseBacklashes(listItem.Description)
+									section.Rows[i] = mtSectionRow{
+										ID:          listItem.UUID,
+										Title:       titleText,
+										Description: descriptionText,
+									}
+								}
+								if msg.Footer() != "" {
+									payload.Interactive.Footer.Text = msg.Footer()
 								}
 							}
 							payload.Interactive.Action.Sections = []mtSection{
 								section,
 							}
+							if msg.ListMessage().ButtonText != "" {
+								payload.Interactive.Action.Button = msg.ListMessage().ButtonText
+							} else if msg.TextLanguage() != "" {
+								payload.Interactive.Action.Button = languageMenuMap[msg.TextLanguage()]
+							}
+
 							payloads = append(payloads, payload)
 						}
 					}
@@ -924,8 +949,8 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 			}
 		}
 	} else {
-
-		if len(msg.Attachments()) > 0 {
+		if (len(msg.Attachments()) > 0 && len(qrs) == 0 && len(msg.ListMessage().ListItems) == 0) || len(qrs) > 3 && len(msg.Attachments()) > 0 ||
+			len(msg.ListMessage().ListItems) > 0 && len(msg.Attachments()) > 0 {
 			for attachmentCount, attachment := range msg.Attachments() {
 				mimeType, mediaURL := handlers.SplitAttachment(attachment)
 				splitedAttType := strings.Split(mimeType, "/")
@@ -1021,6 +1046,113 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					break
 				}
 			}
+		} else {
+			if len(qrs) > 0 || len(msg.ListMessage().ListItems) > 0 {
+				payload := mtInteractivePayload{
+					To:   msg.URN().Path(),
+					Type: "interactive",
+				}
+
+				// We can use buttons
+				if len(qrs) <= 3 && len(msg.ListMessage().ListItems) == 0 {
+					// hasCaption = true
+					payload.Interactive.Type = "button"
+					payload.Interactive.Body.Text = msg.Text()
+					mimeType, mediaURL := handlers.SplitAttachment(msg.Attachments()[0])
+					splitedAttType := strings.Split(mimeType, "/")
+					mimeType = splitedAttType[0]
+
+					mediaID, mediaLogs, err := h.fetchMediaID(msg, mimeType, mediaURL)
+					if len(mediaLogs) > 0 {
+						logs = append(logs, mediaLogs...)
+					}
+					if err != nil {
+						logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("error while uploading media to whatsapp")
+					}
+					if err == nil && mediaID != "" {
+						mediaURL = ""
+					}
+					mediaPayload := &mediaObject{ID: mediaID, Link: mediaURL}
+					if strings.HasPrefix(mimeType, "application") {
+						payload.Interactive.Header.Type = "document"
+						payload.Interactive.Header.Document = *mediaPayload
+						payloads = append(payloads, payload)
+					} else if strings.HasPrefix(mimeType, "image") {
+						payload.Interactive.Header.Type = "image"
+						payload.Interactive.Header.Image = *mediaPayload
+						payloads = append(payloads, payload)
+					} else if strings.HasPrefix(mimeType, "video") {
+						payload.Interactive.Header.Type = "video"
+						payload.Interactive.Header.Video = *mediaPayload
+						payloads = append(payloads, payload)
+					} else {
+						duration := time.Since(start)
+						err = fmt.Errorf("unknown attachment mime type: %s", mimeType)
+						attachmentLogs := []*courier.ChannelLog{courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), duration, err)}
+						logs = append(logs, attachmentLogs...)
+					}
+
+					btns := make([]mtButton, len(qrs))
+					for i, qr := range qrs {
+						btns[i] = mtButton{
+							Type: "reply",
+						}
+						btns[i].Reply.ID = fmt.Sprint(i)
+						text := parseBacklashes(qr)
+						btns[i].Reply.Title = text
+					}
+					payload.Interactive.Action.Buttons = btns
+					if msg.Footer() != "" {
+						payload.Interactive.Footer.Text = msg.Footer()
+					}
+					payloads = append(payloads, payload)
+
+				} else if len(qrs) <= 10 || len(msg.ListMessage().ListItems) > 0 {
+					payload.Interactive.Type = "list"
+					payload.Interactive.Body.Text = msg.Text()
+
+					var section mtSection
+
+					if len(qrs) > 0 {
+						section = mtSection{
+							Rows: make([]mtSectionRow, len(qrs)),
+						}
+						for i, qr := range qrs {
+							text := parseBacklashes(qr)
+							section.Rows[i] = mtSectionRow{
+								ID:    fmt.Sprint(i),
+								Title: text,
+							}
+						}
+					} else {
+						section = mtSection{
+							Rows: make([]mtSectionRow, len(msg.ListMessage().ListItems)),
+						}
+						for i, listItem := range msg.ListMessage().ListItems {
+							titleText := parseBacklashes(listItem.Title)
+							descriptionText := parseBacklashes(listItem.Description)
+							section.Rows[i] = mtSectionRow{
+								ID:          listItem.UUID,
+								Title:       titleText,
+								Description: descriptionText,
+							}
+						}
+						if msg.Footer() != "" {
+							payload.Interactive.Footer.Text = msg.Footer()
+						}
+					}
+
+					payload.Interactive.Action.Button = "Menu"
+					payload.Interactive.Action.Sections = append(payload.Interactive.Action.Sections, section)
+
+					if msg.ListMessage().ButtonText != "" {
+						payload.Interactive.Action.Button = msg.ListMessage().ButtonText
+					} else if msg.TextLanguage() != "" {
+						payload.Interactive.Action.Button = languageMenuMap[msg.TextLanguage()]
+					}
+					payloads = append(payloads, payload)
+				}
+			}
 		}
 	}
 
@@ -1065,11 +1197,11 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 
 		if msg.Header() != "" && !isUnitaryProduct && !msg.SendCatalog() {
 			payload.Interactive.Header = &struct {
-				Type     string `json:"type"`
-				Text     string `json:"text,omitempty"`
-				Video    string `json:"video,omitempty"`
-				Image    string `json:"image,omitempty"`
-				Document string `json:"document,omitempty"`
+				Type     string      `json:"type"`
+				Text     string      `json:"text,omitempty"`
+				Video    mediaObject `json:"video,omitempty"`
+				Image    mediaObject `json:"image,omitempty"`
+				Document mediaObject `json:"document,omitempty"`
 			}{
 				Type: "text",
 				Text: msg.Header(),
@@ -1463,6 +1595,18 @@ func (h *handler) getTemplate(msg courier.Msg) (*MsgTemplating, error) {
 	templating.Language = language
 
 	return templating, err
+}
+
+func parseBacklashes(baseText string) string {
+	var text string
+	if strings.Contains(baseText, "\\/") {
+		text = strings.Replace(baseText, "\\", "", -1)
+	} else if strings.Contains(baseText, "\\\\") {
+		text = strings.Replace(baseText, "\\\\", "\\", -1)
+	} else {
+		text = baseText
+	}
+	return text
 }
 
 type TemplateMetadata struct {

@@ -844,6 +844,30 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 						payload := mtInteractivePayload{
 							To:   msg.URN().Path(),
 							Type: "interactive",
+							Interactive: struct {
+								Type   string "json:\"type\" validate:\"required\""
+								Header *struct {
+									Type     string      "json:\"type\""
+									Text     string      "json:\"text,omitempty\""
+									Video    mediaObject "json:\"video,omitempty\""
+									Image    mediaObject "json:\"image,omitempty\""
+									Document mediaObject "json:\"document,omitempty\""
+								} "json:\"header,omitempty\""
+								Body struct {
+									Text string "json:\"text\""
+								} "json:\"body\" validate:\"required\""
+								Footer *struct {
+									Text string "json:\"text\""
+								} "json:\"footer,omitempty\""
+								Action struct {
+									Button            string      "json:\"button,omitempty\""
+									Sections          []mtSection "json:\"sections,omitempty\""
+									Buttons           []mtButton  "json:\"buttons,omitempty\""
+									CatalogID         string      "json:\"catalog_id,omitempty\""
+									ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
+									Name              string      "json:\"name,omitempty\""
+								} "json:\"action\" validate:\"required\""
+							}{},
 						}
 
 						// up to 3 qrs the interactive message will be button type, otherwise it will be list
@@ -1051,6 +1075,30 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 				payload := mtInteractivePayload{
 					To:   msg.URN().Path(),
 					Type: "interactive",
+					Interactive: struct {
+						Type   string "json:\"type\" validate:\"required\""
+						Header *struct {
+							Type     string      "json:\"type\""
+							Text     string      "json:\"text,omitempty\""
+							Video    mediaObject "json:\"video,omitempty\""
+							Image    mediaObject "json:\"image,omitempty\""
+							Document mediaObject "json:\"document,omitempty\""
+						} "json:\"header,omitempty\""
+						Body struct {
+							Text string "json:\"text\""
+						} "json:\"body\" validate:\"required\""
+						Footer *struct {
+							Text string "json:\"text\""
+						} "json:\"footer,omitempty\""
+						Action struct {
+							Button            string      "json:\"button,omitempty\""
+							Sections          []mtSection "json:\"sections,omitempty\""
+							Buttons           []mtButton  "json:\"buttons,omitempty\""
+							CatalogID         string      "json:\"catalog_id,omitempty\""
+							ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
+							Name              string      "json:\"name,omitempty\""
+						} "json:\"action\" validate:\"required\""
+					}{},
 				}
 
 				// We can use buttons
@@ -1163,7 +1211,30 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 			return payloads, logs, errors.New("Catalog ID not found in channel config")
 		}
 
-		payload := mtInteractivePayload{Type: "interactive", To: msg.URN().Path()}
+		payload := mtInteractivePayload{Type: "interactive", To: msg.URN().Path(), Interactive: struct {
+			Type   string "json:\"type\" validate:\"required\""
+			Header *struct {
+				Type     string      "json:\"type\""
+				Text     string      "json:\"text,omitempty\""
+				Video    mediaObject "json:\"video,omitempty\""
+				Image    mediaObject "json:\"image,omitempty\""
+				Document mediaObject "json:\"document,omitempty\""
+			} "json:\"header,omitempty\""
+			Body struct {
+				Text string "json:\"text\""
+			} "json:\"body\" validate:\"required\""
+			Footer *struct {
+				Text string "json:\"text\""
+			} "json:\"footer,omitempty\""
+			Action struct {
+				Button            string      "json:\"button,omitempty\""
+				Sections          []mtSection "json:\"sections,omitempty\""
+				Buttons           []mtButton  "json:\"buttons,omitempty\""
+				CatalogID         string      "json:\"catalog_id,omitempty\""
+				ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
+				Name              string      "json:\"name,omitempty\""
+			} "json:\"action\" validate:\"required\""
+		}{}}
 
 		products := msg.Products()
 

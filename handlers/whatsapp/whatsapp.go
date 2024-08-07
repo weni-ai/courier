@@ -867,7 +867,15 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 									ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
 									Name              string      "json:\"name,omitempty\""
 								} "json:\"action\" validate:\"required\""
-							}{},
+							}{
+								Header: &struct {
+									Type     string      "json:\"type\""
+									Text     string      "json:\"text,omitempty\""
+									Video    mediaObject "json:\"video,omitempty\""
+									Image    mediaObject "json:\"image,omitempty\""
+									Document mediaObject "json:\"document,omitempty\""
+								}{},
+							},
 						}
 
 						// up to 3 qrs the interactive message will be button type, otherwise it will be list
@@ -1098,7 +1106,15 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 							ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
 							Name              string      "json:\"name,omitempty\""
 						} "json:\"action\" validate:\"required\""
-					}{},
+					}{
+						Header: &struct {
+							Type     string      "json:\"type\""
+							Text     string      "json:\"text,omitempty\""
+							Video    mediaObject "json:\"video,omitempty\""
+							Image    mediaObject "json:\"image,omitempty\""
+							Document mediaObject "json:\"document,omitempty\""
+						}{},
+					},
 				}
 
 				// We can use buttons
@@ -1234,7 +1250,15 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 				ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
 				Name              string      "json:\"name,omitempty\""
 			} "json:\"action\" validate:\"required\""
-		}{}}
+		}{
+			Header: &struct {
+				Type     string      "json:\"type\""
+				Text     string      "json:\"text,omitempty\""
+				Video    mediaObject "json:\"video,omitempty\""
+				Image    mediaObject "json:\"image,omitempty\""
+				Document mediaObject "json:\"document,omitempty\""
+			}{},
+		}}
 
 		products := msg.Products()
 

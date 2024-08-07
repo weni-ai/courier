@@ -867,15 +867,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 									ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
 									Name              string      "json:\"name,omitempty\""
 								} "json:\"action\" validate:\"required\""
-							}{
-								Header: &struct {
-									Type     string      "json:\"type\""
-									Text     string      "json:\"text,omitempty\""
-									Video    mediaObject "json:\"video,omitempty\""
-									Image    mediaObject "json:\"image,omitempty\""
-									Document mediaObject "json:\"document,omitempty\""
-								}{},
-							},
+							}{},
 						}
 
 						// up to 3 qrs the interactive message will be button type, otherwise it will be list
@@ -906,15 +898,36 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 								text := parseBacklashes(qr)
 								btns[i].Reply.Title = text
 							}
-							payload.Interactive.Action.Buttons = btns
+							payload.Interactive.Action = struct {
+								Button            string      "json:\"button,omitempty\""
+								Sections          []mtSection "json:\"sections,omitempty\""
+								Buttons           []mtButton  "json:\"buttons,omitempty\""
+								CatalogID         string      "json:\"catalog_id,omitempty\""
+								ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
+								Name              string      "json:\"name,omitempty\""
+							}{Buttons: btns}
 							payloads = append(payloads, payload)
 						} else if len(qrs) <= 10 || len(msg.ListMessage().ListItems) > 0 {
 							payload.Interactive.Type = "list"
 							payload.Interactive.Body.Text = part
 							if msg.TextLanguage() != "" {
-								payload.Interactive.Action.Button = languageMenuMap[msg.TextLanguage()]
+								payload.Interactive.Action = struct {
+									Button            string      "json:\"button,omitempty\""
+									Sections          []mtSection "json:\"sections,omitempty\""
+									Buttons           []mtButton  "json:\"buttons,omitempty\""
+									CatalogID         string      "json:\"catalog_id,omitempty\""
+									ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
+									Name              string      "json:\"name,omitempty\""
+								}{Button: languageMenuMap[msg.TextLanguage()]}
 							} else {
-								payload.Interactive.Action.Button = "Menu"
+								payload.Interactive.Action = struct {
+									Button            string      "json:\"button,omitempty\""
+									Sections          []mtSection "json:\"sections,omitempty\""
+									Buttons           []mtButton  "json:\"buttons,omitempty\""
+									CatalogID         string      "json:\"catalog_id,omitempty\""
+									ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
+									Name              string      "json:\"name,omitempty\""
+								}{Button: "Menu"}
 							}
 							var section mtSection
 							if len(qrs) > 0 {
@@ -945,9 +958,14 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 									payload.Interactive.Footer.Text = msg.Footer()
 								}
 							}
-							payload.Interactive.Action.Sections = []mtSection{
-								section,
-							}
+							payload.Interactive.Action = struct {
+								Button            string      "json:\"button,omitempty\""
+								Sections          []mtSection "json:\"sections,omitempty\""
+								Buttons           []mtButton  "json:\"buttons,omitempty\""
+								CatalogID         string      "json:\"catalog_id,omitempty\""
+								ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
+								Name              string      "json:\"name,omitempty\""
+							}{Sections: []mtSection{section}}
 							if msg.ListMessage().ButtonText != "" {
 								payload.Interactive.Action.Button = msg.ListMessage().ButtonText
 							} else if msg.TextLanguage() != "" {
@@ -1138,16 +1156,31 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					}
 					mediaPayload := &mediaObject{ID: mediaID, Link: mediaURL}
 					if strings.HasPrefix(mimeType, "application") {
-						payload.Interactive.Header.Type = "document"
-						payload.Interactive.Header.Document = *mediaPayload
+						payload.Interactive.Header = &struct {
+							Type     string      "json:\"type\""
+							Text     string      "json:\"text,omitempty\""
+							Video    mediaObject "json:\"video,omitempty\""
+							Image    mediaObject "json:\"image,omitempty\""
+							Document mediaObject "json:\"document,omitempty\""
+						}{Type: "document", Document: *mediaPayload}
 						payloads = append(payloads, payload)
 					} else if strings.HasPrefix(mimeType, "image") {
-						payload.Interactive.Header.Type = "image"
-						payload.Interactive.Header.Image = *mediaPayload
+						payload.Interactive.Header = &struct {
+							Type     string      "json:\"type\""
+							Text     string      "json:\"text,omitempty\""
+							Video    mediaObject "json:\"video,omitempty\""
+							Image    mediaObject "json:\"image,omitempty\""
+							Document mediaObject "json:\"document,omitempty\""
+						}{Type: "image", Image: *mediaPayload}
 						payloads = append(payloads, payload)
 					} else if strings.HasPrefix(mimeType, "video") {
-						payload.Interactive.Header.Type = "video"
-						payload.Interactive.Header.Video = *mediaPayload
+						payload.Interactive.Header = &struct {
+							Type     string      "json:\"type\""
+							Text     string      "json:\"text,omitempty\""
+							Video    mediaObject "json:\"video,omitempty\""
+							Image    mediaObject "json:\"image,omitempty\""
+							Document mediaObject "json:\"document,omitempty\""
+						}{Type: "video", Video: *mediaPayload}
 						payloads = append(payloads, payload)
 					} else {
 						duration := time.Since(start)
@@ -1165,9 +1198,18 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 						text := parseBacklashes(qr)
 						btns[i].Reply.Title = text
 					}
-					payload.Interactive.Action.Buttons = btns
+					payload.Interactive.Action = struct {
+						Button            string      "json:\"button,omitempty\""
+						Sections          []mtSection "json:\"sections,omitempty\""
+						Buttons           []mtButton  "json:\"buttons,omitempty\""
+						CatalogID         string      "json:\"catalog_id,omitempty\""
+						ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
+						Name              string      "json:\"name,omitempty\""
+					}{Buttons: btns}
 					if msg.Footer() != "" {
-						payload.Interactive.Footer.Text = msg.Footer()
+						payload.Interactive.Footer = &struct {
+							Text string "json:\"text\""
+						}{Text: msg.Text()}
 					}
 					payloads = append(payloads, payload)
 
@@ -1202,12 +1244,20 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 							}
 						}
 						if msg.Footer() != "" {
-							payload.Interactive.Footer.Text = msg.Footer()
+							payload.Interactive.Footer = &struct {
+								Text string "json:\"text\""
+							}{Text: msg.Text()}
 						}
 					}
 
-					payload.Interactive.Action.Button = "Menu"
-					payload.Interactive.Action.Sections = append(payload.Interactive.Action.Sections, section)
+					payload.Interactive.Action = struct {
+						Button            string      "json:\"button,omitempty\""
+						Sections          []mtSection "json:\"sections,omitempty\""
+						Buttons           []mtButton  "json:\"buttons,omitempty\""
+						CatalogID         string      "json:\"catalog_id,omitempty\""
+						ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
+						Name              string      "json:\"name,omitempty\""
+					}{Button: "Menu", Sections: []mtSection{section}}
 
 					if msg.ListMessage().ButtonText != "" {
 						payload.Interactive.Action.Button = msg.ListMessage().ButtonText

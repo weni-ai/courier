@@ -158,8 +158,8 @@ func clearLocalChannel(uuid courier.ChannelUUID) {
 	cacheMutex.Unlock()
 }
 
-// channels stay cached in memory for a minute at a time
-const localTTL = 60 * time.Second
+// channels stay cached in memory for 5 minutes
+const localTTL = 5 * time.Minute
 
 var cacheMutex sync.RWMutex
 var channelCache = make(map[courier.ChannelUUID]*DBChannel)

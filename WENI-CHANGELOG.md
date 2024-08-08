@@ -1,3 +1,8 @@
+1.11.1-courier-7.1.0
+----------
+ * Channel cache ttl from 1min to 5min
+ * Fix flush status file for status D and V without sent on datetime
+
 1.11.0-courier-7.1.0
 ----------
  * Fix local channel cache by address

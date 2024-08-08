@@ -109,7 +109,7 @@ UPDATE msgs_msg SET
 		END,
 	sent_on = CASE 
 		WHEN 
-			:status IN ('W', 'S') 
+			:status IN ('W', 'S', 'D', 'V') 
 		THEN 
 			NOW() 
 		ELSE 

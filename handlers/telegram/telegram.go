@@ -399,11 +399,15 @@ type moPayload struct {
 }
 
 func escapeTextForMarkdown(text string) string {
+	extraEscapeCases := []string{`*:`, `*=`}
 	escaped := regexReplace(`(?i)\b\w+_(?i)\w+\b`, `_`, `\_`, text)
 	escaped = regexReplace(`\b\w+\*\w+\b`, `\*`, `\*`, escaped)
 	escaped = strings.ReplaceAll(escaped, "[", "\\[")
 	escaped = strings.ReplaceAll(escaped, "]", "\\]")
 	escaped = strings.ReplaceAll(escaped, "`", "\\`")
+	for _, c := range extraEscapeCases {
+		escaped = strings.ReplaceAll(escaped, c, `\`+c)
+	}
 	return escaped
 }
 

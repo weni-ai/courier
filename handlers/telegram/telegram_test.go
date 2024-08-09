@@ -676,10 +676,10 @@ func TestSending(t *testing.T) {
 }
 
 func TestEscapeMarkdown(t *testing.T) {
-	text := `This is a string with_underscores and words_without, - so one _ outside _now now_ and _now_ https://meusite.com/do_checkout i know_ *BOLD* not*bold [secret] is cold $!@#`
+	text := `This is a string with_underscores and words_without, - so one _ outside _now now_ and _now_ https://meusite.com/do_checkout i know_ *BOLD* not*bold [secret] is cold $!@# *:extracase`
 
 	result := escapeTextForMarkdown(text)
 
-	expected := `This is a string with\_underscores and words\_without, - so one _ outside _now now_ and _now_ https://meusite.com/do\_checkout i know_ *BOLD* not\*bold \[secret\] is cold $!@#`
+	expected := `This is a string with\_underscores and words\_without, - so one _ outside _now now_ and _now_ https://meusite.com/do\_checkout i know_ *BOLD* not\*bold \[secret\] is cold $!@# \*:extracase`
 	assert.Equal(t, result, expected)
 }

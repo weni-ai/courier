@@ -1,3 +1,7 @@
+1.12.0-courier-7.1.0
+----------
+ * Convert response_json from flow messages to json
+
 1.11.1-courier-7.1.0
 ----------
  * Channel cache ttl from 1min to 5min

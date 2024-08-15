@@ -1,3 +1,7 @@
+1.12.1-courier-7.1.0
+----------
+ * Extra cases for escape telegram markdown text messages
+
 1.12.0-courier-7.1.0
 ----------
  * Convert response_json from flow messages to json

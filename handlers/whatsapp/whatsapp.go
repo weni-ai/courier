@@ -506,7 +506,7 @@ type mtInteractivePayload struct {
 		Footer *struct {
 			Text string `json:"text"`
 		} `json:"footer,omitempty"`
-		Action struct {
+		Action *struct {
 			Button            string      `json:"button,omitempty"`
 			Sections          []mtSection `json:"sections,omitempty"`
 			Buttons           []mtButton  `json:"buttons,omitempty"`
@@ -859,7 +859,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 								Footer *struct {
 									Text string "json:\"text\""
 								} "json:\"footer,omitempty\""
-								Action struct {
+								Action *struct {
 									Button            string      "json:\"button,omitempty\""
 									Sections          []mtSection "json:\"sections,omitempty\""
 									Buttons           []mtButton  "json:\"buttons,omitempty\""
@@ -898,7 +898,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 								text := parseBacklashes(qr)
 								btns[i].Reply.Title = text
 							}
-							payload.Interactive.Action = struct {
+							payload.Interactive.Action = &struct {
 								Button            string      "json:\"button,omitempty\""
 								Sections          []mtSection "json:\"sections,omitempty\""
 								Buttons           []mtButton  "json:\"buttons,omitempty\""
@@ -911,7 +911,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 							payload.Interactive.Type = "list"
 							payload.Interactive.Body.Text = part
 							if msg.TextLanguage() != "" {
-								payload.Interactive.Action = struct {
+								payload.Interactive.Action = &struct {
 									Button            string      "json:\"button,omitempty\""
 									Sections          []mtSection "json:\"sections,omitempty\""
 									Buttons           []mtButton  "json:\"buttons,omitempty\""
@@ -920,7 +920,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 									Name              string      "json:\"name,omitempty\""
 								}{Button: languageMenuMap[msg.TextLanguage()]}
 							} else {
-								payload.Interactive.Action = struct {
+								payload.Interactive.Action = &struct {
 									Button            string      "json:\"button,omitempty\""
 									Sections          []mtSection "json:\"sections,omitempty\""
 									Buttons           []mtButton  "json:\"buttons,omitempty\""
@@ -958,7 +958,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 									payload.Interactive.Footer.Text = msg.Footer()
 								}
 							}
-							payload.Interactive.Action = struct {
+							payload.Interactive.Action = &struct {
 								Button            string      "json:\"button,omitempty\""
 								Sections          []mtSection "json:\"sections,omitempty\""
 								Buttons           []mtButton  "json:\"buttons,omitempty\""
@@ -1116,7 +1116,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 						Footer *struct {
 							Text string "json:\"text\""
 						} "json:\"footer,omitempty\""
-						Action struct {
+						Action *struct {
 							Button            string      "json:\"button,omitempty\""
 							Sections          []mtSection "json:\"sections,omitempty\""
 							Buttons           []mtButton  "json:\"buttons,omitempty\""
@@ -1124,15 +1124,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 							ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
 							Name              string      "json:\"name,omitempty\""
 						} "json:\"action\" validate:\"required\""
-					}{
-						Header: &struct {
-							Type     string      "json:\"type\""
-							Text     string      "json:\"text,omitempty\""
-							Video    mediaObject "json:\"video,omitempty\""
-							Image    mediaObject "json:\"image,omitempty\""
-							Document mediaObject "json:\"document,omitempty\""
-						}{},
-					},
+					}{},
 				}
 
 				// We can use buttons
@@ -1198,7 +1190,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 						text := parseBacklashes(qr)
 						btns[i].Reply.Title = text
 					}
-					payload.Interactive.Action = struct {
+					payload.Interactive.Action = &struct {
 						Button            string      "json:\"button,omitempty\""
 						Sections          []mtSection "json:\"sections,omitempty\""
 						Buttons           []mtButton  "json:\"buttons,omitempty\""
@@ -1250,7 +1242,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 						}
 					}
 
-					payload.Interactive.Action = struct {
+					payload.Interactive.Action = &struct {
 						Button            string      "json:\"button,omitempty\""
 						Sections          []mtSection "json:\"sections,omitempty\""
 						Buttons           []mtButton  "json:\"buttons,omitempty\""
@@ -1292,7 +1284,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 			Footer *struct {
 				Text string "json:\"text\""
 			} "json:\"footer,omitempty\""
-			Action struct {
+			Action *struct {
 				Button            string      "json:\"button,omitempty\""
 				Sections          []mtSection "json:\"sections,omitempty\""
 				Buttons           []mtButton  "json:\"buttons,omitempty\""
@@ -1300,15 +1292,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 				ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
 				Name              string      "json:\"name,omitempty\""
 			} "json:\"action\" validate:\"required\""
-		}{
-			Header: &struct {
-				Type     string      "json:\"type\""
-				Text     string      "json:\"text,omitempty\""
-				Video    mediaObject "json:\"video,omitempty\""
-				Image    mediaObject "json:\"image,omitempty\""
-				Document mediaObject "json:\"document,omitempty\""
-			}{},
-		}}
+		}{}}
 
 		products := msg.Products()
 
@@ -1362,7 +1346,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 		}
 
 		if msg.SendCatalog() {
-			payload.Interactive.Action = struct {
+			payload.Interactive.Action = &struct {
 				Button            string      `json:"button,omitempty"`
 				Sections          []mtSection `json:"sections,omitempty"`
 				Buttons           []mtButton  `json:"buttons,omitempty"`
@@ -1404,7 +1388,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 				}
 
 				for _, sections := range actions {
-					payload.Interactive.Action = struct {
+					payload.Interactive.Action = &struct {
 						Button            string      `json:"button,omitempty"`
 						Sections          []mtSection `json:"sections,omitempty"`
 						Buttons           []mtButton  `json:"buttons,omitempty"`
@@ -1421,7 +1405,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 				}
 
 			} else {
-				payload.Interactive.Action = struct {
+				payload.Interactive.Action = &struct {
 					Button            string      `json:"button,omitempty"`
 					Sections          []mtSection `json:"sections,omitempty"`
 					Buttons           []mtButton  `json:"buttons,omitempty"`

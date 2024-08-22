@@ -408,6 +408,7 @@ func escapeTextForMarkdown(text string) string {
 	for _, c := range extraEscapeCases {
 		escaped = strings.ReplaceAll(escaped, c, `\`+c)
 	}
+	escaped = escapeOdd(escaped, "*")
 	return escaped
 }
 
@@ -416,4 +417,14 @@ func regexReplace(regexstr, target, replacement, text string) string {
 	return re.ReplaceAllStringFunc(text, func(match string) string {
 		return regexp.MustCompile(target).ReplaceAllString(match, replacement)
 	})
+}
+
+func escapeOdd(text string, c string) string {
+	if strings.Count(text, c)%2 != 0 {
+		last := strings.LastIndexByte(text, byte(c[0]))
+		if last == 0 || text[last-1] != '\\' {
+			return text[:last] + `\` + text[last:]
+		}
+	}
+	return text
 }

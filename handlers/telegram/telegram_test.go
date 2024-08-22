@@ -683,3 +683,17 @@ func TestEscapeMarkdown(t *testing.T) {
 	expected := `This is a string with\_underscores and words\_without, - so one _ outside _now now_ and _now_ https://meusite.com/do\_checkout i know_ *BOLD* not\*bold \[secret\] is cold $!@# \*:extracase`
 	assert.Equal(t, result, expected)
 }
+
+func TestEscapeOdd(t *testing.T) {
+	case1 := `*text`
+	case2 := `text*`
+	case3 := `text\*`
+
+	result1 := escapeOdd(case1, "*")
+	result2 := escapeOdd(case2, "*")
+	result3 := escapeOdd(case3, "*")
+
+	assert.Equal(t, result1, "\\*text")
+	assert.Equal(t, result2, "text\\*")
+	assert.Equal(t, result3, "text\\*")
+}

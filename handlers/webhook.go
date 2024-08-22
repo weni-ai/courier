@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 
@@ -34,9 +34,11 @@ func SendWebhooksExternal(r *http.Request, configWebhook interface{}) error {
 
 	req, _ := http.NewRequest(method, webhook["url"].(string), r.Body)
 
-	headers := webhook["headers"].(map[string]interface{})
-	for name, value := range headers {
-		req.Header.Set(name, value.(string))
+	headers, ok := webhook["headers"].(map[string]interface{})
+	if ok {
+		for name, value := range headers {
+			req.Header.Set(name, value.(string))
+		}
 	}
 
 	resp, err := utils.MakeHTTPRequest(req)
@@ -84,7 +86,7 @@ type moTemplatesPayload struct {
 func SendWebhooksToIntegrations(r *http.Request, url string) error {
 	moTemplatesPayload := &moTemplatesPayload{}
 
-	body, err := ioutil.ReadAll(r.Body)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return err
 	}

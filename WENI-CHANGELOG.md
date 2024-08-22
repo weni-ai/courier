@@ -1,3 +1,8 @@
+1.12.2-courier-7.1.0
+----------
+ * Extra cases for escape telegram markdown text messages (odd * cases).
+ * Handle webhook null headers
+
 1.12.1-courier-7.1.0
 ----------
  * Extra cases for escape telegram markdown text messages

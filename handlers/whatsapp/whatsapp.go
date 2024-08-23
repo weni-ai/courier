@@ -1154,7 +1154,6 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 							Image    mediaObject "json:\"image,omitempty\""
 							Document mediaObject "json:\"document,omitempty\""
 						}{Type: "document", Document: *mediaPayload}
-						payloads = append(payloads, payload)
 					} else if strings.HasPrefix(mimeType, "image") {
 						payload.Interactive.Header = &struct {
 							Type     string      "json:\"type\""
@@ -1163,7 +1162,6 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 							Image    mediaObject "json:\"image,omitempty\""
 							Document mediaObject "json:\"document,omitempty\""
 						}{Type: "image", Image: *mediaPayload}
-						payloads = append(payloads, payload)
 					} else if strings.HasPrefix(mimeType, "video") {
 						payload.Interactive.Header = &struct {
 							Type     string      "json:\"type\""
@@ -1172,7 +1170,6 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 							Image    mediaObject "json:\"image,omitempty\""
 							Document mediaObject "json:\"document,omitempty\""
 						}{Type: "video", Video: *mediaPayload}
-						payloads = append(payloads, payload)
 					} else {
 						duration := time.Since(start)
 						err = fmt.Errorf("unknown attachment mime type: %s", mimeType)

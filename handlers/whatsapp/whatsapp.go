@@ -871,12 +871,14 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 						}
 
 						// up to 3 qrs the interactive message will be button type, otherwise it will be list
-						if len(qrs) <= 3 {
+						if len(qrs) <= 3 && len(msg.ListMessage().ListItems) == 0 {
 							payload.Interactive.Type = "button"
 							payload.Interactive.Body.Text = part
 
 							if msg.Footer() != "" {
-								payload.Interactive.Footer.Text = msg.Footer()
+								payload.Interactive.Footer = &struct {
+									Text string "json:\"text\""
+								}{Text: msg.Footer()}
 							}
 
 							if msg.HeaderText() != "" {
@@ -910,27 +912,22 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 						} else if len(qrs) <= 10 || len(msg.ListMessage().ListItems) > 0 {
 							payload.Interactive.Type = "list"
 							payload.Interactive.Body.Text = part
+
+							buttonName := "Menu"
 							if msg.TextLanguage() != "" {
-								payload.Interactive.Action = &struct {
-									Button            string      "json:\"button,omitempty\""
-									Sections          []mtSection "json:\"sections,omitempty\""
-									Buttons           []mtButton  "json:\"buttons,omitempty\""
-									CatalogID         string      "json:\"catalog_id,omitempty\""
-									ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
-									Name              string      "json:\"name,omitempty\""
-								}{Button: languageMenuMap[msg.TextLanguage()]}
-							} else {
-								payload.Interactive.Action = &struct {
-									Button            string      "json:\"button,omitempty\""
-									Sections          []mtSection "json:\"sections,omitempty\""
-									Buttons           []mtButton  "json:\"buttons,omitempty\""
-									CatalogID         string      "json:\"catalog_id,omitempty\""
-									ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
-									Name              string      "json:\"name,omitempty\""
-								}{Button: "Menu"}
+								buttonName = languageMenuMap[msg.TextLanguage()]
 							}
+							payload.Interactive.Action = &struct {
+								Button            string      "json:\"button,omitempty\""
+								Sections          []mtSection "json:\"sections,omitempty\""
+								Buttons           []mtButton  "json:\"buttons,omitempty\""
+								CatalogID         string      "json:\"catalog_id,omitempty\""
+								ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
+								Name              string      "json:\"name,omitempty\""
+							}{Button: buttonName}
+
 							var section mtSection
-							if len(qrs) > 0 {
+							if len(qrs) > 0 && len(msg.ListMessage().ListItems) == 0 {
 								section = mtSection{
 									Rows: make([]mtSectionRow, len(qrs)),
 								}
@@ -943,7 +940,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 								}
 							} else if len(msg.ListMessage().ListItems) > 0 {
 								section = mtSection{
-									Rows: make([]mtSectionRow, len(qrs)),
+									Rows: make([]mtSectionRow, len(msg.ListMessage().ListItems)),
 								}
 								for i, listItem := range msg.ListMessage().ListItems {
 									titleText := parseBacklashes(listItem.Title)
@@ -955,7 +952,9 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 									}
 								}
 								if msg.Footer() != "" {
-									payload.Interactive.Footer.Text = msg.Footer()
+									payload.Interactive.Footer = &struct {
+										Text string "json:\"text\""
+									}{Text: msg.Footer()}
 								}
 							}
 							payload.Interactive.Action = &struct {

@@ -914,7 +914,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 							payload.Interactive.Body.Text = part
 
 							buttonName := "Menu"
-							if msg.TextLanguage() != "" {
+							if len(msg.TextLanguage()) > 0 {
 								buttonName = languageMenuMap[msg.TextLanguage()]
 							}
 							payload.Interactive.Action = &struct {

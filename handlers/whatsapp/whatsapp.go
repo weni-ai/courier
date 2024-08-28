@@ -957,17 +957,10 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 									}{Text: msg.Footer()}
 								}
 							}
-							payload.Interactive.Action = &struct {
-								Button            string      "json:\"button,omitempty\""
-								Sections          []mtSection "json:\"sections,omitempty\""
-								Buttons           []mtButton  "json:\"buttons,omitempty\""
-								CatalogID         string      "json:\"catalog_id,omitempty\""
-								ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
-								Name              string      "json:\"name,omitempty\""
-							}{Sections: []mtSection{section}}
-							if msg.ListMessage().ButtonText != "" {
+							payload.Interactive.Action.Sections = []mtSection{section}
+							if len(msg.ListMessage().ButtonText) > 0 {
 								payload.Interactive.Action.Button = msg.ListMessage().ButtonText
-							} else if msg.TextLanguage() != "" {
+							} else if len(msg.TextLanguage()) > 0 {
 								payload.Interactive.Action.Button = languageMenuMap[msg.TextLanguage()]
 							}
 
@@ -1247,9 +1240,9 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 						Name              string      "json:\"name,omitempty\""
 					}{Button: "Menu", Sections: []mtSection{section}}
 
-					if msg.ListMessage().ButtonText != "" {
+					if len(msg.ListMessage().ButtonText) > 0 {
 						payload.Interactive.Action.Button = msg.ListMessage().ButtonText
-					} else if msg.TextLanguage() != "" {
+					} else if len(msg.TextLanguage()) > 0 {
 						payload.Interactive.Action.Button = languageMenuMap[msg.TextLanguage()]
 					}
 					payloads = append(payloads, payload)

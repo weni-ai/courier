@@ -1163,6 +1163,13 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 							Image    mediaObject "json:\"image,omitempty\""
 							Document mediaObject "json:\"document,omitempty\""
 						}{Type: "video", Video: *mediaPayload}
+					} else if strings.HasPrefix(mimeType, "audio") {
+						payloadAudio := mtAudioPayload{
+							To:   msg.URN().Path(),
+							Type: "audio",
+						}
+						payloadAudio.Audio = mediaPayload
+						payloads = append(payloads, payloadAudio)
 					} else {
 						duration := time.Since(start)
 						err = fmt.Errorf("unknown attachment mime type: %s", mimeType)

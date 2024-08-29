@@ -1,3 +1,7 @@
+1.13.0-courier-7.1.0
+----------
+ * Add support for interactive messages in WA
+
 1.12.2-courier-7.1.0
 ----------
  * Extra cases for escape telegram markdown text messages (odd * cases).

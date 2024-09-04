@@ -861,3 +861,43 @@ func (m *DBMsg) CTAMessage() *courier.CTAMessage {
 	}
 	return nil
 }
+
+func (m *DBMsg) FlowMessage() *courier.FlowMessage {
+	if m.Metadata_ == nil {
+		return nil
+	}
+
+	var metadata map[string]interface{}
+	err := json.Unmarshal(m.Metadata_, &metadata)
+	if err != nil {
+		return nil
+	}
+
+	if metadata == nil {
+		return nil
+	}
+
+	if interactionType, ok := metadata["interaction_type"].(string); ok && interactionType == "flow_msg" {
+		if flowMessageData, ok := metadata["flow_message"].(map[string]interface{}); ok {
+			flowMessage := &courier.FlowMessage{}
+			if flowID, ok := flowMessageData["flow_id"].(string); ok {
+				flowMessage.FlowID = flowID
+			}
+			if flowScreen, ok := flowMessageData["flow_screen"].(string); ok {
+				flowMessage.FlowScreen = flowScreen
+			}
+			if flowData, ok := flowMessageData["flow_data"].(map[string]interface{}); ok {
+				convertedFlowData := map[string]string{}
+				for key, value := range flowData {
+					convertedFlowData[key] = value.(string)
+				}
+				flowMessage.FlowData = convertedFlowData
+			}
+			if flowCTA, ok := flowMessageData["flow_cta"].(string); ok {
+				flowMessage.FlowCTA = flowCTA
+			}
+			return flowMessage
+		}
+	}
+	return nil
+}

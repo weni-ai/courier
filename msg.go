@@ -133,6 +133,7 @@ type Msg interface {
 	ListMessage() ListMessage
 	InteractionType() string
 	CTAMessage() *CTAMessage
+	FlowMessage() *FlowMessage
 }
 
 type ListMessage struct {
@@ -143,6 +144,13 @@ type ListMessage struct {
 type CTAMessage struct {
 	URL         string `json:"url"`
 	DisplayText string `json:"display_text"`
+}
+
+type FlowMessage struct {
+	FlowID     string            `json:"flow_id"`
+	FlowScreen string            `json:"flow_screen"`
+	FlowData   map[string]string `json:"flow_data"`
+	FlowCTA    string            `json:"flow_cta"`
 }
 
 type ListItems struct {

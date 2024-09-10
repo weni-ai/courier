@@ -78,13 +78,21 @@ type moTemplatesPayload struct {
 				MessageTemplateID       int    `json:"message_template_id"`
 				MessageTemplateName     string `json:"message_template_name"`
 				MessageTemplateLanguage string `json:"message_template_language"`
+				Message                 string `json:"message"`
+				FlowID                  string `json:"flow_id"`
+				OldStatus               string `json:"old_status"`
+				NewStatus               string `json:"new_status"`
 			} `json:"value"`
 		} `json:"changes"`
 	} `json:"entry"`
 }
 
-func SendWebhooksToIntegrations(r *http.Request, url string) error {
+func SendWebhooks(r *http.Request, url string, isIntegrations bool) error {
 	moTemplatesPayload := &moTemplatesPayload{}
+
+	if isIntegrations {
+		url = url + "/api/v1/webhook/facebook/api/notification/"
+	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -99,7 +107,7 @@ func SendWebhooksToIntegrations(r *http.Request, url string) error {
 
 	requestBody := &bytes.Buffer{}
 	json.NewEncoder(requestBody).Encode(moTemplatesPayload)
-	req, _ := http.NewRequest("POST", url+"/api/v1/webhook/facebook/api/notification/", requestBody)
+	req, _ := http.NewRequest("POST", url, requestBody)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := utils.MakeHTTPRequest(req)
 

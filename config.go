@@ -34,6 +34,7 @@ type Config struct {
 	WhatsappCloudApplicationSecret string `help:"the Whatsapp Cloud app secret"`
 	WhatsappCloudWebhookSecret     string `help:"the secret for WhatsApp Cloud webhook URL verification"`
 	WhatsappCloudWebhooksUrl       string `help:"the url where all WhatsApp Cloud webhooks will be sent"`
+	WhatsappCloudWebhooksUrlFlows  string `help:"the url where WhatsApp Cloud flow_message webhooks will be sent to Flows"`
 
 	// IncludeChannels is the list of channels to enable, empty means include all
 	IncludeChannels []string

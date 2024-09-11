@@ -59,30 +59,30 @@ type moTemplatesPayload struct {
 			Field string `json:"field"`
 			Value struct {
 				BanInfo struct {
-					WabaBanState []string `json:"waba_ban_state"`
-					WabaBanDate  string   `json:"waba_ban_date"`
-				} `json:"ban_info"`
-				CurrentLimit                 string `json:"current_limit"`
-				Decision                     string `json:"decision"`
-				DisplayPhoneNumber           string `json:"display_phone_number"`
-				Event                        string `json:"event"`
-				MaxDailyConversationPerPhone int    `json:"max_daily_conversation_per_phone"`
-				MaxPhoneNumbersPerBusiness   int    `json:"max_phone_numbers_per_business"`
-				MaxPhoneNumbersPerWaba       int    `json:"max_phone_numbers_per_waba"`
-				Reason                       string `json:"reason"`
-				RequestedVerifiedName        string `json:"requested_verified_name"`
+					WabaBanState []string `json:"waba_ban_state,omitempty"`
+					WabaBanDate  string   `json:"waba_ban_date,omitempty"`
+				} `json:"ban_info,omitempty"`
+				CurrentLimit                 string `json:"current_limit,omitempty"`
+				Decision                     string `json:"decision,omitempty"`
+				DisplayPhoneNumber           string `json:"display_phone_number,omitempty"`
+				Event                        string `json:"event,omitempty"`
+				MaxDailyConversationPerPhone int    `json:"max_daily_conversation_per_phone,omitempty"`
+				MaxPhoneNumbersPerBusiness   int    `json:"max_phone_numbers_per_business,omitempty"`
+				MaxPhoneNumbersPerWaba       int    `json:"max_phone_numbers_per_waba,omitempty"`
+				Reason                       string `json:"reason,omitempty"`
+				RequestedVerifiedName        string `json:"requested_verified_name,omitempty"`
 				RestrictionInfo              []struct {
-					RestrictionType string `json:"restriction_type"`
-					Expiration      string `json:"expiration"`
-				} `json:"restriction_info"`
-				MessageTemplateID       int    `json:"message_template_id"`
-				MessageTemplateName     string `json:"message_template_name"`
-				MessageTemplateLanguage string `json:"message_template_language"`
-				Message                 string `json:"message"`
-				FlowID                  string `json:"flow_id"`
-				OldStatus               string `json:"old_status"`
-				NewStatus               string `json:"new_status"`
-			} `json:"value"`
+					RestrictionType string `json:"restriction_type,omitempty"`
+					Expiration      string `json:"expiration,omitempty"`
+				} `json:"restriction_info,omitempty"`
+				MessageTemplateID       int    `json:"message_template_id,omitempty"`
+				MessageTemplateName     string `json:"message_template_name,omitempty"`
+				MessageTemplateLanguage string `json:"message_template_language,omitempty"`
+				Message                 string `json:"message,omitempty"`
+				FlowID                  string `json:"flow_id,omitempty"`
+				OldStatus               string `json:"old_status,omitempty"`
+				NewStatus               string `json:"new_status,omitempty"`
+			} `json:"value,omitempty"`
 		} `json:"changes"`
 	} `json:"entry"`
 }

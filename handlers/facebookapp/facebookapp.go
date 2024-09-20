@@ -414,13 +414,13 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 			return nil, fmt.Errorf("no changes found")
 		}
 		if payload.Entry[0].Changes[0].Field == "message_template_status_update" || payload.Entry[0].Changes[0].Field == "template_category_update" || payload.Entry[0].Changes[0].Field == "message_template_quality_update" {
-			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, true)
+			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, "", true)
 			if er != nil {
 				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
 			}
 			return nil, fmt.Errorf("template update, so ignore")
 		} else if payload.Entry[0].Changes[0].Field == "flows" {
-			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrlFlows, false)
+			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrlFlows, h.Server().Config().WhatsappCloudWebhooksTokenFlows, false)
 			if er != nil {
 				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
 			}

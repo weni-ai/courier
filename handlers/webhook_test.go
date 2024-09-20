@@ -53,6 +53,6 @@ func TestSendWebhooks(t *testing.T) {
 	assert.NoError(t, err)
 	req := httptest.NewRequest(http.MethodPost, "https://foo.bar/webhook", strings.NewReader(string(jsonBody)))
 
-	err = SendWebhooks(req, ts.URL, true)
+	err = SendWebhooks(req, ts.URL, "", true)
 	assert.NoError(t, err)
 }

@@ -87,11 +87,22 @@ type moTemplatesPayload struct {
 	} `json:"entry"`
 }
 
-func SendWebhooks(r *http.Request, url string, isIntegrations bool) error {
+func SendWebhooks(r *http.Request, url_ string, tokenFlows string, isIntegrations bool) error {
 	moTemplatesPayload := &moTemplatesPayload{}
 
 	if isIntegrations {
-		url = url + "/api/v1/webhook/facebook/api/notification/"
+		url_ = url_ + "/api/v1/webhook/facebook/api/notification/"
+	} else {
+		url_ = url_ + "/whatsapp_flows/"
+		parsedURL, err := url.Parse(url_)
+		if err != nil {
+			return err
+		}
+
+		params := url.Values{}
+		params.Add("token", tokenFlows)
+		parsedURL.RawQuery = params.Encode()
+		url_ = parsedURL.String()
 	}
 
 	body, err := io.ReadAll(r.Body)
@@ -107,7 +118,7 @@ func SendWebhooks(r *http.Request, url string, isIntegrations bool) error {
 
 	requestBody := &bytes.Buffer{}
 	json.NewEncoder(requestBody).Encode(moTemplatesPayload)
-	req, _ := http.NewRequest("POST", url, requestBody)
+	req, _ := http.NewRequest("POST", url_, requestBody)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := utils.MakeHTTPRequest(req)
 

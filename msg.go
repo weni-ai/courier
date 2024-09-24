@@ -147,10 +147,11 @@ type CTAMessage struct {
 }
 
 type FlowMessage struct {
-	FlowID     string            `json:"flow_id"`
-	FlowScreen string            `json:"flow_screen"`
-	FlowData   map[string]string `json:"flow_data"`
-	FlowCTA    string            `json:"flow_cta"`
+	FlowID     string                 `json:"flow_id"`
+	FlowScreen string                 `json:"flow_screen"`
+	FlowData   map[string]interface{} `json:"flow_data"`
+	FlowCTA    string                 `json:"flow_cta"`
+	FlowMode   string                 `json:"flow_mode"`
 }
 
 type ListItems struct {

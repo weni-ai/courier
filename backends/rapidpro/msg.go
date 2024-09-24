@@ -887,14 +887,17 @@ func (m *DBMsg) FlowMessage() *courier.FlowMessage {
 				flowMessage.FlowScreen = flowScreen
 			}
 			if flowData, ok := flowMessageData["flow_data"].(map[string]interface{}); ok {
-				convertedFlowData := map[string]string{}
+				convertedFlowData := map[string]interface{}{}
 				for key, value := range flowData {
-					convertedFlowData[key] = value.(string)
+					convertedFlowData[key] = value
 				}
 				flowMessage.FlowData = convertedFlowData
 			}
 			if flowCTA, ok := flowMessageData["flow_cta"].(string); ok {
 				flowMessage.FlowCTA = flowCTA
+			}
+			if flowMode, ok := flowMessageData["flow_mode"].(string); ok {
+				flowMessage.FlowMode = strings.ToLower(flowMode)
 			}
 			return flowMessage
 		}

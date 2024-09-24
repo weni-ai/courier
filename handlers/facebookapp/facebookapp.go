@@ -26,6 +26,7 @@ import (
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/rcache"
 	"github.com/nyaruka/gocommon/urns"
+	"github.com/nyaruka/gocommon/uuids"
 	"github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
 )
@@ -1745,9 +1746,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								}{
 									Name: "flow",
 									Parameters: map[string]interface{}{
-										"mode":                 "published", // TODO: check how to get the correct mode
+										"mode":                 flowMessage.FlowMode,
 										"flow_message_version": "3",
-										"flow_token":           "flow_token", // TODO: check how to get it
+										"flow_token":           uuids.New(),
 										"flow_id":              flowMessage.FlowID,
 										"flow_cta":             flowMessage.FlowCTA,
 										"flow_action":          "navigate",
@@ -2081,9 +2082,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						}{
 							Name: "flow",
 							Parameters: map[string]interface{}{
-								"mode":                 "published", // TODO: check how to get the correct mode
+								"mode":                 flowMessage.FlowMode,
 								"flow_message_version": "3",
-								"flow_token":           "flow_token", // TODO: check how to get it
+								"flow_token":           uuids.New(),
 								"flow_id":              flowMessage.FlowID,
 								"flow_cta":             flowMessage.FlowCTA,
 								"flow_action":          "navigate",

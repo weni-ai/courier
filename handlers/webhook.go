@@ -59,32 +59,51 @@ type moTemplatesPayload struct {
 			Field string `json:"field"`
 			Value struct {
 				BanInfo struct {
-					WabaBanState []string `json:"waba_ban_state"`
-					WabaBanDate  string   `json:"waba_ban_date"`
-				} `json:"ban_info"`
-				CurrentLimit                 string `json:"current_limit"`
-				Decision                     string `json:"decision"`
-				DisplayPhoneNumber           string `json:"display_phone_number"`
-				Event                        string `json:"event"`
-				MaxDailyConversationPerPhone int    `json:"max_daily_conversation_per_phone"`
-				MaxPhoneNumbersPerBusiness   int    `json:"max_phone_numbers_per_business"`
-				MaxPhoneNumbersPerWaba       int    `json:"max_phone_numbers_per_waba"`
-				Reason                       string `json:"reason"`
-				RequestedVerifiedName        string `json:"requested_verified_name"`
+					WabaBanState []string `json:"waba_ban_state,omitempty"`
+					WabaBanDate  string   `json:"waba_ban_date,omitempty"`
+				} `json:"ban_info,omitempty"`
+				CurrentLimit                 string `json:"current_limit,omitempty"`
+				Decision                     string `json:"decision,omitempty"`
+				DisplayPhoneNumber           string `json:"display_phone_number,omitempty"`
+				Event                        string `json:"event,omitempty"`
+				MaxDailyConversationPerPhone int    `json:"max_daily_conversation_per_phone,omitempty"`
+				MaxPhoneNumbersPerBusiness   int    `json:"max_phone_numbers_per_business,omitempty"`
+				MaxPhoneNumbersPerWaba       int    `json:"max_phone_numbers_per_waba,omitempty"`
+				Reason                       string `json:"reason,omitempty"`
+				RequestedVerifiedName        string `json:"requested_verified_name,omitempty"`
 				RestrictionInfo              []struct {
-					RestrictionType string `json:"restriction_type"`
-					Expiration      string `json:"expiration"`
-				} `json:"restriction_info"`
-				MessageTemplateID       int    `json:"message_template_id"`
-				MessageTemplateName     string `json:"message_template_name"`
-				MessageTemplateLanguage string `json:"message_template_language"`
-			} `json:"value"`
+					RestrictionType string `json:"restriction_type,omitempty"`
+					Expiration      string `json:"expiration,omitempty"`
+				} `json:"restriction_info,omitempty"`
+				MessageTemplateID       int    `json:"message_template_id,omitempty"`
+				MessageTemplateName     string `json:"message_template_name,omitempty"`
+				MessageTemplateLanguage string `json:"message_template_language,omitempty"`
+				Message                 string `json:"message,omitempty"`
+				FlowID                  string `json:"flow_id,omitempty"`
+				OldStatus               string `json:"old_status,omitempty"`
+				NewStatus               string `json:"new_status,omitempty"`
+			} `json:"value,omitempty"`
 		} `json:"changes"`
 	} `json:"entry"`
 }
 
-func SendWebhooksToIntegrations(r *http.Request, url string) error {
+func SendWebhooks(r *http.Request, url_ string, tokenFlows string, isIntegrations bool) error {
 	moTemplatesPayload := &moTemplatesPayload{}
+
+	if isIntegrations {
+		url_ = url_ + "/api/v1/webhook/facebook/api/notification/"
+	} else {
+		url_ = url_ + "/whatsapp_flows/"
+		parsedURL, err := url.Parse(url_)
+		if err != nil {
+			return err
+		}
+
+		params := url.Values{}
+		params.Add("token", tokenFlows)
+		parsedURL.RawQuery = params.Encode()
+		url_ = parsedURL.String()
+	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -99,7 +118,7 @@ func SendWebhooksToIntegrations(r *http.Request, url string) error {
 
 	requestBody := &bytes.Buffer{}
 	json.NewEncoder(requestBody).Encode(moTemplatesPayload)
-	req, _ := http.NewRequest("POST", url+"/api/v1/webhook/facebook/api/notification/", requestBody)
+	req, _ := http.NewRequest("POST", url_, requestBody)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := utils.MakeHTTPRequest(req)
 

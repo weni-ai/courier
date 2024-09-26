@@ -43,7 +43,7 @@ func TestSendWebhooksExternal_NoHeaders(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestSendWebhooksToIntegrations(t *testing.T) {
+func TestSendWebhooks(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"data": "success"}`))
@@ -53,6 +53,6 @@ func TestSendWebhooksToIntegrations(t *testing.T) {
 	assert.NoError(t, err)
 	req := httptest.NewRequest(http.MethodPost, "https://foo.bar/webhook", strings.NewReader(string(jsonBody)))
 
-	err = SendWebhooksToIntegrations(req, ts.URL)
+	err = SendWebhooks(req, ts.URL, "", true)
 	assert.NoError(t, err)
 }

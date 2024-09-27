@@ -25,6 +25,7 @@ import (
 	_ "github.com/nyaruka/courier/handlers/dart"
 	_ "github.com/nyaruka/courier/handlers/discord"
 	_ "github.com/nyaruka/courier/handlers/dmark"
+	_ "github.com/nyaruka/courier/handlers/email"
 	_ "github.com/nyaruka/courier/handlers/external"
 	_ "github.com/nyaruka/courier/handlers/facebook"
 	_ "github.com/nyaruka/courier/handlers/facebookapp"

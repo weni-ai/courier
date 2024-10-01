@@ -830,6 +830,99 @@ func (m *mockMsg) FlowMessage() *FlowMessage {
 	return nil
 }
 
+func (m *mockMsg) OrderDetailsMessage() *OrderDetailsMessage {
+	if m.metadata == nil {
+		return nil
+	}
+
+	var metadata map[string]interface{}
+	err := json.Unmarshal(m.metadata, &metadata)
+	if err != nil {
+		return nil
+	}
+
+	if metadata == nil {
+		return nil
+	}
+
+	if interactionType, ok := metadata["interaction_type"].(string); ok && interactionType == "order_details" {
+		if orderDetailsMessageData, ok := metadata["order_details_message"].(map[string]interface{}); ok {
+			orderDetailsMessage := &OrderDetailsMessage{}
+			if referenceID, ok := orderDetailsMessageData["reference_id"].(string); ok {
+				orderDetailsMessage.ReferenceID = referenceID
+			}
+			if orderType, ok := orderDetailsMessageData["type"].(string); ok {
+				orderDetailsMessage.Type = orderType
+			}
+			if paymentLink, ok := orderDetailsMessageData["payment_link"].(string); ok {
+				orderDetailsMessage.PaymentLink = paymentLink
+			}
+			if totalAmount, ok := orderDetailsMessageData["total_amount"].(float64); ok {
+				orderDetailsMessage.TotalAmount = int(totalAmount)
+			}
+			if orderData, ok := orderDetailsMessageData["order"].(map[string]interface{}); ok {
+				orderDetailsMessage.Order = Order{}
+				if catalogID, ok := orderData["catalog_id"].(string); ok {
+					orderDetailsMessage.Order.CatalogID = catalogID
+				}
+				if expirationData, ok := orderData["expiration"].(map[string]interface{}); ok {
+					orderDetailsMessage.Order.Expiration = OrderExpiration{}
+					if timestamp, ok := expirationData["timestamp"].(string); ok {
+						orderDetailsMessage.Order.Expiration.Timestamp = timestamp
+					}
+					if description, ok := expirationData["description"].(string); ok {
+						orderDetailsMessage.Order.Expiration.Description = description
+					}
+				}
+				if itemsData, ok := orderData["items"].([]interface{}); ok {
+					orderDetailsMessage.Order.Items = make([]OrderProduct, len(itemsData))
+					for i, item := range itemsData {
+						if itemMap, ok := item.(map[string]interface{}); ok {
+							orderDetailsMessage.Order.Items[i] = OrderProduct{
+								RetailerID: itemMap["retailer_id"].(string),
+								Name:       itemMap["name"].(string),
+								Amount:     int(itemMap["amount"].(float64)),
+								Quantity:   int(itemMap["quantity"].(float64)),
+								SaleAmount: int(itemMap["sale_amount"].(float64)),
+							}
+						}
+					}
+				}
+				if subtotal, ok := orderData["subtotal"].(float64); ok {
+					orderDetailsMessage.Order.Subtotal = int(subtotal)
+				}
+				if tax, ok := orderData["tax"].(float64); ok {
+					orderDetailsMessage.Order.Tax = int(tax)
+				}
+				if shippingData, ok := orderData["shipping"].(map[string]interface{}); ok {
+					orderDetailsMessage.Order.Shipping = OrderShipping{}
+					if value, ok := shippingData["value"].(float64); ok {
+						orderDetailsMessage.Order.Shipping.Value = int(value)
+					}
+					if description, ok := shippingData["description"].(string); ok {
+						orderDetailsMessage.Order.Shipping.Description = description
+					}
+				}
+				if discountData, ok := orderData["discount"].(map[string]interface{}); ok {
+					orderDetailsMessage.Order.Discount = OrderDiscount{}
+					if value, ok := discountData["value"].(float64); ok {
+						orderDetailsMessage.Order.Discount.Value = int(value)
+					}
+					if description, ok := discountData["description"].(string); ok {
+						orderDetailsMessage.Order.Discount.Description = description
+					}
+					if programName, ok := discountData["program_name"].(string); ok {
+						orderDetailsMessage.Order.Discount.ProgramName = programName
+					}
+				}
+			}
+			return orderDetailsMessage
+		}
+	}
+
+	return nil
+}
+
 //-----------------------------------------------------------------------------
 // Mock status implementation
 //-----------------------------------------------------------------------------

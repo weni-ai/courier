@@ -933,7 +933,6 @@ func (m *DBMsg) OrderDetailsMessage() *courier.OrderDetailsMessage {
 				orderDetailsMessage.PaymentLink = paymentLink
 			}
 			if totalAmount, ok := orderDetailsMessageData["total_amount"].(float64); ok {
-				fmt.Println("HAS AMOUNT", totalAmount)
 				orderDetailsMessage.TotalAmount = int(totalAmount)
 			}
 			if orderData, ok := orderDetailsMessageData["order"].(map[string]interface{}); ok {
@@ -954,7 +953,6 @@ func (m *DBMsg) OrderDetailsMessage() *courier.OrderDetailsMessage {
 					orderDetailsMessage.Order.Items = make([]courier.OrderProduct, len(itemsData))
 					for i, item := range itemsData {
 						if itemMap, ok := item.(map[string]interface{}); ok {
-							fmt.Println("itemMap", itemMap)
 							orderDetailsMessage.Order.Items[i] = courier.OrderProduct{
 								RetailerID: itemMap["retailer_id"].(string),
 								Name:       itemMap["name"].(string),

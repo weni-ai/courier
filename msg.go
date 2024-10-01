@@ -134,6 +134,7 @@ type Msg interface {
 	InteractionType() string
 	CTAMessage() *CTAMessage
 	FlowMessage() *FlowMessage
+	OrderDetailsMessage() *OrderDetailsMessage
 }
 
 type ListMessage struct {
@@ -172,4 +173,46 @@ type EventMsg struct {
 	URN  string `json:"urn,omitempty"`
 	Text string `json:"text,omitempty"`
 	UUID string `json:"uuid,omitempty"`
+}
+
+type OrderExpiration struct {
+	Timestamp   string `json:"timestamp,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+type OrderProduct struct {
+	RetailerID string `json:"retailer_id"`
+	Name       string `json:"name"`
+	Amount     int    `json:"amount"`
+	Quantity   int    `json:"quantity"`
+	SaleAmount int    `json:"sale_amount,omitempty"`
+}
+
+type OrderShipping struct {
+	Value       int    `json:"value"`
+	Description string `json:"description,omitempty"`
+}
+
+type OrderDiscount struct {
+	Value       int    `json:"value"`
+	Description string `json:"description,omitempty"`
+	ProgramName string `json:"program_name,omitempty"`
+}
+
+type Order struct {
+	CatalogID  string          `json:"catalog_id,omitempty"`
+	Expiration OrderExpiration `json:"expiration,omitempty"`
+	Items      []OrderProduct  `json:"items"`
+	Subtotal   int             `json:"subtotal"`
+	Tax        int             `json:"tax"`
+	Shipping   OrderShipping   `json:"shipping,omitempty"`
+	Discount   OrderDiscount   `json:"discount,omitempty"`
+}
+
+type OrderDetailsMessage struct {
+	ReferenceID string `json:"reference_id"`
+	Type        string `json:"type"`
+	PaymentLink string `json:"payment_link"`
+	TotalAmount int    `json:"total_amount"`
+	Order       Order  `json:"order"`
 }

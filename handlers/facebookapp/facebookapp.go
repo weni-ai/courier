@@ -1776,6 +1776,87 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							}
 							payload.Interactive = &interactive
 						}
+					} else if msg.InteractionType() == "order_details" {
+						if orderDetails := msg.OrderDetailsMessage(); orderDetails != nil {
+							payload.Type = "interactive"
+							interactive := wacInteractive{
+								Type: "order_details",
+								Body: struct {
+									Text string "json:\"text\""
+								}{Text: msgParts[i-len(msg.Attachments())]},
+								Action: &struct {
+									Button            string                 "json:\"button,omitempty\""
+									Sections          []wacMTSection         "json:\"sections,omitempty\""
+									Buttons           []wacMTButton          "json:\"buttons,omitempty\""
+									CatalogID         string                 "json:\"catalog_id,omitempty\""
+									ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
+									Name              string                 "json:\"name,omitempty\""
+									Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+								}{
+									Name: "review_and_pay",
+									Parameters: map[string]interface{}{
+										"reference_id": orderDetails.ReferenceID,
+										"type":         orderDetails.Type,
+										"payment_type": "br",
+										"payment_settings": map[string]interface{}{
+											"type": "payment_link",
+											"payment_link": map[string]interface{}{
+												"uri": orderDetails.PaymentLink,
+											},
+										},
+										"currency": "BRL",
+										"total_amount": map[string]interface{}{
+											"value":  orderDetails.TotalAmount,
+											"offset": 100,
+										},
+										"order": map[string]interface{}{
+											"status":     "pending",
+											"catalog_id": orderDetails.Order.CatalogID,
+											"expiration": map[string]interface{}{
+												"timestamp":   orderDetails.Order.Expiration.Timestamp,
+												"description": orderDetails.Order.Expiration.Description,
+											},
+											"items": orderDetails.Order.Items,
+											"subtotal": map[string]interface{}{
+												"value":  orderDetails.Order.Subtotal,
+												"offset": 100,
+											},
+											"tax": map[string]interface{}{
+												"value":  orderDetails.Order.Tax,
+												"offset": 100,
+											},
+											"shipping": map[string]interface{}{
+												"value":       orderDetails.Order.Shipping.Value,
+												"offset":      100,
+												"description": orderDetails.Order.Shipping.Description,
+											},
+											"discount": map[string]interface{}{
+												"value":        orderDetails.Order.Discount.Value,
+												"offset":       100,
+												"description":  orderDetails.Order.Discount.Description,
+												"program_name": orderDetails.Order.Discount.ProgramName,
+											},
+										},
+									},
+								},
+							}
+							if msg.Footer() != "" {
+								interactive.Footer = &struct {
+									Text string "json:\"text,omitempty\""
+								}{Text: msg.Footer()}
+							}
+
+							if msg.HeaderText() != "" {
+								interactive.Header = &struct {
+									Type     string     "json:\"type\""
+									Text     string     "json:\"text,omitempty\""
+									Video    wacMTMedia "json:\"video,omitempty\""
+									Image    wacMTMedia "json:\"image,omitempty\""
+									Document wacMTMedia "json:\"document,omitempty\""
+								}{Type: "text", Text: msg.HeaderText()}
+							}
+							payload.Interactive = &interactive
+						}
 					} else {
 						// this is still a msg part
 						text := &wacText{}
@@ -2096,6 +2177,87 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						},
 					}
 
+					if msg.Footer() != "" {
+						interactive.Footer = &struct {
+							Text string "json:\"text,omitempty\""
+						}{Text: msg.Footer()}
+					}
+
+					if msg.HeaderText() != "" {
+						interactive.Header = &struct {
+							Type     string     "json:\"type\""
+							Text     string     "json:\"text,omitempty\""
+							Video    wacMTMedia "json:\"video,omitempty\""
+							Image    wacMTMedia "json:\"image,omitempty\""
+							Document wacMTMedia "json:\"document,omitempty\""
+						}{Type: "text", Text: msg.HeaderText()}
+					}
+					payload.Interactive = &interactive
+				}
+			} else if msg.InteractionType() == "order_details" {
+				if orderDetails := msg.OrderDetailsMessage(); orderDetails != nil {
+					payload.Type = "interactive"
+					interactive := wacInteractive{
+						Type: "order_details",
+						Body: struct {
+							Text string "json:\"text\""
+						}{Text: msgParts[i-len(msg.Attachments())]},
+						Action: &struct {
+							Button            string                 "json:\"button,omitempty\""
+							Sections          []wacMTSection         "json:\"sections,omitempty\""
+							Buttons           []wacMTButton          "json:\"buttons,omitempty\""
+							CatalogID         string                 "json:\"catalog_id,omitempty\""
+							ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
+							Name              string                 "json:\"name,omitempty\""
+							Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+						}{
+							Name: "review_and_pay",
+							Parameters: map[string]interface{}{
+								"reference_id": orderDetails.ReferenceID,
+								"type":         orderDetails.Type,
+								"payment_type": "br",
+								"payment_settings": map[string]interface{}{
+									"type": "payment_link",
+									"payment_link": map[string]interface{}{
+										"uri": orderDetails.PaymentLink,
+									},
+								},
+								"currency": "BRL",
+								"total_amount": map[string]interface{}{
+									"value":  orderDetails.TotalAmount,
+									"offset": 100,
+								},
+								"order": map[string]interface{}{
+									"status":     "pending",
+									"catalog_id": orderDetails.Order.CatalogID,
+									"expiration": map[string]interface{}{
+										"timestamp":   orderDetails.Order.Expiration.Timestamp,
+										"description": orderDetails.Order.Expiration.Description,
+									},
+									"items": orderDetails.Order.Items,
+									"subtotal": map[string]interface{}{
+										"value":  orderDetails.Order.Subtotal,
+										"offset": 100,
+									},
+									"tax": map[string]interface{}{
+										"value":  orderDetails.Order.Tax,
+										"offset": 100,
+									},
+									"shipping": map[string]interface{}{
+										"value":       orderDetails.Order.Shipping.Value,
+										"offset":      100,
+										"description": orderDetails.Order.Shipping.Description,
+									},
+									"discount": map[string]interface{}{
+										"value":        orderDetails.Order.Discount.Value,
+										"offset":       100,
+										"description":  orderDetails.Order.Discount.Description,
+										"program_name": orderDetails.Order.Discount.ProgramName,
+									},
+								},
+							},
+						},
+					}
 					if msg.Footer() != "" {
 						interactive.Footer = &struct {
 							Text string "json:\"text,omitempty\""

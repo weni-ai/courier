@@ -12,7 +12,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const QUEUE_NAME = "billing_message"
+const QUEUE_NAME = "billing-backup"
 
 // Message represents a object that is sent to the billing service
 //

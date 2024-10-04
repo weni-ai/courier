@@ -1,3 +1,7 @@
+1.14.1
+----------
+ * Feat: Billing queue
+
 1.14.0
 ----------
  * Feat: Add support to WhatsApp Flows

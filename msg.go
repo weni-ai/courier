@@ -175,12 +175,7 @@ type EventMsg struct {
 	UUID string `json:"uuid,omitempty"`
 }
 
-type OrderExpiration struct {
-	Timestamp   string `json:"timestamp,omitempty"`
-	Description string `json:"description,omitempty"`
-}
-
-type OrderProduct struct {
+type OrderItem struct {
 	RetailerID string `json:"retailer_id"`
 	Name       string `json:"name"`
 	Amount     int    `json:"amount"`
@@ -188,7 +183,7 @@ type OrderProduct struct {
 	SaleAmount int    `json:"sale_amount,omitempty"`
 }
 
-type OrderShipping struct {
+type OrderAmountWithDescription struct {
 	Value       int    `json:"value"`
 	Description string `json:"description,omitempty"`
 }
@@ -200,19 +195,29 @@ type OrderDiscount struct {
 }
 
 type Order struct {
-	CatalogID  string          `json:"catalog_id,omitempty"`
-	Expiration OrderExpiration `json:"expiration,omitempty"`
-	Items      []OrderProduct  `json:"items"`
-	Subtotal   int             `json:"subtotal"`
-	Tax        int             `json:"tax"`
-	Shipping   OrderShipping   `json:"shipping,omitempty"`
-	Discount   OrderDiscount   `json:"discount,omitempty"`
+	Items    []OrderItem                `json:"items"`
+	Subtotal int                        `json:"subtotal"`
+	Tax      OrderAmountWithDescription `json:"tax"`
+	Shipping OrderAmountWithDescription `json:"shipping,omitempty"`
+	Discount OrderDiscount              `json:"discount,omitempty"`
+}
+
+type OrderPixConfig struct {
+	Key          string `json:"key"`
+	KeyType      string `json:"key_type"`
+	MerchantName string `json:"merchant_name"`
+	Code         string `json:"code"`
+}
+
+type OrderPaymentSettings struct {
+	Type        string         `json:"type"`
+	PaymentLink string         `json:"payment_link,omitempty"`
+	PixConfig   OrderPixConfig `json:"pix_config,omitempty"`
 }
 
 type OrderDetailsMessage struct {
-	ReferenceID string `json:"reference_id"`
-	Type        string `json:"type"`
-	PaymentLink string `json:"payment_link"`
-	TotalAmount int    `json:"total_amount"`
-	Order       Order  `json:"order"`
+	ReferenceID     string               `json:"reference_id"`
+	PaymentSettings OrderPaymentSettings `json:"payment_settings"`
+	TotalAmount     int                  `json:"total_amount"`
+	Order           Order                `json:"order"`
 }

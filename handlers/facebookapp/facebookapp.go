@@ -1779,6 +1779,35 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					} else if msg.InteractionType() == "order_details" {
 						if orderDetails := msg.OrderDetailsMessage(); orderDetails != nil {
 							payload.Type = "interactive"
+
+							paymentSettings := make([]map[string]interface{}, 0)
+
+							if orderDetails.PaymentSettings.PaymentLink != "" {
+								paymentSettings = append(paymentSettings, map[string]interface{}{
+									"type": "payment_link",
+									"payment_link": map[string]interface{}{
+										"uri": orderDetails.PaymentSettings.PaymentLink,
+									},
+								})
+							}
+							if orderDetails.PaymentSettings.PixConfig.Code != "" {
+								paymentSettings = append(paymentSettings, map[string]interface{}{
+									"type": "pix_dynamic_code",
+									"pix_dynamic_code": map[string]interface{}{
+										"code":          orderDetails.PaymentSettings.PixConfig.Code,
+										"merchant_name": orderDetails.PaymentSettings.PixConfig.MerchantName,
+										"key":           orderDetails.PaymentSettings.PixConfig.Key,
+										"key_type":      orderDetails.PaymentSettings.PixConfig.KeyType,
+									},
+								})
+							}
+
+							strCatalogID := msg.Channel().StringConfigForKey("catalog_id", "")
+							var catalogID *string
+							if strCatalogID != "" {
+								catalogID = &strCatalogID
+							}
+
 							interactive := wacInteractive{
 								Type: "order_details",
 								Body: struct {
@@ -1795,35 +1824,27 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								}{
 									Name: "review_and_pay",
 									Parameters: map[string]interface{}{
-										"reference_id": orderDetails.ReferenceID,
-										"type":         orderDetails.Type,
-										"payment_type": "br",
-										"payment_settings": map[string]interface{}{
-											"type": "payment_link",
-											"payment_link": map[string]interface{}{
-												"uri": orderDetails.PaymentLink,
-											},
-										},
-										"currency": "BRL",
+										"reference_id":     orderDetails.ReferenceID,
+										"type":             orderDetails.PaymentSettings.Type,
+										"payment_type":     "br",
+										"payment_settings": paymentSettings,
+										"currency":         "BRL",
 										"total_amount": map[string]interface{}{
 											"value":  orderDetails.TotalAmount,
 											"offset": 100,
 										},
 										"order": map[string]interface{}{
 											"status":     "pending",
-											"catalog_id": orderDetails.Order.CatalogID,
-											"expiration": map[string]interface{}{
-												"timestamp":   orderDetails.Order.Expiration.Timestamp,
-												"description": orderDetails.Order.Expiration.Description,
-											},
-											"items": orderDetails.Order.Items,
+											"catalog_id": catalogID,
+											"items":      orderDetails.Order.Items,
 											"subtotal": map[string]interface{}{
 												"value":  orderDetails.Order.Subtotal,
 												"offset": 100,
 											},
 											"tax": map[string]interface{}{
-												"value":  orderDetails.Order.Tax,
-												"offset": 100,
+												"value":       orderDetails.Order.Tax.Value,
+												"offset":      100,
+												"description": orderDetails.Order.Tax.Description,
 											},
 											"shipping": map[string]interface{}{
 												"value":       orderDetails.Order.Shipping.Value,
@@ -2197,6 +2218,35 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			} else if msg.InteractionType() == "order_details" {
 				if orderDetails := msg.OrderDetailsMessage(); orderDetails != nil {
 					payload.Type = "interactive"
+
+					paymentSettings := make([]map[string]interface{}, 0)
+
+					if orderDetails.PaymentSettings.PaymentLink != "" {
+						paymentSettings = append(paymentSettings, map[string]interface{}{
+							"type": "payment_link",
+							"payment_link": map[string]interface{}{
+								"uri": orderDetails.PaymentSettings.PaymentLink,
+							},
+						})
+					}
+					if orderDetails.PaymentSettings.PixConfig.Code != "" {
+						paymentSettings = append(paymentSettings, map[string]interface{}{
+							"type": "pix_dynamic_code",
+							"pix_dynamic_code": map[string]interface{}{
+								"code":          orderDetails.PaymentSettings.PixConfig.Code,
+								"merchant_name": orderDetails.PaymentSettings.PixConfig.MerchantName,
+								"key":           orderDetails.PaymentSettings.PixConfig.Key,
+								"key_type":      orderDetails.PaymentSettings.PixConfig.KeyType,
+							},
+						})
+					}
+
+					strCatalogID := msg.Channel().StringConfigForKey("catalog_id", "")
+					var catalogID *string
+					if strCatalogID != "" {
+						catalogID = &strCatalogID
+					}
+
 					interactive := wacInteractive{
 						Type: "order_details",
 						Body: struct {
@@ -2213,35 +2263,27 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						}{
 							Name: "review_and_pay",
 							Parameters: map[string]interface{}{
-								"reference_id": orderDetails.ReferenceID,
-								"type":         orderDetails.Type,
-								"payment_type": "br",
-								"payment_settings": map[string]interface{}{
-									"type": "payment_link",
-									"payment_link": map[string]interface{}{
-										"uri": orderDetails.PaymentLink,
-									},
-								},
-								"currency": "BRL",
+								"reference_id":     orderDetails.ReferenceID,
+								"type":             orderDetails.PaymentSettings.Type,
+								"payment_type":     "br",
+								"payment_settings": paymentSettings,
+								"currency":         "BRL",
 								"total_amount": map[string]interface{}{
 									"value":  orderDetails.TotalAmount,
 									"offset": 100,
 								},
 								"order": map[string]interface{}{
 									"status":     "pending",
-									"catalog_id": orderDetails.Order.CatalogID,
-									"expiration": map[string]interface{}{
-										"timestamp":   orderDetails.Order.Expiration.Timestamp,
-										"description": orderDetails.Order.Expiration.Description,
-									},
-									"items": orderDetails.Order.Items,
+									"catalog_id": catalogID,
+									"items":      orderDetails.Order.Items,
 									"subtotal": map[string]interface{}{
 										"value":  orderDetails.Order.Subtotal,
 										"offset": 100,
 									},
 									"tax": map[string]interface{}{
-										"value":  orderDetails.Order.Tax,
-										"offset": 100,
+										"value":       orderDetails.Order.Tax.Value,
+										"offset":      100,
+										"description": orderDetails.Order.Tax.Description,
 									},
 									"shipping": map[string]interface{}{
 										"value":       orderDetails.Order.Shipping.Value,

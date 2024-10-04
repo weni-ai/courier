@@ -926,34 +926,40 @@ func (m *DBMsg) OrderDetailsMessage() *courier.OrderDetailsMessage {
 			if referenceID, ok := orderDetailsMessageData["reference_id"].(string); ok {
 				orderDetailsMessage.ReferenceID = referenceID
 			}
-			if orderType, ok := orderDetailsMessageData["type"].(string); ok {
-				orderDetailsMessage.Type = orderType
-			}
-			if paymentLink, ok := orderDetailsMessageData["payment_link"].(string); ok {
-				orderDetailsMessage.PaymentLink = paymentLink
+			if paymentSettings, ok := orderDetailsMessageData["payment_settings"].(map[string]interface{}); ok {
+				orderDetailsMessage.PaymentSettings = courier.OrderPaymentSettings{}
+				if payment_type, ok := paymentSettings["type"].(string); ok {
+					orderDetailsMessage.PaymentSettings.Type = payment_type
+				}
+				if payment_link, ok := paymentSettings["payment_link"].(string); ok {
+					orderDetailsMessage.PaymentSettings.PaymentLink = payment_link
+				}
+				if pix_config, ok := paymentSettings["pix_config"].(map[string]interface{}); ok {
+					orderDetailsMessage.PaymentSettings.PixConfig = courier.OrderPixConfig{}
+					if pix_config_key, ok := pix_config["key"].(string); ok {
+						orderDetailsMessage.PaymentSettings.PixConfig.Key = pix_config_key
+					}
+					if pix_config_key_type, ok := pix_config["key_type"].(string); ok {
+						orderDetailsMessage.PaymentSettings.PixConfig.KeyType = pix_config_key_type
+					}
+					if pix_config_merchant_name, ok := pix_config["merchant_name"].(string); ok {
+						orderDetailsMessage.PaymentSettings.PixConfig.MerchantName = pix_config_merchant_name
+					}
+					if pix_config_code, ok := pix_config["code"].(string); ok {
+						orderDetailsMessage.PaymentSettings.PixConfig.Code = pix_config_code
+					}
+				}
 			}
 			if totalAmount, ok := orderDetailsMessageData["total_amount"].(float64); ok {
 				orderDetailsMessage.TotalAmount = int(totalAmount)
 			}
 			if orderData, ok := orderDetailsMessageData["order"].(map[string]interface{}); ok {
 				orderDetailsMessage.Order = courier.Order{}
-				if catalogID, ok := orderData["catalog_id"].(string); ok {
-					orderDetailsMessage.Order.CatalogID = catalogID
-				}
-				if expirationData, ok := orderData["expiration"].(map[string]interface{}); ok {
-					orderDetailsMessage.Order.Expiration = courier.OrderExpiration{}
-					if timestamp, ok := expirationData["timestamp"].(string); ok {
-						orderDetailsMessage.Order.Expiration.Timestamp = timestamp
-					}
-					if description, ok := expirationData["description"].(string); ok {
-						orderDetailsMessage.Order.Expiration.Description = description
-					}
-				}
 				if itemsData, ok := orderData["items"].([]interface{}); ok {
-					orderDetailsMessage.Order.Items = make([]courier.OrderProduct, len(itemsData))
+					orderDetailsMessage.Order.Items = make([]courier.OrderItem, len(itemsData))
 					for i, item := range itemsData {
 						if itemMap, ok := item.(map[string]interface{}); ok {
-							orderDetailsMessage.Order.Items[i] = courier.OrderProduct{
+							orderDetailsMessage.Order.Items[i] = courier.OrderItem{
 								RetailerID: itemMap["retailer_id"].(string),
 								Name:       itemMap["name"].(string),
 								Amount:     int(itemMap["amount"].(float64)),
@@ -966,11 +972,17 @@ func (m *DBMsg) OrderDetailsMessage() *courier.OrderDetailsMessage {
 				if subtotal, ok := orderData["subtotal"].(float64); ok {
 					orderDetailsMessage.Order.Subtotal = int(subtotal)
 				}
-				if tax, ok := orderData["tax"].(float64); ok {
-					orderDetailsMessage.Order.Tax = int(tax)
+				if taxData, ok := orderData["tax"].(map[string]interface{}); ok {
+					orderDetailsMessage.Order.Tax = courier.OrderAmountWithDescription{}
+					if value, ok := taxData["value"].(float64); ok {
+						orderDetailsMessage.Order.Tax.Value = int(value)
+					}
+					if description, ok := taxData["description"].(string); ok {
+						orderDetailsMessage.Order.Tax.Description = description
+					}
 				}
 				if shippingData, ok := orderData["shipping"].(map[string]interface{}); ok {
-					orderDetailsMessage.Order.Shipping = courier.OrderShipping{}
+					orderDetailsMessage.Order.Shipping = courier.OrderAmountWithDescription{}
 					if value, ok := shippingData["value"].(float64); ok {
 						orderDetailsMessage.Order.Shipping.Value = int(value)
 					}

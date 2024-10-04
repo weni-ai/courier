@@ -306,7 +306,9 @@ func (w *Sender) sendMessage(msg Msg) {
 					msg.Attachments(),
 					msg.QuickReplies(),
 				)
-				w.foreman.server.Billing().SendAsync(billingMsg, nil, nil)
+				if w.foreman.server.Billing() != nil {
+					w.foreman.server.Billing().SendAsync(billingMsg, nil, nil)
+				}
 			}
 		}
 	}

@@ -1,6 +1,10 @@
+1.14.2
+----------
+ * Fix: Billing verification
+
 1.14.1
 ----------
- * Feat: Billing queue
+ * Fix: Billing queue
 
 1.14.0
 ----------

@@ -507,12 +507,13 @@ type mtInteractivePayload struct {
 			Text string `json:"text"`
 		} `json:"footer,omitempty"`
 		Action *struct {
-			Button            string      `json:"button,omitempty"`
-			Sections          []mtSection `json:"sections,omitempty"`
-			Buttons           []mtButton  `json:"buttons,omitempty"`
-			CatalogID         string      `json:"catalog_id,omitempty"`
-			ProductRetailerID string      `json:"product_retailer_id,omitempty"`
-			Name              string      `json:"name,omitempty"`
+			Button            string            `json:"button,omitempty"`
+			Sections          []mtSection       `json:"sections,omitempty"`
+			Buttons           []mtButton        `json:"buttons,omitempty"`
+			CatalogID         string            `json:"catalog_id,omitempty"`
+			ProductRetailerID string            `json:"product_retailer_id,omitempty"`
+			Name              string            `json:"name,omitempty"`
+			Parameters        map[string]string `json:"parameters,omitempty"`
 		} `json:"action" validate:"required"`
 	} `json:"interactive"`
 }
@@ -828,7 +829,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 			parts := handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLength)
 			wppVersion := msg.Channel().ConfigForKey("version", "0").(string)
 			isInteractiveMsgCompatible := semver.Compare(wppVersion, interactiveMsgMinSupVersion)
-			isInteractiveMsg := (isInteractiveMsgCompatible >= 0) && (len(qrs) > 0) || (isInteractiveMsgCompatible >= 0) && len(msg.ListMessage().ListItems) > 0
+			isInteractiveMsg := (isInteractiveMsgCompatible >= 0) && (len(qrs) > 0) || (isInteractiveMsgCompatible >= 0) && len(msg.ListMessage().ListItems) > 0 || msg.InteractionType() == "cta_url"
 
 			if isInteractiveMsg {
 				for i, part := range parts {
@@ -860,18 +861,19 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 									Text string "json:\"text\""
 								} "json:\"footer,omitempty\""
 								Action *struct {
-									Button            string      "json:\"button,omitempty\""
-									Sections          []mtSection "json:\"sections,omitempty\""
-									Buttons           []mtButton  "json:\"buttons,omitempty\""
-									CatalogID         string      "json:\"catalog_id,omitempty\""
-									ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
-									Name              string      "json:\"name,omitempty\""
+									Button            string            "json:\"button,omitempty\""
+									Sections          []mtSection       "json:\"sections,omitempty\""
+									Buttons           []mtButton        "json:\"buttons,omitempty\""
+									CatalogID         string            "json:\"catalog_id,omitempty\""
+									ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+									Name              string            "json:\"name,omitempty\""
+									Parameters        map[string]string "json:\"parameters,omitempty\""
 								} "json:\"action\" validate:\"required\""
 							}{},
 						}
 
 						// up to 3 qrs the interactive message will be button type, otherwise it will be list
-						if len(qrs) <= 3 && len(msg.ListMessage().ListItems) == 0 {
+						if (len(qrs) <= 3 && len(msg.ListMessage().ListItems) == 0) && msg.InteractionType() != "cta_url" {
 							payload.Interactive.Type = "button"
 							payload.Interactive.Body.Text = part
 
@@ -901,15 +903,16 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 								btns[i].Reply.Title = text
 							}
 							payload.Interactive.Action = &struct {
-								Button            string      "json:\"button,omitempty\""
-								Sections          []mtSection "json:\"sections,omitempty\""
-								Buttons           []mtButton  "json:\"buttons,omitempty\""
-								CatalogID         string      "json:\"catalog_id,omitempty\""
-								ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
-								Name              string      "json:\"name,omitempty\""
+								Button            string            "json:\"button,omitempty\""
+								Sections          []mtSection       "json:\"sections,omitempty\""
+								Buttons           []mtButton        "json:\"buttons,omitempty\""
+								CatalogID         string            "json:\"catalog_id,omitempty\""
+								ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+								Name              string            "json:\"name,omitempty\""
+								Parameters        map[string]string "json:\"parameters,omitempty\""
 							}{Buttons: btns}
 							payloads = append(payloads, payload)
-						} else if len(qrs) <= 10 || len(msg.ListMessage().ListItems) > 0 {
+						} else if (len(qrs) <= 10 || len(msg.ListMessage().ListItems) > 0) && msg.InteractionType() != "cta_url" {
 							payload.Interactive.Type = "list"
 							payload.Interactive.Body.Text = part
 
@@ -918,12 +921,13 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 								buttonName = languageMenuMap[msg.TextLanguage()]
 							}
 							payload.Interactive.Action = &struct {
-								Button            string      "json:\"button,omitempty\""
-								Sections          []mtSection "json:\"sections,omitempty\""
-								Buttons           []mtButton  "json:\"buttons,omitempty\""
-								CatalogID         string      "json:\"catalog_id,omitempty\""
-								ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
-								Name              string      "json:\"name,omitempty\""
+								Button            string            "json:\"button,omitempty\""
+								Sections          []mtSection       "json:\"sections,omitempty\""
+								Buttons           []mtButton        "json:\"buttons,omitempty\""
+								CatalogID         string            "json:\"catalog_id,omitempty\""
+								ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+								Name              string            "json:\"name,omitempty\""
+								Parameters        map[string]string "json:\"parameters,omitempty\""
 							}{Button: buttonName}
 
 							var section mtSection
@@ -965,6 +969,48 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 							}
 
 							payloads = append(payloads, payload)
+						} else if msg.InteractionType() == "cta_url" {
+							if ctaMessage := msg.CTAMessage(); ctaMessage != nil {
+								payload.Interactive.Type = "cta_url"
+								payload.Interactive.Body = struct {
+									Text string "json:\"text\""
+								}{msg.Text()}
+								payload.Interactive.Action = &struct {
+									Button            string            "json:\"button,omitempty\""
+									Sections          []mtSection       "json:\"sections,omitempty\""
+									Buttons           []mtButton        "json:\"buttons,omitempty\""
+									CatalogID         string            "json:\"catalog_id,omitempty\""
+									ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+									Name              string            "json:\"name,omitempty\""
+									Parameters        map[string]string "json:\"parameters,omitempty\""
+								}{
+									Name: "cta_url",
+									Parameters: map[string]string{
+										"display_text": ctaMessage.DisplayText,
+										"url":          ctaMessage.URL,
+									},
+								}
+								if msg.Footer() != "" {
+									payload.Interactive.Footer = &struct {
+										Text string "json:\"text\""
+									}{Text: msg.Footer()}
+								}
+
+								if msg.HeaderText() != "" {
+									payload.Interactive.Header = &struct {
+										Type     string      "json:\"type\""
+										Text     string      "json:\"text,omitempty\""
+										Video    mediaObject "json:\"video,omitempty\""
+										Image    mediaObject "json:\"image,omitempty\""
+										Document mediaObject "json:\"document,omitempty\""
+									}{
+										Type: "text",
+										Text: msg.HeaderText(),
+									}
+								}
+								payloads = append(payloads, payload)
+							}
+
 						}
 					}
 				}
@@ -1089,39 +1135,39 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 				}
 			}
 		} else {
-			if len(qrs) > 0 || len(msg.ListMessage().ListItems) > 0 {
-				payload := mtInteractivePayload{
-					To:   msg.URN().Path(),
-					Type: "interactive",
-					Interactive: struct {
-						Type   string "json:\"type\" validate:\"required\""
-						Header *struct {
-							Type     string      "json:\"type\""
-							Text     string      "json:\"text,omitempty\""
-							Video    mediaObject "json:\"video,omitempty\""
-							Image    mediaObject "json:\"image,omitempty\""
-							Document mediaObject "json:\"document,omitempty\""
-						} "json:\"header,omitempty\""
-						Body struct {
-							Text string "json:\"text\""
-						} "json:\"body\" validate:\"required\""
-						Footer *struct {
-							Text string "json:\"text\""
-						} "json:\"footer,omitempty\""
-						Action *struct {
-							Button            string      "json:\"button,omitempty\""
-							Sections          []mtSection "json:\"sections,omitempty\""
-							Buttons           []mtButton  "json:\"buttons,omitempty\""
-							CatalogID         string      "json:\"catalog_id,omitempty\""
-							ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
-							Name              string      "json:\"name,omitempty\""
-						} "json:\"action\" validate:\"required\""
-					}{},
-				}
+			payload := mtInteractivePayload{
+				To:   msg.URN().Path(),
+				Type: "interactive",
+				Interactive: struct {
+					Type   string "json:\"type\" validate:\"required\""
+					Header *struct {
+						Type     string      "json:\"type\""
+						Text     string      "json:\"text,omitempty\""
+						Video    mediaObject "json:\"video,omitempty\""
+						Image    mediaObject "json:\"image,omitempty\""
+						Document mediaObject "json:\"document,omitempty\""
+					} "json:\"header,omitempty\""
+					Body struct {
+						Text string "json:\"text\""
+					} "json:\"body\" validate:\"required\""
+					Footer *struct {
+						Text string "json:\"text\""
+					} "json:\"footer,omitempty\""
+					Action *struct {
+						Button            string            "json:\"button,omitempty\""
+						Sections          []mtSection       "json:\"sections,omitempty\""
+						Buttons           []mtButton        "json:\"buttons,omitempty\""
+						CatalogID         string            "json:\"catalog_id,omitempty\""
+						ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+						Name              string            "json:\"name,omitempty\""
+						Parameters        map[string]string "json:\"parameters,omitempty\""
+					} "json:\"action\" validate:\"required\""
+				}{},
+			}
 
+			if (len(qrs) > 0 || len(msg.ListMessage().ListItems) > 0) && msg.InteractionType() != "cta_url" {
 				// We can use buttons
 				if len(qrs) <= 3 && len(msg.ListMessage().ListItems) == 0 {
-					// hasCaption = true
 					payload.Interactive.Type = "button"
 					payload.Interactive.Body.Text = msg.Text()
 					mimeType, mediaURL := handlers.SplitAttachment(msg.Attachments()[0])
@@ -1187,12 +1233,13 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 						btns[i].Reply.Title = text
 					}
 					payload.Interactive.Action = &struct {
-						Button            string      "json:\"button,omitempty\""
-						Sections          []mtSection "json:\"sections,omitempty\""
-						Buttons           []mtButton  "json:\"buttons,omitempty\""
-						CatalogID         string      "json:\"catalog_id,omitempty\""
-						ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
-						Name              string      "json:\"name,omitempty\""
+						Button            string            "json:\"button,omitempty\""
+						Sections          []mtSection       "json:\"sections,omitempty\""
+						Buttons           []mtButton        "json:\"buttons,omitempty\""
+						CatalogID         string            "json:\"catalog_id,omitempty\""
+						ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+						Name              string            "json:\"name,omitempty\""
+						Parameters        map[string]string "json:\"parameters,omitempty\""
 					}{Buttons: btns}
 					if msg.Footer() != "" {
 						payload.Interactive.Footer = &struct {
@@ -1239,12 +1286,13 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					}
 
 					payload.Interactive.Action = &struct {
-						Button            string      "json:\"button,omitempty\""
-						Sections          []mtSection "json:\"sections,omitempty\""
-						Buttons           []mtButton  "json:\"buttons,omitempty\""
-						CatalogID         string      "json:\"catalog_id,omitempty\""
-						ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
-						Name              string      "json:\"name,omitempty\""
+						Button            string            "json:\"button,omitempty\""
+						Sections          []mtSection       "json:\"sections,omitempty\""
+						Buttons           []mtButton        "json:\"buttons,omitempty\""
+						CatalogID         string            "json:\"catalog_id,omitempty\""
+						ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+						Name              string            "json:\"name,omitempty\""
+						Parameters        map[string]string "json:\"parameters,omitempty\""
 					}{Button: "Menu", Sections: []mtSection{section}}
 
 					if len(msg.ListMessage().ButtonText) > 0 {
@@ -1254,6 +1302,49 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					}
 					payloads = append(payloads, payload)
 				}
+			} else {
+				if ctaMessage := msg.CTAMessage(); ctaMessage != nil {
+					payload.Interactive.Type = "cta_url"
+					payload.Interactive.Body = struct {
+						Text string "json:\"text\""
+					}{msg.Text()}
+					payload.Interactive.Action = &struct {
+						Button            string            "json:\"button,omitempty\""
+						Sections          []mtSection       "json:\"sections,omitempty\""
+						Buttons           []mtButton        "json:\"buttons,omitempty\""
+						CatalogID         string            "json:\"catalog_id,omitempty\""
+						ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+						Name              string            "json:\"name,omitempty\""
+						Parameters        map[string]string "json:\"parameters,omitempty\""
+					}{
+						Name: "cta_url",
+						Parameters: map[string]string{
+							"display_text": ctaMessage.DisplayText,
+							"url":          ctaMessage.URL,
+						},
+					}
+
+					if msg.Footer() != "" {
+						payload.Interactive.Footer = &struct {
+							Text string "json:\"text\""
+						}{Text: msg.Footer()}
+					}
+
+					if msg.HeaderText() != "" {
+						payload.Interactive.Header = &struct {
+							Type     string      "json:\"type\""
+							Text     string      "json:\"text,omitempty\""
+							Video    mediaObject "json:\"video,omitempty\""
+							Image    mediaObject "json:\"image,omitempty\""
+							Document mediaObject "json:\"document,omitempty\""
+						}{
+							Type: "text",
+							Text: msg.HeaderText(),
+						}
+					}
+					payloads = append(payloads, payload)
+				}
+
 			}
 		}
 	}
@@ -1281,12 +1372,13 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 				Text string "json:\"text\""
 			} "json:\"footer,omitempty\""
 			Action *struct {
-				Button            string      "json:\"button,omitempty\""
-				Sections          []mtSection "json:\"sections,omitempty\""
-				Buttons           []mtButton  "json:\"buttons,omitempty\""
-				CatalogID         string      "json:\"catalog_id,omitempty\""
-				ProductRetailerID string      "json:\"product_retailer_id,omitempty\""
-				Name              string      "json:\"name,omitempty\""
+				Button            string            "json:\"button,omitempty\""
+				Sections          []mtSection       "json:\"sections,omitempty\""
+				Buttons           []mtButton        "json:\"buttons,omitempty\""
+				CatalogID         string            "json:\"catalog_id,omitempty\""
+				ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+				Name              string            "json:\"name,omitempty\""
+				Parameters        map[string]string "json:\"parameters,omitempty\""
 			} "json:\"action\" validate:\"required\""
 		}{}}
 
@@ -1343,12 +1435,13 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 
 		if msg.SendCatalog() {
 			payload.Interactive.Action = &struct {
-				Button            string      `json:"button,omitempty"`
-				Sections          []mtSection `json:"sections,omitempty"`
-				Buttons           []mtButton  `json:"buttons,omitempty"`
-				CatalogID         string      `json:"catalog_id,omitempty"`
-				ProductRetailerID string      `json:"product_retailer_id,omitempty"`
-				Name              string      `json:"name,omitempty"`
+				Button            string            `json:"button,omitempty"`
+				Sections          []mtSection       `json:"sections,omitempty"`
+				Buttons           []mtButton        `json:"buttons,omitempty"`
+				CatalogID         string            `json:"catalog_id,omitempty"`
+				ProductRetailerID string            `json:"product_retailer_id,omitempty"`
+				Name              string            `json:"name,omitempty"`
+				Parameters        map[string]string "json:\"parameters,omitempty\""
 			}{
 				Name: "catalog_message",
 			}
@@ -1385,12 +1478,13 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 
 				for _, sections := range actions {
 					payload.Interactive.Action = &struct {
-						Button            string      `json:"button,omitempty"`
-						Sections          []mtSection `json:"sections,omitempty"`
-						Buttons           []mtButton  `json:"buttons,omitempty"`
-						CatalogID         string      `json:"catalog_id,omitempty"`
-						ProductRetailerID string      `json:"product_retailer_id,omitempty"`
-						Name              string      `json:"name,omitempty"`
+						Button            string            `json:"button,omitempty"`
+						Sections          []mtSection       `json:"sections,omitempty"`
+						Buttons           []mtButton        `json:"buttons,omitempty"`
+						CatalogID         string            `json:"catalog_id,omitempty"`
+						ProductRetailerID string            `json:"product_retailer_id,omitempty"`
+						Name              string            `json:"name,omitempty"`
+						Parameters        map[string]string "json:\"parameters,omitempty\""
 					}{
 						CatalogID: catalogID,
 						Sections:  sections,
@@ -1402,12 +1496,13 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 
 			} else {
 				payload.Interactive.Action = &struct {
-					Button            string      `json:"button,omitempty"`
-					Sections          []mtSection `json:"sections,omitempty"`
-					Buttons           []mtButton  `json:"buttons,omitempty"`
-					CatalogID         string      `json:"catalog_id,omitempty"`
-					ProductRetailerID string      `json:"product_retailer_id,omitempty"`
-					Name              string      `json:"name,omitempty"`
+					Button            string            `json:"button,omitempty"`
+					Sections          []mtSection       `json:"sections,omitempty"`
+					Buttons           []mtButton        `json:"buttons,omitempty"`
+					CatalogID         string            `json:"catalog_id,omitempty"`
+					ProductRetailerID string            `json:"product_retailer_id,omitempty"`
+					Name              string            `json:"name,omitempty"`
+					Parameters        map[string]string "json:\"parameters,omitempty\""
 				}{
 					CatalogID:         catalogID,
 					Name:              msg.Action(),

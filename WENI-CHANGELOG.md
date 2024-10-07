@@ -1,3 +1,7 @@
+1.15.0
+----------
+ * Add button support with url in WA
+
 1.14.2
 ----------
  * Fix: Billing verification

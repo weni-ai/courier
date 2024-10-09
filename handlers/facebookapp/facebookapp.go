@@ -1369,11 +1369,11 @@ type wacTemplate struct {
 type wacInteractive struct {
 	Type   string `json:"type"`
 	Header *struct {
-		Type     string     `json:"type"`
-		Text     string     `json:"text,omitempty"`
-		Video    wacMTMedia `json:"video,omitempty"`
-		Image    wacMTMedia `json:"image,omitempty"`
-		Document wacMTMedia `json:"document,omitempty"`
+		Type     string      `json:"type"`
+		Text     string      `json:"text,omitempty"`
+		Video    *wacMTMedia `json:"video,omitempty"`
+		Image    *wacMTMedia `json:"image,omitempty"`
+		Document *wacMTMedia `json:"document,omitempty"`
 	} `json:"header,omitempty"`
 	Body struct {
 		Text string `json:"text"`
@@ -1427,6 +1427,23 @@ type wacMTSectionProduct struct {
 
 type wacMTProductItem struct {
 	ProductRetailerID string `json:"product_retailer_id" validate:"required"`
+}
+
+type wacOrder struct {
+	Status    string               `json:"status" validate:"required"`
+	CatalogID string               `json:"catalog_id,omitempty"`
+	Items     []courier.OrderItem  `json:"items" validate:"required"`
+	Subtotal  wacAmountWithOffset  `json:"subtotal" validate:"required"`
+	Tax       wacAmountWithOffset  `json:"tax" validate:"required"`
+	Shipping  *wacAmountWithOffset `json:"shipping,omitempty"`
+	Discount  *wacAmountWithOffset `json:"discount,omitempty"`
+}
+
+type wacAmountWithOffset struct {
+	Value               int    `json:"value"`
+	Offset              int    `json:"offset"`
+	Description         string `json:"description,omitempty"`
+	DiscountProgramName string `json:"discount_program_name,omitempty"`
 }
 
 func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
@@ -1560,11 +1577,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 							if msg.HeaderText() != "" {
 								interactive.Header = &struct {
-									Type     string     "json:\"type\""
-									Text     string     "json:\"text,omitempty\""
-									Video    wacMTMedia "json:\"video,omitempty\""
-									Image    wacMTMedia "json:\"image,omitempty\""
-									Document wacMTMedia "json:\"document,omitempty\""
+									Type     string      "json:\"type\""
+									Text     string      "json:\"text,omitempty\""
+									Video    *wacMTMedia "json:\"video,omitempty\""
+									Image    *wacMTMedia "json:\"image,omitempty\""
+									Document *wacMTMedia "json:\"document,omitempty\""
 								}{Type: "text", Text: msg.HeaderText()}
 							}
 
@@ -1636,11 +1653,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 								if msg.HeaderText() != "" {
 									interactive.Header = &struct {
-										Type     string     "json:\"type\""
-										Text     string     "json:\"text,omitempty\""
-										Video    wacMTMedia "json:\"video,omitempty\""
-										Image    wacMTMedia "json:\"image,omitempty\""
-										Document wacMTMedia "json:\"document,omitempty\""
+										Type     string      "json:\"type\""
+										Text     string      "json:\"text,omitempty\""
+										Video    *wacMTMedia "json:\"video,omitempty\""
+										Image    *wacMTMedia "json:\"image,omitempty\""
+										Document *wacMTMedia "json:\"document,omitempty\""
 									}{Type: "text", Text: msg.HeaderText()}
 								}
 							}
@@ -1718,11 +1735,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 							if msg.HeaderText() != "" {
 								interactive.Header = &struct {
-									Type     string     "json:\"type\""
-									Text     string     "json:\"text,omitempty\""
-									Video    wacMTMedia "json:\"video,omitempty\""
-									Image    wacMTMedia "json:\"image,omitempty\""
-									Document wacMTMedia "json:\"document,omitempty\""
+									Type     string      "json:\"type\""
+									Text     string      "json:\"text,omitempty\""
+									Video    *wacMTMedia "json:\"video,omitempty\""
+									Image    *wacMTMedia "json:\"image,omitempty\""
+									Document *wacMTMedia "json:\"document,omitempty\""
 								}{Type: "text", Text: msg.HeaderText()}
 							}
 							payload.Interactive = &interactive
@@ -1767,11 +1784,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 							if msg.HeaderText() != "" {
 								interactive.Header = &struct {
-									Type     string     "json:\"type\""
-									Text     string     "json:\"text,omitempty\""
-									Video    wacMTMedia "json:\"video,omitempty\""
-									Image    wacMTMedia "json:\"image,omitempty\""
-									Document wacMTMedia "json:\"document,omitempty\""
+									Type     string      "json:\"type\""
+									Text     string      "json:\"text,omitempty\""
+									Video    *wacMTMedia "json:\"video,omitempty\""
+									Image    *wacMTMedia "json:\"image,omitempty\""
+									Document *wacMTMedia "json:\"document,omitempty\""
 								}{Type: "text", Text: msg.HeaderText()}
 							}
 							payload.Interactive = &interactive
@@ -1790,6 +1807,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 									},
 								})
 							}
+
 							if orderDetails.PaymentSettings.PixConfig.Code != "" {
 								paymentSettings = append(paymentSettings, map[string]interface{}{
 									"type": "pix_dynamic_code",
@@ -1806,6 +1824,34 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							var catalogID *string
 							if strCatalogID != "" {
 								catalogID = &strCatalogID
+							}
+
+							orderTax := wacAmountWithOffset{
+								Value:       0,
+								Offset:      100,
+								Description: orderDetails.Order.Tax.Description,
+							}
+							if orderDetails.Order.Tax.Value > 0 {
+								orderTax.Value = orderDetails.Order.Tax.Value
+							}
+
+							var orderShipping *wacAmountWithOffset
+							var orderDiscount *wacAmountWithOffset
+							if orderDetails.Order.Shipping.Value > 0 {
+								orderShipping = &wacAmountWithOffset{
+									Value:       orderDetails.Order.Shipping.Value,
+									Offset:      100,
+									Description: orderDetails.Order.Shipping.Description,
+								}
+							}
+
+							if orderDetails.Order.Discount.Value > 0 {
+								orderDiscount = &wacAmountWithOffset{
+									Value:               orderDetails.Order.Discount.Value,
+									Offset:              100,
+									Description:         orderDetails.Order.Discount.Description,
+									DiscountProgramName: orderDetails.Order.Discount.ProgramName,
+								}
 							}
 
 							interactive := wacInteractive{
@@ -1829,34 +1875,21 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 										"payment_type":     "br",
 										"payment_settings": paymentSettings,
 										"currency":         "BRL",
-										"total_amount": map[string]interface{}{
-											"value":  orderDetails.TotalAmount,
-											"offset": 100,
+										"total_amount": wacAmountWithOffset{
+											Value:  orderDetails.TotalAmount,
+											Offset: 100,
 										},
-										"order": map[string]interface{}{
-											"status":     "pending",
-											"catalog_id": catalogID,
-											"items":      orderDetails.Order.Items,
-											"subtotal": map[string]interface{}{
-												"value":  orderDetails.Order.Subtotal,
-												"offset": 100,
+										"order": wacOrder{
+											Status:    "pending",
+											CatalogID: *catalogID,
+											Items:     orderDetails.Order.Items,
+											Subtotal: wacAmountWithOffset{
+												Value:  orderDetails.Order.Subtotal,
+												Offset: 100,
 											},
-											"tax": map[string]interface{}{
-												"value":       orderDetails.Order.Tax.Value,
-												"offset":      100,
-												"description": orderDetails.Order.Tax.Description,
-											},
-											"shipping": map[string]interface{}{
-												"value":       orderDetails.Order.Shipping.Value,
-												"offset":      100,
-												"description": orderDetails.Order.Shipping.Description,
-											},
-											"discount": map[string]interface{}{
-												"value":        orderDetails.Order.Discount.Value,
-												"offset":       100,
-												"description":  orderDetails.Order.Discount.Description,
-												"program_name": orderDetails.Order.Discount.ProgramName,
-											},
+											Tax:      orderTax,
+											Shipping: orderShipping,
+											Discount: orderDiscount,
 										},
 									},
 								},
@@ -1867,15 +1900,6 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								}{Text: msg.Footer()}
 							}
 
-							if msg.HeaderText() != "" {
-								interactive.Header = &struct {
-									Type     string     "json:\"type\""
-									Text     string     "json:\"text,omitempty\""
-									Video    wacMTMedia "json:\"video,omitempty\""
-									Image    wacMTMedia "json:\"image,omitempty\""
-									Document wacMTMedia "json:\"document,omitempty\""
-								}{Type: "text", Text: msg.HeaderText()}
-							}
 							payload.Interactive = &interactive
 						}
 					} else {
@@ -1891,7 +1915,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				}
 			}
 
-		} else if (i < len(msg.Attachments()) && len(qrs) == 0 && len(msg.ListMessage().ListItems) == 0) ||
+		} else if (i < len(msg.Attachments()) && len(qrs) == 0 && len(msg.ListMessage().ListItems) == 0 && msg.InteractionType() != "order_details") ||
 			len(qrs) > 3 && i < len(msg.Attachments()) ||
 			len(msg.ListMessage().ListItems) > 0 && i < len(msg.Attachments()) {
 			attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
@@ -1981,20 +2005,20 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 						if attType == "image" {
 							interactive.Header = &struct {
-								Type     string     "json:\"type\""
-								Text     string     "json:\"text,omitempty\""
-								Video    wacMTMedia "json:\"video,omitempty\""
-								Image    wacMTMedia "json:\"image,omitempty\""
-								Document wacMTMedia "json:\"document,omitempty\""
-							}{Type: "image", Image: media}
+								Type     string      "json:\"type\""
+								Text     string      "json:\"text,omitempty\""
+								Video    *wacMTMedia "json:\"video,omitempty\""
+								Image    *wacMTMedia "json:\"image,omitempty\""
+								Document *wacMTMedia "json:\"document,omitempty\""
+							}{Type: "image", Image: &media}
 						} else if attType == "video" {
 							interactive.Header = &struct {
-								Type     string     "json:\"type\""
-								Text     string     "json:\"text,omitempty\""
-								Video    wacMTMedia "json:\"video,omitempty\""
-								Image    wacMTMedia "json:\"image,omitempty\""
-								Document wacMTMedia "json:\"document,omitempty\""
-							}{Type: "video", Video: media}
+								Type     string      "json:\"type\""
+								Text     string      "json:\"text,omitempty\""
+								Video    *wacMTMedia "json:\"video,omitempty\""
+								Image    *wacMTMedia "json:\"image,omitempty\""
+								Document *wacMTMedia "json:\"document,omitempty\""
+							}{Type: "video", Video: &media}
 						} else if attType == "document" {
 							filename, err := utils.BasePathForURL(fileURL)
 							if err != nil {
@@ -2002,12 +2026,12 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							}
 							media.Filename = filename
 							interactive.Header = &struct {
-								Type     string     "json:\"type\""
-								Text     string     "json:\"text,omitempty\""
-								Video    wacMTMedia "json:\"video,omitempty\""
-								Image    wacMTMedia "json:\"image,omitempty\""
-								Document wacMTMedia "json:\"document,omitempty\""
-							}{Type: "document", Document: media}
+								Type     string      "json:\"type\""
+								Text     string      "json:\"text,omitempty\""
+								Video    *wacMTMedia "json:\"video,omitempty\""
+								Image    *wacMTMedia "json:\"image,omitempty\""
+								Document *wacMTMedia "json:\"document,omitempty\""
+							}{Type: "document", Document: &media}
 						} else if attType == "audio" {
 							var zeroIndex bool
 							if i == 0 {
@@ -2157,11 +2181,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 					if msg.HeaderText() != "" {
 						interactive.Header = &struct {
-							Type     string     "json:\"type\""
-							Text     string     "json:\"text,omitempty\""
-							Video    wacMTMedia "json:\"video,omitempty\""
-							Image    wacMTMedia "json:\"image,omitempty\""
-							Document wacMTMedia "json:\"document,omitempty\""
+							Type     string      "json:\"type\""
+							Text     string      "json:\"text,omitempty\""
+							Video    *wacMTMedia "json:\"video,omitempty\""
+							Image    *wacMTMedia "json:\"image,omitempty\""
+							Document *wacMTMedia "json:\"document,omitempty\""
 						}{Type: "text", Text: msg.HeaderText()}
 					}
 					payload.Interactive = &interactive
@@ -2206,17 +2230,18 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 					if msg.HeaderText() != "" {
 						interactive.Header = &struct {
-							Type     string     "json:\"type\""
-							Text     string     "json:\"text,omitempty\""
-							Video    wacMTMedia "json:\"video,omitempty\""
-							Image    wacMTMedia "json:\"image,omitempty\""
-							Document wacMTMedia "json:\"document,omitempty\""
+							Type     string      "json:\"type\""
+							Text     string      "json:\"text,omitempty\""
+							Video    *wacMTMedia "json:\"video,omitempty\""
+							Image    *wacMTMedia "json:\"image,omitempty\""
+							Document *wacMTMedia "json:\"document,omitempty\""
 						}{Type: "text", Text: msg.HeaderText()}
 					}
 					payload.Interactive = &interactive
 				}
 			} else if msg.InteractionType() == "order_details" {
 				if orderDetails := msg.OrderDetailsMessage(); orderDetails != nil {
+					hasCaption = true
 					payload.Type = "interactive"
 
 					paymentSettings := make([]map[string]interface{}, 0)
@@ -2247,11 +2272,39 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						catalogID = &strCatalogID
 					}
 
+					orderTax := wacAmountWithOffset{
+						Value:       0,
+						Offset:      100,
+						Description: orderDetails.Order.Tax.Description,
+					}
+					if orderDetails.Order.Tax.Value > 0 {
+						orderTax.Value = orderDetails.Order.Tax.Value
+					}
+
+					var orderShipping *wacAmountWithOffset
+					var orderDiscount *wacAmountWithOffset
+					if orderDetails.Order.Shipping.Value > 0 {
+						orderShipping = &wacAmountWithOffset{
+							Value:       orderDetails.Order.Shipping.Value,
+							Offset:      100,
+							Description: orderDetails.Order.Shipping.Description,
+						}
+					}
+
+					if orderDetails.Order.Discount.Value > 0 {
+						orderDiscount = &wacAmountWithOffset{
+							Value:               orderDetails.Order.Discount.Value,
+							Offset:              100,
+							Description:         orderDetails.Order.Discount.Description,
+							DiscountProgramName: orderDetails.Order.Discount.ProgramName,
+						}
+					}
+
 					interactive := wacInteractive{
 						Type: "order_details",
 						Body: struct {
 							Text string "json:\"text\""
-						}{Text: msgParts[i-len(msg.Attachments())]},
+						}{Text: msgParts[i]},
 						Action: &struct {
 							Button            string                 "json:\"button,omitempty\""
 							Sections          []wacMTSection         "json:\"sections,omitempty\""
@@ -2268,34 +2321,21 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								"payment_type":     "br",
 								"payment_settings": paymentSettings,
 								"currency":         "BRL",
-								"total_amount": map[string]interface{}{
-									"value":  orderDetails.TotalAmount,
-									"offset": 100,
+								"total_amount": wacAmountWithOffset{
+									Value:  orderDetails.TotalAmount,
+									Offset: 100,
 								},
-								"order": map[string]interface{}{
-									"status":     "pending",
-									"catalog_id": catalogID,
-									"items":      orderDetails.Order.Items,
-									"subtotal": map[string]interface{}{
-										"value":  orderDetails.Order.Subtotal,
-										"offset": 100,
+								"order": wacOrder{
+									Status:    "pending",
+									CatalogID: *catalogID,
+									Items:     orderDetails.Order.Items,
+									Subtotal: wacAmountWithOffset{
+										Value:  orderDetails.Order.Subtotal,
+										Offset: 100,
 									},
-									"tax": map[string]interface{}{
-										"value":       orderDetails.Order.Tax.Value,
-										"offset":      100,
-										"description": orderDetails.Order.Tax.Description,
-									},
-									"shipping": map[string]interface{}{
-										"value":       orderDetails.Order.Shipping.Value,
-										"offset":      100,
-										"description": orderDetails.Order.Shipping.Description,
-									},
-									"discount": map[string]interface{}{
-										"value":        orderDetails.Order.Discount.Value,
-										"offset":       100,
-										"description":  orderDetails.Order.Discount.Description,
-										"program_name": orderDetails.Order.Discount.ProgramName,
-									},
+									Tax:      orderTax,
+									Shipping: orderShipping,
+									Discount: orderDiscount,
 								},
 							},
 						},
@@ -2306,14 +2346,22 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						}{Text: msg.Footer()}
 					}
 
-					if msg.HeaderText() != "" {
-						interactive.Header = &struct {
-							Type     string     "json:\"type\""
-							Text     string     "json:\"text,omitempty\""
-							Video    wacMTMedia "json:\"video,omitempty\""
-							Image    wacMTMedia "json:\"image,omitempty\""
-							Document wacMTMedia "json:\"document,omitempty\""
-						}{Type: "text", Text: msg.HeaderText()}
+					if len(msg.Attachments()) > 0 {
+						attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
+						attType = strings.Split(attType, "/")[0]
+						media := wacMTMedia{Link: attURL}
+
+						if attType == "image" {
+							interactive.Header = &struct {
+								Type     string      "json:\"type\""
+								Text     string      "json:\"text,omitempty\""
+								Video    *wacMTMedia "json:\"video,omitempty\""
+								Image    *wacMTMedia "json:\"image,omitempty\""
+								Document *wacMTMedia "json:\"document,omitempty\""
+							}{Type: "image", Image: &media}
+						} else {
+							return nil, fmt.Errorf("interactive order details message does not support attachments other than images")
+						}
 					}
 					payload.Interactive = &interactive
 				}
@@ -2404,11 +2452,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 		if msg.Header() != "" && !isUnitaryProduct && !msg.SendCatalog() {
 			interactive.Header = &struct {
-				Type     string     `json:"type"`
-				Text     string     `json:"text,omitempty"`
-				Video    wacMTMedia `json:"video,omitempty"`
-				Image    wacMTMedia `json:"image,omitempty"`
-				Document wacMTMedia `json:"document,omitempty"`
+				Type     string      `json:"type"`
+				Text     string      `json:"text,omitempty"`
+				Video    *wacMTMedia `json:"video,omitempty"`
+				Image    *wacMTMedia `json:"image,omitempty"`
+				Document *wacMTMedia `json:"document,omitempty"`
 			}{
 				Type: "text",
 				Text: msg.Header(),

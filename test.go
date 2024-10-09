@@ -884,13 +884,26 @@ func (m *mockMsg) OrderDetailsMessage() *OrderDetailsMessage {
 					orderDetailsMessage.Order.Items = make([]OrderItem, len(itemsData))
 					for i, item := range itemsData {
 						if itemMap, ok := item.(map[string]interface{}); ok {
-							orderDetailsMessage.Order.Items[i] = OrderItem{
+							itemAmount := itemMap["amount"].(map[string]interface{})
+							item := OrderItem{
 								RetailerID: itemMap["retailer_id"].(string),
 								Name:       itemMap["name"].(string),
-								Amount:     int(itemMap["amount"].(float64)),
 								Quantity:   int(itemMap["quantity"].(float64)),
-								SaleAmount: int(itemMap["sale_amount"].(float64)),
+								Amount: OrderAmountWithOffset{
+									Value:  int(itemAmount["value"].(float64)),
+									Offset: int(itemAmount["offset"].(float64)),
+								},
 							}
+
+							if itemMap["sale_amount"] != nil {
+								saleAmount := itemMap["sale_amount"].(map[string]interface{})
+								item.SaleAmount = &OrderAmountWithOffset{
+									Value:  int(saleAmount["value"].(float64)),
+									Offset: int(saleAmount["offset"].(float64)),
+								}
+							}
+
+							orderDetailsMessage.Order.Items[i] = item
 						}
 					}
 				}

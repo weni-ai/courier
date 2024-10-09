@@ -175,12 +175,17 @@ type EventMsg struct {
 	UUID string `json:"uuid,omitempty"`
 }
 
+type OrderAmountWithOffset struct {
+	Value  int `json:"value"`
+	Offset int `json:"offset"`
+}
+
 type OrderItem struct {
-	RetailerID string `json:"retailer_id"`
-	Name       string `json:"name"`
-	Amount     int    `json:"amount"`
-	Quantity   int    `json:"quantity"`
-	SaleAmount int    `json:"sale_amount,omitempty"`
+	RetailerID string                 `json:"retailer_id"`
+	Name       string                 `json:"name"`
+	Quantity   int                    `json:"quantity"`
+	Amount     OrderAmountWithOffset  `json:"amount"`
+	SaleAmount *OrderAmountWithOffset `json:"sale_amount,omitempty"`
 }
 
 type OrderAmountWithDescription struct {

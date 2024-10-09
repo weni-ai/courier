@@ -30,10 +30,12 @@ type Config struct {
 	LogLevel                  string `help:"the logging level courier should use"`
 	Version                   string `help:"the version that will be used in request and response headers"`
 
-	WhatsappAdminSystemUserToken   string `help:"the token of the admin system user for WhatsApp"`
-	WhatsappCloudApplicationSecret string `help:"the Whatsapp Cloud app secret"`
-	WhatsappCloudWebhookSecret     string `help:"the secret for WhatsApp Cloud webhook URL verification"`
-	WhatsappCloudWebhooksUrl       string `help:"the url where all WhatsApp Cloud webhooks will be sent"`
+	WhatsappAdminSystemUserToken    string `help:"the token of the admin system user for WhatsApp"`
+	WhatsappCloudApplicationSecret  string `help:"the Whatsapp Cloud app secret"`
+	WhatsappCloudWebhookSecret      string `help:"the secret for WhatsApp Cloud webhook URL verification"`
+	WhatsappCloudWebhooksUrl        string `help:"the url where all WhatsApp Cloud webhooks will be sent"`
+	WhatsappCloudWebhooksUrlFlows   string `help:"the url where WhatsApp Cloud flow_message webhooks will be sent to Flows"`
+	WhatsappCloudWebhooksTokenFlows string `help:"the token for sending WhatsApp Cloud flow_message webhooks that will be sent to Flows"`
 
 	// IncludeChannels is the list of channels to enable, empty means include all
 	IncludeChannels []string

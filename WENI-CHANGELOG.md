@@ -1,3 +1,20 @@
+1.15.0
+----------
+ * Add button support with url in WA
+
+1.14.2
+----------
+ * Fix: Billing verification
+
+1.14.1
+----------
+ * Fix: Billing queue
+
+1.14.0
+----------
+ * Feat: Add support to WhatsApp Flows
+ * Add support for flow messaging webhooks
+
 1.13.0-courier-7.1.0
 ----------
  * Add support for interactive messages in WA

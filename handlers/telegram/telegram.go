@@ -1,10 +1,14 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -227,6 +231,10 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		}
 
 		mediaType, mediaURL := handlers.SplitAttachment(attachment)
+		fileName, err := utils.BasePathForURL(mediaURL)
+		if err != nil {
+			return nil, err
+		}
 		switch strings.Split(mediaType, "/")[0] {
 		case "image":
 			form := url.Values{
@@ -262,12 +270,49 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			status.AddLog(log)
 
 		case "application":
-			form := url.Values{
-				"chat_id":  []string{msg.URN().Path()},
-				"document": []string{mediaURL},
-				"caption":  []string{caption},
+			fileData, err := downloadFileToBytes(mediaURL)
+			if err != nil {
+				return status, err
 			}
-			externalID, log, err := h.sendMsgPart(msg, authToken, "sendDocument", form, attachmentKeyBoard)
+
+			body := &bytes.Buffer{}
+			writer := multipart.NewWriter(body)
+
+			part, err := writer.CreateFormFile("document", filepath.Base(fileName))
+			if err != nil {
+				return status, err
+			}
+
+			_, err = part.Write(fileData)
+			if err != nil {
+				return status, err
+			}
+
+			_ = writer.WriteField("chat_id", msg.URN().Path())
+			if err != nil {
+				return status, err
+			}
+
+			if attachmentKeyBoard == nil {
+				err = writer.WriteField("reply_markup", `{"remove_keyboard":true}`)
+			} else {
+				err = writer.WriteField("reply_markup", string(jsonx.MustMarshal(keyboard)))
+			}
+			if err != nil {
+				return status, err
+			}
+
+			err = writer.WriteField("caption", caption)
+			if err != nil {
+				return status, err
+			}
+
+			err = writer.Close()
+			if err != nil {
+				return status, err
+			}
+
+			externalID, log, err := sendUploadDocument(msg, authToken, writer)
 			status.SetExternalID(externalID)
 			hasError = err != nil
 			status.AddLog(log)
@@ -427,4 +472,52 @@ func escapeOdd(text string, c string) string {
 		}
 	}
 	return text
+}
+
+func sendUploadDocument(msg courier.Msg, token string, writer *multipart.Writer) (string, *courier.ChannelLog, error) {
+	body := &bytes.Buffer{}
+
+	url := fmt.Sprintf(apiURL, token)
+	req, err := http.NewRequest("POST", url, body)
+	if err != nil {
+		return "", nil, err
+	}
+
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := utils.MakeHTTPRequest(req)
+
+	// build our channel log
+	log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), resp).WithError("Message Send Error", err)
+
+	// was this request successful?
+	ok, err := jsonparser.GetBoolean([]byte(resp.Body), "ok")
+	if err != nil || !ok {
+		return "", log, errors.Errorf("response not 'ok'")
+	}
+
+	// grab our message id
+	externalID, err := jsonparser.GetInt([]byte(resp.Body), "result", "message_id")
+	if err != nil {
+		return "", log, errors.Errorf("no 'result.message_id' in response")
+	}
+
+	return strconv.FormatInt(externalID, 10), log, nil
+}
+
+func downloadFileToBytes(fileURL string) ([]byte, error) {
+	// Fazer a requisição HTTP para o link
+	resp, err := http.Get(fileURL)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao baixar o arquivo: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Ler o conteúdo do arquivo para um []byte
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao ler o conteúdo do arquivo: %v", err)
+	}
+
+	return body, nil
 }

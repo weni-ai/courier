@@ -474,8 +474,8 @@ func sendUploadDocument(msg courier.Msg, token string, mediaURL string, fileName
 		return "", nil, err
 	}
 
-	url := fmt.Sprintf(apiURL, token)
-	req, err := http.NewRequest("POST", url, body)
+	sendURL := fmt.Sprintf("%s/bot%s/%s", apiURL, token, "sendDocument")
+	req, err := http.NewRequest("POST", sendURL, body)
 	if err != nil {
 		return "", nil, err
 	}

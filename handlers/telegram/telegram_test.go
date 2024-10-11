@@ -590,11 +590,6 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		Attachments: []string{"application/pdf:https://foo.bar/doc1.pdf", "application/pdf:https://foo.bar/document.pdf"},
 		Status:      "W", ExternalID: "133",
 		ResponseBody: `{ "ok": true, "result": { "message_id": 133 } }`, ResponseStatus: 200,
-		PostParams: map[string]string{
-			"chat_id":      "12345",
-			"document":     "https://foo.bar/document.pdf",
-			"reply_markup": `{"keyboard":[[{"text":"Yes"},{"text":"No"}]],"resize_keyboard":true,"one_time_keyboard":true}`,
-		},
 		SendPrep: setSendURL},
 	{Label: "Quick Reply with Slashes",
 		Text: "Are you happy?", URN: "telegram:12345", QuickReplies: []string{"\\\\Yes", "/No"},
@@ -640,8 +635,7 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		Text: "My document!", URN: "telegram:12345", Attachments: []string{"application/pdf:https://foo.bar/document.pdf"},
 		Status:       "W",
 		ResponseBody: `{ "ok": true, "result": { "message_id": 133 } }`, ResponseStatus: 200,
-		PostParams: map[string]string{"caption": "My document!", "chat_id": "12345", "document": "https://foo.bar/document.pdf"},
-		SendPrep:   setSendURL},
+		SendPrep: setSendURL},
 	{Label: "Unknown Attachment",
 		Text: "My pic!", URN: "telegram:12345", Attachments: []string{"unknown/foo:https://foo.bar/unknown.foo"},
 		Status:   "E",
@@ -663,11 +657,33 @@ var parseModeTestCases = []ChannelSendTestCase{
 		SendPrep: setSendURL},
 }
 
+func buildMockDownloadFile(testCases []ChannelSendTestCase) (*httptest.Server, []ChannelSendTestCase) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("%PDF-1.4\n%mocked PDF content\n%%EOF"))
+	}))
+
+	apiURL = server.URL
+
+	// update our tests media urls
+	for i := range testCases {
+		for j := range testCases[i].Attachments {
+			if testCases[i].Attachments != nil && strings.HasPrefix(testCases[i].Attachments[j], "application/pdf") {
+				filename := strings.Split(testCases[i].Attachments[j], "/")
+				testCases[i].Attachments[j] = (fmt.Sprintf("application/pdf:%s/%s", apiURL, filename[len(filename)-1]))
+			}
+		}
+	}
+	return server, testCases
+}
+
 func TestSending(t *testing.T) {
 	var defaultChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "TG", "2020", "US",
 		map[string]interface{}{courier.ConfigAuthToken: "auth_token"})
 
-	RunChannelSendTestCases(t, defaultChannel, newHandler(), defaultSendTestCases, nil)
+	server, testCases := buildMockDownloadFile(defaultSendTestCases)
+	defer server.Close()
+
+	RunChannelSendTestCases(t, defaultChannel, newHandler(), testCases, nil)
 
 	var parseModeChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "TG", "2020", "US",
 		map[string]interface{}{courier.ConfigAuthToken: "auth_token"})

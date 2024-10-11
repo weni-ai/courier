@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -270,49 +269,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			status.AddLog(log)
 
 		case "application":
-			fileData, err := downloadFileToBytes(mediaURL)
-			if err != nil {
-				return status, err
-			}
-
-			body := &bytes.Buffer{}
-			writer := multipart.NewWriter(body)
-
-			part, err := writer.CreateFormFile("document", filepath.Base(fileName))
-			if err != nil {
-				return status, err
-			}
-
-			_, err = part.Write(fileData)
-			if err != nil {
-				return status, err
-			}
-
-			_ = writer.WriteField("chat_id", msg.URN().Path())
-			if err != nil {
-				return status, err
-			}
-
-			if attachmentKeyBoard == nil {
-				err = writer.WriteField("reply_markup", `{"remove_keyboard":true}`)
-			} else {
-				err = writer.WriteField("reply_markup", string(jsonx.MustMarshal(keyboard)))
-			}
-			if err != nil {
-				return status, err
-			}
-
-			err = writer.WriteField("caption", caption)
-			if err != nil {
-				return status, err
-			}
-
-			err = writer.Close()
-			if err != nil {
-				return status, err
-			}
-
-			externalID, log, err := sendUploadDocument(msg, authToken, writer)
+			externalID, log, err := sendUploadDocument(msg, authToken, mediaURL, fileName, attachmentKeyBoard, caption)
 			status.SetExternalID(externalID)
 			hasError = err != nil
 			status.AddLog(log)
@@ -474,8 +431,48 @@ func escapeOdd(text string, c string) string {
 	return text
 }
 
-func sendUploadDocument(msg courier.Msg, token string, writer *multipart.Writer) (string, *courier.ChannelLog, error) {
+func sendUploadDocument(msg courier.Msg, token string, mediaURL string, fileName string, attachmentKeyBoard *ReplyKeyboardMarkup, caption string) (string, *courier.ChannelLog, error) {
+	fileData, err := downloadFileToBytes(mediaURL)
+	if err != nil {
+		return "", nil, err
+	}
+
 	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	part, err := writer.CreateFormFile("document", filepath.Base(fileName))
+	if err != nil {
+		return "", nil, err
+	}
+
+	_, err = part.Write(fileData)
+	if err != nil {
+		return "", nil, err
+	}
+
+	_ = writer.WriteField("chat_id", msg.URN().Path())
+	if err != nil {
+		return "", nil, err
+	}
+
+	if attachmentKeyBoard == nil {
+		err = writer.WriteField("reply_markup", `{"remove_keyboard":true}`)
+	} else {
+		err = writer.WriteField("reply_markup", string(jsonx.MustMarshal(attachmentKeyBoard)))
+	}
+	if err != nil {
+		return "", nil, err
+	}
+
+	err = writer.WriteField("caption", caption)
+	if err != nil {
+		return "", nil, err
+	}
+
+	err = writer.Close()
+	if err != nil {
+		return "", nil, err
+	}
 
 	url := fmt.Sprintf(apiURL, token)
 	req, err := http.NewRequest("POST", url, body)
@@ -506,18 +503,15 @@ func sendUploadDocument(msg courier.Msg, token string, writer *multipart.Writer)
 }
 
 func downloadFileToBytes(fileURL string) ([]byte, error) {
-	// Fazer a requisição HTTP para o link
-	resp, err := http.Get(fileURL)
+	req, err := http.NewRequest("GET", fileURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := utils.MakeHTTPRequest(req)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao baixar o arquivo: %v", err)
 	}
-	defer resp.Body.Close()
 
-	// Ler o conteúdo do arquivo para um []byte
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao ler o conteúdo do arquivo: %v", err)
-	}
-
-	return body, nil
+	return resp.Body, nil
 }

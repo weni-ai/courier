@@ -1,3 +1,8 @@
+1.16.0
+----------
+ * Upload documents to telegram
+ * Feat: WhatsApp order details
+
 1.15.0
 ----------
  * Add button support with url in WA

@@ -134,6 +134,7 @@ type Msg interface {
 	InteractionType() string
 	CTAMessage() *CTAMessage
 	FlowMessage() *FlowMessage
+	OrderDetailsMessage() *OrderDetailsMessage
 }
 
 type ListMessage struct {
@@ -172,4 +173,56 @@ type EventMsg struct {
 	URN  string `json:"urn,omitempty"`
 	Text string `json:"text,omitempty"`
 	UUID string `json:"uuid,omitempty"`
+}
+
+type OrderAmountWithOffset struct {
+	Value  int `json:"value"`
+	Offset int `json:"offset"`
+}
+
+type OrderItem struct {
+	RetailerID string                 `json:"retailer_id"`
+	Name       string                 `json:"name"`
+	Quantity   int                    `json:"quantity"`
+	Amount     OrderAmountWithOffset  `json:"amount"`
+	SaleAmount *OrderAmountWithOffset `json:"sale_amount,omitempty"`
+}
+
+type OrderAmountWithDescription struct {
+	Value       int    `json:"value"`
+	Description string `json:"description,omitempty"`
+}
+
+type OrderDiscount struct {
+	Value       int    `json:"value"`
+	Description string `json:"description,omitempty"`
+	ProgramName string `json:"program_name,omitempty"`
+}
+
+type Order struct {
+	Items    []OrderItem                `json:"items"`
+	Subtotal int                        `json:"subtotal"`
+	Tax      OrderAmountWithDescription `json:"tax"`
+	Shipping OrderAmountWithDescription `json:"shipping,omitempty"`
+	Discount OrderDiscount              `json:"discount,omitempty"`
+}
+
+type OrderPixConfig struct {
+	Key          string `json:"key"`
+	KeyType      string `json:"key_type"`
+	MerchantName string `json:"merchant_name"`
+	Code         string `json:"code"`
+}
+
+type OrderPaymentSettings struct {
+	Type        string         `json:"type"`
+	PaymentLink string         `json:"payment_link,omitempty"`
+	PixConfig   OrderPixConfig `json:"pix_config,omitempty"`
+}
+
+type OrderDetailsMessage struct {
+	ReferenceID     string               `json:"reference_id"`
+	PaymentSettings OrderPaymentSettings `json:"payment_settings"`
+	TotalAmount     int                  `json:"total_amount"`
+	Order           Order                `json:"order"`
 }

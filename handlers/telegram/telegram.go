@@ -510,7 +510,7 @@ func downloadFileToBytes(fileURL string) ([]byte, error) {
 
 	resp, err := utils.MakeHTTPRequest(req)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao baixar o arquivo: %v", err)
+		return nil, fmt.Errorf("error downloading file: %v", err)
 	}
 
 	return resp.Body, nil

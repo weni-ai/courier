@@ -104,6 +104,9 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	rr, err := utils.MakeHTTPRequest(req)
 	log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
+	if err != nil {
+		status.SetStatus(courier.MsgWired)
+	}
 	status.AddLog(log)
 	return status, nil
 }

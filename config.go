@@ -56,6 +56,9 @@ type Config struct {
 	RabbitmqURL              string `help:"rabbitmq url"`
 	RabbitmqRetryPubAttempts int    `help:"rabbitmq retry attempts"`
 	RabbitmqRetryPubDelay    int    `help:"rabbitmq retry delay"`
+
+	EmailProxyURL       string `help:"email proxy url"`
+	EmailProxyAuthToken string `help:"email proxy auth token"`
 }
 
 // NewConfig returns a new default configuration object
@@ -87,6 +90,8 @@ func NewConfig() *Config {
 		WaitMediaChannels:            []string{},
 		RabbitmqRetryPubAttempts:     3,
 		RabbitmqRetryPubDelay:        1000,
+		EmailProxyURL:                "http://localhost:9090",
+		EmailProxyAuthToken:          "",
 	}
 }
 

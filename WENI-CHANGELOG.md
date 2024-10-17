@@ -1,3 +1,7 @@
+1.17.0
+----------
+ * Feat: Email Channel Handler
+
 1.16.0
 ----------
  * Upload documents to telegram

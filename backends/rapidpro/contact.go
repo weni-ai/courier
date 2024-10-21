@@ -126,11 +126,11 @@ func contactForURNTeams(ctx context.Context, b *backend, urn urns.URN, org OrgID
 	err := b.db.GetContext(ctx, contact, lookupContactFromTeamsURNSQL, urnIdentity[0], org)
 	if err != nil && err != sql.ErrNoRows {
 		logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
-		return nil, err
+		return contact, err
 	}
 
 	if err == sql.ErrNoRows {
-		return nil, err
+		return contact, err
 	}
 
 	err = updateContactTeamsURN(b.db, contact.URNID_, urn.Identity().String())

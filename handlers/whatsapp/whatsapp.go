@@ -1175,6 +1175,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					mimeType = splitedAttType[0]
 
 					mediaID, mediaLogs, err := h.fetchMediaID(msg, mimeType, mediaURL)
+					filename, _ := utils.BasePathForURL(mediaURL)
 					if len(mediaLogs) > 0 {
 						logs = append(logs, mediaLogs...)
 					}
@@ -1186,6 +1187,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					}
 					mediaPayload := &mediaObject{ID: mediaID, Link: mediaURL}
 					if strings.HasPrefix(mimeType, "application") {
+						mediaPayload.Filename = filename
 						payload.Interactive.Header = &struct {
 							Type     string      "json:\"type\""
 							Text     string      "json:\"text,omitempty\""

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -153,7 +154,7 @@ func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChanne
 
 	if urn.Scheme() == "teams" && err == sql.ErrNoRows {
 		contact, err = contactForURNTeams(ctx, b, urn, org)
-		if err != nil {
+		if err != nil && err != sql.ErrNoRows {{
 			logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
 			return nil, err
 		}

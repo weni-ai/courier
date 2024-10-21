@@ -298,7 +298,8 @@ const updateTeamsURN = `
 UPDATE 
 	contacts_contacturn
 SET 
-	identity = $1
+	identity = $1,
+	path = $1
 WHERE 
 	id = $2;
 
@@ -335,7 +336,6 @@ func fullyUpdateContactURN(db *sqlx.Tx, urn *DBContactURN) error {
 }
 
 func updateContactTeamsURN(ctx context.Context, db *sqlx.DB, urnID ContactURNID, newURN string) error {
-	fmt.Println("NEWURN: ", newURN)
 	_, err := db.ExecContext(ctx, updateTeamsURN, newURN, urnID)
 	if err != nil {
 		logrus.WithError(err).WithField("urn_id", urnID).Error("error updating contact urn")

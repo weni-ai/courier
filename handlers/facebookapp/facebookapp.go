@@ -1993,6 +1993,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 					if len(msg.Attachments()) > 0 {
 						attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
+						fileURL := attURL
 						mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
 						for _, log := range mediaLogs {
 							status.AddLog(log)
@@ -2006,9 +2007,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						if attType == "application" {
 							attType = "document"
 						}
-						fileURL := attURL
 						media := wacMTMedia{ID: mediaID, Link: attURL}
-
 						if attType == "image" {
 							interactive.Header = &struct {
 								Type     string      "json:\"type\""

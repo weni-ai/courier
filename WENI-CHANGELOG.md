@@ -1,3 +1,7 @@
+1.18.0
+----------
+ * Search for contact and update a Teams contact with the serviceURL
+
 1.17.0
 ----------
  * Feat: Email Channel Handler

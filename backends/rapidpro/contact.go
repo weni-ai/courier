@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -96,6 +97,50 @@ WHERE
 	c.is_active = TRUE
 `
 
+const lookupContactFromTeamsURNSQL = `
+SELECT 
+	c.org_id, 
+	c.id, 
+	c.uuid, 
+	c.modified_on, 
+	c.created_on, 
+	c.name, 
+	u.id as "urn_id",
+	c.status
+FROM 
+	contacts_contact AS c, 
+	contacts_contacturn AS u 
+WHERE 
+	u.identity ~ $1 AND 
+	u.contact_id = c.id AND 
+	u.org_id = $2 AND 
+	c.is_active = TRUE
+	ORDER BY c.modified_on ASC
+	LIMIT 1
+`
+
+func contactForURNTeams(ctx context.Context, b *backend, urn urns.URN, org OrgID) (*DBContact, error) {
+	contact := &DBContact{}
+
+	urnIdentity := strings.Split(urn.Identity().String(), ":serviceURL:")
+	err := b.db.GetContext(ctx, contact, lookupContactFromTeamsURNSQL, urnIdentity[0], org)
+	if err != nil && err != sql.ErrNoRows {
+		logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
+		return contact, err
+	}
+
+	if err == sql.ErrNoRows {
+		return contact, err
+	}
+
+	err = updateContactTeamsURN(ctx, b.db, contact.URNID_, string(urn.Identity()))
+	if err != nil {
+		logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error updating contact urn")
+		return contact, err
+	}
+	return contact, nil
+}
+
 // contactForURN first tries to look up a contact for the passed in URN, if not finding one then creating one
 func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChannel, urn urns.URN, auth string, name string) (*DBContact, error) {
 	// try to look up our contact by URN
@@ -104,6 +149,14 @@ func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChanne
 	if err != nil && err != sql.ErrNoRows {
 		logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
 		return nil, err
+	}
+
+	if urn.Scheme() == "teams" && err == sql.ErrNoRows {
+		contact, err = contactForURNTeams(ctx, b, urn, org)
+		if err != nil && err != sql.ErrNoRows {
+			logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
+			return nil, err
+		}
 	}
 
 	// we found it, return it

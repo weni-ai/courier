@@ -880,7 +880,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 							if msg.Footer() != "" {
 								payload.Interactive.Footer = &struct {
 									Text string "json:\"text\""
-								}{Text: msg.Footer()}
+								}{Text: parseBacklashes(msg.Footer())}
 							}
 
 							if msg.HeaderText() != "" {
@@ -890,7 +890,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 									Video    mediaObject "json:\"video,omitempty\""
 									Image    mediaObject "json:\"image,omitempty\""
 									Document mediaObject "json:\"document,omitempty\""
-								}{Type: "text", Text: msg.HeaderText()}
+								}{Type: "text", Text: parseBacklashes(msg.HeaderText())}
 							}
 
 							btns := make([]mtButton, len(qrs))
@@ -958,7 +958,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 								if msg.Footer() != "" {
 									payload.Interactive.Footer = &struct {
 										Text string "json:\"text\""
-									}{Text: msg.Footer()}
+									}{Text: parseBacklashes(msg.Footer())}
 								}
 							}
 							payload.Interactive.Action.Sections = []mtSection{section}
@@ -986,14 +986,14 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 								}{
 									Name: "cta_url",
 									Parameters: map[string]string{
-										"display_text": ctaMessage.DisplayText,
+										"display_text": parseBacklashes(ctaMessage.DisplayText),
 										"url":          ctaMessage.URL,
 									},
 								}
 								if msg.Footer() != "" {
 									payload.Interactive.Footer = &struct {
 										Text string "json:\"text\""
-									}{Text: msg.Footer()}
+									}{Text: parseBacklashes(msg.Footer())}
 								}
 
 								if msg.HeaderText() != "" {
@@ -1005,7 +1005,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 										Document mediaObject "json:\"document,omitempty\""
 									}{
 										Type: "text",
-										Text: msg.HeaderText(),
+										Text: parseBacklashes(msg.HeaderText()),
 									}
 								}
 								payloads = append(payloads, payload)
@@ -1175,6 +1175,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					mimeType = splitedAttType[0]
 
 					mediaID, mediaLogs, err := h.fetchMediaID(msg, mimeType, mediaURL)
+					filename, _ := utils.BasePathForURL(mediaURL)
 					if len(mediaLogs) > 0 {
 						logs = append(logs, mediaLogs...)
 					}
@@ -1186,6 +1187,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					}
 					mediaPayload := &mediaObject{ID: mediaID, Link: mediaURL}
 					if strings.HasPrefix(mimeType, "application") {
+						mediaPayload.Filename = filename
 						payload.Interactive.Header = &struct {
 							Type     string      "json:\"type\""
 							Text     string      "json:\"text,omitempty\""
@@ -1244,7 +1246,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					if msg.Footer() != "" {
 						payload.Interactive.Footer = &struct {
 							Text string "json:\"text\""
-						}{Text: msg.Text()}
+						}{Text: parseBacklashes(msg.Footer())}
 					}
 					payloads = append(payloads, payload)
 
@@ -1281,7 +1283,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 						if msg.Footer() != "" {
 							payload.Interactive.Footer = &struct {
 								Text string "json:\"text\""
-							}{Text: msg.Text()}
+							}{Text: parseBacklashes(msg.Footer())}
 						}
 					}
 
@@ -1307,7 +1309,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					payload.Interactive.Type = "cta_url"
 					payload.Interactive.Body = struct {
 						Text string "json:\"text\""
-					}{msg.Text()}
+					}{parseBacklashes(msg.Text())}
 					payload.Interactive.Action = &struct {
 						Button            string            "json:\"button,omitempty\""
 						Sections          []mtSection       "json:\"sections,omitempty\""
@@ -1319,7 +1321,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					}{
 						Name: "cta_url",
 						Parameters: map[string]string{
-							"display_text": ctaMessage.DisplayText,
+							"display_text": parseBacklashes(ctaMessage.DisplayText),
 							"url":          ctaMessage.URL,
 						},
 					}
@@ -1327,7 +1329,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					if msg.Footer() != "" {
 						payload.Interactive.Footer = &struct {
 							Text string "json:\"text\""
-						}{Text: msg.Footer()}
+						}{Text: parseBacklashes(msg.Footer())}
 					}
 
 					if msg.HeaderText() != "" {
@@ -1339,7 +1341,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 							Document mediaObject "json:\"document,omitempty\""
 						}{
 							Type: "text",
-							Text: msg.HeaderText(),
+							Text: parseBacklashes(msg.HeaderText()),
 						}
 					}
 					payloads = append(payloads, payload)
@@ -1429,7 +1431,7 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 			payload.Interactive.Footer = &struct {
 				Text string "json:\"text\""
 			}{
-				Text: msg.Footer(),
+				Text: parseBacklashes(msg.Footer()),
 			}
 		}
 

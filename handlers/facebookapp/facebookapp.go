@@ -1452,6 +1452,11 @@ type wacAmountWithOffset struct {
 	DiscountProgramName string `json:"discount_program_name,omitempty"`
 }
 
+type wacFlowActionPayload struct {
+	Data   map[string]interface{} `json:"data,omitempty"`
+	Screen string                 `json:"screen"`
+}
+
 func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
 	// can't do anything without an access token
 	accessToken := h.Server().Config().WhatsappAdminSystemUserToken
@@ -1775,9 +1780,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 										"flow_id":              flowMessage.FlowID,
 										"flow_cta":             flowMessage.FlowCTA,
 										"flow_action":          "navigate",
-										"flow_action_payload": map[string]interface{}{
-											"screen": flowMessage.FlowScreen,
-											"data":   flowMessage.FlowData,
+										"flow_action_payload": wacFlowActionPayload{
+											Screen: flowMessage.FlowScreen,
+											Data:   flowMessage.FlowData,
 										},
 									},
 								},
@@ -2219,9 +2224,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								"flow_id":              flowMessage.FlowID,
 								"flow_cta":             flowMessage.FlowCTA,
 								"flow_action":          "navigate",
-								"flow_action_payload": map[string]interface{}{
-									"screen": flowMessage.FlowScreen,
-									"data":   flowMessage.FlowData,
+								"flow_action_payload": wacFlowActionPayload{
+									Screen: flowMessage.FlowScreen,
+									Data:   flowMessage.FlowData,
 								},
 							},
 						},

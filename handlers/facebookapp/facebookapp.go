@@ -1578,7 +1578,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							if msg.Footer() != "" {
 								interactive.Footer = &struct {
 									Text string "json:\"text,omitempty\""
-								}{Text: msg.Footer()}
+								}{Text: parseBacklashes(msg.Footer())}
 							}
 
 							if msg.HeaderText() != "" {
@@ -1588,7 +1588,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 									Video    *wacMTMedia "json:\"video,omitempty\""
 									Image    *wacMTMedia "json:\"image,omitempty\""
 									Document *wacMTMedia "json:\"document,omitempty\""
-								}{Type: "text", Text: msg.HeaderText()}
+								}{Type: "text", Text: parseBacklashes(msg.HeaderText())}
 							}
 
 							btns := make([]wacMTButton, len(qrs))
@@ -1654,7 +1654,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								if msg.Footer() != "" {
 									interactive.Footer = &struct {
 										Text string "json:\"text,omitempty\""
-									}{Text: msg.Footer()}
+									}{Text: parseBacklashes(msg.Footer())}
 								}
 
 								if msg.HeaderText() != "" {
@@ -1664,7 +1664,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 										Video    *wacMTMedia "json:\"video,omitempty\""
 										Image    *wacMTMedia "json:\"image,omitempty\""
 										Document *wacMTMedia "json:\"document,omitempty\""
-									}{Type: "text", Text: msg.HeaderText()}
+									}{Type: "text", Text: parseBacklashes(msg.HeaderText())}
 								}
 							}
 
@@ -1728,7 +1728,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								}{
 									Name: "cta_url",
 									Parameters: map[string]interface{}{
-										"display_text": ctaMessage.DisplayText,
+										"display_text": parseBacklashes(ctaMessage.DisplayText),
 										"url":          ctaMessage.URL,
 									},
 								},
@@ -1736,7 +1736,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							if msg.Footer() != "" {
 								interactive.Footer = &struct {
 									Text string "json:\"text,omitempty\""
-								}{Text: msg.Footer()}
+								}{Text: parseBacklashes(msg.Footer())}
 							}
 
 							if msg.HeaderText() != "" {
@@ -1746,7 +1746,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 									Video    *wacMTMedia "json:\"video,omitempty\""
 									Image    *wacMTMedia "json:\"image,omitempty\""
 									Document *wacMTMedia "json:\"document,omitempty\""
-								}{Type: "text", Text: msg.HeaderText()}
+								}{Type: "text", Text: parseBacklashes(msg.HeaderText())}
 							}
 							payload.Interactive = &interactive
 						}
@@ -1785,7 +1785,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							if msg.Footer() != "" {
 								interactive.Footer = &struct {
 									Text string "json:\"text,omitempty\""
-								}{Text: msg.Footer()}
+								}{Text: parseBacklashes(msg.Footer())}
 							}
 
 							if msg.HeaderText() != "" {
@@ -1795,7 +1795,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 									Video    *wacMTMedia "json:\"video,omitempty\""
 									Image    *wacMTMedia "json:\"image,omitempty\""
 									Document *wacMTMedia "json:\"document,omitempty\""
-								}{Type: "text", Text: msg.HeaderText()}
+								}{Type: "text", Text: parseBacklashes(msg.HeaderText())}
 							}
 							payload.Interactive = &interactive
 						}
@@ -1903,7 +1903,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							if msg.Footer() != "" {
 								interactive.Footer = &struct {
 									Text string "json:\"text,omitempty\""
-								}{Text: msg.Footer()}
+								}{Text: parseBacklashes(msg.Footer())}
 							}
 
 							payload.Interactive = &interactive
@@ -2075,7 +2075,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					if msg.Footer() != "" {
 						payload.Interactive.Footer = &struct {
 							Text string "json:\"text,omitempty\""
-						}{Text: msg.Footer()}
+						}{Text: parseBacklashes(msg.Footer())}
 					}
 				} else if len(qrs) <= 10 || len(msg.ListMessage().ListItems) > 0 {
 					interactive := wacInteractive{
@@ -2114,7 +2114,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						if msg.Footer() != "" {
 							interactive.Footer = &struct {
 								Text string "json:\"text,omitempty\""
-							}{Text: msg.Footer()}
+							}{Text: parseBacklashes(msg.Footer())}
 						}
 					}
 
@@ -2172,7 +2172,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						}{
 							Name: "cta_url",
 							Parameters: map[string]interface{}{
-								"display_text": ctaMessage.DisplayText,
+								"display_text": parseBacklashes(ctaMessage.DisplayText),
 								"url":          ctaMessage.URL,
 							},
 						},
@@ -2181,7 +2181,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					if msg.Footer() != "" {
 						interactive.Footer = &struct {
 							Text string "json:\"text,omitempty\""
-						}{Text: msg.Footer()}
+						}{Text: parseBacklashes(msg.Footer())}
 					}
 
 					if msg.HeaderText() != "" {
@@ -2191,7 +2191,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							Video    *wacMTMedia "json:\"video,omitempty\""
 							Image    *wacMTMedia "json:\"image,omitempty\""
 							Document *wacMTMedia "json:\"document,omitempty\""
-						}{Type: "text", Text: msg.HeaderText()}
+						}{Type: "text", Text: parseBacklashes(msg.HeaderText())}
 					}
 					payload.Interactive = &interactive
 				}
@@ -2230,7 +2230,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					if msg.Footer() != "" {
 						interactive.Footer = &struct {
 							Text string "json:\"text,omitempty\""
-						}{Text: msg.Footer()}
+						}{Text: parseBacklashes(msg.Footer())}
 					}
 
 					if msg.HeaderText() != "" {
@@ -2240,7 +2240,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							Video    *wacMTMedia "json:\"video,omitempty\""
 							Image    *wacMTMedia "json:\"image,omitempty\""
 							Document *wacMTMedia "json:\"document,omitempty\""
-						}{Type: "text", Text: msg.HeaderText()}
+						}{Type: "text", Text: parseBacklashes(msg.HeaderText())}
 					}
 					payload.Interactive = &interactive
 				}
@@ -2348,7 +2348,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					if msg.Footer() != "" {
 						interactive.Footer = &struct {
 							Text string "json:\"text,omitempty\""
-						}{Text: msg.Footer()}
+						}{Text: parseBacklashes(msg.Footer())}
 					}
 
 					if len(msg.Attachments()) > 0 {
@@ -2472,7 +2472,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			interactive.Footer = &struct {
 				Text string "json:\"text,omitempty\""
 			}{
-				Text: msg.Footer(),
+				Text: parseBacklashes(msg.Footer()),
 			}
 		}
 

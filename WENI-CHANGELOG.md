@@ -1,3 +1,10 @@
+1.18.1
+----------
+ * Fix: document name when message have quick replies on whatsapp handler
+ * Fix: document name when message have quick replies on facebookapp handler for whatsapp cloud api
+ * Fix: backslashes for headerText, footer and ctaMessage
+ * Fix: handle empty flow data to not be sent as empty object in request
+
 1.18.0
 ----------
  * Search for contact and update a Teams contact with the serviceURL

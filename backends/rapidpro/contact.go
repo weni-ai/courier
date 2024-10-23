@@ -116,7 +116,7 @@ WHERE
 	u.org_id = $2 AND 
 	c.is_active = TRUE
 	ORDER BY c.modified_on ASC
-	LIMIT 1;
+	LIMIT 1
 `
 
 func contactForURNTeams(ctx context.Context, b *backend, urn urns.URN, org OrgID) (*DBContact, error) {
@@ -126,14 +126,14 @@ func contactForURNTeams(ctx context.Context, b *backend, urn urns.URN, org OrgID
 	err := b.db.GetContext(ctx, contact, lookupContactFromTeamsURNSQL, urnIdentity[0], org)
 	if err != nil && err != sql.ErrNoRows {
 		logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
-		return nil, err
+		return contact, err
 	}
 
 	if err == sql.ErrNoRows {
-		return nil, err
+		return contact, err
 	}
 
-	err = updateContactTeamsURN(b.db, contact.URNID_, urn.Identity().String())
+	err = updateContactTeamsURN(ctx, b.db, contact.URNID_, string(urn.Identity()))
 	if err != nil {
 		logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error updating contact urn")
 		return contact, err
@@ -153,7 +153,7 @@ func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChanne
 
 	if urn.Scheme() == "teams" && err == sql.ErrNoRows {
 		contact, err = contactForURNTeams(ctx, b, urn, org)
-		if err != nil {
+		if err != nil && err != sql.ErrNoRows {
 			logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
 			return nil, err
 		}

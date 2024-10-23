@@ -1,9 +1,11 @@
 package rapidpro
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"strings"
 
 	"github.com/nyaruka/null"
 
@@ -297,7 +299,8 @@ const updateTeamsURN = `
 UPDATE 
 	contacts_contacturn
 SET 
-	identity = $1
+	identity = $1,
+	path = $3
 WHERE 
 	id = $2;
 
@@ -333,8 +336,9 @@ func fullyUpdateContactURN(db *sqlx.Tx, urn *DBContactURN) error {
 	return err
 }
 
-func updateContactTeamsURN(db *sqlx.DB, urnID ContactURNID, newURN string) error {
-	_, err := db.Exec(updateTeamsURN, newURN, urnID)
+func updateContactTeamsURN(ctx context.Context, db *sqlx.DB, urnID ContactURNID, newURN string) error {
+	path := strings.TrimPrefix(newURN, "teams:")
+	_, err := db.ExecContext(ctx, updateTeamsURN, newURN, urnID, path)
 	if err != nil {
 		logrus.WithError(err).WithField("urn_id", urnID).Error("error updating contact urn")
 		return err

@@ -4,7 +4,7 @@ require (
 	github.com/antchfx/xmlquery v0.0.0-20181223105952-355641961c92
 	github.com/antchfx/xpath v0.0.0-20181208024549-4bbdf6db12aa // indirect
 	github.com/aws/aws-sdk-go v1.40.56
-	github.com/buger/jsonparser v0.0.0-20180318095312-2cac668e8456
+	github.com/buger/jsonparser v1.1.1
 	github.com/certifi/gocertifi v0.0.0-20180118203423-deb3ae2ef261 // indirect
 	github.com/dghubble/oauth1 v0.4.0
 	github.com/evalphobia/logrus_sentry v0.4.6
@@ -72,6 +72,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-go 1.17
+go 1.23
 
 replace github.com/nyaruka/gocommon => github.com/Ilhasoft/gocommon v1.16.2-weni

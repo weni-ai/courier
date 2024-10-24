@@ -1341,18 +1341,23 @@ type wacMTButton struct {
 	} `json:"reply" validate:"required"`
 }
 
+type wacMTAction struct {
+	OrderDetails *wacOrderDetails `json:"order_details,omitempty"`
+}
+
 type wacParam struct {
-	Type     string      `json:"type"`
-	Text     string      `json:"text,omitempty"`
-	Image    *wacMTMedia `json:"image,omitempty"`
-	Document *wacMTMedia `json:"document,omitempty"`
-	Video    *wacMTMedia `json:"video,omitempty"`
+	Type     string       `json:"type"`
+	Text     string       `json:"text,omitempty"`
+	Image    *wacMTMedia  `json:"image,omitempty"`
+	Document *wacMTMedia  `json:"document,omitempty"`
+	Video    *wacMTMedia  `json:"video,omitempty"`
+	Action   *wacMTAction `json:"action,omitempty"`
 }
 
 type wacComponent struct {
 	Type    string      `json:"type"`
 	SubType string      `json:"sub_type,omitempty"`
-	Index   string      `json:"index,omitempty"`
+	Index   *int        `json:"index,omitempty"`
 	Params  []*wacParam `json:"parameters"`
 }
 
@@ -1437,6 +1442,33 @@ type wacMTSectionProduct struct {
 
 type wacMTProductItem struct {
 	ProductRetailerID string `json:"product_retailer_id" validate:"required"`
+}
+
+type wacOrderDetailsPixDynamicCode struct {
+	Code         string `json:"code" validate:"required"`
+	MerchantName string `json:"merchant_name" validate:"required"`
+	Key          string `json:"key" validate:"required"`
+	KeyType      string `json:"key_type" validate:"required"`
+}
+
+type wacOrderDetailsPaymentLink struct {
+	URI string `json:"uri" validate:"required"`
+}
+
+type wacOrderDetailsPaymentSetting struct {
+	Type           string                         `json:"type" validate:"required"`
+	PaymentLink    *wacOrderDetailsPaymentLink    `json:"payment_link,omitempty"`
+	PixDynamicCode *wacOrderDetailsPixDynamicCode `json:"pix_dynamic_code,omitempty"`
+}
+
+type wacOrderDetails struct {
+	ReferenceID     string                          `json:"reference_id" validate:"required"`
+	Type            string                          `json:"type" validate:"required"`
+	PaymentType     string                          `json:"payment_type" validate:"required"`
+	PaymentSettings []wacOrderDetailsPaymentSetting `json:"payment_settings" validate:"required"`
+	Currency        string                          `json:"currency" validate:"required"`
+	TotalAmount     wacAmountWithOffset             `json:"total_amount" validate:"required"`
+	Order           wacOrder                        `json:"order" validate:"required"`
 }
 
 type wacOrder struct {
@@ -1554,6 +1586,23 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						return nil, fmt.Errorf("unknown attachment mime type: %s", attType)
 					}
 					payload.Template.Components = append(payload.Template.Components, header)
+				}
+
+				if msg.OrderDetailsMessage() != nil {
+					index := 0
+					button := &wacComponent{Type: "button", SubType: "order_details", Index: &index}
+
+					paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
+
+					param := wacParam{
+						Type: "action",
+						Action: &wacMTAction{
+							OrderDetails: mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount),
+						},
+					}
+
+					button.Params = append(button.Params, &param)
+					payload.Template.Components = append(payload.Template.Components, button)
 				}
 
 			} else {

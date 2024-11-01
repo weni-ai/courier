@@ -1,3 +1,7 @@
+1.18.2
+----------
+  * Feat: configuration for billing queue name on env var
+
 1.18.1
 ----------
  * Fix: document name when message have quick replies on whatsapp handler

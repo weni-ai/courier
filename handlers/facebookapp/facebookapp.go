@@ -1491,6 +1491,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 	var payloadAudio wacMTPayload
 
 	for i := 0; i < len(msgParts)+len(msg.Attachments()); i++ {
+
+		if i > len(msgParts) || len(msgParts) <= 0 {
+			return nil, fmt.Errorf("unrecognized index %d for message %d, msgParts length %d", i, msg.ID(), len(msgParts))
+		}
+
 		payload := wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path()}
 
 		// do we have a template?

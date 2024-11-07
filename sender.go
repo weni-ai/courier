@@ -305,6 +305,7 @@ func (w *Sender) sendMessage(msg Msg) {
 					msg.Text(),
 					msg.Attachments(),
 					msg.QuickReplies(),
+					string(msg.Metadata()),
 				)
 				if w.foreman.server.Billing() != nil {
 					w.foreman.server.Billing().SendAsync(billingMsg, nil, nil)

@@ -717,6 +717,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 								"",
 								nil,
 								nil,
+								"",
 							)
 							h.Server().Billing().SendAsync(billingMsg, nil, nil)
 						}

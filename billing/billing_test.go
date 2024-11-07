@@ -53,6 +53,7 @@ func TestBillingResilientClient(t *testing.T) {
 		"hello",
 		nil,
 		nil,
+		"",
 	)
 
 	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000, billingTestQueueName)
@@ -117,6 +118,7 @@ func TestBillingResilientClientSendAsync(t *testing.T) {
 		"hello",
 		nil,
 		nil,
+		"",
 	)
 
 	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000, billingTestQueueName)
@@ -181,6 +183,7 @@ func TestBillingResilientClientSendAsyncWithPanic(t *testing.T) {
 		"hello",
 		nil,
 		nil,
+		"",
 	)
 
 	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000, billingTestQueueName)

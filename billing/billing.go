@@ -31,10 +31,11 @@ type Message struct {
 	Text         string   `json:"text,omitempty"`
 	Attachments  []string `json:"attachments,omitempty"`
 	QuickReplies []string `json:"quick_replies,omitempty"`
+	Metadata     string   `json:"metadata"`
 }
 
 // Create a new message
-func NewMessage(contactURN, contactUUID, channelUUID, messageID, messageDate, direction, channelType, text string, attachments, quickreplies []string) Message {
+func NewMessage(contactURN, contactUUID, channelUUID, messageID, messageDate, direction, channelType, text string, attachments, quickreplies []string, metadata string) Message {
 	return Message{
 		ContactURN:   contactURN,
 		ContactUUID:  contactUUID,
@@ -46,6 +47,7 @@ func NewMessage(contactURN, contactUUID, channelUUID, messageID, messageDate, di
 		Text:         text,
 		Attachments:  attachments,
 		QuickReplies: quickreplies,
+		Metadata:     metadata,
 	}
 }
 

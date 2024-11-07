@@ -1,6 +1,10 @@
+1.18.3
+----------
+ * Hotfix: MsgParts index out of range
+
 1.18.2
 ----------
-  * Feat: configuration for billing queue name on env var
+ * Feat: configuration for billing queue name on env var
 
 1.18.1
 ----------

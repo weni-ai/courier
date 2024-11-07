@@ -1492,10 +1492,6 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 	for i := 0; i < len(msgParts)+len(msg.Attachments()); i++ {
 
-		if i > len(msgParts) || len(msgParts) <= 0 {
-			return nil, fmt.Errorf("unrecognized index %d for message %d, msgParts length %d", i, msg.ID(), len(msgParts))
-		}
-
 		payload := wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path()}
 
 		// do we have a template?
@@ -1994,6 +1990,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				// We can use buttons
 				if len(qrs) <= 3 && len(msg.ListMessage().ListItems) == 0 {
 					hasCaption = true
+
+					if len(msgParts) == 0 {
+						return nil, fmt.Errorf("message body cannot be empty")
+					}
+
 					interactive := wacInteractive{
 						Type: "button",
 						Body: struct {

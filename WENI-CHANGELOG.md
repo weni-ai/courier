@@ -1,3 +1,7 @@
+1.18.4
+----------
+ * Fix: Handle error for Whatsapp messages without text but with quick replies and attachments 
+
 1.18.3
 ----------
  * Hotfix: MsgParts index out of range

@@ -875,6 +875,12 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"order_details","header":{"type":"image","image":{"link":"https://foo.bar/image.jpg"}},"body":{"text":"msg text"},"footer":{"text":"footer text"},"action":{"name":"review_and_pay","parameters":{"currency":"BRL","order":{"status":"pending","catalog_id":"c4t4l0g-1D","items":[{"retailer_id":"789236789","name":"item 1","quantity":2,"amount":{"value":200,"offset":100}},{"retailer_id":"59016733","name":"item 2","quantity":9,"amount":{"value":4000,"offset":100},"sale_amount":{"value":2000,"offset":100}}],"subtotal":{"value":36400,"offset":100},"tax":{"value":500,"offset":100,"description":"tax description"},"shipping":{"value":900,"offset":100,"description":"shipping description"},"discount":{"value":1000,"offset":100,"description":"discount description","discount_program_name":"discount program name"}},"payment_settings":[{"payment_link":{"uri":"https://foo.bar"},"type":"payment_link"},{"pix_dynamic_code":{"code":"pix-code","key":"pix-key","key_type":"EMAIL","merchant_name":"merchant name"},"type":"pix_dynamic_code"}],"payment_type":"br","reference_id":"220788123125","total_amount":{"value":18200,"offset":100},"type":"digital-goods"}}}}`,
 		SendPrep:    setSendURL},
+	{Label: "Mesage without text and with quick replies and attachments should not be sent",
+		Text: "", URN: "whatsapp:250788123123",
+		QuickReplies: []string{"Yes", "No"},
+		Attachments:  []string{"video/mp4:https://foo.bar/video.mp4"},
+		Error:        `message body cannot be empty`,
+	},
 }
 
 var CachedSendTestCasesWAC = []ChannelSendTestCase{

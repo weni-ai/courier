@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/buger/jsonparser"
 	"github.com/nyaruka/courier/billing"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/librato"
@@ -292,23 +293,28 @@ func (w *Sender) sendMessage(msg Msg) {
 			librato.Gauge(fmt.Sprintf("courier.msg_send_%s", msg.Channel().ChannelType()), secondDuration)
 		}
 
-		if status.Status() != MsgErrored && status.Status() != MsgFailed {
-			if msg.Channel().ChannelType() != "WAC" {
-				billingMsg := billing.NewMessage(
-					string(msg.URN().Identity()),
-					"",
-					msg.Channel().UUID().String(),
-					msg.ExternalID(),
-					time.Now().Format(time.RFC3339),
-					"O",
-					msg.Channel().ChannelType().String(),
-					msg.Text(),
-					msg.Attachments(),
-					msg.QuickReplies(),
-					string(msg.Metadata()),
-				)
-				if w.foreman.server.Billing() != nil {
-					w.foreman.server.Billing().SendAsync(billingMsg, nil, nil)
+		sentWithSuccess := status.Status() != MsgErrored && status.Status() != MsgFailed
+		if sentWithSuccess {
+			if w.foreman.server.Billing() != nil {
+				// if ticketer_type is eg: "wenichats" it is a message from ticketer sent by an agent, so must be sent to billing anyway
+				ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
+				fromTicketer := ticketerType != ""
+
+				if fromTicketer || msg.Channel().ChannelType() != "WAC" {
+					billingMsg := billing.NewMessage(
+						string(msg.URN().Identity()),
+						"",
+						msg.Channel().UUID().String(),
+						msg.ExternalID(),
+						time.Now().Format(time.RFC3339),
+						"O",
+						msg.Channel().ChannelType().String(),
+						msg.Text(),
+						msg.Attachments(),
+						msg.QuickReplies(),
+						fromTicketer,
+					)
+					w.foreman.server.Billing().SendAsync(billingMsg, billing.RoutingKeyCreate, nil, nil)
 				}
 			}
 		}

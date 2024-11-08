@@ -25,7 +25,7 @@ func TestServer(t *testing.T) {
 		"amqp://localhost:5672/",
 		config.RabbitmqRetryPubAttempts,
 		config.RabbitmqRetryPubDelay,
-		config.BillingQueueName,
+		config.BillingExchangeName,
 	)
 	if err != nil {
 		logrus.Fatalf("Error creating billing RabbitMQ client: %v", err)

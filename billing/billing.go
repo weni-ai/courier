@@ -12,6 +12,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	RoutingKeyCreate = "create"
+	RoutingKeyUpdate = "status-update"
+)
+
 // Message represents a object that is sent to the billing service
 //
 //	{
@@ -31,11 +36,11 @@ type Message struct {
 	Text         string   `json:"text,omitempty"`
 	Attachments  []string `json:"attachments,omitempty"`
 	QuickReplies []string `json:"quick_replies,omitempty"`
-	Metadata     string   `json:"metadata"`
+	FromTicketer bool     `json:"from_ticketer"`
 }
 
 // Create a new message
-func NewMessage(contactURN, contactUUID, channelUUID, messageID, messageDate, direction, channelType, text string, attachments, quickreplies []string, metadata string) Message {
+func NewMessage(contactURN, contactUUID, channelUUID, messageID, messageDate, direction, channelType, text string, attachments, quickreplies []string, fromTicketer bool) Message {
 	return Message{
 		ContactURN:   contactURN,
 		ContactUUID:  contactUUID,
@@ -47,25 +52,25 @@ func NewMessage(contactURN, contactUUID, channelUUID, messageID, messageDate, di
 		Text:         text,
 		Attachments:  attachments,
 		QuickReplies: quickreplies,
-		Metadata:     metadata,
+		FromTicketer: fromTicketer,
 	}
 }
 
 // Client represents a client interface for billing service
 type Client interface {
-	Send(msg Message) error
-	SendAsync(msg Message, pre func(), post func())
+	Send(msg Message, routingKey string) error
+	SendAsync(msg Message, routingKey string, pre func(), post func())
 }
 
 // rabbitmqRetryClient represents struct that implements billing service client interface
 type rabbitmqRetryClient struct {
-	publisher rabbitroutine.Publisher
-	conn      *rabbitroutine.Connector
-	queueName string
+	publisher    rabbitroutine.Publisher
+	conn         *rabbitroutine.Connector
+	exchangeName string
 }
 
 // NewRMQBillingResilientClient creates a new billing service client implementation using RabbitMQ with publish retry and reconnect features
-func NewRMQBillingResilientClient(url string, retryAttempts int, retryDelay int, queueName string) (Client, error) {
+func NewRMQBillingResilientClient(url string, retryAttempts int, retryDelay int, exchangeName string) (Client, error) {
 	cconn, err := amqp.Dial(url)
 	if err != nil {
 		return nil, err
@@ -77,17 +82,6 @@ func NewRMQBillingResilientClient(url string, retryAttempts int, retryDelay int,
 		return nil, errors.Wrap(err, "failed to open a channel to rabbitmq")
 	}
 	defer ch.Close()
-	_, err = ch.QueueDeclare(
-		queueName,
-		false,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to declare a queue for billing publisher")
-	}
 
 	conn := rabbitroutine.NewConnector(rabbitroutine.Config{
 		ReconnectAttempts: 1000,
@@ -125,19 +119,19 @@ func NewRMQBillingResilientClient(url string, retryAttempts int, retryDelay int,
 	}()
 
 	return &rabbitmqRetryClient{
-		publisher: pub,
-		conn:      conn,
-		queueName: queueName,
+		publisher:    pub,
+		conn:         conn,
+		exchangeName: exchangeName,
 	}, nil
 }
 
-func (c *rabbitmqRetryClient) Send(msg Message) error {
+func (c *rabbitmqRetryClient) Send(msg Message, routingKey string) error {
 	msgMarshalled, _ := json.Marshal(msg)
 	ctx := context.Background()
 	err := c.publisher.Publish(
 		ctx,
-		"",
-		c.queueName,
+		c.exchangeName,
+		routingKey,
 		amqp.Publishing{
 			ContentType: "application/json",
 			Body:        msgMarshalled,
@@ -149,7 +143,7 @@ func (c *rabbitmqRetryClient) Send(msg Message) error {
 	return nil
 }
 
-func (c *rabbitmqRetryClient) SendAsync(msg Message, pre func(), post func()) {
+func (c *rabbitmqRetryClient) SendAsync(msg Message, routingKey string, pre func(), post func()) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -159,7 +153,7 @@ func (c *rabbitmqRetryClient) SendAsync(msg Message, pre func(), post func()) {
 		if pre != nil {
 			pre()
 		}
-		err := c.Send(msg)
+		err := c.Send(msg, routingKey)
 		if err != nil {
 			logrus.WithError(err).Error("fail to send msg to billing service")
 		}

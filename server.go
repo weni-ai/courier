@@ -574,7 +574,7 @@ func handleBilling(s *server, msg Msg) error {
 		msg.Text(),
 		msg.Attachments(),
 		msg.QuickReplies(),
-		"",
+		false,
 	)
 	billingMsg.ChannelType = string(msg.Channel().ChannelType())
 	billingMsg.Text = msg.Text()
@@ -582,7 +582,7 @@ func handleBilling(s *server, msg Msg) error {
 	billingMsg.QuickReplies = msg.QuickReplies()
 
 	if s.Billing() != nil {
-		s.Billing().SendAsync(billingMsg, nil, nil)
+		s.Billing().SendAsync(billingMsg, billing.RoutingKeyCreate, nil, nil)
 	}
 
 	return nil

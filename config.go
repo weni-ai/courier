@@ -56,7 +56,7 @@ type Config struct {
 	RabbitmqURL              string `help:"rabbitmq url"`
 	RabbitmqRetryPubAttempts int    `help:"rabbitmq retry attempts"`
 	RabbitmqRetryPubDelay    int    `help:"rabbitmq retry delay"`
-	BillingQueueName         string `help:"billing queue name"`
+	BillingExchangeName      string `help:"billing exchange name"`
 
 	EmailProxyURL       string `help:"email proxy url"`
 	EmailProxyAuthToken string `help:"email proxy auth token"`
@@ -91,7 +91,7 @@ func NewConfig() *Config {
 		WaitMediaChannels:            []string{},
 		RabbitmqRetryPubAttempts:     3,
 		RabbitmqRetryPubDelay:        1000,
-		BillingQueueName:             "billing-backup",
+		BillingExchangeName:          "msgs.topic",
 		EmailProxyURL:                "http://localhost:9090",
 		EmailProxyAuthToken:          "",
 	}

@@ -1,3 +1,7 @@
+1.18.5
+----------
+ * Fix: document name on template message for whatsapp cloud
+
 1.18.4
 ----------
  * Fix: Handle error for Whatsapp messages without text but with quick replies and attachments 

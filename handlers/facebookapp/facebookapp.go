@@ -1522,6 +1522,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					header := &wacComponent{Type: "header"}
 
 					attType, attURL := handlers.SplitAttachment(msg.Attachments()[0])
+					fileURL := attURL
 					mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
 					for _, log := range mediaLogs {
 						status.AddLog(log)
@@ -1547,7 +1548,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					} else if attType == "video" {
 						header.Params = append(header.Params, &wacParam{Type: "video", Video: &media})
 					} else if attType == "document" {
-						media.Filename, err = utils.BasePathForURL(attURL)
+						media.Filename, err = utils.BasePathForURL(fileURL)
 						if err != nil {
 							return nil, err
 						}

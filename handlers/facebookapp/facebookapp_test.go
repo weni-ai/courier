@@ -907,6 +907,30 @@ var CachedSendTestCasesWAC = []ChannelSendTestCase{
 			},
 		},
 		SendPrep: setSendURL},
+	{Label: "Media Message Template Send - Document (Cached)",
+		Text: "Media Message Msg", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"application/pdf:https://foo.bar/document2.pdf"},
+		Metadata:    json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "namespace": "wa_template_namespace", "language": "eng", "country": "US", "variables": ["Chef", "tomorrow"]}}`),
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method:       "POST",
+				Path:         "/12345_ID/media",
+				BodyContains: "media bytes",
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{"id":"268c6f24679f9"}`,
+			},
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"revive_issue","language":{"policy":"deterministic","code":"en_US"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]},{"type":"header","parameters":[{"type":"document","document":{"id":"268c6f24679f9","filename":"document2.pdf"}}]}]}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
 }
 
 func mockAttachmentURLs(mediaServer *httptest.Server, testCases []ChannelSendTestCase) []ChannelSendTestCase {

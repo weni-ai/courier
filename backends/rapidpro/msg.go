@@ -1020,3 +1020,44 @@ func (m *DBMsg) OrderDetailsMessage() *courier.OrderDetailsMessage {
 
 	return nil
 }
+
+func (m *DBMsg) Buttons() []courier.ButtonComponent {
+	if m.Metadata_ == nil {
+		return nil
+	}
+
+	var metadata map[string]interface{}
+	err := json.Unmarshal(m.Metadata_, &metadata)
+	if err != nil {
+		return nil
+	}
+
+	if metadata == nil {
+		return nil
+	}
+
+	if buttonsData, ok := metadata["buttons"].([]interface{}); ok {
+		buttons := make([]courier.ButtonComponent, len(buttonsData))
+		for i, button := range buttonsData {
+			buttonMap := button.(map[string]interface{})
+			buttons[i] = courier.ButtonComponent{
+				SubType:    buttonMap["sub_type"].(string),
+				Parameters: []courier.ButtonParam{},
+			}
+
+			if buttonMap["parameters"] != nil {
+				parameters := buttonMap["parameters"].([]interface{})
+				for _, parameter := range parameters {
+					parameterMap := parameter.(map[string]interface{})
+					buttons[i].Parameters = append(buttons[i].Parameters, courier.ButtonParam{
+						Type: parameterMap["type"].(string),
+						Text: parameterMap["text"].(string),
+					})
+				}
+			}
+		}
+		return buttons
+	}
+
+	return nil
+}

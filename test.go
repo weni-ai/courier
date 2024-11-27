@@ -946,6 +946,47 @@ func (m *mockMsg) OrderDetailsMessage() *OrderDetailsMessage {
 	return nil
 }
 
+func (m *mockMsg) Buttons() []ButtonComponent {
+	if m.metadata == nil {
+		return nil
+	}
+
+	var metadata map[string]interface{}
+	err := json.Unmarshal(m.metadata, &metadata)
+	if err != nil {
+		return nil
+	}
+
+	if metadata == nil {
+		return nil
+	}
+
+	if buttonsData, ok := metadata["buttons"].([]interface{}); ok {
+		buttons := make([]ButtonComponent, len(buttonsData))
+		for i, button := range buttonsData {
+			buttonMap := button.(map[string]interface{})
+			buttons[i] = ButtonComponent{
+				SubType:    buttonMap["sub_type"].(string),
+				Parameters: []ButtonParam{},
+			}
+
+			if buttonMap["parameters"] != nil {
+				parameters := buttonMap["parameters"].([]interface{})
+				for _, parameter := range parameters {
+					parameterMap := parameter.(map[string]interface{})
+					buttons[i].Parameters = append(buttons[i].Parameters, ButtonParam{
+						Type: parameterMap["type"].(string),
+						Text: parameterMap["text"].(string),
+					})
+				}
+			}
+		}
+		return buttons
+	}
+
+	return nil
+}
+
 //-----------------------------------------------------------------------------
 // Mock status implementation
 //-----------------------------------------------------------------------------

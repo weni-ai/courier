@@ -12,8 +12,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const QUEUE_NAME = "billing-backup"
-
 // Message represents a object that is sent to the billing service
 //
 //	{
@@ -61,10 +59,11 @@ type Client interface {
 type rabbitmqRetryClient struct {
 	publisher rabbitroutine.Publisher
 	conn      *rabbitroutine.Connector
+	queueName string
 }
 
 // NewRMQBillingResilientClient creates a new billing service client implementation using RabbitMQ with publish retry and reconnect features
-func NewRMQBillingResilientClient(url string, retryAttempts int, retryDelay int) (Client, error) {
+func NewRMQBillingResilientClient(url string, retryAttempts int, retryDelay int, queueName string) (Client, error) {
 	cconn, err := amqp.Dial(url)
 	if err != nil {
 		return nil, err
@@ -77,7 +76,7 @@ func NewRMQBillingResilientClient(url string, retryAttempts int, retryDelay int)
 	}
 	defer ch.Close()
 	_, err = ch.QueueDeclare(
-		QUEUE_NAME,
+		queueName,
 		false,
 		false,
 		false,
@@ -126,6 +125,7 @@ func NewRMQBillingResilientClient(url string, retryAttempts int, retryDelay int)
 	return &rabbitmqRetryClient{
 		publisher: pub,
 		conn:      conn,
+		queueName: queueName,
 	}, nil
 }
 
@@ -135,7 +135,7 @@ func (c *rabbitmqRetryClient) Send(msg Message) error {
 	err := c.publisher.Publish(
 		ctx,
 		"",
-		QUEUE_NAME,
+		c.queueName,
 		amqp.Publishing{
 			ContentType: "application/json",
 			Body:        msgMarshalled,

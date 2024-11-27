@@ -1,3 +1,26 @@
+1.18.5
+----------
+ * Fix: document name on template message for whatsapp cloud
+
+1.18.4
+----------
+ * Fix: Handle error for Whatsapp messages without text but with quick replies and attachments 
+
+1.18.3
+----------
+ * Hotfix: MsgParts index out of range
+
+1.18.2
+----------
+ * Feat: configuration for billing queue name on env var
+
+1.18.1
+----------
+ * Fix: document name when message have quick replies on whatsapp handler
+ * Fix: document name when message have quick replies on facebookapp handler for whatsapp cloud api
+ * Fix: backslashes for headerText, footer and ctaMessage
+ * Fix: handle empty flow data to not be sent as empty object in request
+
 1.18.0
 ----------
  * Search for contact and update a Teams contact with the serviceURL

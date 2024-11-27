@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+const billingTestQueueName = "testqueue"
+
 func TestInitialization(t *testing.T) {
 	connURL := "amqp://localhost:5672/"
 	conn, err := amqp.Dial(connURL)
@@ -25,7 +27,7 @@ func TestInitialization(t *testing.T) {
 	}
 	defer conn.Close()
 	defer ch.Close()
-	defer ch.QueueDelete(QUEUE_NAME, false, false, false)
+	defer ch.QueueDelete(billingTestQueueName, false, false, false)
 }
 
 func TestBillingResilientClient(t *testing.T) {
@@ -37,7 +39,7 @@ func TestBillingResilientClient(t *testing.T) {
 		t.Fatal(errors.Wrap(err, "failed to declare a channel for consumer"))
 	}
 	defer ch.Close()
-	defer ch.QueueDelete(QUEUE_NAME, false, false, false)
+	defer ch.QueueDelete(billingTestQueueName, false, false, false)
 
 	msgUUID, _ := uuid.NewV4()
 	msg := NewMessage(
@@ -53,14 +55,14 @@ func TestBillingResilientClient(t *testing.T) {
 		nil,
 	)
 
-	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000)
+	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000, billingTestQueueName)
 	time.Sleep(1 * time.Second)
 	assert.NoError(t, err)
 	err = billingClient.Send(msg)
 	assert.NoError(t, err)
 
 	msgs, err := ch.Consume(
-		QUEUE_NAME,
+		billingTestQueueName,
 		"",
 		true,
 		false,
@@ -101,7 +103,7 @@ func TestBillingResilientClientSendAsync(t *testing.T) {
 		t.Fatal(errors.Wrap(err, "failed to declare a channel for consumer"))
 	}
 	defer ch.Close()
-	defer ch.QueueDelete(QUEUE_NAME, false, false, false)
+	defer ch.QueueDelete(billingTestQueueName, false, false, false)
 
 	msgUUID, _ := uuid.NewV4()
 	msg := NewMessage(
@@ -117,14 +119,14 @@ func TestBillingResilientClientSendAsync(t *testing.T) {
 		nil,
 	)
 
-	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000)
+	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000, billingTestQueueName)
 	time.Sleep(1 * time.Second)
 	assert.NoError(t, err)
 	billingClient.SendAsync(msg, nil, nil)
 
 	assert.NoError(t, err)
 	msgs, err := ch.Consume(
-		QUEUE_NAME,
+		billingTestQueueName,
 		"",
 		true,
 		false,
@@ -165,7 +167,7 @@ func TestBillingResilientClientSendAsyncWithPanic(t *testing.T) {
 		t.Fatal(errors.Wrap(err, "failed to declare a channel for consumer"))
 	}
 	defer ch.Close()
-	defer ch.QueueDelete(QUEUE_NAME, false, false, false)
+	defer ch.QueueDelete(billingTestQueueName, false, false, false)
 
 	msgUUID, _ := uuid.NewV4()
 	msg := NewMessage(
@@ -181,7 +183,7 @@ func TestBillingResilientClientSendAsyncWithPanic(t *testing.T) {
 		nil,
 	)
 
-	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000)
+	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000, billingTestQueueName)
 	time.Sleep(1 * time.Second)
 	assert.NoError(t, err)
 	time.Sleep(1 * time.Second)
@@ -189,7 +191,7 @@ func TestBillingResilientClientSendAsyncWithPanic(t *testing.T) {
 
 	assert.NoError(t, err)
 	msgs, err := ch.Consume(
-		QUEUE_NAME,
+		billingTestQueueName,
 		"",
 		false,
 		false,

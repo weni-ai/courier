@@ -860,6 +860,13 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"flow","header":{"type":"text","text":"header text"},"body":{"text":"msg text"},"footer":{"text":"footer text"},"action":{"name":"flow","parameters":{"flow_action":"navigate","flow_action_payload":{"data":{"list":[1,2],"name":"John Doe"},"screen":"WELCOME_SCREEN"},"flow_cta":"Start Flow","flow_id":"29287124123","flow_message_version":"3","flow_token":"547deaf7-7620-4434-95b3-58675999c4b7","mode":"published"}}}}`,
 		SendPrep:    setSendURL},
+	{Label: "Send Flow Message without flow data",
+		Metadata: json.RawMessage(`{"flow_message":{"flow_id": "29287124123", "flow_screen": "WELCOME_SCREEN", "flow_cta": "Start Flow", "flow_data": {}, "flow_mode":"published"},"footer":"footer text","header_text":"header text","header_type":"text","interaction_type":"flow_msg","text":"msgs text"}`),
+		Text:     "msg text", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"flow","header":{"type":"text","text":"header text"},"body":{"text":"msg text"},"footer":{"text":"footer text"},"action":{"name":"flow","parameters":{"flow_action":"navigate","flow_action_payload":{"screen":"WELCOME_SCREEN"},"flow_cta":"Start Flow","flow_id":"29287124123","flow_message_version":"3","flow_token":"338ff339-5663-49ed-8ef6-384876655d1b","mode":"published"}}}}`,
+		SendPrep:    setSendURL},
 	{Label: "Send Order Details Message",
 		Metadata: json.RawMessage(`{"order_details_message":{"reference_id":"220788123125","total_amount":18200,"order":{"catalog_id":"14578923723","items":[{"retailer_id":"789236789","name":"item 1","amount":{"offset":100,"value":200},"quantity":2},{"retailer_id":"59016733","name":"item 2","amount":{"offset":100,"value":4000},"quantity":9,"sale_amount":{"offset":100,"value":2000}}],"subtotal":36400,"tax":{"value":500,"description":"tax description"},"shipping":{"value":900,"description":"shipping description"},"discount":{"value":1000,"description":"discount description","program_name":"discount program name"}},"payment_settings":{"type":"digital-goods","payment_link":"https://foo.bar","pix_config":{"key":"pix-key","key_type":"EMAIL","merchant_name":"merchant name","code":"pix-code"}}},"footer":"footer text","header_type":"media","interaction_type":"order_details","text":"msgs text"}`),
 		Text:     "msg text", URN: "whatsapp:250788123123",
@@ -884,6 +891,12 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"revive_issue","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]},{"type":"button","sub_type":"url","index":0,"parameters":[{"type":"text","text":"first param"}]}]}}`,
 		SendPrep:    setSendURL},
+	{Label: "Mesage without text and with quick replies and attachments should not be sent",
+		Text: "", URN: "whatsapp:250788123123",
+		QuickReplies: []string{"Yes", "No"},
+		Attachments:  []string{"video/mp4:https://foo.bar/video.mp4"},
+		Error:        `message body cannot be empty`,
+	},
 }
 
 var CachedSendTestCasesWAC = []ChannelSendTestCase{
@@ -904,6 +917,30 @@ var CachedSendTestCasesWAC = []ChannelSendTestCase{
 				Method: "POST",
 				Path:   "/12345_ID/messages",
 				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"button","header":{"type":"document","document":{"id":"157b5e14568e8","filename":"document.pdf"}},"body":{"text":"Interactive Button Msg"},"action":{"buttons":[{"type":"reply","reply":{"id":"0","title":"BUTTON1"}}]}}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
+	{Label: "Media Message Template Send - Document (Cached)",
+		Text: "Media Message Msg", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"application/pdf:https://foo.bar/document2.pdf"},
+		Metadata:    json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "namespace": "wa_template_namespace", "language": "eng", "country": "US", "variables": ["Chef", "tomorrow"]}}`),
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method:       "POST",
+				Path:         "/12345_ID/media",
+				BodyContains: "media bytes",
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{"id":"268c6f24679f9"}`,
+			},
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"revive_issue","language":{"policy":"deterministic","code":"en_US"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]},{"type":"header","parameters":[{"type":"document","document":{"id":"268c6f24679f9","filename":"document2.pdf"}}]}]}}`,
 			}: MockedResponse{
 				Status: 201,
 				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,

@@ -1341,18 +1341,23 @@ type wacMTButton struct {
 	} `json:"reply" validate:"required"`
 }
 
+type wacMTAction struct {
+	OrderDetails *wacOrderDetails `json:"order_details,omitempty"`
+}
+
 type wacParam struct {
-	Type     string      `json:"type"`
-	Text     string      `json:"text,omitempty"`
-	Image    *wacMTMedia `json:"image,omitempty"`
-	Document *wacMTMedia `json:"document,omitempty"`
-	Video    *wacMTMedia `json:"video,omitempty"`
+	Type     string       `json:"type"`
+	Text     string       `json:"text,omitempty"`
+	Image    *wacMTMedia  `json:"image,omitempty"`
+	Document *wacMTMedia  `json:"document,omitempty"`
+	Video    *wacMTMedia  `json:"video,omitempty"`
+	Action   *wacMTAction `json:"action,omitempty"`
 }
 
 type wacComponent struct {
 	Type    string      `json:"type"`
 	SubType string      `json:"sub_type,omitempty"`
-	Index   string      `json:"index,omitempty"`
+	Index   *int        `json:"index,omitempty"`
 	Params  []*wacParam `json:"parameters"`
 }
 
@@ -1372,7 +1377,11 @@ type wacTemplate struct {
 	Components []*wacComponent `json:"components"`
 }
 
-type wacInteractive struct {
+type wacInteractiveActionParams interface {
+	~map[string]any | wacOrderDetails
+}
+
+type wacInteractive[P wacInteractiveActionParams] struct {
 	Type   string `json:"type"`
 	Header *struct {
 		Type     string      `json:"type"`
@@ -1388,17 +1397,17 @@ type wacInteractive struct {
 		Text string `json:"text,omitempty"`
 	} `json:"footer,omitempty"`
 	Action *struct {
-		Button            string                 `json:"button,omitempty"`
-		Sections          []wacMTSection         `json:"sections,omitempty"`
-		Buttons           []wacMTButton          `json:"buttons,omitempty"`
-		CatalogID         string                 `json:"catalog_id,omitempty"`
-		ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
-		Name              string                 `json:"name,omitempty"`
-		Parameters        map[string]interface{} `json:"parameters,omitempty"`
+		Button            string         `json:"button,omitempty"`
+		Sections          []wacMTSection `json:"sections,omitempty"`
+		Buttons           []wacMTButton  `json:"buttons,omitempty"`
+		CatalogID         string         `json:"catalog_id,omitempty"`
+		ProductRetailerID string         `json:"product_retailer_id,omitempty"`
+		Name              string         `json:"name,omitempty"`
+		Parameters        P              `json:"parameters,omitempty"`
 	} `json:"action,omitempty"`
 }
 
-type wacMTPayload struct {
+type wacMTPayload[P wacInteractiveActionParams] struct {
 	MessagingProduct string `json:"messaging_product"`
 	RecipientType    string `json:"recipient_type"`
 	To               string `json:"to"`
@@ -1412,7 +1421,7 @@ type wacMTPayload struct {
 	Video    *wacMTMedia `json:"video,omitempty"`
 	Sticker  *wacMTMedia `json:"sticker,omitempty"`
 
-	Interactive *wacInteractive `json:"interactive,omitempty"`
+	Interactive *wacInteractive[P] `json:"interactive,omitempty"`
 
 	Template *wacTemplate `json:"template,omitempty"`
 }
@@ -1433,6 +1442,33 @@ type wacMTSectionProduct struct {
 
 type wacMTProductItem struct {
 	ProductRetailerID string `json:"product_retailer_id" validate:"required"`
+}
+
+type wacOrderDetailsPixDynamicCode struct {
+	Code         string `json:"code" validate:"required"`
+	MerchantName string `json:"merchant_name" validate:"required"`
+	Key          string `json:"key" validate:"required"`
+	KeyType      string `json:"key_type" validate:"required"`
+}
+
+type wacOrderDetailsPaymentLink struct {
+	URI string `json:"uri" validate:"required"`
+}
+
+type wacOrderDetailsPaymentSetting struct {
+	Type           string                         `json:"type" validate:"required"`
+	PaymentLink    *wacOrderDetailsPaymentLink    `json:"payment_link,omitempty"`
+	PixDynamicCode *wacOrderDetailsPixDynamicCode `json:"pix_dynamic_code,omitempty"`
+}
+
+type wacOrderDetails struct {
+	ReferenceID     string                          `json:"reference_id" validate:"required"`
+	Type            string                          `json:"type" validate:"required"`
+	PaymentType     string                          `json:"payment_type" validate:"required"`
+	PaymentSettings []wacOrderDetailsPaymentSetting `json:"payment_settings" validate:"required"`
+	Currency        string                          `json:"currency" validate:"required"`
+	TotalAmount     wacAmountWithOffset             `json:"total_amount" validate:"required"`
+	Order           wacOrder                        `json:"order" validate:"required"`
 }
 
 type wacOrder struct {
@@ -1488,10 +1524,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 	}
 	qrs := msg.QuickReplies()
 
-	var payloadAudio wacMTPayload
+	var payloadAudio wacMTPayload[map[string]any]
 
 	for i := 0; i < len(msgParts)+len(msg.Attachments()); i++ {
-		payload := wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path()}
+		payload := wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path()}
 
 		// do we have a template?
 		var templating *MsgTemplating
@@ -1557,6 +1593,23 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					payload.Template.Components = append(payload.Template.Components, header)
 				}
 
+				if msg.OrderDetailsMessage() != nil {
+					index := 0
+					button := &wacComponent{Type: "button", SubType: "order_details", Index: &index}
+
+					paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
+
+					param := wacParam{
+						Type: "action",
+						Action: &wacMTAction{
+							OrderDetails: mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount),
+						},
+					}
+
+					button.Params = append(button.Params, &param)
+					payload.Template.Components = append(payload.Template.Components, button)
+				}
+
 			} else {
 				if i < (len(msgParts) + len(msg.Attachments()) - 1) {
 					if strings.Contains(msgParts[i-len(msg.Attachments())], "https://") || strings.Contains(msgParts[i-len(msg.Attachments())], "http://") {
@@ -1573,7 +1626,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						payload.Type = "interactive"
 						// We can use buttons
 						if len(qrs) > 0 && len(qrs) <= 3 {
-							interactive := wacInteractive{
+							interactive := wacInteractive[map[string]any]{
 								Type: "button",
 								Body: struct {
 									Text string "json:\"text\""
@@ -1623,7 +1676,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							}{Buttons: btns}
 							payload.Interactive = &interactive
 						} else if len(qrs) <= 10 || len(msg.ListMessage().ListItems) > 0 {
-							interactive := wacInteractive{
+							interactive := wacInteractive[map[string]any]{
 								Type: "list",
 								Body: struct {
 									Text string "json:\"text\""
@@ -1697,7 +1750,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						}
 					} else if msg.InteractionType() == "location" {
 						payload.Type = "interactive"
-						interactive := wacInteractive{
+						interactive := wacInteractive[map[string]any]{
 							Type: "location_request_message",
 							Body: struct {
 								Text string "json:\"text\""
@@ -1717,7 +1770,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					} else if msg.InteractionType() == "cta_url" {
 						if ctaMessage := msg.CTAMessage(); ctaMessage != nil {
 							payload.Type = "interactive"
-							interactive := wacInteractive{
+							interactive := wacInteractive[map[string]any]{
 								Type: "cta_url",
 								Body: struct {
 									Text string "json:\"text\""
@@ -1758,7 +1811,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					} else if msg.InteractionType() == "flow_msg" {
 						if flowMessage := msg.FlowMessage(); flowMessage != nil {
 							payload.Type = "interactive"
-							interactive := wacInteractive{
+							interactive := wacInteractive[map[string]any]{
 								Type: "flow",
 								Body: struct {
 									Text string "json:\"text\""
@@ -1808,101 +1861,24 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						if orderDetails := msg.OrderDetailsMessage(); orderDetails != nil {
 							payload.Type = "interactive"
 
-							paymentSettings := make([]map[string]interface{}, 0)
+							paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
 
-							if orderDetails.PaymentSettings.PaymentLink != "" {
-								paymentSettings = append(paymentSettings, map[string]interface{}{
-									"type": "payment_link",
-									"payment_link": map[string]interface{}{
-										"uri": orderDetails.PaymentSettings.PaymentLink,
-									},
-								})
-							}
-
-							if orderDetails.PaymentSettings.PixConfig.Code != "" {
-								paymentSettings = append(paymentSettings, map[string]interface{}{
-									"type": "pix_dynamic_code",
-									"pix_dynamic_code": map[string]interface{}{
-										"code":          orderDetails.PaymentSettings.PixConfig.Code,
-										"merchant_name": orderDetails.PaymentSettings.PixConfig.MerchantName,
-										"key":           orderDetails.PaymentSettings.PixConfig.Key,
-										"key_type":      orderDetails.PaymentSettings.PixConfig.KeyType,
-									},
-								})
-							}
-
-							strCatalogID := msg.Channel().StringConfigForKey("catalog_id", "")
-							var catalogID *string
-							if strCatalogID != "" {
-								catalogID = &strCatalogID
-							}
-
-							orderTax := wacAmountWithOffset{
-								Value:       0,
-								Offset:      100,
-								Description: orderDetails.Order.Tax.Description,
-							}
-							if orderDetails.Order.Tax.Value > 0 {
-								orderTax.Value = orderDetails.Order.Tax.Value
-							}
-
-							var orderShipping *wacAmountWithOffset
-							var orderDiscount *wacAmountWithOffset
-							if orderDetails.Order.Shipping.Value > 0 {
-								orderShipping = &wacAmountWithOffset{
-									Value:       orderDetails.Order.Shipping.Value,
-									Offset:      100,
-									Description: orderDetails.Order.Shipping.Description,
-								}
-							}
-
-							if orderDetails.Order.Discount.Value > 0 {
-								orderDiscount = &wacAmountWithOffset{
-									Value:               orderDetails.Order.Discount.Value,
-									Offset:              100,
-									Description:         orderDetails.Order.Discount.Description,
-									DiscountProgramName: orderDetails.Order.Discount.ProgramName,
-								}
-							}
-
-							interactive := wacInteractive{
+							interactive := wacInteractive[wacOrderDetails]{
 								Type: "order_details",
 								Body: struct {
 									Text string "json:\"text\""
 								}{Text: msgParts[i-len(msg.Attachments())]},
 								Action: &struct {
-									Button            string                 "json:\"button,omitempty\""
-									Sections          []wacMTSection         "json:\"sections,omitempty\""
-									Buttons           []wacMTButton          "json:\"buttons,omitempty\""
-									CatalogID         string                 "json:\"catalog_id,omitempty\""
-									ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
-									Name              string                 "json:\"name,omitempty\""
-									Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+									Button            string          "json:\"button,omitempty\""
+									Sections          []wacMTSection  "json:\"sections,omitempty\""
+									Buttons           []wacMTButton   "json:\"buttons,omitempty\""
+									CatalogID         string          "json:\"catalog_id,omitempty\""
+									ProductRetailerID string          "json:\"product_retailer_id,omitempty\""
+									Name              string          "json:\"name,omitempty\""
+									Parameters        wacOrderDetails "json:\"parameters,omitempty\""
 								}{
-									Name: "review_and_pay",
-									Parameters: map[string]interface{}{
-										"reference_id":     orderDetails.ReferenceID,
-										"type":             orderDetails.PaymentSettings.Type,
-										"payment_type":     "br",
-										"payment_settings": paymentSettings,
-										"currency":         "BRL",
-										"total_amount": wacAmountWithOffset{
-											Value:  orderDetails.TotalAmount,
-											Offset: 100,
-										},
-										"order": wacOrder{
-											Status:    "pending",
-											CatalogID: *catalogID,
-											Items:     orderDetails.Order.Items,
-											Subtotal: wacAmountWithOffset{
-												Value:  orderDetails.Order.Subtotal,
-												Offset: 100,
-											},
-											Tax:      orderTax,
-											Shipping: orderShipping,
-											Discount: orderDiscount,
-										},
-									},
+									Name:       "review_and_pay",
+									Parameters: *mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount),
 								},
 							}
 							if msg.Footer() != "" {
@@ -1911,7 +1887,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								}{Text: msg.Footer()}
 							}
 
-							payload.Interactive = &interactive
+							payload.Interactive = castInteractive[wacOrderDetails, map[string]any](interactive)
 						}
 					} else {
 						// this is still a msg part
@@ -1989,7 +1965,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				// We can use buttons
 				if len(qrs) <= 3 && len(msg.ListMessage().ListItems) == 0 {
 					hasCaption = true
-					interactive := wacInteractive{
+					interactive := wacInteractive[map[string]any]{
 						Type: "button",
 						Body: struct {
 							Text string "json:\"text\""
@@ -1998,6 +1974,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 					if len(msg.Attachments()) > 0 {
 						attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
+						fileURL := attURL
 						mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
 						for _, log := range mediaLogs {
 							status.AddLog(log)
@@ -2011,9 +1988,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						if attType == "application" {
 							attType = "document"
 						}
-						fileURL := attURL
 						media := wacMTMedia{ID: mediaID, Link: attURL}
-
 						if attType == "image" {
 							interactive.Header = &struct {
 								Type     string      "json:\"type\""
@@ -2048,7 +2023,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							if i == 0 {
 								zeroIndex = true
 							}
-							payloadAudio = wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path(), Type: "audio", Audio: &wacMTMedia{ID: mediaID, Link: attURL}}
+							payloadAudio = wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path(), Type: "audio", Audio: &wacMTMedia{ID: mediaID, Link: attURL}}
 							status, _, err := requestWAC(payloadAudio, token, msg, status, wacPhoneURL, zeroIndex)
 							if err != nil {
 								return status, nil
@@ -2084,7 +2059,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						}{Text: msg.Footer()}
 					}
 				} else if len(qrs) <= 10 || len(msg.ListMessage().ListItems) > 0 {
-					interactive := wacInteractive{
+					interactive := wacInteractive[map[string]any]{
 						Type: "list",
 						Body: struct {
 							Text string "json:\"text\""
@@ -2147,7 +2122,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					return nil, fmt.Errorf("too many quick replies WAC supports only up to 10 quick replies")
 				}
 			} else if msg.InteractionType() == "location" {
-				interactive := wacInteractive{Type: "location_request_message", Body: struct {
+				interactive := wacInteractive[map[string]any]{Type: "location_request_message", Body: struct {
 					Text string "json:\"text\""
 				}{Text: msgParts[i-len(msg.Attachments())]}, Action: &struct {
 					Button            string                 "json:\"button,omitempty\""
@@ -2162,7 +2137,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				payload.Interactive = &interactive
 			} else if msg.InteractionType() == "cta_url" {
 				if ctaMessage := msg.CTAMessage(); ctaMessage != nil {
-					interactive := wacInteractive{
+					interactive := wacInteractive[map[string]any]{
 						Type: "cta_url",
 						Body: struct {
 							Text string "json:\"text\""
@@ -2203,7 +2178,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				}
 			} else if msg.InteractionType() == "flow_msg" {
 				if flowMessage := msg.FlowMessage(); flowMessage != nil {
-					interactive := wacInteractive{
+					interactive := wacInteractive[map[string]any]{
 						Type: "flow",
 						Body: struct {
 							Text string "json:\"text\""
@@ -2255,100 +2230,24 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					hasCaption = true
 					payload.Type = "interactive"
 
-					paymentSettings := make([]map[string]interface{}, 0)
+					paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
 
-					if orderDetails.PaymentSettings.PaymentLink != "" {
-						paymentSettings = append(paymentSettings, map[string]interface{}{
-							"type": "payment_link",
-							"payment_link": map[string]interface{}{
-								"uri": orderDetails.PaymentSettings.PaymentLink,
-							},
-						})
-					}
-					if orderDetails.PaymentSettings.PixConfig.Code != "" {
-						paymentSettings = append(paymentSettings, map[string]interface{}{
-							"type": "pix_dynamic_code",
-							"pix_dynamic_code": map[string]interface{}{
-								"code":          orderDetails.PaymentSettings.PixConfig.Code,
-								"merchant_name": orderDetails.PaymentSettings.PixConfig.MerchantName,
-								"key":           orderDetails.PaymentSettings.PixConfig.Key,
-								"key_type":      orderDetails.PaymentSettings.PixConfig.KeyType,
-							},
-						})
-					}
-
-					strCatalogID := msg.Channel().StringConfigForKey("catalog_id", "")
-					var catalogID *string
-					if strCatalogID != "" {
-						catalogID = &strCatalogID
-					}
-
-					orderTax := wacAmountWithOffset{
-						Value:       0,
-						Offset:      100,
-						Description: orderDetails.Order.Tax.Description,
-					}
-					if orderDetails.Order.Tax.Value > 0 {
-						orderTax.Value = orderDetails.Order.Tax.Value
-					}
-
-					var orderShipping *wacAmountWithOffset
-					var orderDiscount *wacAmountWithOffset
-					if orderDetails.Order.Shipping.Value > 0 {
-						orderShipping = &wacAmountWithOffset{
-							Value:       orderDetails.Order.Shipping.Value,
-							Offset:      100,
-							Description: orderDetails.Order.Shipping.Description,
-						}
-					}
-
-					if orderDetails.Order.Discount.Value > 0 {
-						orderDiscount = &wacAmountWithOffset{
-							Value:               orderDetails.Order.Discount.Value,
-							Offset:              100,
-							Description:         orderDetails.Order.Discount.Description,
-							DiscountProgramName: orderDetails.Order.Discount.ProgramName,
-						}
-					}
-
-					interactive := wacInteractive{
+					interactive := wacInteractive[wacOrderDetails]{
 						Type: "order_details",
 						Body: struct {
 							Text string "json:\"text\""
 						}{Text: msgParts[i]},
 						Action: &struct {
-							Button            string                 "json:\"button,omitempty\""
-							Sections          []wacMTSection         "json:\"sections,omitempty\""
-							Buttons           []wacMTButton          "json:\"buttons,omitempty\""
-							CatalogID         string                 "json:\"catalog_id,omitempty\""
-							ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
-							Name              string                 "json:\"name,omitempty\""
-							Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+							Button            string          "json:\"button,omitempty\""
+							Sections          []wacMTSection  "json:\"sections,omitempty\""
+							Buttons           []wacMTButton   "json:\"buttons,omitempty\""
+							CatalogID         string          "json:\"catalog_id,omitempty\""
+							ProductRetailerID string          "json:\"product_retailer_id,omitempty\""
+							Name              string          "json:\"name,omitempty\""
+							Parameters        wacOrderDetails "json:\"parameters,omitempty\""
 						}{
-							Name: "review_and_pay",
-							Parameters: map[string]interface{}{
-								"reference_id":     orderDetails.ReferenceID,
-								"type":             orderDetails.PaymentSettings.Type,
-								"payment_type":     "br",
-								"payment_settings": paymentSettings,
-								"currency":         "BRL",
-								"total_amount": wacAmountWithOffset{
-									Value:  orderDetails.TotalAmount,
-									Offset: 100,
-								},
-								"order": wacOrder{
-									Status:    "pending",
-									CatalogID: *catalogID,
-									Items:     orderDetails.Order.Items,
-									Subtotal: wacAmountWithOffset{
-										Value:  orderDetails.Order.Subtotal,
-										Offset: 100,
-									},
-									Tax:      orderTax,
-									Shipping: orderShipping,
-									Discount: orderDiscount,
-								},
-							},
+							Name:       "review_and_pay",
+							Parameters: *mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount),
 						},
 					}
 					if msg.Footer() != "" {
@@ -2374,7 +2273,8 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							return nil, fmt.Errorf("interactive order details message does not support attachments other than images")
 						}
 					}
-					payload.Interactive = &interactive
+
+					payload.Interactive = castInteractive[wacOrderDetails, map[string]any](interactive)
 				}
 			} else {
 				// this is still a msg part
@@ -2425,7 +2325,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			return status, errors.New("Catalog ID not found in channel config")
 		}
 
-		payload := wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path()}
+		payload := wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path()}
 
 		payload.Type = "interactive"
 
@@ -2451,7 +2351,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			interactiveType = InteractiveProductSingleType
 		}
 
-		interactive := wacInteractive{
+		interactive := wacInteractive[map[string]any]{
 			Type: interactiveType,
 		}
 
@@ -2593,7 +2493,114 @@ func parseBacklashes(baseText string) string {
 	return text
 }
 
-func requestWAC(payload wacMTPayload, accessToken string, msg courier.Msg, status courier.MsgStatus, wacPhoneURL *url.URL, zeroIndex bool) (courier.MsgStatus, *wacMTResponse, error) {
+func castInteractive[I, O wacInteractiveActionParams](interactive wacInteractive[I]) *wacInteractive[O] {
+	interactiveJSON, _ := json.Marshal(interactive)
+	interactiveMap := wacInteractive[O]{}
+	json.Unmarshal(interactiveJSON, &interactiveMap)
+	return &interactiveMap
+}
+
+func mountOrderDetails(msg courier.Msg, paymentSettings []wacOrderDetailsPaymentSetting, catalogID *string, orderTax wacAmountWithOffset, orderShipping *wacAmountWithOffset, orderDiscount *wacAmountWithOffset) *wacOrderDetails {
+	return &wacOrderDetails{
+		ReferenceID:     msg.OrderDetailsMessage().ReferenceID,
+		Type:            msg.OrderDetailsMessage().PaymentSettings.Type,
+		PaymentType:     "br",
+		PaymentSettings: paymentSettings,
+		Currency:        "BRL",
+		TotalAmount: wacAmountWithOffset{
+			Value:  msg.OrderDetailsMessage().TotalAmount,
+			Offset: 100,
+		},
+		Order: wacOrder{
+			Status:    "pending",
+			CatalogID: *catalogID,
+			Items:     msg.OrderDetailsMessage().Order.Items,
+			Subtotal: wacAmountWithOffset{
+				Value:  msg.OrderDetailsMessage().Order.Subtotal,
+				Offset: 100,
+			},
+			Tax:      orderTax,
+			Shipping: orderShipping,
+			Discount: orderDiscount,
+		},
+	}
+}
+
+func mountOrderPaymentSettings(orderDetails *courier.OrderDetailsMessage) []wacOrderDetailsPaymentSetting {
+	paymentSettings := make([]wacOrderDetailsPaymentSetting, 0)
+
+	if orderDetails.PaymentSettings.PaymentLink != "" {
+		paymentSettings = append(paymentSettings, wacOrderDetailsPaymentSetting{
+			Type: "payment_link",
+			PaymentLink: &wacOrderDetailsPaymentLink{
+				URI: orderDetails.PaymentSettings.PaymentLink,
+			},
+		})
+	}
+
+	if orderDetails.PaymentSettings.PixConfig.Code != "" {
+		paymentSettings = append(paymentSettings, wacOrderDetailsPaymentSetting{
+			Type: "pix_dynamic_code",
+			PixDynamicCode: &wacOrderDetailsPixDynamicCode{
+				Code:         orderDetails.PaymentSettings.PixConfig.Code,
+				MerchantName: orderDetails.PaymentSettings.PixConfig.MerchantName,
+				Key:          orderDetails.PaymentSettings.PixConfig.Key,
+				KeyType:      orderDetails.PaymentSettings.PixConfig.KeyType,
+			},
+		})
+	}
+
+	return paymentSettings
+}
+
+func mountOrderInfo(msg courier.Msg) ([]wacOrderDetailsPaymentSetting, *string, wacAmountWithOffset, *wacAmountWithOffset, *wacAmountWithOffset) {
+
+	paymentSettings := mountOrderPaymentSettings(msg.OrderDetailsMessage())
+
+	strCatalogID := msg.Channel().StringConfigForKey("catalog_id", "")
+	var catalogID *string
+	if strCatalogID != "" {
+		catalogID = &strCatalogID
+	}
+
+	orderTax, orderShipping, orderDiscount := mountOrderTaxShippingDiscount(msg.OrderDetailsMessage())
+
+	return paymentSettings, catalogID, orderTax, orderShipping, orderDiscount
+}
+
+func mountOrderTaxShippingDiscount(orderDetails *courier.OrderDetailsMessage) (wacAmountWithOffset, *wacAmountWithOffset, *wacAmountWithOffset) {
+	orderTax := wacAmountWithOffset{
+		Value:       0,
+		Offset:      100,
+		Description: orderDetails.Order.Tax.Description,
+	}
+	if orderDetails.Order.Tax.Value > 0 {
+		orderTax.Value = orderDetails.Order.Tax.Value
+	}
+
+	var orderShipping *wacAmountWithOffset
+	var orderDiscount *wacAmountWithOffset
+	if orderDetails.Order.Shipping.Value > 0 {
+		orderShipping = &wacAmountWithOffset{
+			Value:       orderDetails.Order.Shipping.Value,
+			Offset:      100,
+			Description: orderDetails.Order.Shipping.Description,
+		}
+	}
+
+	if orderDetails.Order.Discount.Value > 0 {
+		orderDiscount = &wacAmountWithOffset{
+			Value:               orderDetails.Order.Discount.Value,
+			Offset:              100,
+			Description:         orderDetails.Order.Discount.Description,
+			DiscountProgramName: orderDetails.Order.Discount.ProgramName,
+		}
+	}
+
+	return orderTax, orderShipping, orderDiscount
+}
+
+func requestWAC[P wacInteractiveActionParams](payload wacMTPayload[P], accessToken string, msg courier.Msg, status courier.MsgStatus, wacPhoneURL *url.URL, zeroIndex bool) (courier.MsgStatus, *wacMTResponse, error) {
 	jsonBody, err := json.Marshal(payload)
 	if err != nil {
 		return status, &wacMTResponse{}, err

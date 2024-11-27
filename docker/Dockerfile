@@ -2,7 +2,7 @@ FROM golang:1.23.3-alpine3.19 AS builder
 
 WORKDIR /app
 
-RUN apk add --no-cache --virtual build-deps curl gcc
+RUN apk add --no-cache --virtual build-deps curl gcc libc-dev
 
 COPY go.sum go.mod ./
 RUN --mount=type=cache,target=/go/pkg/mod/ \

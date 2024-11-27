@@ -1491,6 +1491,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 	var payloadAudio wacMTPayload
 
 	for i := 0; i < len(msgParts)+len(msg.Attachments()); i++ {
+
 		payload := wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path()}
 
 		// do we have a template?
@@ -1521,6 +1522,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					header := &wacComponent{Type: "header"}
 
 					attType, attURL := handlers.SplitAttachment(msg.Attachments()[0])
+					fileURL := attURL
 					mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
 					for _, log := range mediaLogs {
 						status.AddLog(log)
@@ -1546,7 +1548,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					} else if attType == "video" {
 						header.Params = append(header.Params, &wacParam{Type: "video", Video: &media})
 					} else if attType == "document" {
-						media.Filename, err = utils.BasePathForURL(attURL)
+						media.Filename, err = utils.BasePathForURL(fileURL)
 						if err != nil {
 							return nil, err
 						}
@@ -1989,6 +1991,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				// We can use buttons
 				if len(qrs) <= 3 && len(msg.ListMessage().ListItems) == 0 {
 					hasCaption = true
+
+					if len(msgParts) == 0 {
+						return nil, fmt.Errorf("message body cannot be empty")
+					}
+
 					interactive := wacInteractive{
 						Type: "button",
 						Body: struct {

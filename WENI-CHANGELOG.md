@@ -1,3 +1,19 @@
+1.18.5
+----------
+ * Fix: document name on template message for whatsapp cloud
+
+1.18.4
+----------
+ * Fix: Handle error for Whatsapp messages without text but with quick replies and attachments 
+
+1.18.3
+----------
+ * Hotfix: MsgParts index out of range
+
+1.18.2
+----------
+ * Feat: configuration for billing queue name on env var
+
 1.18.1
 ----------
  * Fix: document name when message have quick replies on whatsapp handler

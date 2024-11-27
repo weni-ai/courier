@@ -316,7 +316,7 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 			}
 
 			if (len(testCase.Responses)) != 0 {
-				require.Equal(mockRRCount, len(testCase.Responses))
+				require.Equal(len(testCase.Responses), mockRRCount)
 			}
 
 			if testCase.Headers != nil {

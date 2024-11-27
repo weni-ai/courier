@@ -135,6 +135,17 @@ type Msg interface {
 	CTAMessage() *CTAMessage
 	FlowMessage() *FlowMessage
 	OrderDetailsMessage() *OrderDetailsMessage
+	Buttons() []ButtonComponent
+}
+
+type ButtonComponent struct {
+	SubType    string        `json:"sub_type"`
+	Parameters []ButtonParam `json:"parameters"`
+}
+
+type ButtonParam struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
 }
 
 type ListMessage struct {

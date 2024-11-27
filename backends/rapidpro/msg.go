@@ -920,104 +920,143 @@ func (m *DBMsg) OrderDetailsMessage() *courier.OrderDetailsMessage {
 		return nil
 	}
 
-	if interactionType, ok := metadata["interaction_type"].(string); ok && interactionType == "order_details" {
-		if orderDetailsMessageData, ok := metadata["order_details_message"].(map[string]interface{}); ok {
-			orderDetailsMessage := &courier.OrderDetailsMessage{}
-			if referenceID, ok := orderDetailsMessageData["reference_id"].(string); ok {
-				orderDetailsMessage.ReferenceID = referenceID
-			}
-			if paymentSettings, ok := orderDetailsMessageData["payment_settings"].(map[string]interface{}); ok {
-				orderDetailsMessage.PaymentSettings = courier.OrderPaymentSettings{}
-				if payment_type, ok := paymentSettings["type"].(string); ok {
-					orderDetailsMessage.PaymentSettings.Type = payment_type
-				}
-				if payment_link, ok := paymentSettings["payment_link"].(string); ok {
-					orderDetailsMessage.PaymentSettings.PaymentLink = payment_link
-				}
-				if pix_config, ok := paymentSettings["pix_config"].(map[string]interface{}); ok {
-					orderDetailsMessage.PaymentSettings.PixConfig = courier.OrderPixConfig{}
-					if pix_config_key, ok := pix_config["key"].(string); ok {
-						orderDetailsMessage.PaymentSettings.PixConfig.Key = pix_config_key
-					}
-					if pix_config_key_type, ok := pix_config["key_type"].(string); ok {
-						orderDetailsMessage.PaymentSettings.PixConfig.KeyType = pix_config_key_type
-					}
-					if pix_config_merchant_name, ok := pix_config["merchant_name"].(string); ok {
-						orderDetailsMessage.PaymentSettings.PixConfig.MerchantName = pix_config_merchant_name
-					}
-					if pix_config_code, ok := pix_config["code"].(string); ok {
-						orderDetailsMessage.PaymentSettings.PixConfig.Code = pix_config_code
-					}
-				}
-			}
-			if totalAmount, ok := orderDetailsMessageData["total_amount"].(float64); ok {
-				orderDetailsMessage.TotalAmount = int(totalAmount)
-			}
-			if orderData, ok := orderDetailsMessageData["order"].(map[string]interface{}); ok {
-				orderDetailsMessage.Order = courier.Order{}
-				if itemsData, ok := orderData["items"].([]interface{}); ok {
-					orderDetailsMessage.Order.Items = make([]courier.OrderItem, len(itemsData))
-					for i, item := range itemsData {
-						if itemMap, ok := item.(map[string]interface{}); ok {
-							itemAmount := itemMap["amount"].(map[string]interface{})
-							item := courier.OrderItem{
-								RetailerID: itemMap["retailer_id"].(string),
-								Name:       itemMap["name"].(string),
-								Quantity:   int(itemMap["quantity"].(float64)),
-								Amount: courier.OrderAmountWithOffset{
-									Value:  int(itemAmount["value"].(float64)),
-									Offset: int(itemAmount["offset"].(float64)),
-								},
-							}
-
-							if itemMap["sale_amount"] != nil {
-								saleAmount := itemMap["sale_amount"].(map[string]interface{})
-								item.SaleAmount = &courier.OrderAmountWithOffset{
-									Value:  int(saleAmount["value"].(float64)),
-									Offset: int(saleAmount["offset"].(float64)),
-								}
-							}
-
-							orderDetailsMessage.Order.Items[i] = item
-						}
-					}
-				}
-				if subtotal, ok := orderData["subtotal"].(float64); ok {
-					orderDetailsMessage.Order.Subtotal = int(subtotal)
-				}
-				if taxData, ok := orderData["tax"].(map[string]interface{}); ok {
-					orderDetailsMessage.Order.Tax = courier.OrderAmountWithDescription{}
-					if value, ok := taxData["value"].(float64); ok {
-						orderDetailsMessage.Order.Tax.Value = int(value)
-					}
-					if description, ok := taxData["description"].(string); ok {
-						orderDetailsMessage.Order.Tax.Description = description
-					}
-				}
-				if shippingData, ok := orderData["shipping"].(map[string]interface{}); ok {
-					orderDetailsMessage.Order.Shipping = courier.OrderAmountWithDescription{}
-					if value, ok := shippingData["value"].(float64); ok {
-						orderDetailsMessage.Order.Shipping.Value = int(value)
-					}
-					if description, ok := shippingData["description"].(string); ok {
-						orderDetailsMessage.Order.Shipping.Description = description
-					}
-				}
-				if discountData, ok := orderData["discount"].(map[string]interface{}); ok {
-					orderDetailsMessage.Order.Discount = courier.OrderDiscount{}
-					if value, ok := discountData["value"].(float64); ok {
-						orderDetailsMessage.Order.Discount.Value = int(value)
-					}
-					if description, ok := discountData["description"].(string); ok {
-						orderDetailsMessage.Order.Discount.Description = description
-					}
-					if programName, ok := discountData["program_name"].(string); ok {
-						orderDetailsMessage.Order.Discount.ProgramName = programName
-					}
-				}
-			}
-			return orderDetailsMessage
+	if orderDetailsMessageData, ok := metadata["order_details_message"].(map[string]interface{}); ok {
+		orderDetailsMessage := &courier.OrderDetailsMessage{}
+		if referenceID, ok := orderDetailsMessageData["reference_id"].(string); ok {
+			orderDetailsMessage.ReferenceID = referenceID
 		}
+		if paymentSettings, ok := orderDetailsMessageData["payment_settings"].(map[string]interface{}); ok {
+			orderDetailsMessage.PaymentSettings = courier.OrderPaymentSettings{}
+			if payment_type, ok := paymentSettings["type"].(string); ok {
+				orderDetailsMessage.PaymentSettings.Type = payment_type
+			}
+			if payment_link, ok := paymentSettings["payment_link"].(string); ok {
+				orderDetailsMessage.PaymentSettings.PaymentLink = payment_link
+			}
+			if pix_config, ok := paymentSettings["pix_config"].(map[string]interface{}); ok {
+				orderDetailsMessage.PaymentSettings.PixConfig = courier.OrderPixConfig{}
+				if pix_config_key, ok := pix_config["key"].(string); ok {
+					orderDetailsMessage.PaymentSettings.PixConfig.Key = pix_config_key
+				}
+				if pix_config_key_type, ok := pix_config["key_type"].(string); ok {
+					orderDetailsMessage.PaymentSettings.PixConfig.KeyType = pix_config_key_type
+				}
+				if pix_config_merchant_name, ok := pix_config["merchant_name"].(string); ok {
+					orderDetailsMessage.PaymentSettings.PixConfig.MerchantName = pix_config_merchant_name
+				}
+				if pix_config_code, ok := pix_config["code"].(string); ok {
+					orderDetailsMessage.PaymentSettings.PixConfig.Code = pix_config_code
+				}
+			}
+		}
+		if totalAmount, ok := orderDetailsMessageData["total_amount"].(float64); ok {
+			orderDetailsMessage.TotalAmount = int(totalAmount)
+		}
+		if orderData, ok := orderDetailsMessageData["order"].(map[string]interface{}); ok {
+			orderDetailsMessage.Order = courier.Order{}
+			if itemsData, ok := orderData["items"].([]interface{}); ok {
+				orderDetailsMessage.Order.Items = make([]courier.OrderItem, len(itemsData))
+				for i, item := range itemsData {
+					if itemMap, ok := item.(map[string]interface{}); ok {
+						itemAmount := itemMap["amount"].(map[string]interface{})
+						item := courier.OrderItem{
+							RetailerID: itemMap["retailer_id"].(string),
+							Name:       itemMap["name"].(string),
+							Quantity:   int(itemMap["quantity"].(float64)),
+							Amount: courier.OrderAmountWithOffset{
+								Value:  int(itemAmount["value"].(float64)),
+								Offset: int(itemAmount["offset"].(float64)),
+							},
+						}
+
+						if itemMap["sale_amount"] != nil {
+							saleAmount := itemMap["sale_amount"].(map[string]interface{})
+							item.SaleAmount = &courier.OrderAmountWithOffset{
+								Value:  int(saleAmount["value"].(float64)),
+								Offset: int(saleAmount["offset"].(float64)),
+							}
+						}
+
+						orderDetailsMessage.Order.Items[i] = item
+					}
+				}
+			}
+			if subtotal, ok := orderData["subtotal"].(float64); ok {
+				orderDetailsMessage.Order.Subtotal = int(subtotal)
+			}
+			if taxData, ok := orderData["tax"].(map[string]interface{}); ok {
+				orderDetailsMessage.Order.Tax = courier.OrderAmountWithDescription{}
+				if value, ok := taxData["value"].(float64); ok {
+					orderDetailsMessage.Order.Tax.Value = int(value)
+				}
+				if description, ok := taxData["description"].(string); ok {
+					orderDetailsMessage.Order.Tax.Description = description
+				}
+			}
+			if shippingData, ok := orderData["shipping"].(map[string]interface{}); ok {
+				orderDetailsMessage.Order.Shipping = courier.OrderAmountWithDescription{}
+				if value, ok := shippingData["value"].(float64); ok {
+					orderDetailsMessage.Order.Shipping.Value = int(value)
+				}
+				if description, ok := shippingData["description"].(string); ok {
+					orderDetailsMessage.Order.Shipping.Description = description
+				}
+			}
+			if discountData, ok := orderData["discount"].(map[string]interface{}); ok {
+				orderDetailsMessage.Order.Discount = courier.OrderDiscount{}
+				if value, ok := discountData["value"].(float64); ok {
+					orderDetailsMessage.Order.Discount.Value = int(value)
+				}
+				if description, ok := discountData["description"].(string); ok {
+					orderDetailsMessage.Order.Discount.Description = description
+				}
+				if programName, ok := discountData["program_name"].(string); ok {
+					orderDetailsMessage.Order.Discount.ProgramName = programName
+				}
+			}
+		}
+		return orderDetailsMessage
+	}
+
+	return nil
+}
+
+func (m *DBMsg) Buttons() []courier.ButtonComponent {
+	if m.Metadata_ == nil {
+		return nil
+	}
+
+	var metadata map[string]interface{}
+	err := json.Unmarshal(m.Metadata_, &metadata)
+	if err != nil {
+		return nil
+	}
+
+	if metadata == nil {
+		return nil
+	}
+
+	if buttonsData, ok := metadata["buttons"].([]interface{}); ok {
+		buttons := make([]courier.ButtonComponent, len(buttonsData))
+		for i, button := range buttonsData {
+			buttonMap := button.(map[string]interface{})
+			buttons[i] = courier.ButtonComponent{
+				SubType:    buttonMap["sub_type"].(string),
+				Parameters: []courier.ButtonParam{},
+			}
+
+			if buttonMap["parameters"] != nil {
+				parameters := buttonMap["parameters"].([]interface{})
+				for _, parameter := range parameters {
+					parameterMap := parameter.(map[string]interface{})
+					buttons[i].Parameters = append(buttons[i].Parameters, courier.ButtonParam{
+						Type: parameterMap["type"].(string),
+						Text: parameterMap["text"].(string),
+					})
+				}
+			}
+		}
+		return buttons
 	}
 
 	return nil

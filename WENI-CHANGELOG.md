@@ -1,3 +1,8 @@
+1.19.0
+----------
+ * Feat: Add buttons support to whatsapp template message
+ * Feat: Order details template
+
 1.18.5
 ----------
  * Fix: document name on template message for whatsapp cloud

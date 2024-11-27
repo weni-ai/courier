@@ -1611,6 +1611,18 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					payload.Template.Components = append(payload.Template.Components, button)
 				}
 
+				if len(msg.Buttons()) > 0 {
+					for i, button := range msg.Buttons() {
+						buttonComponent := &wacComponent{Type: "button", SubType: button.SubType, Index: &i}
+
+						for _, parameter := range button.Parameters {
+							buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: parameter.Type, Text: parameter.Text})
+						}
+
+						payload.Template.Components = append(payload.Template.Components, buttonComponent)
+					}
+				}
+
 			} else {
 				if i < (len(msgParts) + len(msg.Attachments()) - 1) {
 					if strings.Contains(msgParts[i-len(msg.Attachments())], "https://") || strings.Contains(msgParts[i-len(msg.Attachments())], "http://") {

@@ -316,7 +316,7 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 			}
 
 			if (len(testCase.Responses)) != 0 {
-				require.Equal(mockRRCount, len(testCase.Responses), "Probably MockRequest or MockResponse from testcase is not equal that processed in handler", testCase.Responses)
+				require.Equal(len(testCase.Responses), mockRRCount, "Probably MockRequest or MockResponse from testcase is not equal that processed in handler", testCase.Responses)
 			}
 
 			if testCase.Headers != nil {

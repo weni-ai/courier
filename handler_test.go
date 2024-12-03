@@ -45,7 +45,7 @@ func (h *dummyHandler) Initialize(s Server) error {
 			"amqp://localhost:5672/",
 			3,
 			100,
-			s.Config().BillingQueueName,
+			s.Config().BillingExchangeName,
 		)
 		if err != nil {
 			logrus.Fatalf("Error creating billing RabbitMQ client: %v", err)

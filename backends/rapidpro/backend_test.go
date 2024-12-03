@@ -826,11 +826,11 @@ func (ts *BackendTestSuite) TestOutgoingQueue() {
 	dbMsg.ChannelUUID_, _ = courier.NewChannelUUID("dbc126ed-66bc-4e28-b67b-81dc3327c95d")
 	ts.NotNil(dbMsg)
 
-	// serialize our message
-	msgJSON, err := json.Marshal([]interface{}{dbMsg})
-	ts.NoError(err)
+	var err error
 
-	err = queue.PushOntoQueue(r, msgQueueName, "dbc126ed-66bc-4e28-b67b-81dc3327c95d", 10, string(msgJSON), queue.HighPriority)
+	msgStrJSON := `[{"org_id":1,"id":10000,"uuid":"00000000-0000-0000-0000-000000000000","direction":"O","status":"F","visibility":"V","high_priority":true,"urn":"","urn_auth":"","text":"test message","attachments":null,"external_id":"ext1","response_to_id":null,"response_to_external_id":"","metadata":"{\"ticketer_id\":1}","channel_id":10,"contact_id":100,"contact_urn_id":1000,"msg_count":1,"error_count":3,"channel_uuid":"dbc126ed-66bc-4e28-b67b-81dc3327c95d","contact_name":"","next_attempt":"2024-11-06T20:45:31.123208Z","created_on":"2024-11-06T20:30:14.898168Z","modified_on":"2024-11-06T20:30:31.122974Z","queued_on":"2024-11-06T20:30:14.898168Z","sent_on":null}]`
+
+	err = queue.PushOntoQueue(r, msgQueueName, "dbc126ed-66bc-4e28-b67b-81dc3327c95d", 10, msgStrJSON, queue.HighPriority)
 	ts.NoError(err)
 
 	// pop a message off our queue

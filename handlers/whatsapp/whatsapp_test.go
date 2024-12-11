@@ -819,7 +819,7 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		Text: "Interactive Button Msg", URN: "whatsapp:250788123123", QuickReplies: []string{"BUTTON1"}, Attachments: []string{"video/mp4:https://foo.bar/video.mp4"},
 		Status: "W", ExternalID: "157b5e14568e8",
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
-		RequestBody: `{"to":"250788123123","type":"interactive","interactive":{"type":"button","header":{"type":"video","video":{"link":"https://foo.bar/video.mp4"},"image":{},"document":{}},"body":{"text":"Interactive Button Msg"},"footer":{"text":"Interactive Button Msg"},"action":{"buttons":[{"type":"reply","reply":{"id":"0","title":"BUTTON1"}}]}}}`,
+		RequestBody: `{"to":"250788123123","type":"interactive","interactive":{"type":"button","header":{"type":"video","video":{"link":"https://foo.bar/video.mp4"},"image":{},"document":{}},"body":{"text":"Interactive Button Msg"},"footer":{"text":"footer is here!"},"action":{"buttons":[{"type":"reply","reply":{"id":"0","title":"BUTTON1"}}]}}}`,
 		SendPrep:    setSendURL},
 	{Label: "Media Message Template Send - Image",
 		Text: "Media Message Msg", URN: "whatsapp:250788123123",
@@ -884,7 +884,7 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		Text: "Interactive Button Msg", URN: "whatsapp:250788123123", QuickReplies: []string{"BUTTON1"}, Attachments: []string{"application/pdf:https://foo.bar/document.pdf"},
 		Status: "W", ExternalID: "157b5e14568e8",
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
-		RequestBody: `{"to":"250788123123","type":"interactive","interactive":{"type":"button","header":{"type":"document","video":{},"image":{},"document":{"link":"https://foo.bar/document.pdf","filename":"document.pdf"}},"body":{"text":"Interactive Button Msg"},"footer":{"text":"Interactive Button Msg"},"action":{"buttons":[{"type":"reply","reply":{"id":"0","title":"BUTTON1"}}]}}}`,
+		RequestBody: `{"to":"250788123123","type":"interactive","interactive":{"type":"button","header":{"type":"document","video":{},"image":{},"document":{"link":"https://foo.bar/document.pdf","filename":"document.pdf"}},"body":{"text":"Interactive Button Msg"},"footer":{"text":"footer is here!"},"action":{"buttons":[{"type":"reply","reply":{"id":"0","title":"BUTTON1"}}]}}}`,
 		SendPrep:    setSendURL},
 }
 

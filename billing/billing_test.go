@@ -13,6 +13,49 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+const (
+	billingTestExchangeName = "test-exchange"
+	billingTestQueueName    = "test-queue"
+)
+
+func initalizeRMQ(ch *amqp.Channel) {
+	err := ch.ExchangeDeclare(
+		billingTestExchangeName,
+		"topic",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	_, err = ch.QueueDeclare(
+		billingTestQueueName,
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		log.Fatal(errors.Wrap(err, "failed to declare a queue for billing publisher"))
+	}
+
+	err = ch.QueueBind(
+		billingTestQueueName,
+		"#",
+		billingTestExchangeName,
+		false,
+		nil,
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func TestInitialization(t *testing.T) {
 	connURL := "amqp://localhost:5672/"
 	conn, err := amqp.Dial(connURL)
@@ -23,9 +66,13 @@ func TestInitialization(t *testing.T) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer conn.Close()
+
+	initalizeRMQ(ch)
+
+	defer ch.QueueDelete(billingTestQueueName, false, false, false)
+	defer ch.ExchangeDelete(billingTestExchangeName, false, false)
 	defer ch.Close()
-	defer ch.QueueDelete(QUEUE_NAME, false, false, false)
+	defer conn.Close()
 }
 
 func TestBillingResilientClient(t *testing.T) {
@@ -36,8 +83,11 @@ func TestBillingResilientClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(errors.Wrap(err, "failed to declare a channel for consumer"))
 	}
+	initalizeRMQ(ch)
+	defer ch.QueueDelete(billingTestQueueName, false, false, false)
+	defer ch.ExchangeDelete(billingTestExchangeName, false, false)
 	defer ch.Close()
-	defer ch.QueueDelete(QUEUE_NAME, false, false, false)
+	defer conn.Close()
 
 	msgUUID, _ := uuid.NewV4()
 	msg := NewMessage(
@@ -51,16 +101,17 @@ func TestBillingResilientClient(t *testing.T) {
 		"hello",
 		nil,
 		nil,
+		false,
 	)
 
-	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000)
+	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000, billingTestExchangeName)
 	time.Sleep(1 * time.Second)
 	assert.NoError(t, err)
-	err = billingClient.Send(msg)
+	err = billingClient.Send(msg, RoutingKeyCreate)
 	assert.NoError(t, err)
 
 	msgs, err := ch.Consume(
-		QUEUE_NAME,
+		billingTestQueueName,
 		"",
 		true,
 		false,
@@ -100,8 +151,11 @@ func TestBillingResilientClientSendAsync(t *testing.T) {
 	if err != nil {
 		t.Fatal(errors.Wrap(err, "failed to declare a channel for consumer"))
 	}
+	initalizeRMQ(ch)
+	defer ch.QueueDelete(billingTestQueueName, false, false, false)
+	defer ch.ExchangeDelete(billingTestExchangeName, false, false)
 	defer ch.Close()
-	defer ch.QueueDelete(QUEUE_NAME, false, false, false)
+	defer conn.Close()
 
 	msgUUID, _ := uuid.NewV4()
 	msg := NewMessage(
@@ -115,16 +169,18 @@ func TestBillingResilientClientSendAsync(t *testing.T) {
 		"hello",
 		nil,
 		nil,
+		false,
 	)
 
-	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000)
+	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000, billingTestExchangeName)
 	time.Sleep(1 * time.Second)
 	assert.NoError(t, err)
-	billingClient.SendAsync(msg, nil, nil)
-
+	// billingClient.SendAsync(msg, RoutingKeyCreate, nil, nil)
+	err = billingClient.Send(msg, RoutingKeyCreate)
 	assert.NoError(t, err)
+
 	msgs, err := ch.Consume(
-		QUEUE_NAME,
+		billingTestQueueName,
 		"",
 		true,
 		false,
@@ -164,8 +220,11 @@ func TestBillingResilientClientSendAsyncWithPanic(t *testing.T) {
 	if err != nil {
 		t.Fatal(errors.Wrap(err, "failed to declare a channel for consumer"))
 	}
+	initalizeRMQ(ch)
+	defer ch.QueueDelete(billingTestQueueName, false, false, false)
+	defer ch.ExchangeDelete(billingTestExchangeName, false, false)
 	defer ch.Close()
-	defer ch.QueueDelete(QUEUE_NAME, false, false, false)
+	defer conn.Close()
 
 	msgUUID, _ := uuid.NewV4()
 	msg := NewMessage(
@@ -179,17 +238,18 @@ func TestBillingResilientClientSendAsyncWithPanic(t *testing.T) {
 		"hello",
 		nil,
 		nil,
+		false,
 	)
 
-	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000)
+	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000, billingTestExchangeName)
 	time.Sleep(1 * time.Second)
 	assert.NoError(t, err)
 	time.Sleep(1 * time.Second)
-	billingClient.SendAsync(msg, nil, func() { panic("test panic") })
+	billingClient.SendAsync(msg, RoutingKeyCreate, nil, func() { panic("test panic") })
 
 	assert.NoError(t, err)
 	msgs, err := ch.Consume(
-		QUEUE_NAME,
+		billingTestQueueName,
 		"",
 		false,
 		false,

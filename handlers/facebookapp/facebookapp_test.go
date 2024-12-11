@@ -1078,11 +1078,21 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		Text: "Interactive Button Msg", URN: "whatsapp:250788123123", QuickReplies: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"},
 		Error:    "too many quick replies WAC supports only up to 10 quick replies",
 		SendPrep: setSendURL},
-	{Label: "Interactive Button Message Send with too many replies and attachments",
+	{Label: "Interactive Button Message Send with too many replies and attachments", // TODO: attachment is sent, but the list message fails, is this correct?
 		Text: "Interactive Button Msg", URN: "whatsapp:250788123123", QuickReplies: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"},
 		Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
 		Error:       "too many quick replies WAC supports only up to 10 quick replies",
-		SendPrep:    setSendURL},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"link":"https://foo.bar/image.jpg"}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
 	{Label: "Mesage without text and with quick replies and attachments should not be sent",
 		Text: "", URN: "whatsapp:250788123123",
 		QuickReplies: []string{"Yes", "No"},

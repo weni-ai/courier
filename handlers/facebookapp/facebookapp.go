@@ -2142,7 +2142,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				}{Name: "send_location"}}
 
 				payload.Interactive = &interactive
-			} else if msg.InteractionType() == "cta_url" {
+			} else if msg.InteractionType() == "cta_url" { // Unreachable due to else if sending only the attachment
 				if ctaMessage := msg.CTAMessage(); ctaMessage != nil {
 					interactive := wacInteractive[map[string]any]{
 						Type: "cta_url",
@@ -2183,7 +2183,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					}
 					payload.Interactive = &interactive
 				}
-			} else if msg.InteractionType() == "flow_msg" {
+			} else if msg.InteractionType() == "flow_msg" { // Unreachable due to else if sending only the attachment
 				if flowMessage := msg.FlowMessage(); flowMessage != nil {
 					interactive := wacInteractive[map[string]any]{
 						Type: "flow",

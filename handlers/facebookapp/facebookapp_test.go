@@ -716,10 +716,10 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"button","body":{"text":"Interactive Button Msg"},"action":{"buttons":[{"type":"reply","reply":{"id":"0","title":"BUTTON1"}}]}}}`,
 		SendPrep:    setSendURL},
 	{Label: "Interactive Button Message Send with Slashes",
-		Text: "Interactive Button Msg", URN: "whatsapp:250788123123", QuickReplies: []string{"\\\\BUTTON1", "/BUTTON2"},
+		Text: "Interactive Button Msg", URN: "whatsapp:250788123123", QuickReplies: []string{"\\\\BUTTON1", "/BUTTON2", "\\/BUTTON3"},
 		Status: "W", ExternalID: "157b5e14568e8",
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
-		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"button","body":{"text":"Interactive Button Msg"},"action":{"buttons":[{"type":"reply","reply":{"id":"0","title":"\\BUTTON1"}},{"type":"reply","reply":{"id":"1","title":"/BUTTON2"}}]}}}`,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"button","body":{"text":"Interactive Button Msg"},"action":{"buttons":[{"type":"reply","reply":{"id":"0","title":"\\BUTTON1"}},{"type":"reply","reply":{"id":"1","title":"/BUTTON2"}},{"type":"reply","reply":{"id":"2","title":"/BUTTON3"}}]}}}`,
 		SendPrep:    setSendURL},
 	{Label: "Interactive List Message Send",
 		Text: "Interactive List Msg", URN: "whatsapp:250788123123", QuickReplies: []string{"ROW1", "ROW2", "ROW3", "ROW4"},
@@ -839,6 +839,13 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"product_list","body":{"text":"Catalog Body Msg"},"action":{"sections":[{"title":"product1","product_items":[{"product_retailer_id":"p1"}]},{"title":"long product name greate","product_items":[{"product_retailer_id":"p2"}]}],"catalog_id":"c4t4l0g-1D","name":"View Products"}}}`,
 		SendPrep:    setSendURL},
+	{Label: "Catalog Message Send 2 products - With Header - With Footer",
+		Metadata: json.RawMessage(`{"header": "header text", "footer": "footer text", "body":"Catalog Body Msg", "products": [{"Product": "product1","ProductRetailerIDs":["p1"]},{"Product": "long product name greate than 24","ProductRetailerIDs":["p2"]}], "action": "View Products", "send_catalog":false}`),
+		Text:     "Catalog Msg", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"product_list","header":{"type":"text","text":"header text"},"body":{"text":"Catalog Body Msg"},"footer":{"text":"footer text"},"action":{"sections":[{"title":"product1","product_items":[{"product_retailer_id":"p1"}]},{"title":"long product name greate","product_items":[{"product_retailer_id":"p2"}]}],"catalog_id":"c4t4l0g-1D","name":"View Products"}}}`,
+		SendPrep:    setSendURL},
 	{Label: "Send Product Catalog",
 		Metadata: json.RawMessage(`{"body":"Catalog Body Msg", "action": "View Products", "send_catalog":true}`),
 		Text:     "Catalog Msg", URN: "whatsapp:250788123123",
@@ -952,6 +959,22 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"button","header":{"type":"image","image":{"link":"https://foo.bar/image.jpg"}},"body":{"text":"Interactive Button Msg"},"footer":{"text":"footer text"},"action":{"buttons":[{"type":"reply","reply":{"id":"0","title":"BUTTON1"}}]}}}`,
 		SendPrep:    setSendURL},
+	{Label: "Interactive Button Message Send - With Attachment Video - With Footer",
+		Metadata: json.RawMessage(`{"footer":"footer text"}`),
+		Text:     "Interactive Button Msg", URN: "whatsapp:250788123123", QuickReplies: []string{"BUTTON1"},
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments:  []string{"video/mp4:https://foo.bar/video.mp4"},
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"button","header":{"type":"video","video":{"link":"https://foo.bar/video.mp4"}},"body":{"text":"Interactive Button Msg"},"footer":{"text":"footer text"},"action":{"buttons":[{"type":"reply","reply":{"id":"0","title":"BUTTON1"}}]}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Interactive Button Message Send - With unknown attachment - With Footer",
+		Metadata: json.RawMessage(`{"footer":"footer text"}`),
+		Text:     "Interactive Button Msg", URN: "whatsapp:250788123123", QuickReplies: []string{"BUTTON1"},
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments:  []string{"unknown/unknown:https://foo.bar/video.unknown"},
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"button","body":{"text":"Interactive Button Msg"},"footer":{"text":"footer text"},"action":{"buttons":[{"type":"reply","reply":{"id":"0","title":"BUTTON1"}}]}}}`,
+		SendPrep:    setSendURL},
 	{Label: "Interactive List Message Send - With list items - With Header - With Footer",
 		Metadata: json.RawMessage(`{"footer":"footer text","header_text":"header text","header_type":"text","interaction_type":"list","list_message":{"button_text":"button text","list_items":[{"uuid":"123","title":"title1","description":"description1"},{"uuid":"456","title":"title2"}]}}`),
 		Text:     "Interactive List Msg", URN: "whatsapp:250788123123",
@@ -959,6 +982,30 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"list","header":{"type":"text","text":"header text"},"body":{"text":"Interactive List Msg"},"footer":{"text":"footer text"},"action":{"button":"button text","sections":[{"rows":[{"id":"123","title":"title1","description":"description1"},{"id":"456","title":"title2"}]}]}}}`,
 		SendPrep:    setSendURL},
+	{Label: "Interactive List Message Send - With list items - With Attachments - With Footer",
+		Metadata: json.RawMessage(`{"footer":"footer text","interaction_type":"list","list_message":{"button_text":"button text","list_items":[{"uuid":"123","title":"title1","description":"description1"},{"uuid":"456","title":"title2"}]}}`),
+		Text:     "Interactive List Msg", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8", TextLanguage: "en-US",
+		Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"link":"https://foo.bar/image.jpg"}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"list","body":{"text":"Interactive List Msg"},"footer":{"text":"footer text"},"action":{"button":"button text","sections":[{"rows":[{"id":"123","title":"title1","description":"description1"},{"id":"456","title":"title2"}]}]}}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
 	{Label: "Interactive Location Request",
 		Metadata: json.RawMessage(`{"interaction_type":"location"}`),
 		Text:     "Interactive Location Request", URN: "whatsapp:250788123123",
@@ -966,14 +1013,69 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"location_request_message","body":{"text":"Interactive Location Request"},"action":{"name":"send_location"}}}`,
 		SendPrep:    setSendURL},
-	{Label: "[VERIFY] Interactive Location Request - With attachment - Sending only the attachment (is this ok? shouldn't the location request be a priority?)",
+	{Label: "[VERIFY] Interactive Location Request - With attachment - Sending only the attachment (is this ok? shouldn't the location request be a priority?)", // TODO: Verify, is Location + Attachment a valid combination? I believe that the Send WhatsApp Message card does not allow this
 		Metadata: json.RawMessage(`{"interaction_type":"location"}`),
 		Text:     "Interactive Location Request With Attachment", URN: "whatsapp:250788123123",
 		Status: "W", ExternalID: "157b5e14568e8", TextLanguage: "en-US",
-		Attachments:  []string{"image/jpeg:https://foo.bar/image.jpg"},
-		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
-		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"link":"https://foo.bar/image.jpg","caption":"Interactive Location Request With Attachment"}}`,
+		Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"link":"https://foo.bar/image.jpg","caption":"Interactive Location Request With Attachment"}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
+	{Label: "[VERIFY] Send CTA Url - With Attachment - Sending only the attachment (is this ok too?)", // TODO: Verify, is CTA + Attachment a valid combination? I believe that the Send WhatsApp Message card does not allow this
+		Metadata: json.RawMessage(`{"cta_message":{"display_text":"link button","url":"https://foo.bar"},"footer":"footer text","header_text":"header text","header_type":"text","interaction_type":"cta_url","text":"msgs text"}`),
+		Text:     "msg text", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"link":"https://foo.bar/image.jpg","caption":"msg text"}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
+	{Label: "Send Flow Message - With Attachment - Sending only the attachment (is this ok too?)", // TODO: Verify, is Flow + Attachment a valid combination? I believe that the Send WhatsApp Message card does not allow this
+		Metadata: json.RawMessage(`{"flow_message":{"flow_id": "29287124123", "flow_screen": "WELCOME_SCREEN", "flow_cta": "Start Flow", "flow_data": {"name": "John Doe", "list": [1, 2]},"flow_mode":"published"},"footer":"footer text","header_text":"header text","header_type":"text","interaction_type":"flow_msg","text":"msgs text"}`),
+		Text:     "msg text", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"link":"https://foo.bar/image.jpg","caption":"msg text"}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
+	{Label: "Media Message Template Send - Unknown attachment type",
+		Text: "Media Message Msg", URN: "whatsapp:250788123123",
+		Metadata:    json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "namespace": "wa_template_namespace", "language": "eng", "country": "US", "variables": ["Chef", "tomorrow"]}}`),
+		Attachments: []string{"unknown/unknown:https://foo.bar/unknown.unknown"},
+		Error:       "unknown attachment mime type: unknown",
 		SendPrep:    setSendURL},
+	{Label: "Interactive Button Message Send with too many replies",
+		Text: "Interactive Button Msg", URN: "whatsapp:250788123123", QuickReplies: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"},
+		Error:    "too many quick replies WAC supports only up to 10 quick replies",
+		SendPrep: setSendURL},
+	// {Label: "Interactive Button Message Send with too many replies and attachments",
+	// 	Text: "Interactive Button Msg", URN: "whatsapp:250788123123", QuickReplies: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"},
+	// 	Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
+	// 	Error:       "too many quick replies WAC supports only up to 10 quick replies",
+	// 	SendPrep:    setSendURL},
 }
 
 var CachedSendTestCasesWAC = []ChannelSendTestCase{
@@ -994,6 +1096,65 @@ var CachedSendTestCasesWAC = []ChannelSendTestCase{
 				Method: "POST",
 				Path:   "/12345_ID/messages",
 				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"button","header":{"type":"document","document":{"id":"157b5e14568e8","filename":"document.pdf"}},"body":{"text":"Interactive Button Msg"},"action":{"buttons":[{"type":"reply","reply":{"id":"0","title":"BUTTON1"}}]}}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
+	{Label: "Media Message Template Send - Image with cached attachment",
+		Text: "Media Message Msg", URN: "whatsapp:250788123123",
+		Status:      "W",
+		Metadata:    json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "namespace": "wa_template_namespace", "language": "eng", "country": "US", "variables": ["Chef", "tomorrow"]}}`),
+		Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method:       "POST",
+				Path:         "/12345_ID/media",
+				BodyContains: "media bytes",
+			}: {
+				Status: 201,
+				Body:   `{"id":"157b5e14568e8"}`,
+			},
+			{
+				Method:       "POST",
+				Path:         "/12345_ID/messages",
+				BodyContains: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"revive_issue","language":{"policy":"deterministic","code":"en_US"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]},{"type":"header","parameters":[{"type":"image","image":{"id":"157b5e14568e8"}}]}]}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
+	{Label: "Media Message Template Send - Image with cached attachment failing to upload",
+		Text: "Media Message Msg", URN: "whatsapp:250788123123",
+		Status:      "E",
+		Metadata:    json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "namespace": "wa_template_namespace", "language": "eng", "country": "US", "variables": ["Chef", "tomorrow"]}}`),
+		Attachments: []string{"image/jpeg:https://foo.bar/image2.jpg"},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method:       "POST",
+				Path:         "/12345_ID/media",
+				BodyContains: "media bytes",
+			}: {
+				Status: 400,
+				Body:   `error`,
+			},
+		},
+		SendPrep: setSendURL},
+}
+
+var FailingCachedSendTestCasesWAC = []ChannelSendTestCase{
+	{Label: "Media Message Template Send - Image with failing cached attachment should send the default attachment URL",
+		Text: "Media Message Msg", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:    json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "namespace": "wa_template_namespace", "language": "eng", "country": "US", "variables": ["Chef", "tomorrow"]}}`),
+		Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method:       "POST",
+				Path:         "/12345_ID/messages",
+				BodyContains: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"revive_issue","language":{"policy":"deterministic","code":"en_US"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]},{"type":"header","parameters":[{"type":"image","image":{"link":"`,
 			}: {
 				Status: 201,
 				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
@@ -1025,9 +1186,17 @@ func TestSending(t *testing.T) {
 		res.WriteHeader(200)
 		res.Write([]byte("media bytes"))
 	}))
+
+	failingMediaServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		defer req.Body.Close()
+		res.WriteHeader(400)
+		res.Write([]byte("error"))
+	}))
 	defer mediaServer.Close()
 	CachedSendTestCasesWAC := mockAttachmentURLs(mediaServer, CachedSendTestCasesWAC)
+	FailingCachedSendTestCasesWAC := mockAttachmentURLs(failingMediaServer, FailingCachedSendTestCasesWAC)
 	SendTestCasesWAC = append(SendTestCasesWAC, CachedSendTestCasesWAC...)
+	SendTestCasesWAC = append(SendTestCasesWAC, FailingCachedSendTestCasesWAC...)
 
 	// shorter max msg length for testing
 	maxMsgLengthFBA = 100

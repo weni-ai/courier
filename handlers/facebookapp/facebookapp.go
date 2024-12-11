@@ -1626,13 +1626,13 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 			} else {
 				if i < (len(msgParts) + len(msg.Attachments()) - 1) {
+					payload.Type = "text"
 					if strings.Contains(msgParts[i-len(msg.Attachments())], "https://") || strings.Contains(msgParts[i-len(msg.Attachments())], "http://") {
 						text := wacText{}
 						text.PreviewURL = true
 						text.Body = msgParts[i-len(msg.Attachments())]
 						payload.Text = &text
 					} else {
-						payload.Type = "text"
 						payload.Text = &wacText{Body: msgParts[i-len(msg.Attachments())]}
 					}
 				} else {
@@ -1973,7 +1973,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				payload.Document = &media
 			}
 			//end
-		} else {
+		} else { // have attachment
 			if len(qrs) > 0 || len(msg.ListMessage().ListItems) > 0 {
 				payload.Type = "interactive"
 				// We can use buttons
@@ -2140,7 +2140,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				} else {
 					return nil, fmt.Errorf("too many quick replies WAC supports only up to 10 quick replies")
 				}
-			} else if msg.InteractionType() == "location" {
+			} else if msg.InteractionType() == "location" { // Unreachable due to else if sending only the attachment
 				interactive := wacInteractive[map[string]any]{Type: "location_request_message", Body: struct {
 					Text string "json:\"text\""
 				}{Text: msgParts[i-len(msg.Attachments())]}, Action: &struct {
@@ -2154,7 +2154,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				}{Name: "send_location"}}
 
 				payload.Interactive = &interactive
-			} else if msg.InteractionType() == "cta_url" {
+			} else if msg.InteractionType() == "cta_url" { // Unreachable due to else if sending only the attachment
 				if ctaMessage := msg.CTAMessage(); ctaMessage != nil {
 					interactive := wacInteractive[map[string]any]{
 						Type: "cta_url",
@@ -2195,7 +2195,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					}
 					payload.Interactive = &interactive
 				}
-			} else if msg.InteractionType() == "flow_msg" {
+			} else if msg.InteractionType() == "flow_msg" { // Unreachable due to else if sending only the attachment
 				if flowMessage := msg.FlowMessage(); flowMessage != nil {
 					interactive := wacInteractive[map[string]any]{
 						Type: "flow",

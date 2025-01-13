@@ -299,6 +299,9 @@ func (w *Sender) sendMessage(msg Msg) {
 				// if ticketer_type is eg: "wenichats" it is a message from ticketer sent by an agent, so must be sent to billing anyway
 				ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
 				fromTicketer := ticketerType != ""
+
+				chatsUUID, _ := jsonparser.GetString(msg.Metadata(), "chats_msg_uuid")
+
 				billingMsg := billing.NewMessage(
 					string(msg.URN().Identity()),
 					"",
@@ -311,6 +314,7 @@ func (w *Sender) sendMessage(msg Msg) {
 					msg.Attachments(),
 					msg.QuickReplies(),
 					fromTicketer,
+					chatsUUID,
 				)
 				w.foreman.server.Billing().SendAsync(billingMsg, billing.RoutingKeyCreate, nil, nil)
 			}

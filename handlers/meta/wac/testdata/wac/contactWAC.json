@@ -1,0 +1,51 @@
+{
+    "object": "whatsapp_business_account",
+    "entry": [
+      {
+        "id": "8856996819413533",
+        "changes": [
+          {
+            "value": {
+              "messaging_product": "whatsapp",
+              "metadata": {
+                "display_phone_number": "+250 788 123 200",
+                "phone_number_id": "12345"
+              },
+              "contacts": [
+                {
+                  "profile": {
+                    "name": "Kerry Fisher"
+                  },
+                  "wa_id": "5678"
+                }
+              ],"messages": [
+                {
+                  "from": "5678",
+                  "id": "external_id",
+                  "timestamp": "1454119029",
+                  "type": "contacts",
+                  "contacts": [{
+                    "name": {
+                        "first_name": "Test",
+                        "last_name": "Contact",
+                        "formatted_name": "Test Contact"
+                    },
+                    "phones": [{
+                        "phone": "+1 415-858-6273",
+                        "wa_id": "14158586273",
+                        "type": "CELL"
+                    },
+                    {
+                        "phone": "+1 415-858-6274",
+                        "wa_id": "14158586272",
+                        "type": "CELL"
+                    }]
+                  }]                  
+                }]
+            },
+            "field": "messages"
+          }
+        ]
+      }
+    ]
+  }

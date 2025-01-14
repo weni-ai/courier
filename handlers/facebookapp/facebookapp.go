@@ -33,25 +33,25 @@ import (
 
 // Endpoints we hit
 var (
-	sendURL  = "https://graph.facebook.com/v12.0/me/messages"
-	graphURL = "https://graph.facebook.com/v12.0/"
+	SendURL  = "https://graph.facebook.com/v12.0/me/messages"
+	GraphURL = "https://graph.facebook.com/v12.0/"
 
 	signatureHeader = "X-Hub-Signature"
 
 	// max for the body
-	maxMsgLengthIG             = 1000
-	maxMsgLengthFBA            = 2000
-	maxMsgLengthWAC            = 4096
-	maxMsgLengthInteractiveWAC = 1024
+	MaxMsgLengthIG             = 1000
+	MaxMsgLengthFBA            = 2000
+	MaxMsgLengthWAC            = 4096
+	MaxMsgLengthInteractiveWAC = 1024
 
 	// Sticker ID substitutions
-	stickerIDToEmoji = map[int64]string{
+	StickerIDToEmoji = map[int64]string{
 		369239263222822: "👍", // small
 		369239343222814: "👍", // medium
 		369239383222810: "👍", // big
 	}
 
-	tagByTopic = map[string]string{
+	TagByTopic = map[string]string{
 		"event":    "CONFIRMED_EVENT_UPDATE",
 		"purchase": "POST_PURCHASE_UPDATE",
 		"account":  "ACCOUNT_UPDATE",
@@ -93,14 +93,14 @@ const (
 	InteractiveProductCatalogMessageType = "catalog_message"
 )
 
-func newHandler(channelType courier.ChannelType, name string, useUUIDRoutes bool) courier.ChannelHandler {
+func NewHandler(channelType courier.ChannelType, name string, useUUIDRoutes bool) courier.ChannelHandler {
 	return &handler{handlers.NewBaseHandlerWithParams(channelType, name, useUUIDRoutes)}
 }
 
 func init() {
-	courier.RegisterHandler(newHandler("IG", "Instagram", false))
-	courier.RegisterHandler(newHandler("FBA", "Facebook", false))
-	courier.RegisterHandler(newHandler("WAC", "WhatsApp Cloud", false))
+	courier.RegisterHandler(NewHandler("IG", "Instagram", false))
+	courier.RegisterHandler(NewHandler("FBA", "Facebook", false))
+	courier.RegisterHandler(NewHandler("WAC", "WhatsApp Cloud", false))
 
 	failedMediaCache = cache.New(15*time.Minute, 15*time.Minute)
 }
@@ -462,13 +462,13 @@ func (h *handler) receiveVerify(ctx context.Context, channel courier.Channel, w 
 	return nil, err
 }
 
-func resolveMediaURL(channel courier.Channel, mediaID string, token string) (string, error) {
+func ResolveMediaURL(channel courier.Channel, mediaID string, token string) (string, error) {
 
 	if token == "" {
 		return "", fmt.Errorf("missing token for WAC channel")
 	}
 
-	base, _ := url.Parse(graphURL)
+	base, _ := url.Parse(GraphURL)
 	path, _ := url.Parse(fmt.Sprintf("/%s", mediaID))
 	retreiveURL := base.ResolveReference(path)
 
@@ -565,23 +565,23 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					text = msg.Text.Body
 				} else if msg.Type == "audio" && msg.Audio != nil {
 					text = msg.Audio.Caption
-					mediaURL, err = resolveMediaURL(channel, msg.Audio.ID, token)
+					mediaURL, err = ResolveMediaURL(channel, msg.Audio.ID, token)
 				} else if msg.Type == "voice" && msg.Voice != nil {
 					text = msg.Voice.Caption
-					mediaURL, err = resolveMediaURL(channel, msg.Voice.ID, token)
+					mediaURL, err = ResolveMediaURL(channel, msg.Voice.ID, token)
 				} else if msg.Type == "button" && msg.Button != nil {
 					text = msg.Button.Text
 				} else if msg.Type == "document" && msg.Document != nil {
 					text = msg.Document.Caption
-					mediaURL, err = resolveMediaURL(channel, msg.Document.ID, token)
+					mediaURL, err = ResolveMediaURL(channel, msg.Document.ID, token)
 				} else if msg.Type == "image" && msg.Image != nil {
 					text = msg.Image.Caption
-					mediaURL, err = resolveMediaURL(channel, msg.Image.ID, token)
+					mediaURL, err = ResolveMediaURL(channel, msg.Image.ID, token)
 				} else if msg.Type == "sticker" && msg.Sticker != nil {
-					mediaURL, err = resolveMediaURL(channel, msg.Sticker.ID, token)
+					mediaURL, err = ResolveMediaURL(channel, msg.Sticker.ID, token)
 				} else if msg.Type == "video" && msg.Video != nil {
 					text = msg.Video.Caption
-					mediaURL, err = resolveMediaURL(channel, msg.Video.ID, token)
+					mediaURL, err = ResolveMediaURL(channel, msg.Video.ID, token)
 				} else if msg.Type == "location" && msg.Location != nil {
 					mediaURL = fmt.Sprintf("geo:%f,%f;name:%s;address:%s", msg.Location.Latitude, msg.Location.Longitude, msg.Location.Name, msg.Location.Address)
 				} else if msg.Type == "interactive" && msg.Interactive.Type == "button_reply" {
@@ -900,7 +900,7 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 			// if we have a sticker ID, use that as our text
 			for _, att := range msg.Message.Attachments {
 				if att.Type == "image" && att.Payload != nil && att.Payload.StickerID != 0 {
-					text = stickerIDToEmoji[att.Payload.StickerID]
+					text = StickerIDToEmoji[att.Payload.StickerID]
 				}
 
 				if att.Type == "location" {
@@ -1064,7 +1064,7 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 		payload.MessagingType = "RESPONSE"
 	} else if topic != "" {
 		payload.MessagingType = "MESSAGE_TAG"
-		payload.Tag = tagByTopic[topic]
+		payload.Tag = TagByTopic[topic]
 	} else {
 		payload.MessagingType = "UPDATE"
 	}
@@ -1076,7 +1076,7 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 		payload.Recipient.ID = msg.URN().Path()
 	}
 
-	msgURL, _ := url.Parse(sendURL)
+	msgURL, _ := url.Parse(SendURL)
 	query := url.Values{}
 	query.Set("access_token", accessToken)
 	msgURL.RawQuery = query.Encode()
@@ -1201,9 +1201,9 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 	msgParts := make([]string, 0)
 	if msg.Text() != "" {
 		if msg.Channel().ChannelType() == "IG" {
-			msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthIG)
+			msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), MaxMsgLengthIG)
 		} else {
-			msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthFBA)
+			msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), MaxMsgLengthFBA)
 		}
 
 	}
@@ -1509,7 +1509,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 	hasNewURN := false
 	hasCaption := false
 
-	base, _ := url.Parse(graphURL)
+	base, _ := url.Parse(GraphURL)
 	path, _ := url.Parse(fmt.Sprintf("/%s/messages", msg.Channel().Address()))
 	wacPhoneURL := base.ResolveReference(path)
 
@@ -1518,9 +1518,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 	msgParts := make([]string, 0)
 	if msg.Text() != "" {
 		if len(msg.ListMessage().ListItems) > 0 || len(msg.QuickReplies()) > 0 || msg.InteractionType() == "location" {
-			msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthInteractiveWAC)
+			msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), MaxMsgLengthInteractiveWAC)
 		} else {
-			msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthWAC)
+			msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), MaxMsgLengthWAC)
 		}
 	}
 	qrs := msg.QuickReplies()
@@ -2676,7 +2676,7 @@ func (h *handler) DescribeURN(ctx context.Context, channel courier.Channel, urn 
 	}
 
 	// build a request to lookup the stats for this contact
-	base, _ := url.Parse(graphURL)
+	base, _ := url.Parse(GraphURL)
 	path, _ := url.Parse(fmt.Sprintf("/%s", urn.Path()))
 	u := base.ResolveReference(path)
 	query := url.Values{}
@@ -2950,7 +2950,7 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 	}
 
 	// upload media to WhatsAppCloud
-	base, _ := url.Parse(graphURL)
+	base, _ := url.Parse(GraphURL)
 	path, _ := url.Parse(fmt.Sprintf("/%s/media", msg.Channel().Address()))
 	wacPhoneURLMedia := base.ResolveReference(path)
 	mediaID, logs, err = requestWACMediaUpload(rr.Body, mediaURL, wacPhoneURLMedia.String(), mimeType, msg, accessToken)

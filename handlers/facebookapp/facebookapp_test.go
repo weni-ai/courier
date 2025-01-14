@@ -160,7 +160,7 @@ func buildMockFBGraphFBA(testCases []ChannelHandleTestCase) *httptest.Server {
 		// no name
 		w.Write([]byte(`{ "first_name": "", "last_name": ""}`))
 	}))
-	graphURL = server.URL
+	GraphURL = server.URL
 
 	return server
 }
@@ -185,7 +185,7 @@ func buildMockFBGraphIG(testCases []ChannelHandleTestCase) *httptest.Server {
 		// no name
 		w.Write([]byte(`{ "name": ""}`))
 	}))
-	graphURL = server.URL
+	GraphURL = server.URL
 
 	return server
 }
@@ -194,7 +194,7 @@ func TestDescribeFBA(t *testing.T) {
 	fbGraph := buildMockFBGraphFBA(testCasesFBA)
 	defer fbGraph.Close()
 
-	handler := newHandler("FBA", "Facebook", false).(courier.URNDescriber)
+	handler := NewHandler("FBA", "Facebook", false).(courier.URNDescriber)
 	tcs := []struct {
 		urn      urns.URN
 		metadata map[string]string
@@ -212,7 +212,7 @@ func TestDescribeIG(t *testing.T) {
 	fbGraph := buildMockFBGraphIG(testCasesIG)
 	defer fbGraph.Close()
 
-	handler := newHandler("IG", "Instagram", false).(courier.URNDescriber)
+	handler := NewHandler("IG", "Instagram", false).(courier.URNDescriber)
 	tcs := []struct {
 		urn      urns.URN
 		metadata map[string]string
@@ -226,7 +226,7 @@ func TestDescribeIG(t *testing.T) {
 }
 
 func TestDescribeWAC(t *testing.T) {
-	handler := newHandler("WAC", "Cloud API WhatsApp", false).(courier.URNDescriber)
+	handler := NewHandler("WAC", "Cloud API WhatsApp", false).(courier.URNDescriber)
 
 	tcs := []struct {
 		urn      urns.URN
@@ -250,10 +250,10 @@ func TestResolveMediaURL(t *testing.T) {
 	}{{"id_media", "", "", "missing token for WAC channel"},
 		{"id_media", "token", "", `unsupported protocol scheme ""`}}
 
-	graphURL = "url"
+	GraphURL = "url"
 
 	for _, tc := range tcs {
-		_, err := resolveMediaURL(testChannelsWAC[0], tc.id, tc.token)
+		_, err := ResolveMediaURL(testChannelsWAC[0], tc.id, tc.token)
 		assert.Equal(t, err.Error(), tc.err)
 	}
 }
@@ -417,28 +417,28 @@ func TestHandler(t *testing.T) {
 		w.Write([]byte(`{"url": "https://foo.bar/attachmentURL"}`))
 
 	}))
-	graphURL = server.URL
+	GraphURL = server.URL
 
-	RunChannelTestCases(t, testChannelsWAC, newHandler("WAC", "Cloud API WhatsApp", false), testCasesWAC)
-	RunChannelTestCases(t, testChannelsFBA, newHandler("FBA", "Facebook", false), testCasesFBA)
-	RunChannelTestCases(t, testChannelsIG, newHandler("IG", "Instagram", false), testCasesIG)
+	RunChannelTestCases(t, testChannelsWAC, NewHandler("WAC", "Cloud API WhatsApp", false), testCasesWAC)
+	RunChannelTestCases(t, testChannelsFBA, NewHandler("FBA", "Facebook", false), testCasesFBA)
+	RunChannelTestCases(t, testChannelsIG, NewHandler("IG", "Instagram", false), testCasesIG)
 }
 
 func BenchmarkHandler(b *testing.B) {
 	fbService := buildMockFBGraphFBA(testCasesFBA)
 
-	RunChannelBenchmarks(b, testChannelsFBA, newHandler("FBA", "Facebook", false), testCasesFBA)
+	RunChannelBenchmarks(b, testChannelsFBA, NewHandler("FBA", "Facebook", false), testCasesFBA)
 	fbService.Close()
 
 	fbServiceIG := buildMockFBGraphIG(testCasesIG)
 
-	RunChannelBenchmarks(b, testChannelsIG, newHandler("IG", "Instagram", false), testCasesIG)
+	RunChannelBenchmarks(b, testChannelsIG, NewHandler("IG", "Instagram", false), testCasesIG)
 	fbServiceIG.Close()
 }
 
 func TestVerify(t *testing.T) {
 
-	RunChannelTestCases(t, testChannelsFBA, newHandler("FBA", "Facebook", false), []ChannelHandleTestCase{
+	RunChannelTestCases(t, testChannelsFBA, NewHandler("FBA", "Facebook", false), []ChannelHandleTestCase{
 		{Label: "Valid Secret", URL: "/c/fba/receive?hub.mode=subscribe&hub.verify_token=fb_webhook_secret&hub.challenge=yarchallenge", Status: 200,
 			Response: "yarchallenge", NoQueueErrorCheck: true, NoInvalidChannelCheck: true},
 		{Label: "Verify No Mode", URL: "/c/fba/receive", Status: 400, Response: "unknown request"},
@@ -447,7 +447,7 @@ func TestVerify(t *testing.T) {
 		{Label: "Valid Secret", URL: "/c/fba/receive?hub.mode=subscribe&hub.verify_token=fb_webhook_secret&hub.challenge=yarchallenge", Status: 200, Response: "yarchallenge"},
 	})
 
-	RunChannelTestCases(t, testChannelsIG, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+	RunChannelTestCases(t, testChannelsIG, NewHandler("IG", "Instagram", false), []ChannelHandleTestCase{
 		{Label: "Valid Secret", URL: "/c/ig/receive?hub.mode=subscribe&hub.verify_token=fb_webhook_secret&hub.challenge=yarchallenge", Status: 200,
 			Response: "yarchallenge", NoQueueErrorCheck: true, NoInvalidChannelCheck: true},
 		{Label: "Verify No Mode", URL: "/c/ig/receive", Status: 400, Response: "unknown request"},
@@ -456,7 +456,7 @@ func TestVerify(t *testing.T) {
 		{Label: "Valid Secret", URL: "/c/ig/receive?hub.mode=subscribe&hub.verify_token=fb_webhook_secret&hub.challenge=yarchallenge", Status: 200, Response: "yarchallenge"},
 	})
 
-	RunChannelTestCases(t, testChannelsWAC, newHandler("WAC", "WhatsApp Cloud", false), []ChannelHandleTestCase{
+	RunChannelTestCases(t, testChannelsWAC, NewHandler("WAC", "WhatsApp Cloud", false), []ChannelHandleTestCase{
 		{Label: "Valid Secret", URL: "/c/wac/receive?hub.mode=subscribe&hub.verify_token=wac_webhook_secret&hub.challenge=yarchallenge", Status: 200,
 			Response: "yarchallenge", NoQueueErrorCheck: true, NoInvalidChannelCheck: true},
 		{Label: "Verify No Mode", URL: "/c/wac/receive", Status: 400, Response: "unknown request"},
@@ -468,8 +468,8 @@ func TestVerify(t *testing.T) {
 
 // setSendURL takes care of setting the send_url to our test server host
 func setSendURL(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
-	sendURL = s.URL
-	graphURL = s.URL
+	SendURL = s.URL
+	GraphURL = s.URL
 }
 
 var SendTestCasesFBA = []ChannelSendTestCase{
@@ -1246,15 +1246,15 @@ func TestSending(t *testing.T) {
 	SendTestCasesWAC = append(SendTestCasesWAC, FailingCachedSendTestCasesWAC...)
 
 	// shorter max msg length for testing
-	maxMsgLengthFBA = 100
-	maxMsgLengthIG = 100
-	maxMsgLengthWAC = 100
+	MaxMsgLengthFBA = 100
+	MaxMsgLengthIG = 100
+	MaxMsgLengthWAC = 100
 	var ChannelFBA = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "FBA", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
 	var ChannelIG = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "IG", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
 	var ChannelWAC = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WAC", "12345_ID", "", map[string]interface{}{courier.ConfigAuthToken: "a123", "catalog_id": "c4t4l0g-1D"})
-	RunChannelSendTestCases(t, ChannelFBA, newHandler("FBA", "Facebook", false), SendTestCasesFBA, nil)
-	RunChannelSendTestCases(t, ChannelIG, newHandler("IG", "Instagram", false), SendTestCasesIG, nil)
-	RunChannelSendTestCases(t, ChannelWAC, newHandler("WAC", "Cloud API WhatsApp", false), SendTestCasesWAC, nil)
+	RunChannelSendTestCases(t, ChannelFBA, NewHandler("FBA", "Facebook", false), SendTestCasesFBA, nil)
+	RunChannelSendTestCases(t, ChannelIG, NewHandler("IG", "Instagram", false), SendTestCasesIG, nil)
+	RunChannelSendTestCases(t, ChannelWAC, NewHandler("WAC", "Cloud API WhatsApp", false), SendTestCasesWAC, nil)
 
 }
 

@@ -11,8 +11,10 @@ import (
 
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
+	"github.com/nyaruka/courier/handlers/facebookapp"
 	"github.com/nyaruka/courier/handlers/meta/metacommons"
 	"github.com/nyaruka/gocommon/urns"
+	"github.com/nyaruka/gocommon/uuids"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -110,7 +112,7 @@ func buildMockFBGraphFBA(testCases []handlers.ChannelHandleTestCase) *httptest.S
 		// no name
 		w.Write([]byte(`{ "first_name": "", "last_name": ""}`))
 	}))
-	metacommons.GraphURL = server.URL
+	facebookapp.GraphURL = server.URL
 
 	return server
 }
@@ -119,7 +121,7 @@ func TestDescribeFBA(t *testing.T) {
 	fbGraph := buildMockFBGraphFBA(testCasesFBA)
 	defer fbGraph.Close()
 
-	handler := metacommons.NewHandler("FBA", "Facebook", false).(courier.URNDescriber)
+	handler := facebookapp.NewHandler("FBA", "Facebook", false).(courier.URNDescriber)
 	tcs := []struct {
 		urn      urns.URN
 		metadata map[string]string
@@ -131,6 +133,110 @@ func TestDescribeFBA(t *testing.T) {
 		metadata, _ := handler.DescribeURN(context.Background(), testChannelsFBA[0], tc.urn)
 		assert.Equal(t, metadata, tc.metadata)
 	}
+}
+
+func TestHandler(t *testing.T) {
+	handlers.RunChannelTestCases(t, testChannelsFBA, facebookapp.NewHandler("FBA", "Facebook", false), testCasesFBA)
+}
+
+func BenchmarkHandler(b *testing.B) {
+	fbService := buildMockFBGraphFBA(testCasesFBA)
+
+	handlers.RunChannelBenchmarks(b, testChannelsFBA, facebookapp.NewHandler("FBA", "Facebook", false), testCasesFBA)
+	fbService.Close()
+}
+
+func TestVerify(t *testing.T) {
+	handlers.RunChannelTestCases(t, testChannelsFBA, facebookapp.NewHandler("FBA", "Facebook", false), []handlers.ChannelHandleTestCase{
+		{Label: "Valid Secret", URL: "/c/fba/receive?hub.mode=subscribe&hub.verify_token=fb_webhook_secret&hub.challenge=yarchallenge", Status: 200,
+			Response: "yarchallenge", NoQueueErrorCheck: true, NoInvalidChannelCheck: true},
+		{Label: "Verify No Mode", URL: "/c/fba/receive", Status: 400, Response: "unknown request"},
+		{Label: "Verify No Secret", URL: "/c/fba/receive?hub.mode=subscribe", Status: 400, Response: "token does not match secret"},
+		{Label: "Invalid Secret", URL: "/c/fba/receive?hub.mode=subscribe&hub.verify_token=blah", Status: 400, Response: "token does not match secret"},
+		{Label: "Valid Secret", URL: "/c/fba/receive?hub.mode=subscribe&hub.verify_token=fb_webhook_secret&hub.challenge=yarchallenge", Status: 200, Response: "yarchallenge"},
+	})
+}
+
+// setSendURL takes care of setting the send_url to our test server host
+func setSendURL(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+	facebookapp.SendURL = s.URL
+	facebookapp.GraphURL = s.URL
+}
+
+var SendTestCasesFBA = []handlers.ChannelSendTestCase{
+	{Label: "Plain Send",
+		Text: "Simple Message", URN: "facebook:12345",
+		Status: "W", ExternalID: "mid.133",
+		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
+		RequestBody: `{"messaging_type":"UPDATE","recipient":{"id":"12345"},"message":{"text":"Simple Message"}}`,
+		SendPrep:    setSendURL},
+	{Label: "Plain Response",
+		Text: "Simple Message", URN: "facebook:12345",
+		Status: "W", ExternalID: "mid.133", ResponseToExternalID: "23526",
+		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
+		RequestBody: `{"messaging_type":"RESPONSE","recipient":{"id":"12345"},"message":{"text":"Simple Message"}}`,
+		SendPrep:    setSendURL},
+	{Label: "Plain Send using ref URN",
+		Text: "Simple Message", URN: "facebook:ref:67890",
+		ContactURNs: map[string]bool{"facebook:12345": true, "ext:67890": true, "facebook:ref:67890": false},
+		Status:      "W", ExternalID: "mid.133",
+		ResponseBody: `{"message_id": "mid.133", "recipient_id": "12345"}`, ResponseStatus: 200,
+		RequestBody: `{"messaging_type":"UPDATE","recipient":{"user_ref":"67890"},"message":{"text":"Simple Message"}}`,
+		SendPrep:    setSendURL},
+	{Label: "Quick Reply",
+		Text: "Are you happy?", URN: "facebook:12345", QuickReplies: []string{"Yes", "No"},
+		Status: "W", ExternalID: "mid.133",
+		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
+		RequestBody: `{"messaging_type":"UPDATE","recipient":{"id":"12345"},"message":{"text":"Are you happy?","quick_replies":[{"title":"Yes","payload":"Yes","content_type":"text"},{"title":"No","payload":"No","content_type":"text"}]}}`,
+		SendPrep:    setSendURL},
+	{Label: "Long Message",
+		Text: "This is a long message which spans more than one part, what will actually be sent in the end if we exceed the max length?",
+		URN:  "facebook:12345", QuickReplies: []string{"Yes", "No"}, Topic: "account",
+		Status: "W", ExternalID: "mid.133",
+		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
+		RequestBody: `{"messaging_type":"MESSAGE_TAG","tag":"ACCOUNT_UPDATE","recipient":{"id":"12345"},"message":{"text":"we exceed the max length?","quick_replies":[{"title":"Yes","payload":"Yes","content_type":"text"},{"title":"No","payload":"No","content_type":"text"}]}}`,
+		SendPrep:    setSendURL},
+	{Label: "Send Photo",
+		URN: "facebook:12345", Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
+		Status: "W", ExternalID: "mid.133",
+		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
+		RequestBody: `{"messaging_type":"UPDATE","recipient":{"id":"12345"},"message":{"attachment":{"type":"image","payload":{"url":"https://foo.bar/image.jpg","is_reusable":true}}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Send caption and photo with Quick Reply",
+		Text: "This is some text.",
+		URN:  "facebook:12345", Attachments: []string{"image/jpeg:https://foo.bar/image.jpg"},
+		QuickReplies: []string{"Yes", "No"}, Topic: "event",
+		Status: "W", ExternalID: "mid.133",
+		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
+		RequestBody: `{"messaging_type":"MESSAGE_TAG","tag":"CONFIRMED_EVENT_UPDATE","recipient":{"id":"12345"},"message":{"text":"This is some text.","quick_replies":[{"title":"Yes","payload":"Yes","content_type":"text"},{"title":"No","payload":"No","content_type":"text"}]}}`,
+		SendPrep:    setSendURL},
+	{Label: "Send Document",
+		URN: "facebook:12345", Attachments: []string{"application/pdf:https://foo.bar/document.pdf"},
+		Status: "W", ExternalID: "mid.133",
+		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
+		RequestBody: `{"messaging_type":"UPDATE","recipient":{"id":"12345"},"message":{"attachment":{"type":"file","payload":{"url":"https://foo.bar/document.pdf","is_reusable":true}}}}`,
+		SendPrep:    setSendURL},
+	{Label: "ID Error",
+		Text: "ID Error", URN: "facebook:12345",
+		Status:       "E",
+		ResponseBody: `{ "is_error": true }`, ResponseStatus: 200,
+		SendPrep: setSendURL},
+	{Label: "Error",
+		Text: "Error", URN: "facebook:12345",
+		Status:       "E",
+		ResponseBody: `{ "is_error": true }`, ResponseStatus: 403,
+		SendPrep: setSendURL},
+}
+
+func TestSending(t *testing.T) {
+	uuids.SetGenerator(uuids.NewSeededGenerator(1234))
+	defer uuids.SetGenerator(uuids.DefaultGenerator)
+
+	// shorter max msg length for testing
+	facebookapp.MaxMsgLengthFBA = 100
+	var ChannelFBA = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "FBA", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
+	handlers.RunChannelSendTestCases(t, ChannelFBA, facebookapp.NewHandler("FBA", "Facebook", false), SendTestCasesFBA, nil)
+
 }
 
 func TestSigning(t *testing.T) {
@@ -153,54 +259,4 @@ func TestSigning(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, tc.Signature, sig, "%d: mismatched signature", i)
 	}
-}
-
-func TestHandler(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		accessToken := r.Header.Get("Authorization")
-		defer r.Body.Close()
-
-		// invalid auth token
-		if accessToken != "Bearer a123" && accessToken != "Bearer wac_admin_system_user_token" {
-			fmt.Printf("Access token: %s\n", accessToken)
-			http.Error(w, "invalid auth token", 403)
-			return
-		}
-
-		if strings.HasSuffix(r.URL.Path, "image") {
-			w.Write([]byte(`{"url": "https://foo.bar/attachmentURL_Image"}`))
-			return
-		}
-
-		if strings.HasSuffix(r.URL.Path, "audio") {
-			w.Write([]byte(`{"url": "https://foo.bar/attachmentURL_Audio"}`))
-			return
-		}
-
-		if strings.HasSuffix(r.URL.Path, "voice") {
-			w.Write([]byte(`{"url": "https://foo.bar/attachmentURL_Voice"}`))
-			return
-		}
-
-		if strings.HasSuffix(r.URL.Path, "video") {
-			w.Write([]byte(`{"url": "https://foo.bar/attachmentURL_Video"}`))
-			return
-		}
-
-		if strings.HasSuffix(r.URL.Path, "document") {
-			w.Write([]byte(`{"url": "https://foo.bar/attachmentURL_Document"}`))
-			return
-		}
-
-		if strings.HasSuffix(r.URL.Path, "sticker") {
-			w.Write([]byte(`{"url": "https://foo.bar/attachmentURL_Sticker"}`))
-		}
-
-		// valid token
-		w.Write([]byte(`{"url": "https://foo.bar/attachmentURL"}`))
-
-	}))
-	metacommons.GraphURL = server.URL
-
-	handlers.RunChannelTestCases(t, testChannelsFBA, metacommons.NewHandler("FBA", "Facebook", false), testCasesFBA)
 }

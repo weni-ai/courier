@@ -8,10 +8,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
+	"github.com/buger/jsonparser"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
+	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/urns"
 )
 
@@ -148,4 +151,28 @@ func fbCalculateSignature(appSecret string, body []byte) (string, error) {
 	mac.Write(buffer.Bytes())
 
 	return hex.EncodeToString(mac.Sum(nil)), nil
+}
+
+func ResolveMediaURL(channel courier.Channel, mediaID string, token string) (string, error) {
+
+	if token == "" {
+		return "", fmt.Errorf("missing token for WAC channel")
+	}
+
+	base, _ := url.Parse(GraphURL)
+	path, _ := url.Parse(fmt.Sprintf("/%s", mediaID))
+	retreiveURL := base.ResolveReference(path)
+
+	// set the access token as the authorization header
+	req, _ := http.NewRequest(http.MethodGet, retreiveURL.String(), nil)
+	//req.Header.Set("User-Agent", utils.HTTPUserAgent)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+
+	resp, err := utils.MakeHTTPRequest(req)
+	if err != nil {
+		return "", err
+	}
+
+	mediaURL, err := jsonparser.GetString(resp.Body, "url")
+	return mediaURL, err
 }

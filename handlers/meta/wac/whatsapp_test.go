@@ -12,7 +12,7 @@ import (
 
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
-	"github.com/nyaruka/courier/handlers/facebookapp"
+	"github.com/nyaruka/courier/handlers/meta"
 	"github.com/nyaruka/courier/handlers/meta/metacommons"
 	"github.com/nyaruka/gocommon/urns"
 	"github.com/nyaruka/gocommon/uuids"
@@ -30,7 +30,7 @@ func addValidSignatureWAC(r *http.Request) {
 }
 
 func TestDescribeWAC(t *testing.T) {
-	handler := facebookapp.NewHandler("WAC", "Cloud API WhatsApp", false).(courier.URNDescriber)
+	handler := meta.NewHandler("WAC", "Cloud API WhatsApp", false).(courier.URNDescriber)
 
 	tcs := []struct {
 		urn      urns.URN
@@ -54,10 +54,10 @@ func TestResolveMediaURL(t *testing.T) {
 	}{{"id_media", "", "", "missing token for WAC channel"},
 		{"id_media", "token", "", `unsupported protocol scheme ""`}}
 
-	facebookapp.GraphURL = "url"
+	meta.GraphURL = "url"
 
 	for _, tc := range tcs {
-		_, err := facebookapp.ResolveMediaURL(testChannelsWAC[0], tc.id, tc.token)
+		_, err := meta.ResolveMediaURL(testChannelsWAC[0], tc.id, tc.token)
 		assert.Equal(t, err.Error(), tc.err)
 	}
 }
@@ -221,13 +221,13 @@ func TestHandler(t *testing.T) {
 		w.Write([]byte(`{"url": "https://foo.bar/attachmentURL"}`))
 
 	}))
-	facebookapp.GraphURL = server.URL
+	meta.GraphURL = server.URL
 
-	handlers.RunChannelTestCases(t, testChannelsWAC, facebookapp.NewHandler("WAC", "Cloud API WhatsApp", false), testCasesWAC)
+	handlers.RunChannelTestCases(t, testChannelsWAC, meta.NewHandler("WAC", "Cloud API WhatsApp", false), testCasesWAC)
 }
 
 func TestVerify(t *testing.T) {
-	handlers.RunChannelTestCases(t, testChannelsWAC, facebookapp.NewHandler("WAC", "WhatsApp Cloud", false), []handlers.ChannelHandleTestCase{
+	handlers.RunChannelTestCases(t, testChannelsWAC, meta.NewHandler("WAC", "WhatsApp Cloud", false), []handlers.ChannelHandleTestCase{
 		{Label: "Valid Secret", URL: "/c/wac/receive?hub.mode=subscribe&hub.verify_token=wac_webhook_secret&hub.challenge=yarchallenge", Status: 200,
 			Response: "yarchallenge", NoQueueErrorCheck: true, NoInvalidChannelCheck: true},
 		{Label: "Verify No Mode", URL: "/c/wac/receive", Status: 400, Response: "unknown request"},
@@ -239,8 +239,8 @@ func TestVerify(t *testing.T) {
 
 // setSendURL takes care of setting the send_url to our test server host
 func setSendURL(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
-	facebookapp.SendURL = s.URL
-	facebookapp.GraphURL = s.URL
+	meta.SendURL = s.URL
+	meta.GraphURL = s.URL
 }
 
 var SendTestCasesWAC = []handlers.ChannelSendTestCase{
@@ -888,7 +888,7 @@ func TestSending(t *testing.T) {
 	SendTestCasesWAC = append(SendTestCasesWAC, FailingCachedSendTestCasesWAC...)
 
 	// shorter max msg length for testing
-	facebookapp.MaxMsgLengthWAC = 100
+	meta.MaxMsgLengthWAC = 100
 	var ChannelWAC = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WAC", "12345_ID", "", map[string]interface{}{courier.ConfigAuthToken: "a123", "catalog_id": "c4t4l0g-1D"})
-	handlers.RunChannelSendTestCases(t, ChannelWAC, facebookapp.NewHandler("WAC", "Cloud API WhatsApp", false), SendTestCasesWAC, nil)
+	handlers.RunChannelSendTestCases(t, ChannelWAC, meta.NewHandler("WAC", "Cloud API WhatsApp", false), SendTestCasesWAC, nil)
 }

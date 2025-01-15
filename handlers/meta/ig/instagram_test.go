@@ -11,7 +11,7 @@ import (
 
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
-	"github.com/nyaruka/courier/handlers/facebookapp"
+	"github.com/nyaruka/courier/handlers/meta"
 	"github.com/nyaruka/courier/handlers/meta/metacommons"
 	"github.com/nyaruka/gocommon/urns"
 	"github.com/nyaruka/gocommon/uuids"
@@ -87,7 +87,7 @@ func buildMockFBGraphIG(testCases []handlers.ChannelHandleTestCase) *httptest.Se
 		// no name
 		w.Write([]byte(`{ "name": ""}`))
 	}))
-	facebookapp.GraphURL = server.URL
+	meta.GraphURL = server.URL
 
 	return server
 }
@@ -96,7 +96,7 @@ func TestDescribeIG(t *testing.T) {
 	fbGraph := buildMockFBGraphIG(testCasesIG)
 	defer fbGraph.Close()
 
-	handler := facebookapp.NewHandler("IG", "Instagram", false).(courier.URNDescriber)
+	handler := meta.NewHandler("IG", "Instagram", false).(courier.URNDescriber)
 	tcs := []struct {
 		urn      urns.URN
 		metadata map[string]string
@@ -110,18 +110,18 @@ func TestDescribeIG(t *testing.T) {
 }
 
 func TestHandler(t *testing.T) {
-	handlers.RunChannelTestCases(t, testChannelsIG, facebookapp.NewHandler("IG", "Instagram", false), testCasesIG)
+	handlers.RunChannelTestCases(t, testChannelsIG, meta.NewHandler("IG", "Instagram", false), testCasesIG)
 }
 
 func BenchmarkHandler(b *testing.B) {
 	fbServiceIG := buildMockFBGraphIG(testCasesIG)
 
-	handlers.RunChannelBenchmarks(b, testChannelsIG, facebookapp.NewHandler("IG", "Instagram", false), testCasesIG)
+	handlers.RunChannelBenchmarks(b, testChannelsIG, meta.NewHandler("IG", "Instagram", false), testCasesIG)
 	fbServiceIG.Close()
 }
 
 func TestVerify(t *testing.T) {
-	handlers.RunChannelTestCases(t, testChannelsIG, facebookapp.NewHandler("IG", "Instagram", false), []handlers.ChannelHandleTestCase{
+	handlers.RunChannelTestCases(t, testChannelsIG, meta.NewHandler("IG", "Instagram", false), []handlers.ChannelHandleTestCase{
 		{Label: "Valid Secret", URL: "/c/ig/receive?hub.mode=subscribe&hub.verify_token=fb_webhook_secret&hub.challenge=yarchallenge", Status: 200,
 			Response: "yarchallenge", NoQueueErrorCheck: true, NoInvalidChannelCheck: true},
 		{Label: "Verify No Mode", URL: "/c/ig/receive", Status: 400, Response: "unknown request"},
@@ -133,8 +133,8 @@ func TestVerify(t *testing.T) {
 
 // setSendURL takes care of setting the send_url to our test server host
 func setSendURL(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
-	facebookapp.SendURL = s.URL
-	facebookapp.GraphURL = s.URL
+	meta.SendURL = s.URL
+	meta.GraphURL = s.URL
 }
 
 var SendTestCasesIG = []handlers.ChannelSendTestCase{
@@ -205,8 +205,8 @@ func TestSending(t *testing.T) {
 	uuids.SetGenerator(uuids.NewSeededGenerator(1234))
 	defer uuids.SetGenerator(uuids.DefaultGenerator)
 
-	facebookapp.MaxMsgLengthIG = 100
+	meta.MaxMsgLengthIG = 100
 	var ChannelIG = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "IG", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
-	handlers.RunChannelSendTestCases(t, ChannelIG, facebookapp.NewHandler("IG", "Instagram", false), SendTestCasesIG, nil)
+	handlers.RunChannelSendTestCases(t, ChannelIG, meta.NewHandler("IG", "Instagram", false), SendTestCasesIG, nil)
 
 }

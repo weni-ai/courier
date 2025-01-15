@@ -11,7 +11,7 @@ import (
 
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
-	"github.com/nyaruka/courier/handlers/facebookapp"
+	"github.com/nyaruka/courier/handlers/meta"
 	"github.com/nyaruka/courier/handlers/meta/metacommons"
 	"github.com/nyaruka/gocommon/urns"
 	"github.com/nyaruka/gocommon/uuids"
@@ -112,7 +112,7 @@ func buildMockFBGraphFBA(testCases []handlers.ChannelHandleTestCase) *httptest.S
 		// no name
 		w.Write([]byte(`{ "first_name": "", "last_name": ""}`))
 	}))
-	facebookapp.GraphURL = server.URL
+	meta.GraphURL = server.URL
 
 	return server
 }
@@ -121,7 +121,7 @@ func TestDescribeFBA(t *testing.T) {
 	fbGraph := buildMockFBGraphFBA(testCasesFBA)
 	defer fbGraph.Close()
 
-	handler := facebookapp.NewHandler("FBA", "Facebook", false).(courier.URNDescriber)
+	handler := meta.NewHandler("FBA", "Facebook", false).(courier.URNDescriber)
 	tcs := []struct {
 		urn      urns.URN
 		metadata map[string]string
@@ -136,18 +136,18 @@ func TestDescribeFBA(t *testing.T) {
 }
 
 func TestHandler(t *testing.T) {
-	handlers.RunChannelTestCases(t, testChannelsFBA, facebookapp.NewHandler("FBA", "Facebook", false), testCasesFBA)
+	handlers.RunChannelTestCases(t, testChannelsFBA, meta.NewHandler("FBA", "Facebook", false), testCasesFBA)
 }
 
 func BenchmarkHandler(b *testing.B) {
 	fbService := buildMockFBGraphFBA(testCasesFBA)
 
-	handlers.RunChannelBenchmarks(b, testChannelsFBA, facebookapp.NewHandler("FBA", "Facebook", false), testCasesFBA)
+	handlers.RunChannelBenchmarks(b, testChannelsFBA, meta.NewHandler("FBA", "Facebook", false), testCasesFBA)
 	fbService.Close()
 }
 
 func TestVerify(t *testing.T) {
-	handlers.RunChannelTestCases(t, testChannelsFBA, facebookapp.NewHandler("FBA", "Facebook", false), []handlers.ChannelHandleTestCase{
+	handlers.RunChannelTestCases(t, testChannelsFBA, meta.NewHandler("FBA", "Facebook", false), []handlers.ChannelHandleTestCase{
 		{Label: "Valid Secret", URL: "/c/fba/receive?hub.mode=subscribe&hub.verify_token=fb_webhook_secret&hub.challenge=yarchallenge", Status: 200,
 			Response: "yarchallenge", NoQueueErrorCheck: true, NoInvalidChannelCheck: true},
 		{Label: "Verify No Mode", URL: "/c/fba/receive", Status: 400, Response: "unknown request"},
@@ -159,8 +159,8 @@ func TestVerify(t *testing.T) {
 
 // setSendURL takes care of setting the send_url to our test server host
 func setSendURL(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
-	facebookapp.SendURL = s.URL
-	facebookapp.GraphURL = s.URL
+	meta.SendURL = s.URL
+	meta.GraphURL = s.URL
 }
 
 var SendTestCasesFBA = []handlers.ChannelSendTestCase{
@@ -233,9 +233,9 @@ func TestSending(t *testing.T) {
 	defer uuids.SetGenerator(uuids.DefaultGenerator)
 
 	// shorter max msg length for testing
-	facebookapp.MaxMsgLengthFBA = 100
+	meta.MaxMsgLengthFBA = 100
 	var ChannelFBA = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "FBA", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
-	handlers.RunChannelSendTestCases(t, ChannelFBA, facebookapp.NewHandler("FBA", "Facebook", false), SendTestCasesFBA, nil)
+	handlers.RunChannelSendTestCases(t, ChannelFBA, meta.NewHandler("FBA", "Facebook", false), SendTestCasesFBA, nil)
 
 }
 

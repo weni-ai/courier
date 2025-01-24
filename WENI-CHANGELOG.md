@@ -1,3 +1,12 @@
+1.19.1
+----------
+ * Billing send message to exchange with routing keys instead directly to queue
+
+1.19.0
+----------
+ * Feat: Add buttons support to whatsapp template message
+ * Feat: Order details template
+
 1.18.5
 ----------
  * Fix: document name on template message for whatsapp cloud

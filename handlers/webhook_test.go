@@ -43,6 +43,21 @@ func TestSendWebhooksExternal_NoHeaders(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestSendWebhooksExternal_NoMethod(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data": "success"}`))
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "https://foo.bar/webhook", nil)
+	webhookConfig := map[string]interface{}{
+		"url": ts.URL,
+	}
+
+	err := SendWebhooksExternal(req, webhookConfig)
+	assert.NoError(t, err)
+}
+
 func TestSendWebhooks(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

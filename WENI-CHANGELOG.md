@@ -1,3 +1,7 @@
+1.19.2
+----------
+ * Fix webhook panic on parse nil to string for get method request value
+
 1.19.1
 ----------
  * Billing send message to exchange with routing keys instead directly to queue

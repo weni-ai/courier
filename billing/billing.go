@@ -15,6 +15,7 @@ import (
 const (
 	RoutingKeyCreate = "create"
 	RoutingKeyUpdate = "status-update"
+	RoutingKeyWAC    = "whatsapp-cloud-token"
 )
 
 // Message represents a object that is sent to the billing service

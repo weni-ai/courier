@@ -1,3 +1,7 @@
+1.19.3
+----------
+ * Fix webhook panic on value assertion failure
+
 1.19.2
 ----------
  * Fix webhook panic on parse nil to string for get method request value

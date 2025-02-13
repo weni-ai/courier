@@ -29,6 +29,7 @@ import (
 	"github.com/nyaruka/gocommon/uuids"
 	"github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 // Endpoints we hit
@@ -113,7 +114,7 @@ type handler struct {
 func (h *handler) Initialize(s courier.Server) error {
 	h.SetServer(s)
 	s.AddHandlerRoute(h, http.MethodGet, "receive", h.receiveVerify)
-	s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveEvent)
+	s.AddHandlerRoute(h, http.MethodPost, "receive", JSONPayload(h, h.receiveEvent))
 	return nil
 }
 
@@ -184,7 +185,6 @@ func (h *handler) receiveVerify(ctx context.Context, channel courier.Channel, w 
 
 	// verify the token against our server facebook webhook secret, if the same return the challenge FB sent us
 	secret := r.URL.Query().Get("hub.verify_token")
-
 	if fmt.Sprint(h.ChannelType()) == "FBA" || fmt.Sprint(h.ChannelType()) == "IG" {
 		if secret != h.Server().Config().FacebookWebhookSecret {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("token does not match secret"))
@@ -225,14 +225,8 @@ func ResolveMediaURL(channel courier.Channel, mediaID string, token string) (str
 }
 
 // receiveEvent is our HTTP handler function for incoming messages and status updates
-func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request, payload *moPayload) ([]courier.Event, error) {
 	err := h.validateSignature(r)
-	if err != nil {
-		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
-	}
-
-	payload := &moPayload{}
-	err = handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
@@ -260,6 +254,32 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	return events, courier.WriteDataResponse(ctx, w, http.StatusOK, "Events Handled", data)
 }
 
+func postProcessWhatsappMsgStatus(h *handler, channel courier.Channel, recipientID string, statusID string, msgStatus courier.MsgStatusValue) {
+	if msgStatus == courier.MsgDelivered || msgStatus == courier.MsgRead {
+		urn, err := urns.NewWhatsAppURN(recipientID)
+		if err != nil {
+			logrus.Error(err)
+			return
+		}
+		if h.Server().Billing() != nil {
+			billingMsg := billing.NewMessage(
+				string(urn.Identity()),
+				"",
+				channel.UUID().String(),
+				statusID,
+				time.Now().Format(time.RFC3339),
+				"",
+				channel.ChannelType().String(),
+				"",
+				nil,
+				nil,
+				false,
+			)
+			h.Server().Billing().SendAsync(billingMsg, billing.RoutingKeyUpdate, nil, nil)
+		}
+	}
+}
+
 func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel courier.Channel, payload *moPayload, w http.ResponseWriter, r *http.Request) ([]courier.Event, []interface{}, error) {
 	// the list of events we deal with
 	events := make([]courier.Event, 0, 2)
@@ -269,6 +289,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 	// the list of data we will return in our response
 	data := make([]interface{}, 0, 2)
 
+	var seenMsgsIDs = make(map[string]bool, 2)
 	var contactNames = make(map[string]string)
 
 	// for each entry
@@ -284,6 +305,10 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 			}
 
 			for _, msg := range change.Value.Messages {
+				if seenMsgsIDs[msg.ID] {
+					continue
+				}
+
 				// create our date from the timestamp
 				ts, err := strconv.ParseInt(msg.Timestamp, 10, 64)
 				if err != nil {
@@ -298,6 +323,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 				text := ""
 				mediaURL := ""
+				var metadata json.RawMessage = nil
 
 				if msg.Type == "text" {
 					text = msg.Text.Body
@@ -328,6 +354,12 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					text = msg.Interactive.ListReply.Title
 				} else if msg.Type == "order" {
 					text = msg.Order.Text
+					orderM := map[string]interface{}{"order": msg.Order}
+					orderJSON, err := json.Marshal(orderM)
+					if err != nil {
+						courier.LogRequestError(r, channel, err)
+					}
+					metadata = json.RawMessage(orderJSON)
 				} else if msg.Type == "contacts" {
 
 					if len(msg.Contacts) == 0 {
@@ -340,41 +372,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 						phones = append(phones, phone.Phone)
 					}
 					text = strings.Join(phones, ", ")
-				} else {
-					// we received a message type we do not support.
-					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
-				}
-
-				// create our message
-				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(msg.ID).WithContactName(contactNames[msg.From])
-				event := h.Backend().CheckExternalIDSeen(ev)
-
-				// we had an error downloading media
-				if err != nil {
-					courier.LogRequestError(r, channel, err)
-				}
-
-				if msg.Type == "order" {
-					orderM := map[string]interface{}{"order": msg.Order}
-					orderJSON, err := json.Marshal(orderM)
-					if err != nil {
-						courier.LogRequestError(r, channel, err)
-					}
-					metadata := json.RawMessage(orderJSON)
-					event.WithMetadata(metadata)
-				}
-
-				if msg.Referral.Headline != "" {
-
-					referral, err := json.Marshal(msg.Referral)
-					if err != nil {
-						courier.LogRequestError(r, channel, err)
-					}
-					metadata := json.RawMessage(referral)
-					event.WithMetadata(metadata)
-				}
-
-				if msg.Interactive.Type == "nfm_reply" {
+				} else if msg.Interactive.Type == "nfm_reply" {
 
 					var responseJSON map[string]interface{}
 					err := json.Unmarshal([]byte(msg.Interactive.NFMReply.ResponseJSON), &responseJSON)
@@ -393,12 +391,34 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					if err != nil {
 						courier.LogRequestError(r, channel, err)
 					}
-					metadata := json.RawMessage(nfmReplyJSON)
-					event.WithMetadata(metadata)
+					metadata = json.RawMessage(nfmReplyJSON)
+				} else {
+					// we received a message type we do not support.
+					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
+					continue
+				}
+
+				// create our message
+				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(msg.ID).WithContactName(contactNames[msg.From])
+				event := h.Backend().CheckExternalIDSeen(ev) // this is really necessary?
+				// we had an error downloading media
+				if err != nil {
+					courier.LogRequestError(r, channel, err)
 				}
 
 				if mediaURL != "" {
 					event.WithAttachment(mediaURL)
+				}
+
+				if msg.Referral.Headline != "" {
+					referral, err := json.Marshal(msg.Referral)
+					if err != nil {
+						courier.LogRequestError(r, channel, err)
+					}
+					metadata = json.RawMessage(referral)
+				}
+				if metadata != nil {
+					event.WithMetadata(metadata)
 				}
 
 				err = h.Backend().WriteMsg(ctx, event)
@@ -410,7 +430,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 				events = append(events, event)
 				data = append(data, courier.NewMsgReceiveData(event))
-
+				seenMsgsIDs[msg.ID] = true
 			}
 
 			for _, status := range change.Value.Statuses {
@@ -433,34 +453,11 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					data = append(data, courier.NewInfoData(fmt.Sprintf("message id: %s not found, ignored", status.ID)))
 					continue
 				}
-
 				if err != nil {
 					return nil, nil, err
 				}
 
-				if msgStatus == courier.MsgDelivered || msgStatus == courier.MsgRead {
-					urn, err := urns.NewWhatsAppURN(status.RecipientID)
-					if err != nil {
-						handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
-					} else {
-						if h.Server().Billing() != nil {
-							billingMsg := billing.NewMessage(
-								string(urn.Identity()),
-								"",
-								channel.UUID().String(),
-								status.ID,
-								time.Now().Format(time.RFC3339),
-								"",
-								channel.ChannelType().String(),
-								"",
-								nil,
-								nil,
-								false,
-							)
-							h.Server().Billing().SendAsync(billingMsg, billing.RoutingKeyUpdate, nil, nil)
-						}
-					}
-				}
+				postProcessWhatsappMsgStatus(h, channel, status.RecipientID, status.ID, msgStatus)
 
 				events = append(events, event)
 				data = append(data, courier.NewStatusData(event))
@@ -2538,4 +2535,17 @@ func toStringSlice(v interface{}) []string {
 		return result
 	}
 	return nil
+}
+
+type JSONHandlerFunc[T any] func(context.Context, courier.Channel, http.ResponseWriter, *http.Request, *T) ([]courier.Event, error)
+
+func JSONPayload[T any](h handlers.ResponseWriter, handlerFunc JSONHandlerFunc[T]) courier.ChannelHandleFunc {
+	return func(ctx context.Context, c courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+		payload := new(T)
+		err := handlers.DecodeAndValidateJSON(payload, r)
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, c, w, r, err)
+		}
+		return handlerFunc(ctx, c, w, r, payload)
+	}
 }

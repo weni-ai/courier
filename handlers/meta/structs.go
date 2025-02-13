@@ -23,203 +23,207 @@ import "github.com/nyaruka/courier"
 type moPayload struct {
 	Object string `json:"object"`
 	Entry  []struct {
-		ID      string `json:"id"`
-		Time    int64  `json:"time"`
-		Changes []struct {
-			Field string `json:"field"`
-			Value struct {
-				MessagingProduct string `json:"messaging_product"`
-				Metadata         *struct {
-					DisplayPhoneNumber string `json:"display_phone_number"`
-					PhoneNumberID      string `json:"phone_number_id"`
-				} `json:"metadata"`
-				Contacts []struct {
-					Profile struct {
-						Name string `json:"name"`
-					} `json:"profile"`
-					WaID string `json:"wa_id"`
-				} `json:"contacts"`
-				Messages []struct {
-					ID        string `json:"id"`
-					From      string `json:"from"`
-					Timestamp string `json:"timestamp"`
-					Type      string `json:"type"`
-					Context   *struct {
-						Forwarded           bool   `json:"forwarded"`
-						FrequentlyForwarded bool   `json:"frequently_forwarded"`
-						From                string `json:"from"`
-						ID                  string `json:"id"`
-					} `json:"context"`
-					Text struct {
-						Body string `json:"body"`
-					} `json:"text"`
-					Image    *wacMedia   `json:"image"`
-					Audio    *wacMedia   `json:"audio"`
-					Video    *wacMedia   `json:"video"`
-					Document *wacMedia   `json:"document"`
-					Voice    *wacMedia   `json:"voice"`
-					Sticker  *wacSticker `json:"sticker"`
-					Location *struct {
-						Latitude  float64 `json:"latitude"`
-						Longitude float64 `json:"longitude"`
-						Name      string  `json:"name"`
-						Address   string  `json:"address"`
-					} `json:"location"`
-					Button *struct {
-						Text    string `json:"text"`
-						Payload string `json:"payload"`
-					} `json:"button"`
-					Interactive struct {
-						Type        string `json:"type"`
-						ButtonReply struct {
-							ID    string `json:"id"`
-							Title string `json:"title"`
-						} `json:"button_reply,omitempty"`
-						ListReply struct {
-							ID    string `json:"id"`
-							Title string `json:"title"`
-						} `json:"list_reply,omitempty"`
-						NFMReply struct {
-							Name         string `json:"name,omitempty"`
-							ResponseJSON string `json:"response_json"`
-						} `json:"nfm_reply"`
-					} `json:"interactive,omitempty"`
-					Contacts []struct {
-						Name struct {
-							FirstName     string `json:"first_name"`
-							LastName      string `json:"last_name"`
-							FormattedName string `json:"formatted_name"`
-						} `json:"name"`
-						Phones []struct {
-							Phone string `json:"phone"`
-							WaID  string `json:"wa_id"`
-							Type  string `json:"type"`
-						} `json:"phones"`
-					} `json:"contacts"`
-					Referral struct {
-						Headline   string    `json:"headline"`
-						Body       string    `json:"body"`
-						SourceType string    `json:"source_type"`
-						SourceID   string    `json:"source_id"`
-						SourceURL  string    `json:"source_url"`
-						Image      *wacMedia `json:"image"`
-						Video      *wacMedia `json:"video"`
-					} `json:"referral"`
-					Order struct {
-						CatalogID    string `json:"catalog_id"`
-						Text         string `json:"text"`
-						ProductItems []struct {
-							ProductRetailerID string  `json:"product_retailer_id"`
-							Quantity          int     `json:"quantity"`
-							ItemPrice         float64 `json:"item_price"`
-							Currency          string  `json:"currency"`
-						} `json:"product_items"`
-					} `json:"order"`
-				} `json:"messages"`
-				Statuses []struct {
-					ID           string `json:"id"`
-					RecipientID  string `json:"recipient_id"`
-					Status       string `json:"status"`
-					Timestamp    string `json:"timestamp"`
-					Type         string `json:"type"`
-					Conversation *struct {
-						ID     string `json:"id"`
-						Origin *struct {
-							Type string `json:"type"`
-						} `json:"origin"`
-					} `json:"conversation"`
-					Pricing *struct {
-						PricingModel string `json:"pricing_model"`
-						Billable     bool   `json:"billable"`
-						Category     string `json:"category"`
-					} `json:"pricing"`
-				} `json:"statuses"`
-				Errors []struct {
-					Code  int    `json:"code"`
-					Title string `json:"title"`
-				} `json:"errors"`
-				BanInfo struct {
-					WabaBanState []string `json:"waba_ban_state"`
-					WabaBanDate  string   `json:"waba_ban_date"`
-				} `json:"ban_info"`
-				CurrentLimit                 string `json:"current_limit"`
-				Decision                     string `json:"decision"`
-				DisplayPhoneNumber           string `json:"display_phone_number"`
-				Event                        string `json:"event"`
-				MaxDailyConversationPerPhone int    `json:"max_daily_conversation_per_phone"`
-				MaxPhoneNumbersPerBusiness   int    `json:"max_phone_numbers_per_business"`
-				MaxPhoneNumbersPerWaba       int    `json:"max_phone_numbers_per_waba"`
-				Reason                       string `json:"reason"`
-				RequestedVerifiedName        string `json:"requested_verified_name"`
-				RestrictionInfo              []struct {
-					RestrictionType string `json:"restriction_type"`
-					Expiration      string `json:"expiration"`
-				} `json:"restriction_info"`
-				MessageTemplateID       int    `json:"message_template_id"`
-				MessageTemplateName     string `json:"message_template_name"`
-				MessageTemplateLanguage string `json:"message_template_language"`
-			} `json:"value"`
-		} `json:"changes"`
-		Messaging []struct {
-			Sender    Sender `json:"sender"`
-			Recipient User   `json:"recipient"`
-			Timestamp int64  `json:"timestamp"`
-
-			OptIn *struct {
-				Ref     string `json:"ref"`
-				UserRef string `json:"user_ref"`
-			} `json:"optin"`
-
-			Referral *struct {
-				Ref    string `json:"ref"`
-				Source string `json:"source"`
-				Type   string `json:"type"`
-				AdID   string `json:"ad_id"`
-			} `json:"referral"`
-
-			Postback *struct {
-				MID      string `json:"mid"`
-				Title    string `json:"title"`
-				Payload  string `json:"payload"`
-				Referral struct {
-					Ref    string `json:"ref"`
-					Source string `json:"source"`
-					Type   string `json:"type"`
-					AdID   string `json:"ad_id"`
-				} `json:"referral"`
-			} `json:"postback"`
-
-			Message *struct {
-				IsEcho      bool   `json:"is_echo"`
-				MID         string `json:"mid"`
-				Text        string `json:"text"`
-				IsDeleted   bool   `json:"is_deleted"`
-				Attachments []struct {
-					Type    string `json:"type"`
-					Payload *struct {
-						URL         string `json:"url"`
-						StickerID   int64  `json:"sticker_id"`
-						Coordinates *struct {
-							Lat  float64 `json:"lat"`
-							Long float64 `json:"long"`
-						} `json:"coordinates"`
-					}
-				} `json:"attachments"`
-			} `json:"message"`
-
-			Delivery *struct {
-				MIDs      []string `json:"mids"`
-				Watermark int64    `json:"watermark"`
-			} `json:"delivery"`
-
-			MessagingFeedback *struct {
-				FeedbackScreens []struct {
-					ScreenID  int                         `json:"screen_id"`
-					Questions map[string]FeedbackQuestion `json:"questions"`
-				} `json:"feedback_screens"`
-			} `json:"messaging_feedback"`
-		} `json:"messaging"`
+		ID        string      `json:"id"`
+		Time      int64       `json:"time"`
+		Changes   []Change    `json:"changes"`
+		Messaging []Messaging `json:"messaging"`
 	} `json:"entry"`
+}
+
+type Change struct {
+	Field string `json:"field"`
+	Value struct {
+		MessagingProduct string `json:"messaging_product"`
+		Metadata         *struct {
+			DisplayPhoneNumber string `json:"display_phone_number"`
+			PhoneNumberID      string `json:"phone_number_id"`
+		} `json:"metadata"`
+		Contacts []struct {
+			Profile struct {
+				Name string `json:"name"`
+			} `json:"profile"`
+			WaID string `json:"wa_id"`
+		} `json:"contacts"`
+		Messages []struct {
+			ID        string `json:"id"`
+			From      string `json:"from"`
+			Timestamp string `json:"timestamp"`
+			Type      string `json:"type"`
+			Context   *struct {
+				Forwarded           bool   `json:"forwarded"`
+				FrequentlyForwarded bool   `json:"frequently_forwarded"`
+				From                string `json:"from"`
+				ID                  string `json:"id"`
+			} `json:"context"`
+			Text struct {
+				Body string `json:"body"`
+			} `json:"text"`
+			Image    *wacMedia   `json:"image"`
+			Audio    *wacMedia   `json:"audio"`
+			Video    *wacMedia   `json:"video"`
+			Document *wacMedia   `json:"document"`
+			Voice    *wacMedia   `json:"voice"`
+			Sticker  *wacSticker `json:"sticker"`
+			Location *struct {
+				Latitude  float64 `json:"latitude"`
+				Longitude float64 `json:"longitude"`
+				Name      string  `json:"name"`
+				Address   string  `json:"address"`
+			} `json:"location"`
+			Button *struct {
+				Text    string `json:"text"`
+				Payload string `json:"payload"`
+			} `json:"button"`
+			Interactive struct {
+				Type        string `json:"type"`
+				ButtonReply struct {
+					ID    string `json:"id"`
+					Title string `json:"title"`
+				} `json:"button_reply,omitempty"`
+				ListReply struct {
+					ID    string `json:"id"`
+					Title string `json:"title"`
+				} `json:"list_reply,omitempty"`
+				NFMReply struct {
+					Name         string `json:"name,omitempty"`
+					ResponseJSON string `json:"response_json"`
+				} `json:"nfm_reply"`
+			} `json:"interactive,omitempty"`
+			Contacts []struct {
+				Name struct {
+					FirstName     string `json:"first_name"`
+					LastName      string `json:"last_name"`
+					FormattedName string `json:"formatted_name"`
+				} `json:"name"`
+				Phones []struct {
+					Phone string `json:"phone"`
+					WaID  string `json:"wa_id"`
+					Type  string `json:"type"`
+				} `json:"phones"`
+			} `json:"contacts"`
+			Referral struct {
+				Headline   string    `json:"headline"`
+				Body       string    `json:"body"`
+				SourceType string    `json:"source_type"`
+				SourceID   string    `json:"source_id"`
+				SourceURL  string    `json:"source_url"`
+				Image      *wacMedia `json:"image"`
+				Video      *wacMedia `json:"video"`
+			} `json:"referral"`
+			Order struct {
+				CatalogID    string `json:"catalog_id"`
+				Text         string `json:"text"`
+				ProductItems []struct {
+					ProductRetailerID string  `json:"product_retailer_id"`
+					Quantity          int     `json:"quantity"`
+					ItemPrice         float64 `json:"item_price"`
+					Currency          string  `json:"currency"`
+				} `json:"product_items"`
+			} `json:"order"`
+		} `json:"messages"`
+		Statuses []struct {
+			ID           string `json:"id"`
+			RecipientID  string `json:"recipient_id"`
+			Status       string `json:"status"`
+			Timestamp    string `json:"timestamp"`
+			Type         string `json:"type"`
+			Conversation *struct {
+				ID     string `json:"id"`
+				Origin *struct {
+					Type string `json:"type"`
+				} `json:"origin"`
+			} `json:"conversation"`
+			Pricing *struct {
+				PricingModel string `json:"pricing_model"`
+				Billable     bool   `json:"billable"`
+				Category     string `json:"category"`
+			} `json:"pricing"`
+		} `json:"statuses"`
+		Errors []struct {
+			Code  int    `json:"code"`
+			Title string `json:"title"`
+		} `json:"errors"`
+		BanInfo struct {
+			WabaBanState []string `json:"waba_ban_state"`
+			WabaBanDate  string   `json:"waba_ban_date"`
+		} `json:"ban_info"`
+		CurrentLimit                 string `json:"current_limit"`
+		Decision                     string `json:"decision"`
+		DisplayPhoneNumber           string `json:"display_phone_number"`
+		Event                        string `json:"event"`
+		MaxDailyConversationPerPhone int    `json:"max_daily_conversation_per_phone"`
+		MaxPhoneNumbersPerBusiness   int    `json:"max_phone_numbers_per_business"`
+		MaxPhoneNumbersPerWaba       int    `json:"max_phone_numbers_per_waba"`
+		Reason                       string `json:"reason"`
+		RequestedVerifiedName        string `json:"requested_verified_name"`
+		RestrictionInfo              []struct {
+			RestrictionType string `json:"restriction_type"`
+			Expiration      string `json:"expiration"`
+		} `json:"restriction_info"`
+		MessageTemplateID       int    `json:"message_template_id"`
+		MessageTemplateName     string `json:"message_template_name"`
+		MessageTemplateLanguage string `json:"message_template_language"`
+	} `json:"value"`
+}
+
+type Messaging struct {
+	Sender    Sender `json:"sender"`
+	Recipient User   `json:"recipient"`
+	Timestamp int64  `json:"timestamp"`
+
+	OptIn *struct {
+		Ref     string `json:"ref"`
+		UserRef string `json:"user_ref"`
+	} `json:"optin"`
+
+	Referral *struct {
+		Ref    string `json:"ref"`
+		Source string `json:"source"`
+		Type   string `json:"type"`
+		AdID   string `json:"ad_id"`
+	} `json:"referral"`
+
+	Postback *struct {
+		MID      string `json:"mid"`
+		Title    string `json:"title"`
+		Payload  string `json:"payload"`
+		Referral struct {
+			Ref    string `json:"ref"`
+			Source string `json:"source"`
+			Type   string `json:"type"`
+			AdID   string `json:"ad_id"`
+		} `json:"referral"`
+	} `json:"postback"`
+
+	Message *struct {
+		IsEcho      bool   `json:"is_echo"`
+		MID         string `json:"mid"`
+		Text        string `json:"text"`
+		IsDeleted   bool   `json:"is_deleted"`
+		Attachments []struct {
+			Type    string `json:"type"`
+			Payload *struct {
+				URL         string `json:"url"`
+				StickerID   int64  `json:"sticker_id"`
+				Coordinates *struct {
+					Lat  float64 `json:"lat"`
+					Long float64 `json:"long"`
+				} `json:"coordinates"`
+			}
+		} `json:"attachments"`
+	} `json:"message"`
+
+	Delivery *struct {
+		MIDs      []string `json:"mids"`
+		Watermark int64    `json:"watermark"`
+	} `json:"delivery"`
+
+	MessagingFeedback *struct {
+		FeedbackScreens []struct {
+			ScreenID  int                         `json:"screen_id"`
+			Questions map[string]FeedbackQuestion `json:"questions"`
+		} `json:"feedback_screens"`
+	} `json:"messaging_feedback"`
 }
 
 type Sender struct {

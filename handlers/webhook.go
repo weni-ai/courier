@@ -27,9 +27,15 @@ func SendWebhooksExternal(r *http.Request, configWebhook interface{}) error {
 		return fmt.Errorf("invalid url %s", err)
 	}
 
-	method := webhook["method"].(string)
-	if method == "" {
-		method = "POST"
+	method := "POST"
+	methodVal, ok := webhook["method"]
+	if ok && methodVal != nil {
+		switch v := methodVal.(type) {
+		case string:
+			method = v
+		default:
+			fmt.Println(fmt.Errorf("invalid method %T, usind default %s", v, method))
+		}
 	}
 
 	req, _ := http.NewRequest(method, webhook["url"].(string), r.Body)

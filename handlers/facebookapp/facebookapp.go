@@ -2353,7 +2353,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		isUnitaryProduct := true
 		var unitaryProduct string
 		for _, product := range products {
-			retailerIDs := toStringSlice(product["ProductRetailerIDs"])
+			retailerIDs := toStringSlice(product["product_retailer_ids"])
 			if len(products) > 1 || len(retailerIDs) > 1 {
 				isUnitaryProduct = false
 			} else {
@@ -2426,7 +2426,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 				for _, product := range products {
 					i++
-					retailerIDs := toStringSlice(product["ProductRetailerIDs"])
+					retailerIDs := toStringSlice(product["product_retailer_ids"])
 					sproducts := []wacMTProductItem{}
 
 					for _, p := range retailerIDs {
@@ -2435,7 +2435,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						})
 					}
 
-					title := product["Product"].(string)
+					title := product["product"].(string)
 					if title == "product_retailer_id" {
 						title = "items"
 					}

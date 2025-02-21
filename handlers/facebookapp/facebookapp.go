@@ -1526,8 +1526,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 	qrs := msg.QuickReplies()
 
 	var payloadAudio wacMTPayload[map[string]any]
-
+	fmt.Println("TAMANHO MSGPARTS: ", len(msgParts))
+	fmt.Println("Msg.Text(): ", msg.Text())
+	fmt.Println("Msg: ", msg)
 	for i := 0; i < len(msgParts)+len(msg.Attachments()); i++ {
+		fmt.Println("Entrou no loop")
 		payload := wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path()}
 
 		// do we have a template?

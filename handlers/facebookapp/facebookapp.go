@@ -273,6 +273,16 @@ type moPayload struct {
 						Category     string `json:"category"`
 					} `json:"pricing"`
 				} `json:"statuses"`
+				MessagesEchoes []struct {
+					From      string `json:"from"`
+					To        string `json:"to"`
+					ID        string `json:"id"`
+					Timestamp string `json:"timestamp"`
+					Text      struct {
+						Body string `json:"body"`
+					} `json:"text"`
+					Type string `json:"type"`
+				} `json:"messages_echoes"`
 				Errors []struct {
 					Code  int    `json:"code"`
 					Title string `json:"title"`
@@ -729,6 +739,57 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 			}
 
+			for _, message := range change.Value.MessagesEchoes {
+				ts, err := strconv.ParseInt(message.Timestamp, 10, 64)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("invalid timestamp: %s", message.Timestamp))
+				}
+				date := time.Unix(ts, 0).UTC()
+
+				urn, err := urns.NewWhatsAppURN(message.To)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+
+				text := ""
+				mediaURL := ""
+
+				if message.Type == "text" {
+					text = message.Text.Body
+				} else {
+					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", message.Type))
+				}
+
+				ev := h.Backend().NewOutgoingMsg(channel, courier.NilMsgID, urn, text, false, nil, "", 0, "", "").
+					WithReceivedOn(date).
+					WithExternalID(message.ID)
+
+				event := h.Backend().CheckExternalIDSeen(ev)
+
+				if mediaURL != "" {
+					event.WithAttachment(mediaURL)
+				}
+
+				// Write the message
+				err = h.Backend().WriteMsg(ctx, event)
+				if err != nil {
+					return nil, nil, err
+				}
+
+				// Create and write the status as sent
+				status := h.Backend().NewMsgStatusForID(channel, event.ID(), courier.MsgWired)
+				status.SetExternalID(message.ID)
+
+				err = h.Backend().WriteMsgStatus(ctx, status)
+				if err != nil {
+					return nil, nil, err
+				}
+
+				h.Backend().WriteExternalIDSeen(event)
+
+				events = append(events, event, status)
+				data = append(data, courier.NewMsgReceiveData(event))
+			}
 		}
 
 	}

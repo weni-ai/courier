@@ -254,6 +254,10 @@ type moPayload struct {
 							Currency          string  `json:"currency"`
 						} `json:"product_items"`
 					} `json:"order"`
+					Errors []struct {
+						Code  int    `json:"code"`
+						Title string `json:"title"`
+					} `json:"errors"`
 				} `json:"messages"`
 				Statuses []struct {
 					ID           string `json:"id"`
@@ -615,6 +619,15 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				} else {
 					// we received a message type we do not support.
 					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
+				}
+				//check if the message is unavailable
+				if msg.Errors != nil {
+					for _, error := range msg.Errors {
+						if error.Code == 1060 {
+							fmt.Println("Message unavailable")
+							text = "This message is currently unavailable. Please check your phone for the message."
+						}
+					}
 				}
 
 				// create our message

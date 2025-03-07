@@ -376,6 +376,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 	{Label: "Receive Empty Changes", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/emptyChangesWAC.json")), Status: 200, Response: `"Events Handled"`, PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Empty Contacts", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/emptyContactsWAC.json")), Status: 400, Response: `"no shared contact"`, PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Unsupported Message Type", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/invalidTypeMsgWAC.json")), Status: 200, Response: `"Events Handled"`, PrepRequest: addValidSignatureWAC},
+	{Label: "Receive State Sync", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/contactUpdateWAC.json")), Status: 200, Response: `"Events Handled"`, ChannelEvent: Sp(courier.ContactUpdate), PrepRequest: addValidSignatureWAC},
 }
 
 func TestHandler(t *testing.T) {

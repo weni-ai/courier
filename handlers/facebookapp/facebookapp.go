@@ -93,6 +93,11 @@ const (
 	InteractiveProductCatalogMessageType = "catalog_message"
 )
 
+// Adicionar constante para o tipo de evento
+const (
+	ContactUpdate = "contact_update"
+)
+
 func newHandler(channelType courier.ChannelType, name string, useUUIDRoutes bool) courier.ChannelHandler {
 	return &handler{handlers.NewBaseHandlerWithParams(channelType, name, useUUIDRoutes)}
 }
@@ -311,6 +316,18 @@ type moPayload struct {
 				MessageTemplateID       int    `json:"message_template_id"`
 				MessageTemplateName     string `json:"message_template_name"`
 				MessageTemplateLanguage string `json:"message_template_language"`
+				StateSync               []struct {
+					Type    string `json:"type"`
+					Contact struct {
+						FullName    string `json:"full_name"`
+						FirstName   string `json:"first_name"`
+						PhoneNumber string `json:"phone_number"`
+					} `json:"contact"`
+					Action   string `json:"action"`
+					Metadata struct {
+						Timestamp string `json:"timestamp"`
+					} `json:"metadata"`
+				} `json:"state_sync"`
 			} `json:"value"`
 		} `json:"changes"`
 		Messaging []struct {
@@ -802,6 +819,26 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 				events = append(events, event, status)
 				data = append(data, courier.NewMsgReceiveData(event))
+			}
+
+			for _, stateSync := range change.Value.StateSync {
+				urn, err := urns.NewWhatsAppURN(stateSync.Contact.PhoneNumber)
+				if err != nil {
+					return nil, nil, err
+				}
+
+				event := h.Backend().NewChannelEvent(
+					channel,
+					courier.ContactUpdate,
+					urn,
+				).WithContactName(stateSync.Contact.FullName)
+
+				err = h.Backend().WriteChannelEvent(ctx, event)
+				if err != nil {
+					return nil, nil, err
+				}
+
+				events = append(events, event)
 			}
 		}
 

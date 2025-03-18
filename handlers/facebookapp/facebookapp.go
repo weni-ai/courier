@@ -98,6 +98,14 @@ const (
 	ContactUpdate = "contact_update"
 )
 
+// Add this map before the handler struct declaration (around line 110)
+var integrationWebhookFields = map[string]bool{
+	"message_template_status_update":  true,
+	"template_category_update":        true,
+	"message_template_quality_update": true,
+	"account_update":                  true,
+}
+
 func newHandler(channelType courier.ChannelType, name string, useUUIDRoutes bool) courier.ChannelHandler {
 	return &handler{handlers.NewBaseHandlerWithParams(channelType, name, useUUIDRoutes)}
 }
@@ -445,7 +453,7 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 		if len(payload.Entry[0].Changes) == 0 {
 			return nil, fmt.Errorf("no changes found")
 		}
-		if payload.Entry[0].Changes[0].Field == "message_template_status_update" || payload.Entry[0].Changes[0].Field == "template_category_update" || payload.Entry[0].Changes[0].Field == "message_template_quality_update" {
+		if integrationWebhookFields[payload.Entry[0].Changes[0].Field] {
 			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, "", true)
 			if er != nil {
 				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))

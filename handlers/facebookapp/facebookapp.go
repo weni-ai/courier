@@ -290,7 +290,7 @@ type moPayload struct {
 						Category     string `json:"category"`
 					} `json:"pricing"`
 				} `json:"statuses"`
-				MessagesEchoes []struct {
+				MessageEchoes []struct {
 					From      string `json:"from"`
 					To        string `json:"to"`
 					ID        string `json:"id"`
@@ -299,7 +299,7 @@ type moPayload struct {
 						Body string `json:"body"`
 					} `json:"text"`
 					Type string `json:"type"`
-				} `json:"messages_echoes"`
+				} `json:"message_echoes"`
 				Errors []struct {
 					Code  int    `json:"code"`
 					Title string `json:"title"`
@@ -777,7 +777,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 			}
 
-			for _, message := range change.Value.MessagesEchoes {
+			for _, message := range change.Value.MessageEchoes {
 				ts, err := strconv.ParseInt(message.Timestamp, 10, 64)
 				if err != nil {
 					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("invalid timestamp: %s", message.Timestamp))

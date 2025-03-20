@@ -11,7 +11,7 @@
                             "display_phone_number": "+250 788 123 200",
                             "phone_number_id": "12345"
                         },
-                        "messages_echoes": [
+                        "message_echoes": [
                             {
                                 "id": "external_id",
                                 "from": "1234",

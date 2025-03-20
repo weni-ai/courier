@@ -93,6 +93,19 @@ const (
 	InteractiveProductCatalogMessageType = "catalog_message"
 )
 
+// Adicionar constante para o tipo de evento
+const (
+	ContactUpdate = "contact_update"
+)
+
+// Add this map before the handler struct declaration (around line 110)
+var integrationWebhookFields = map[string]bool{
+	"message_template_status_update":  true,
+	"template_category_update":        true,
+	"message_template_quality_update": true,
+	"account_update":                  true,
+}
+
 func newHandler(channelType courier.ChannelType, name string, useUUIDRoutes bool) courier.ChannelHandler {
 	return &handler{handlers.NewBaseHandlerWithParams(channelType, name, useUUIDRoutes)}
 }
@@ -254,6 +267,10 @@ type moPayload struct {
 							Currency          string  `json:"currency"`
 						} `json:"product_items"`
 					} `json:"order"`
+					Errors []struct {
+						Code  int    `json:"code"`
+						Title string `json:"title"`
+					} `json:"errors"`
 				} `json:"messages"`
 				Statuses []struct {
 					ID           string `json:"id"`
@@ -273,6 +290,16 @@ type moPayload struct {
 						Category     string `json:"category"`
 					} `json:"pricing"`
 				} `json:"statuses"`
+				MessagesEchoes []struct {
+					From      string `json:"from"`
+					To        string `json:"to"`
+					ID        string `json:"id"`
+					Timestamp string `json:"timestamp"`
+					Text      struct {
+						Body string `json:"body"`
+					} `json:"text"`
+					Type string `json:"type"`
+				} `json:"messages_echoes"`
 				Errors []struct {
 					Code  int    `json:"code"`
 					Title string `json:"title"`
@@ -297,6 +324,18 @@ type moPayload struct {
 				MessageTemplateID       int    `json:"message_template_id"`
 				MessageTemplateName     string `json:"message_template_name"`
 				MessageTemplateLanguage string `json:"message_template_language"`
+				StateSync               []struct {
+					Type    string `json:"type"`
+					Contact struct {
+						FullName    string `json:"full_name"`
+						FirstName   string `json:"first_name"`
+						PhoneNumber string `json:"phone_number"`
+					} `json:"contact"`
+					Action   string `json:"action"`
+					Metadata struct {
+						Timestamp string `json:"timestamp"`
+					} `json:"metadata"`
+				} `json:"state_sync"`
 			} `json:"value"`
 		} `json:"changes"`
 		Messaging []struct {
@@ -414,7 +453,7 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 		if len(payload.Entry[0].Changes) == 0 {
 			return nil, fmt.Errorf("no changes found")
 		}
-		if payload.Entry[0].Changes[0].Field == "message_template_status_update" || payload.Entry[0].Changes[0].Field == "template_category_update" || payload.Entry[0].Changes[0].Field == "message_template_quality_update" {
+		if integrationWebhookFields[payload.Entry[0].Changes[0].Field] {
 			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, "", true)
 			if er != nil {
 				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
@@ -606,6 +645,15 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					// we received a message type we do not support.
 					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
 				}
+				//check if the message is unavailable
+				if msg.Errors != nil {
+					for _, error := range msg.Errors {
+						if error.Code == 1060 {
+							fmt.Println("Message unavailable")
+							text = "This message is currently unavailable. Please check your phone for the message."
+						}
+					}
+				}
 
 				// create our message
 				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(msg.ID).WithContactName(contactNames[msg.From])
@@ -759,6 +807,77 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 			}
 
+			for _, message := range change.Value.MessagesEchoes {
+				ts, err := strconv.ParseInt(message.Timestamp, 10, 64)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("invalid timestamp: %s", message.Timestamp))
+				}
+				date := time.Unix(ts, 0).UTC()
+
+				urn, err := urns.NewWhatsAppURN(message.To)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+
+				text := ""
+				mediaURL := ""
+
+				if message.Type == "text" {
+					text = message.Text.Body
+				} else {
+					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", message.Type))
+				}
+
+				ev := h.Backend().NewOutgoingMsg(channel, courier.NilMsgID, urn, text, false, nil, "", 0, "", "").
+					WithReceivedOn(date).
+					WithExternalID(message.ID)
+
+				event := h.Backend().CheckExternalIDSeen(ev)
+
+				if mediaURL != "" {
+					event.WithAttachment(mediaURL)
+				}
+
+				// Write the message
+				err = h.Backend().WriteMsg(ctx, event)
+				if err != nil {
+					return nil, nil, err
+				}
+
+				// Create and write the status as sent
+				status := h.Backend().NewMsgStatusForID(channel, event.ID(), courier.MsgWired)
+				status.SetExternalID(message.ID)
+
+				err = h.Backend().WriteMsgStatus(ctx, status)
+				if err != nil {
+					return nil, nil, err
+				}
+
+				h.Backend().WriteExternalIDSeen(event)
+
+				events = append(events, event, status)
+				data = append(data, courier.NewMsgReceiveData(event))
+			}
+
+			for _, stateSync := range change.Value.StateSync {
+				urn, err := urns.NewWhatsAppURN(stateSync.Contact.PhoneNumber)
+				if err != nil {
+					return nil, nil, err
+				}
+
+				event := h.Backend().NewChannelEvent(
+					channel,
+					courier.ContactUpdate,
+					urn,
+				).WithContactName(stateSync.Contact.FullName)
+
+				err = h.Backend().WriteChannelEvent(ctx, event)
+				if err != nil {
+					return nil, nil, err
+				}
+
+				events = append(events, event)
+			}
 		}
 
 	}

@@ -1,0 +1,32 @@
+{
+    "object": "whatsapp_business_account",
+    "entry": [
+        {
+            "id": "8856996819413533",
+            "changes": [
+                {
+                    "value": {
+                        "messaging_product": "whatsapp",
+                        "metadata": {
+                            "display_phone_number": "+250 788 123 200",
+                            "phone_number_id": "12345"
+                        },
+                        "messages_echoes": [
+                            {
+                                "id": "external_id",
+                                "from": "1234",
+                                "to": "5678",
+                                "timestamp": "1454119029",
+                                "type": "text",
+                                "text": {
+                                    "body": "Hello World"
+                                }
+                            }
+                        ]
+                    },
+                    "field": "messages"
+                }
+            ]
+        }
+    ]
+}

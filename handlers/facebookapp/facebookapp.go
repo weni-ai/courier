@@ -167,6 +167,18 @@ type moPayload struct {
 		Changes []struct {
 			Field string `json:"field"`
 			Value struct {
+				From struct {
+					ID       string `json:"id"`
+					Username string `json:"username"`
+				} `json:"from"`
+				ID    string `json:"id"`
+				Media struct {
+					AdID             string `json:"ad_id"`
+					ID               string `json:"id"`
+					MediaProductType string `json:"media_product_type"`
+					OriginalMediaID  string `json:"original_media_id"`
+				}
+				Text             string `json:"text"`
 				MessagingProduct string `json:"messaging_product"`
 				Metadata         *struct {
 					DisplayPhoneNumber string `json:"display_phone_number"`
@@ -368,6 +380,22 @@ type Flow struct {
 type NFMReply struct {
 	Name         string                 `json:"name,omitempty"`
 	ResponseJSON map[string]interface{} `json:"response_json"`
+}
+
+type IGComment struct {
+	Text string `json:"text,omitempty"`
+	From struct {
+		ID       string `json:"id,omitempty"`
+		Username string `json:"username,omitempty"`
+	} `json:"from,omitempty"`
+	Media []struct {
+		AdID             string `json:"ad_id,omitempty"`
+		ID               string `json:"id,omitempty"`
+		MediaProductType string `json:"media_product_type,omitempty"`
+		OriginalMediaID  string `json:"original_media_id,omitempty"`
+	} `json:"media,omitempty"`
+	Time int64  `json:"time,omitempty"`
+	ID   string `json:"id,omitempty"`
 }
 
 type FeedbackQuestion struct {
@@ -746,8 +774,60 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 
 	// for each entry
 	for _, entry := range payload.Entry {
-		// no entry, ignore
+
 		if len(entry.Messaging) == 0 {
+			if len(entry.Changes) > 0 && entry.Changes[0].Field == "comments" {
+
+				// Build IGComment struct and wrapper
+				wrapper := struct {
+					IGComment IGComment `json:"ig_comment"`
+				}{
+					IGComment: IGComment{
+						Text: entry.Changes[0].Value.Text,
+						From: struct {
+							ID       string `json:"id,omitempty"`
+							Username string `json:"username,omitempty"`
+						}{
+							ID:       entry.Changes[0].Value.From.ID,
+							Username: entry.Changes[0].Value.From.Username,
+						},
+						Media: []struct {
+							AdID             string `json:"ad_id,omitempty"`
+							ID               string `json:"id,omitempty"`
+							MediaProductType string `json:"media_product_type,omitempty"`
+							OriginalMediaID  string `json:"original_media_id,omitempty"`
+						}{},
+						Time: entry.Time,
+						ID:   entry.Changes[0].Value.ID,
+					},
+				}
+
+				// Marshal IGComment to JSON for metadata
+				metadataJSON, err := json.Marshal(wrapper)
+				if err != nil {
+					courier.LogRequestError(r, channel, err)
+				}
+				metadata := json.RawMessage(metadataJSON)
+
+				// Create message from comment
+				text := entry.Changes[0].Value.Text
+				urn, err := urns.NewInstagramURN(entry.Changes[0].Value.From.ID)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+				//we can skip creating the msg and just pass the metadata
+				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(time.Unix(0, entry.Time*1000000).UTC())
+				event := h.Backend().CheckExternalIDSeen(ev).WithMetadata(metadata)
+				err = h.Backend().WriteMsg(ctx, event)
+				if err != nil {
+					return nil, nil, err
+				}
+
+				h.Backend().WriteExternalIDSeen(event)
+				events = append(events, event)
+				data = append(data, courier.NewMsgReceiveData(event))
+
+			}
 			continue
 		}
 

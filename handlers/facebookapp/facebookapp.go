@@ -806,58 +806,57 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				data = append(data, courier.NewStatusData(event))
 
 			}
-			if change.Field == "message_echoes" || change.Field == "smb_message_echoes" {
-				for _, message := range change.Value.MessageEchoes {
-					ts, err := strconv.ParseInt(message.Timestamp, 10, 64)
-					if err != nil {
-						return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("invalid timestamp: %s", message.Timestamp))
-					}
-					date := time.Unix(ts, 0).UTC()
 
-					urn, err := urns.NewWhatsAppURN(message.To)
-					if err != nil {
-						return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
-					}
-
-					text := ""
-					mediaURL := ""
-
-					if message.Type == "text" {
-						text = message.Text.Body
-					} else {
-						courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", message.Type))
-					}
-
-					ev := h.Backend().NewOutgoingMsg(channel, courier.NilMsgID, urn, text, false, nil, "", 0, "", "").
-						WithReceivedOn(date).
-						WithExternalID(message.ID)
-
-					event := h.Backend().CheckExternalIDSeen(ev)
-
-					if mediaURL != "" {
-						event.WithAttachment(mediaURL)
-					}
-
-					// Write the message
-					err = h.Backend().WriteMsg(ctx, event)
-					if err != nil {
-						return nil, nil, err
-					}
-
-					// Create and write the status as sent
-					status := h.Backend().NewMsgStatusForID(channel, event.ID(), courier.MsgWired)
-					status.SetExternalID(message.ID)
-
-					err = h.Backend().WriteMsgStatus(ctx, status)
-					if err != nil {
-						return nil, nil, err
-					}
-
-					h.Backend().WriteExternalIDSeen(event)
-
-					events = append(events, event, status)
-					data = append(data, courier.NewMsgReceiveData(event))
+			for _, message := range change.Value.MessageEchoes {
+				ts, err := strconv.ParseInt(message.Timestamp, 10, 64)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("invalid timestamp: %s", message.Timestamp))
 				}
+				date := time.Unix(ts, 0).UTC()
+
+				urn, err := urns.NewWhatsAppURN(message.To)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+
+				text := ""
+				mediaURL := ""
+
+				if message.Type == "text" {
+					text = message.Text.Body
+				} else {
+					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", message.Type))
+				}
+
+				ev := h.Backend().NewOutgoingMsg(channel, courier.NilMsgID, urn, text, false, nil, "", 0, "", "").
+					WithReceivedOn(date).
+					WithExternalID(message.ID)
+
+				event := h.Backend().CheckExternalIDSeen(ev)
+
+				if mediaURL != "" {
+					event.WithAttachment(mediaURL)
+				}
+
+				// Write the message
+				err = h.Backend().WriteMsg(ctx, event)
+				if err != nil {
+					return nil, nil, err
+				}
+
+				// Create and write the status as sent
+				status := h.Backend().NewMsgStatusForID(channel, event.ID(), courier.MsgDelivered)
+				status.SetExternalID(message.ID)
+
+				err = h.Backend().WriteMsgStatus(ctx, status)
+				if err != nil {
+					return nil, nil, err
+				}
+
+				h.Backend().WriteExternalIDSeen(event)
+
+				events = append(events, event)
+				data = append(data, courier.NewMsgReceiveData(event))
 			}
 
 			for _, stateSync := range change.Value.StateSync {

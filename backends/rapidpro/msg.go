@@ -639,6 +639,15 @@ func (m *DBMsg) TextLanguage() string {
 	return string(textLanguage)
 }
 
+func (m *DBMsg) IGCommentID() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+
+	igCommentID, _, _, _ := jsonparser.Get(m.Metadata_, "ig_comment_id")
+	return string(igCommentID)
+}
+
 // Metadata returns the metadata for this message
 func (m *DBMsg) Metadata() json.RawMessage {
 	return m.Metadata_

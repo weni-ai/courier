@@ -136,6 +136,8 @@ type Msg interface {
 	FlowMessage() *FlowMessage
 	OrderDetailsMessage() *OrderDetailsMessage
 	Buttons() []ButtonComponent
+
+	IGCommentID() string
 }
 
 type ButtonComponent struct {

@@ -1140,7 +1140,7 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 	payload := mtPayload{}
 
 	// set our message type
-	if msg.ResponseToExternalID() != "" {
+	if msg.ResponseToExternalID() != "" && msg.IGCommentID() == "" {
 		payload.MessagingType = "RESPONSE"
 	} else if topic != "" {
 		payload.MessagingType = "MESSAGE_TAG"
@@ -1275,6 +1275,42 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 			}
 			status.SetStatus(courier.MsgWired)
 		}
+		return status, nil
+
+	} else if msg.IGCommentID() != "" && msg.Text() != "" {
+
+		commentID := msg.IGCommentID()
+		baseURL, _ := url.Parse(fmt.Sprintf(graphURL+"/%s/replies", commentID))
+
+		form := url.Values{}
+		form.Set("message", msg.Text())
+		form.Set("access_token", accessToken)
+
+		req, _ := http.NewRequest(http.MethodPost, baseURL.String(), strings.NewReader(form.Encode()))
+		req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+		rr, err := utils.MakeHTTPRequest(req)
+
+		log := courier.NewChannelLogFromRR("Instagram Comment Reply", msg.Channel(), msg.ID(), rr)
+		if err != nil {
+			log = log.WithError("Instagram Comment Reply Error", err)
+			status.AddLog(log)
+			return status, err
+		}
+		status.AddLog(log)
+		if err != nil {
+			return status, nil
+		}
+
+		externalID, err := jsonparser.GetString(rr.Body, "id")
+		if err != nil {
+			log.WithError("Message Send Error", errors.Errorf("unable to get id from body"))
+			return status, nil
+		}
+
+		status.SetStatus(courier.MsgWired)
+		status.SetExternalID(externalID)
+
 		return status, nil
 	}
 

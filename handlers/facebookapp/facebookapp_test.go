@@ -554,6 +554,15 @@ var SendTestCasesIG = []ChannelSendTestCase{
 		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
 		RequestBody: `{"messaging_type":"RESPONSE","recipient":{"id":"12345"},"message":{"text":"Simple Message"}}`,
 		SendPrep:    setSendURL},
+	{Label: "Instagram Comment Reply",
+		Text: "Reply to comment", URN: "instagram:12345",
+		Status: "W", ExternalID: "30065218",
+		Metadata:     json.RawMessage(`{"ig_comment_id": "30065218"}`),
+		ResponseBody: `{"id": "30065218"}`, ResponseStatus: 200,
+		SendPrep: func(server *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+			graphURL = buildMockIGCommentReplyServer().URL
+		},
+	},
 	{Label: "Quick Reply",
 		Text: "Are you happy?", URN: "instagram:12345", QuickReplies: []string{"Yes", "No"},
 		Status: "W", ExternalID: "mid.133",
@@ -1226,6 +1235,26 @@ func mockAttachmentURLs(mediaServer *httptest.Server, testCases []ChannelSendTes
 		casesWithMockedUrls[i] = mockedCase
 	}
 	return casesWithMockedUrls
+}
+
+func buildMockIGCommentReplyServer() *httptest.Server {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		if strings.Contains(r.URL.Path, "/replies") {
+			err := r.ParseForm()
+			if err != nil {
+				http.Error(w, "Bad request", http.StatusBadRequest)
+				return
+			}
+
+			w.Write([]byte(`{ "id": "30065218" }`))
+			return
+		}
+
+		http.Error(w, "Unexpected endpoint", http.StatusNotFound)
+	}))
+
+	return server
 }
 
 func TestSending(t *testing.T) {

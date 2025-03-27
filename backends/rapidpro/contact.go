@@ -159,6 +159,20 @@ func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChanne
 		}
 	}
 
+	if err == sql.ErrNoRows {
+		// we not found a contact with the given urn, so try find one with another variation with or without extra 9
+		if urn.Scheme() == urns.WhatsAppScheme && strings.HasPrefix(urn.Path(), "55") {
+			urnVariation := newWhatsappURNVariation(urn)
+			if urnVariation != nil {
+				err = b.db.GetContext(ctx, contact, lookupContactFromURNSQL, urnVariation.Identity(), org)
+				if err != nil && err != sql.ErrNoRows {
+					logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
+					return nil, err
+				}
+			}
+		}
+	}
+
 	// we found it, return it
 	if err != sql.ErrNoRows {
 		// insert it
@@ -269,6 +283,28 @@ func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChanne
 
 	// and return it
 	return contact, nil
+}
+
+func newWhatsappURNVariation(urn urns.URN) *urns.URN {
+	path := urn.Path()
+	pathVariation := ""
+	if urn.Scheme() == urns.WhatsAppScheme && strings.HasPrefix(path, "55") {
+		addNine := !(len(path) == 13 && string(path[4]) == "9")
+		if addNine {
+			// provide with extra 9
+			pathVariation = path[:4] + "9" + path[4:]
+		} else {
+			// provide without extra 9
+			pathVariation = path[:4] + path[5:]
+		}
+	}
+
+	if pathVariation != "" {
+		urnVariation, _ := urns.NewURNFromParts(urn.Scheme(), pathVariation, "", "")
+		return &urnVariation
+	}
+
+	return nil
 }
 
 // DBContact is our struct for a contact in the database

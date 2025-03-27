@@ -1285,7 +1285,7 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 		if msg.IGResponseType() == "comment" {
 			baseURL, _ = url.Parse(fmt.Sprintf(graphURL+"/%s/replies", commentID))
 			form.Set("message", msg.Text())
-		} else {
+		} else if msg.IGResponseType() == "dm_comment" {
 			baseURL, _ = url.Parse(sendURL)
 			form.Set("message", fmt.Sprintf("{text: \"%s\"}", msg.Text()))
 			form.Set("recipient", fmt.Sprintf("{comment_id: \"%s\"}", commentID))

@@ -1,3 +1,7 @@
+1.20.1
+----------
+ * Fix version
+
 1.20.0
 ----------
  * Prevent contact duplication by check whatsapp variation before create

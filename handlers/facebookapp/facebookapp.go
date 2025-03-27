@@ -1278,12 +1278,19 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 		return status, nil
 
 	} else if msg.IGCommentID() != "" && msg.Text() != "" {
+		var baseURL *url.URL
+		form := url.Values{}
 
 		commentID := msg.IGCommentID()
-		baseURL, _ := url.Parse(fmt.Sprintf(graphURL+"/%s/replies", commentID))
+		if msg.IGResponseType() == "comment" {
+			baseURL, _ = url.Parse(fmt.Sprintf(graphURL+"/%s/replies", commentID))
+			form.Set("message", msg.Text())
+		} else {
+			baseURL, _ = url.Parse(sendURL)
+			form.Set("message", fmt.Sprintf("{text: \"%s\"}", msg.Text()))
+			form.Set("recipient", fmt.Sprintf("{comment_id: \"%s\"}", commentID))
+		}
 
-		form := url.Values{}
-		form.Set("message", msg.Text())
 		form.Set("access_token", accessToken)
 
 		req, _ := http.NewRequest(http.MethodPost, baseURL.String(), strings.NewReader(form.Encode()))
@@ -1301,11 +1308,14 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 		if err != nil {
 			return status, nil
 		}
-
 		externalID, err := jsonparser.GetString(rr.Body, "id")
 		if err != nil {
-			log.WithError("Message Send Error", errors.Errorf("unable to get id from body"))
-			return status, nil
+			// ID doesn't exist, let's try message_id
+			externalID, err = jsonparser.GetString(rr.Body, "message_id")
+			if err != nil {
+				log.WithError("Message Send Error", errors.Errorf("unable to get id or message_id from body"))
+				return status, nil
+			}
 		}
 
 		status.SetStatus(courier.MsgWired)

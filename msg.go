@@ -138,6 +138,7 @@ type Msg interface {
 	Buttons() []ButtonComponent
 
 	IGCommentID() string
+	IGResponseType() string
 }
 
 type ButtonComponent struct {

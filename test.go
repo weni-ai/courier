@@ -652,6 +652,14 @@ func (m *mockMsg) IGCommentID() string {
 	return string(igCommentID)
 }
 
+func (m *mockMsg) IGResponseType() string {
+	if m.metadata == nil {
+		return ""
+	}
+	igResponseType, _, _, _ := jsonparser.Get(m.metadata, "ig_response_type")
+	return string(igResponseType)
+}
+
 func (m *mockMsg) Body() string {
 	if m.metadata == nil {
 		return ""

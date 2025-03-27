@@ -648,6 +648,14 @@ func (m *DBMsg) IGCommentID() string {
 	return string(igCommentID)
 }
 
+func (m *DBMsg) IGResponseType() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	igResponseType, _, _, _ := jsonparser.Get(m.Metadata_, "ig_response_type")
+	return string(igResponseType)
+}
+
 // Metadata returns the metadata for this message
 func (m *DBMsg) Metadata() json.RawMessage {
 	return m.Metadata_

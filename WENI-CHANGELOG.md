@@ -1,3 +1,7 @@
+1.20.0
+----------
+ * Prevent contact duplication by check whatsapp variation before create
+
 1.19.4
 ----------
  * Change product field name

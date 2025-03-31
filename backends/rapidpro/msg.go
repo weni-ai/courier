@@ -656,6 +656,14 @@ func (m *DBMsg) IGResponseType() string {
 	return string(igResponseType)
 }
 
+func (m *DBMsg) IGTag() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	igTag, _, _, _ := jsonparser.Get(m.Metadata_, "ig_tag")
+	return string(igTag)
+}
+
 // Metadata returns the metadata for this message
 func (m *DBMsg) Metadata() json.RawMessage {
 	return m.Metadata_

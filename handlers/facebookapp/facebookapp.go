@@ -1142,9 +1142,13 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 	// set our message type
 	if msg.ResponseToExternalID() != "" && msg.IGCommentID() == "" {
 		payload.MessagingType = "RESPONSE"
-	} else if topic != "" {
+	} else if topic != "" || msg.IGTag() != "" {
 		payload.MessagingType = "MESSAGE_TAG"
-		payload.Tag = tagByTopic[topic]
+		if topic != "" {
+			payload.Tag = tagByTopic[topic]
+		} else {
+			payload.Tag = msg.IGTag()
+		}
 	} else {
 		payload.MessagingType = "UPDATE"
 	}

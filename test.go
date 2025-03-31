@@ -660,6 +660,14 @@ func (m *mockMsg) IGResponseType() string {
 	return string(igResponseType)
 }
 
+func (m *mockMsg) IGTag() string {
+	if m.metadata == nil {
+		return ""
+	}
+	igTag, _, _, _ := jsonparser.Get(m.metadata, "ig_tag")
+	return string(igTag)
+}
+
 func (m *mockMsg) Body() string {
 	if m.metadata == nil {
 		return ""

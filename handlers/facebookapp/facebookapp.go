@@ -388,7 +388,7 @@ type IGComment struct {
 		ID       string `json:"id,omitempty"`
 		Username string `json:"username,omitempty"`
 	} `json:"from,omitempty"`
-	Media []struct {
+	Media struct {
 		AdID             string `json:"ad_id,omitempty"`
 		ID               string `json:"id,omitempty"`
 		MediaProductType string `json:"media_product_type,omitempty"`
@@ -791,12 +791,17 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 							ID:       entry.Changes[0].Value.From.ID,
 							Username: entry.Changes[0].Value.From.Username,
 						},
-						Media: []struct {
+						Media: struct {
 							AdID             string `json:"ad_id,omitempty"`
 							ID               string `json:"id,omitempty"`
 							MediaProductType string `json:"media_product_type,omitempty"`
 							OriginalMediaID  string `json:"original_media_id,omitempty"`
-						}{},
+						}{
+							AdID:             entry.Changes[0].Value.Media.AdID,
+							ID:               entry.Changes[0].Value.Media.ID,
+							MediaProductType: entry.Changes[0].Value.Media.MediaProductType,
+							OriginalMediaID:  entry.Changes[0].Value.Media.OriginalMediaID,
+						},
 						Time: entry.Time,
 						ID:   entry.Changes[0].Value.ID,
 					},

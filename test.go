@@ -644,6 +644,30 @@ func (m *mockMsg) Header() string {
 	return string(header)
 }
 
+func (m *mockMsg) IGCommentID() string {
+	if m.metadata == nil {
+		return ""
+	}
+	igCommentID, _, _, _ := jsonparser.Get(m.metadata, "ig_comment_id")
+	return string(igCommentID)
+}
+
+func (m *mockMsg) IGResponseType() string {
+	if m.metadata == nil {
+		return ""
+	}
+	igResponseType, _, _, _ := jsonparser.Get(m.metadata, "ig_response_type")
+	return string(igResponseType)
+}
+
+func (m *mockMsg) IGTag() string {
+	if m.metadata == nil {
+		return ""
+	}
+	igTag, _, _, _ := jsonparser.Get(m.metadata, "ig_tag")
+	return string(igTag)
+}
+
 func (m *mockMsg) Body() string {
 	if m.metadata == nil {
 		return ""

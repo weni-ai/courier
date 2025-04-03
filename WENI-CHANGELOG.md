@@ -1,3 +1,7 @@
+1.21.0
+----------
+ * Add support for Instagram replies: comments, by tag and private reply
+
 1.20.1
 ----------
  * Fix version

@@ -1297,11 +1297,15 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 		} else if msg.IGResponseType() == "dm_comment" {
 			pageID := strconv.Itoa(msg.Channel().IntConfigForKey(courier.ConfigPageID, 0))
 			baseURL, _ = url.Parse(fmt.Sprintf(graphURL+"%s/messages", pageID))
-			baseURL, _ = url.Parse(fmt.Sprintf(baseURL.String()+"?recipient:%s", fmt.Sprintf("{comment_id:%s}", commentID)))
-			baseURL, _ = url.Parse(fmt.Sprintf(baseURL.String()+"&message:%s", fmt.Sprintf("{\"text\":\"%s\"}", msg.Text())))
+			query := baseURL.Query()
+			query.Set("recipient", fmt.Sprintf("{comment_id:%s}", commentID))
+			query.Set("message", fmt.Sprintf("{\"text\":\"%s\"}", strings.TrimSpace(msg.Text())))
+			baseURL.RawQuery = query.Encode()
 		}
 
-		form.Set("access_token", accessToken)
+		query := baseURL.Query()
+		query.Set("access_token", accessToken)
+		baseURL.RawQuery = query.Encode()
 
 		req, _ := http.NewRequest(http.MethodPost, baseURL.String(), strings.NewReader(form.Encode()))
 		req.Header.Add("Content-Type", "application/x-www-form-urlencoded")

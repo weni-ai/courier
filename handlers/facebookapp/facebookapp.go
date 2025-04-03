@@ -34,7 +34,7 @@ import (
 // Endpoints we hit
 var (
 	sendURL  = "https://graph.facebook.com/v12.0/me/messages"
-	graphURL = "https://graph.facebook.com/v12.0/"
+	graphURL = "https://graph.facebook.com/v22.0/"
 
 	signatureHeader = "X-Hub-Signature"
 
@@ -797,8 +797,8 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 							MediaProductType string `json:"media_product_type,omitempty"`
 							OriginalMediaID  string `json:"original_media_id,omitempty"`
 						}{
-							AdID:             entry.Changes[0].Value.Media.AdID,
 							ID:               entry.Changes[0].Value.Media.ID,
+							AdID:             entry.Changes[0].Value.Media.AdID,
 							MediaProductType: entry.Changes[0].Value.Media.MediaProductType,
 							OriginalMediaID:  entry.Changes[0].Value.Media.OriginalMediaID,
 						},
@@ -821,7 +821,7 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 				}
 				//we can skip creating the msg and just pass the metadata
-				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(time.Unix(0, entry.Time*1000000).UTC())
+				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithExternalID(entry.Changes[0].Value.ID).WithReceivedOn(time.Unix(0, entry.Time*1000000).UTC())
 				event := h.Backend().CheckExternalIDSeen(ev).WithMetadata(metadata)
 				err = h.Backend().WriteMsg(ctx, event)
 				if err != nil {
@@ -1292,12 +1292,13 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 
 		commentID := msg.IGCommentID()
 		if msg.IGResponseType() == "comment" {
-			baseURL, _ = url.Parse(fmt.Sprintf(graphURL+"/%s/replies", commentID))
+			baseURL, _ = url.Parse(fmt.Sprintf(graphURL+"%s/replies", commentID))
 			form.Set("message", msg.Text())
 		} else if msg.IGResponseType() == "dm_comment" {
-			baseURL, _ = url.Parse(sendURL)
-			form.Set("message", fmt.Sprintf("{text: \"%s\"}", msg.Text()))
-			form.Set("recipient", fmt.Sprintf("{comment_id: \"%s\"}", commentID))
+			pageID := strconv.Itoa(msg.Channel().IntConfigForKey(courier.ConfigPageID, 0))
+			baseURL, _ = url.Parse(fmt.Sprintf(graphURL+"%s/messages", pageID))
+			baseURL, _ = url.Parse(fmt.Sprintf(baseURL.String()+"?recipient:%s", fmt.Sprintf("{comment_id:%s}", commentID)))
+			baseURL, _ = url.Parse(fmt.Sprintf(baseURL.String()+"&message:%s", fmt.Sprintf("{\"text\":\"%s\"}", msg.Text())))
 		}
 
 		form.Set("access_token", accessToken)

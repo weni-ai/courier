@@ -560,7 +560,7 @@ var SendTestCasesIG = []ChannelSendTestCase{
 		Metadata:     json.RawMessage(`{"ig_comment_id": "30065218","ig_response_type": "comment"}`),
 		ResponseBody: `{"id": "30065218"}`, ResponseStatus: 200,
 		SendPrep: func(server *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
-			graphURL = buildMockIGCommentReplyServer().URL
+			graphURL = buildMockIGCommentReplyServer().URL + "/"
 		},
 	},
 	{Label: "Instagram DM Comment Reply",
@@ -568,7 +568,9 @@ var SendTestCasesIG = []ChannelSendTestCase{
 		Status: "W", ExternalID: "mid.133",
 		Metadata:     json.RawMessage(`{"ig_comment_id": "30065218","ig_response_type": "dm_comment"}`),
 		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
-		SendPrep: setSendURL,
+		SendPrep: func(server *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+			graphURL = buildMockIGCommentReplyServer().URL + "/"
+		},
 	},
 	{Label: "Quick Reply",
 		Text: "Are you happy?", URN: "instagram:12345", QuickReplies: []string{"Yes", "No"},
@@ -1255,6 +1257,17 @@ func buildMockIGCommentReplyServer() *httptest.Server {
 			}
 
 			w.Write([]byte(`{ "id": "30065218" }`))
+			return
+		}
+
+		if strings.Contains(r.URL.Path, "/messages") {
+			err := r.ParseForm()
+			if err != nil {
+				http.Error(w, "Bad request", http.StatusBadRequest)
+				return
+			}
+
+			w.Write([]byte(`{ "id": "mid.133" }`))
 			return
 		}
 

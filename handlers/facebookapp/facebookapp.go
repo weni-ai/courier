@@ -820,7 +820,7 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 				if err != nil {
 					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 				}
-				//we can skip creating the msg and just pass the metadata
+
 				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithExternalID(entry.Changes[0].Value.ID).WithReceivedOn(time.Unix(0, entry.Time*1000000).UTC())
 				event := h.Backend().CheckExternalIDSeen(ev).WithMetadata(metadata)
 				err = h.Backend().WriteMsg(ctx, event)

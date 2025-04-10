@@ -129,6 +129,10 @@ func NewRMQBillingResilientClient(url string, retryAttempts int, retryDelay int,
 }
 
 func (c *rabbitmqRetryClient) Send(msg Message, routingKey string) error {
+	fmt.Println("--------------------------------")
+	fmt.Println("Message ID:", msg.MessageID)
+	fmt.Printf("MSG: %v\n", msg)
+	fmt.Println("--------------------------------")
 	msgMarshalled, _ := json.Marshal(msg)
 	ctx := context.Background()
 	err := c.publisher.Publish(

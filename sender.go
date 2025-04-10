@@ -304,7 +304,7 @@ func (w *Sender) sendMessage(msg Msg) {
 					string(msg.URN().Identity()),
 					"",
 					msg.Channel().UUID().String(),
-					msg.ExternalID(),
+					status.ExternalID(),
 					time.Now().Format(time.RFC3339),
 					"O",
 					msg.Channel().ChannelType().String(),

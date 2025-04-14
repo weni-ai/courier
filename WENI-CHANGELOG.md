@@ -1,3 +1,7 @@
+1.22.0
+----------
+ * add wenichats msg uuid that be sent to rmq exchange
+
 1.21.0
 ----------
  * Add support for Instagram replies: comments, by tag and private reply

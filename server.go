@@ -53,6 +53,7 @@ type Server interface {
 	Billing() billing.Client
 
 	Templates() templates.Client
+	SetTemplates(templates templates.Client)
 }
 
 // NewServer creates a new Server for the passed in configuration. The server will have to be started
@@ -235,9 +236,8 @@ func (s *server) Router() chi.Router { return s.router }
 func (s *server) Billing() billing.Client          { return s.billing }
 func (s *server) SetBilling(client billing.Client) { s.billing = client }
 
-func (s *server) Templates() templates.Client {
-	return s.templates
-}
+func (s *server) Templates() templates.Client             { return s.templates }
+func (s *server) SetTemplates(templates templates.Client) { s.templates = templates }
 
 type server struct {
 	backend Backend

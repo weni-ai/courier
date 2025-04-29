@@ -323,8 +323,8 @@ func (w *Sender) sendMessage(msg Msg) {
 		}
 	}
 
-	// we allot 10 seconds to write our status to the db
-	writeCTX, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	// we allot 15 seconds to write our status to the db
+	writeCTX, cancel := context.WithTimeout(context.Background(), time.Second*15)
 	defer cancel()
 
 	err = backend.WriteMsgStatus(writeCTX, status)
@@ -336,6 +336,12 @@ func (w *Sender) sendMessage(msg Msg) {
 	err = backend.WriteChannelLogs(writeCTX, status.Logs())
 	if err != nil {
 		log.WithError(err).Info("error writing msg logs")
+	}
+
+	// write our contact last seen
+	err = backend.WriteContactLastSeen(writeCTX, msg, time.Now())
+	if err != nil {
+		log.WithError(err).Info("error writing contact last seen")
 	}
 
 	// mark our send task as complete

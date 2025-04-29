@@ -780,6 +780,10 @@ func (b *backend) Start() error {
 	b.contactLastSeenCommitter = batch.NewCommitter("contact last seen committer", b.db, updateContactLastSeenSQL, time.Millisecond*500, b.committerWG,
 		func(err error, value batch.Value) {
 			logrus.WithField("comp", "contact last seen committer").WithError(err).Error("error writing contact last seen")
+			err = courier.WriteToSpool(b.config.SpoolDir, "contact_last_seens", value)
+			if err != nil {
+				logrus.WithField("comp", "contact last seen committer").WithError(err).Error("error writing contact last seen to spool")
+			}
 		})
 	b.contactLastSeenCommitter.Start()
 

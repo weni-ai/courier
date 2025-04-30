@@ -89,6 +89,21 @@ type rabbitmqClient struct {
 	exchangeName string
 }
 
+type TemplateMetadata struct {
+	Templating *MsgTemplating `json:"templating"`
+}
+
+type MsgTemplating struct {
+	Template struct {
+		Name string `json:"name" validate:"required"`
+		UUID string `json:"uuid" validate:"required"`
+	} `json:"template" validate:"required,dive"`
+	Language  string   `json:"language" validate:"required"`
+	Country   string   `json:"country"`
+	Namespace string   `json:"namespace"`
+	Variables []string `json:"variables"`
+}
+
 // NewRMQTemplateClient cria um novo cliente para o serviço de templates usando RabbitMQ
 func NewRMQTemplateClient(url string, retryAttempts int, retryDelay int, exchangeName string) (Client, error) {
 	cconn, err := amqp.Dial(url)

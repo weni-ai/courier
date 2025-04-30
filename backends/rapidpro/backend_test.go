@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/queue"
 	"github.com/nyaruka/gocommon/storage"
@@ -205,6 +206,41 @@ func (ts *BackendTestSuite) TestCheckMsgExists() {
 	status := ts.b.NewMsgStatusForExternalID(knChannel, "ext1", courier.MsgStatusValue("S"))
 	err = checkMsgExists(ts.b, status)
 	ts.Nil(err)
+}
+
+func (ts *BackendTestSuite) TestContactForURN() {
+
+	db := sqlx.MustConnect("postgres", "postgres://courier:courier@localhost:5432/courier_test?sslmode=disable")
+	db.MustExec(`
+	INSERT INTO public.channels_channel
+(is_active, created_on, modified_on, "uuid", channel_type, "name", schemes, address, country, config, "role", org_id)
+VALUES(true, '2025-03-25 16:37:05.397', '2025-03-25 16:37:05.397', 'a863af77-9aaf-4845-9f95-af9288e6cb31', 'WAC', NULL, '{whatsapp}', NULL, 'US', NULL, '', 1);
+	`)
+
+	whatsappCloudChannel := ts.getChannel("WAC", "a863af77-9aaf-4845-9f95-af9288e6cb31")
+	urn, _ := urns.NewWhatsAppURN("5582999887766") // new urn with extra 9
+
+	var countCttWpp int
+	db.Get(&countCttWpp, `SELECT count(*) FROM contacts_contact as c, contacts_contacturn as u WHERE u.scheme = 'whatsapp' AND c.id = u.contact_id`)
+	ts.Equal(0, countCttWpp)
+
+	ctx := context.Background()
+
+	// a new contact is created
+	_, err := contactForURN(ctx, ts.b, whatsappCloudChannel.OrgID(), whatsappCloudChannel, urn, "", "")
+	ts.NoError(err)
+
+	db.Get(&countCttWpp, `SELECT count(*) FROM contacts_contact as c, contacts_contacturn as u WHERE u.scheme = 'whatsapp' AND c.id = u.contact_id`)
+	ts.Equal(1, countCttWpp)
+
+	urnVariation, _ := urns.NewWhatsAppURN("558299887766") // now using new variation without extra 9
+
+	// no new contact is created here, only is getting the same previous contact
+	_, err = contactForURN(ctx, ts.b, whatsappCloudChannel.OrgID(), whatsappCloudChannel, urnVariation, "", "")
+	ts.NoError(err)
+
+	db.Get(&countCttWpp, `SELECT count(*) FROM contacts_contact as c, contacts_contacturn as u WHERE u.scheme = 'whatsapp' AND c.id = u.contact_id`)
+	ts.Equal(1, countCttWpp)
 }
 
 func (ts *BackendTestSuite) TestContact() {

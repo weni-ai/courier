@@ -1,3 +1,19 @@
+1.22.0
+----------
+ * add wenichats msg uuid that be sent to rmq exchange
+
+1.21.0
+----------
+ * Add support for Instagram replies: comments, by tag and private reply
+
+1.20.1
+----------
+ * Fix version
+
+1.20.0
+----------
+ * Prevent contact duplication by check whatsapp variation before create
+
 1.19.4
 ----------
  * Change product field name

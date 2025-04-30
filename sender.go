@@ -325,47 +325,49 @@ func (w *Sender) sendMessage(msg Msg) {
 				}
 			}
 
-			// Nova lógica para templates
 			if w.foreman.server.Templates() != nil {
-				// Verificar se há metadados de template na mensagem
-				if templatingData, err := jsonparser.GetString(msg.Metadata(), "templating"); err == nil && templatingData != "" {
-					var templateMetadata map[string]interface{}
-					if err := json.Unmarshal([]byte(templatingData), &templateMetadata); err == nil {
-						if template, ok := templateMetadata["template"].(map[string]interface{}); ok {
-							templateName, _ := template["name"].(string)
-							templateUUID, _ := template["uuid"].(string)
-							templateLanguage, _ := templateMetadata["language"].(string)
-							templateNamespace, _ := templateMetadata["namespace"].(string)
+				mdJSON := msg.Metadata()
+				if len(mdJSON) == 0 {
+					return
+				}
+				metadata := &templates.TemplateMetadata{}
+				err := json.Unmarshal(mdJSON, metadata)
+				if err != nil {
+					return
+				}
+				templatingData := metadata.Templating
+				if templatingData == nil {
+					return
+				}
 
-							var templateVariables []string
-							if vars, ok := templateMetadata["variables"].([]interface{}); ok {
-								for _, v := range vars {
-									if strVar, ok := v.(string); ok {
-										templateVariables = append(templateVariables, strVar)
-									}
-								}
-							}
+				if err == nil && templatingData != nil {
+					templateName := templatingData.Template.Name
+					templateUUID := templatingData.Template.UUID
+					templateLanguage := templatingData.Language
+					templateNamespace := templatingData.Namespace
 
-							// Criar e enviar mensagem de template
-							templateMsg := templates.NewTemplateMessage(
-								string(msg.URN().Identity()),
-								"",
-								msg.Channel().UUID().String(),
-								status.ExternalID(),
-								time.Now().Format(time.RFC3339),
-								"O",
-								msg.Channel().ChannelType().String(),
-								msg.Text(),
-								templateName,
-								templateUUID,
-								templateLanguage,
-								templateNamespace,
-								templateVariables,
-							)
-
-							w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
-						}
+					var templateVariables []string
+					if templatingData.Variables != nil {
+						templateVariables = templatingData.Variables
 					}
+
+					templateMsg := templates.NewTemplateMessage(
+						string(msg.URN().Identity()),
+						"",
+						msg.Channel().UUID().String(),
+						status.ExternalID(),
+						time.Now().Format(time.RFC3339),
+						"O",
+						msg.Channel().ChannelType().String(),
+						msg.Text(),
+						templateName,
+						templateUUID,
+						templateLanguage,
+						templateNamespace,
+						templateVariables,
+					)
+					w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
+
 				}
 			}
 		}

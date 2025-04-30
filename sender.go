@@ -327,8 +327,13 @@ func (w *Sender) sendMessage(msg Msg) {
 
 			// Nova lógica para templates
 			if w.foreman.server.Templates() != nil {
-				fmt.Println("Templates: ", w.foreman.server.Templates())
-				if templatingData, err := jsonparser.GetString(msg.Metadata(), "templating"); err == nil && templatingData != "" {
+				fmt.Println("Metadata: ", string(msg.Metadata()))
+				templatingData, err := jsonparser.GetString(msg.Metadata(), "templating")
+				fmt.Println("templatingData: ", templatingData)
+				if err != nil {
+					fmt.Println("Error getting templating data: ", err)
+				}
+				if err == nil && templatingData != "" {
 					fmt.Println("templatingData: ", templatingData)
 					var templateMetadata map[string]interface{}
 					if err := json.Unmarshal([]byte(templatingData), &templateMetadata); err == nil {

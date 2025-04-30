@@ -327,11 +327,14 @@ func (w *Sender) sendMessage(msg Msg) {
 
 			// Nova lógica para templates
 			if w.foreman.server.Templates() != nil {
-				// Verificar se há metadados de template na mensagem
+				fmt.Println("Templates: ", w.foreman.server.Templates())
 				if templatingData, err := jsonparser.GetString(msg.Metadata(), "templating"); err == nil && templatingData != "" {
+					fmt.Println("templatingData: ", templatingData)
 					var templateMetadata map[string]interface{}
 					if err := json.Unmarshal([]byte(templatingData), &templateMetadata); err == nil {
+						fmt.Println("templateMetadata: ", templateMetadata)
 						if template, ok := templateMetadata["template"].(map[string]interface{}); ok {
+							fmt.Println("template: ", template)
 							templateName, _ := template["name"].(string)
 							templateUUID, _ := template["uuid"].(string)
 							templateLanguage, _ := templateMetadata["language"].(string)
@@ -339,7 +342,9 @@ func (w *Sender) sendMessage(msg Msg) {
 
 							var templateVariables []string
 							if vars, ok := templateMetadata["variables"].([]interface{}); ok {
+								fmt.Println("vars: ", vars)
 								for _, v := range vars {
+									fmt.Println("v: ", v)
 									if strVar, ok := v.(string); ok {
 										templateVariables = append(templateVariables, strVar)
 									}
@@ -362,7 +367,7 @@ func (w *Sender) sendMessage(msg Msg) {
 								templateNamespace,
 								templateVariables,
 							)
-
+							fmt.Println("templateMsg: ", templateMsg)
 							w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
 						}
 					}

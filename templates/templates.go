@@ -181,7 +181,9 @@ func (c *rabbitmqClient) SendAsync(msg TemplateMessage, routingKey string, pre f
 		if pre != nil {
 			pre()
 		}
+		fmt.Printf("msg: %v\n", msg)
 		err := c.send(msg, routingKey)
+		fmt.Println("err: ", err)
 		if err != nil {
 			logrus.WithError(err).Error("fail to send template message")
 		}

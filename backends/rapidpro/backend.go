@@ -477,6 +477,36 @@ func (b *backend) WriteChannelLogs(ctx context.Context, logs []*courier.ChannelL
 	return nil
 }
 
+// WriteContactLastSeen writes the passed in contact last seen to our backend
+func (b *backend) WriteContactLastSeen(ctx context.Context, msg courier.Msg, lastSeenOn time.Time) error {
+	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
+	defer cancel()
+
+	dbChannel := msg.Channel().(*DBChannel)
+	contact, err := contactForURN(ctx, b, dbChannel.OrgID(), dbChannel, msg.URN(), "", "")
+	if err != nil {
+		return errors.Wrap(err, "error getting contact")
+	}
+
+	contactLastSeen := &DBContactLastSeen{
+		ID_:         contact.ID(),
+		LastSeenOn_: lastSeenOn,
+	}
+
+	// if we have an id, we can have our batch commit for us
+	if contactLastSeen.ID_ != NilContactID {
+		b.contactLastSeenCommitter.Queue(contactLastSeen)
+	} else {
+		// otherwise, write normally (synchronously)
+		err := writeContactLastSeen(timeout, b, contact, lastSeenOn)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // Check if external ID has been seen in a period
 func (b *backend) CheckExternalIDSeen(msg courier.Msg) courier.Msg {
 	var prevUUID = checkExternalIDSeen(b, msg)
@@ -779,11 +809,22 @@ func (b *backend) Start() error {
 		})
 	b.logCommitter.Start()
 
+	// create our contact last seen committer and start it
+	b.contactLastSeenCommitter = batch.NewCommitter("contact last seen committer", b.db, updateContactLastSeenSQL, time.Millisecond*500, b.committerWG,
+		func(err error, value batch.Value) {
+			logrus.WithField("comp", "contact last seen committer").WithError(err).Error("error writing contact last seen")
+			err = courier.WriteToSpool(b.config.SpoolDir, "contact_last_seens", value)
+			if err != nil {
+				logrus.WithField("comp", "contact last seen committer").WithError(err).Error("error writing contact last seen to spool")
+			}
+		})
+	b.contactLastSeenCommitter.Start()
+
 	// register and start our spool flushers
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "msgs"), b.flushMsgFile)
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "statuses"), b.flushStatusFile)
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "events"), b.flushChannelEventFile)
-
+	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "contact_last_seens"), b.flushContactLastSeenFile)
 	logrus.WithFields(logrus.Fields{
 		"comp":  "backend",
 		"state": "started",
@@ -811,6 +852,11 @@ func (b *backend) Cleanup() error {
 	// stop our log committer
 	if b.logCommitter != nil {
 		b.logCommitter.Stop()
+	}
+
+	// stop our contact last seen committer
+	if b.contactLastSeenCommitter != nil {
+		b.contactLastSeenCommitter.Stop()
 	}
 
 	// wait for them to flush fully
@@ -843,9 +889,10 @@ func newBackend(config *courier.Config) courier.Backend {
 type backend struct {
 	config *courier.Config
 
-	statusCommitter batch.Committer
-	logCommitter    batch.Committer
-	committerWG     *sync.WaitGroup
+	statusCommitter          batch.Committer
+	logCommitter             batch.Committer
+	contactLastSeenCommitter batch.Committer
+	committerWG              *sync.WaitGroup
 
 	db        *sqlx.DB
 	redisPool *redis.Pool

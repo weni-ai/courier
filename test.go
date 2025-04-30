@@ -32,12 +32,13 @@ type MockBackend struct {
 	queueMsgs         []Msg
 	errorOnQueue      bool
 
-	mutex           sync.RWMutex
-	outgoingMsgs    []Msg
-	msgStatuses     []MsgStatus
-	channelEvents   []ChannelEvent
-	channelLogs     []*ChannelLog
-	lastContactName string
+	mutex            sync.RWMutex
+	outgoingMsgs     []Msg
+	msgStatuses      []MsgStatus
+	channelEvents    []ChannelEvent
+	channelLogs      []*ChannelLog
+	contactLastSeens []Contact
+	lastContactName  string
 
 	sentMsgs  map[MsgID]bool
 	redisPool *redis.Pool
@@ -246,6 +247,19 @@ func (mb *MockBackend) WriteMsgStatus(ctx context.Context, status MsgStatus) err
 	defer mb.mutex.Unlock()
 
 	mb.msgStatuses = append(mb.msgStatuses, status)
+	return nil
+}
+
+// WriteContactLastSeen writes the contact last seen to our queue
+func (mb *MockBackend) WriteContactLastSeen(ctx context.Context, msg Msg, lastSeenOn time.Time) error {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+
+	contact, found := mb.contacts[msg.URN()]
+	if !found {
+		return errors.New("contact not found")
+	}
+	mb.contactLastSeens = append(mb.contactLastSeens, contact)
 	return nil
 }
 

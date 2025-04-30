@@ -94,6 +94,9 @@ func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w htt
 	date := time.Unix(ts, 0).UTC()
 	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Message.Text).WithReceivedOn(date).WithContactName(payload.From)
 
+	// write the contact last seen
+	h.Backend().WriteContactLastSeen(ctx, msg, date)
+
 	if mediaURL != "" {
 		msg.WithAttachment(mediaURL)
 	}

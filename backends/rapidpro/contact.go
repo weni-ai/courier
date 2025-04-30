@@ -86,7 +86,8 @@ SELECT
 	c.created_on, 
 	c.name, 
 	u.id as "urn_id",
-	c.status
+	c.status,
+	c.last_seen_on
 FROM 
 	contacts_contact AS c, 
 	contacts_contacturn AS u 
@@ -106,7 +107,8 @@ SELECT
 	c.created_on, 
 	c.name, 
 	u.id as "urn_id",
-	c.status
+	c.status,
+	c.last_seen_on
 FROM 
 	contacts_contact AS c, 
 	contacts_contacturn AS u 
@@ -145,7 +147,24 @@ func contactForURNTeams(ctx context.Context, b *backend, urn urns.URN, org OrgID
 func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChannel, urn urns.URN, auth string, name string) (*DBContact, error) {
 	// try to look up our contact by URN
 	contact := &DBContact{}
-	err := b.db.GetContext(ctx, contact, lookupContactFromURNSQL, urn.Identity(), org)
+
+	// debug query raw sql response
+	rows, err := b.db.QueryxContext(ctx, lookupContactFromURNSQL, urn.Identity(), org)
+	if err != nil {
+		logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
+		return nil, err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		err = rows.Scan(&contact.OrgID_, &contact.ID_, &contact.UUID_, &contact.ModifiedOn_, &contact.CreatedOn_, &contact.Name_, &contact.URNID_, &contact.Status_, &contact.LastSeenOn_)
+		if err != nil {
+			logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
+			return nil, err
+		}
+	}
+
+	err = b.db.GetContext(ctx, contact, lookupContactFromURNSQL, urn.Identity(), org)
 	if err != nil && err != sql.ErrNoRows {
 		logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
 		return nil, err
@@ -196,6 +215,7 @@ func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChanne
 	contact.UUID_, _ = courier.NewContactUUID(string(uuids.New()))
 	contact.CreatedOn_ = time.Now()
 	contact.ModifiedOn_ = time.Now()
+	contact.LastSeenOn_ = nil
 	contact.IsNew_ = true
 
 	// if we aren't an anonymous org, we want to look up a name if possible and set it
@@ -316,8 +336,9 @@ type DBContact struct {
 
 	URNID_ ContactURNID `db:"urn_id"`
 
-	CreatedOn_  time.Time `db:"created_on"`
-	ModifiedOn_ time.Time `db:"modified_on"`
+	CreatedOn_  time.Time  `db:"created_on"`
+	ModifiedOn_ time.Time  `db:"modified_on"`
+	LastSeenOn_ *time.Time `db:"last_seen_on"`
 
 	CreatedBy_  int `db:"created_by_id"`
 	ModifiedBy_ int `db:"modified_by_id"`
@@ -328,3 +349,6 @@ type DBContact struct {
 
 // UUID returns the UUID for this contact
 func (c *DBContact) UUID() courier.ContactUUID { return c.UUID_ }
+
+// ID returns the ID for this contact
+func (c *DBContact) ID() ContactID { return c.ID_ }

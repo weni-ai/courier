@@ -146,8 +146,41 @@ func (b *backend) NewIncomingMsg(channel courier.Channel, urn urns.URN, text str
 }
 
 // NewOutgoingMsg creates a new outgoing message from the given params
-func (b *backend) NewOutgoingMsg(channel courier.Channel, urn urns.URN, text string) courier.Msg {
-	return newMsg(MsgOutgoing, channel, urn, text)
+func (b *backend) NewOutgoingMsg(channel courier.Channel, id courier.MsgID, urn urns.URN, text string, highPriority bool, quickReplies []string, topic string, responseToID int64, responseToExternalID string, textLanguage string) courier.Msg {
+	msgResponseToID := courier.NilMsgID
+	if responseToID != 0 {
+		msgResponseToID = courier.NewMsgID(responseToID)
+	}
+	dbChannel := channel.(*DBChannel)
+	now := time.Now()
+
+	return &DBMsg{
+		OrgID_:        dbChannel.OrgID(),
+		UUID_:         courier.NewMsgUUID(),
+		Direction_:    MsgOutgoing,
+		Status_:       courier.MsgSent, //status echo?
+		Visibility_:   MsgVisible,
+		HighPriority_: false,
+		ChannelID_:    dbChannel.ID(),
+		ChannelUUID_:  dbChannel.UUID(),
+		channel:       dbChannel,
+
+		MessageCount_:  1,
+		NextAttempt_:   now,
+		CreatedOn_:     now,
+		ModifiedOn_:    now,
+		QueuedOn_:      now,
+		workerToken:    "",
+		alreadyWritten: false,
+
+		ID_:                   id,
+		URN_:                  urn,
+		Text_:                 text,
+		quickReplies:          quickReplies,
+		ResponseToID_:         msgResponseToID,
+		ResponseToExternalID_: responseToExternalID,
+		textLanguage:          textLanguage,
+	}
 }
 
 // PopNextOutgoingMsg pops the next message that needs to be sent

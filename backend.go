@@ -111,6 +111,9 @@ type Backend interface {
 	GetRunEventsByMsgUUIDFromDB(context.Context, string) ([]RunEvent, error)
 
 	GetMessage(context.Context, string) (Msg, error)
+
+	// NewOutgoingMsg creates a new outgoing message with all parameters
+	NewOutgoingMsg(channel Channel, id MsgID, urn urns.URN, text string, highPriority bool, quickReplies []string, topic string, responseToID int64, responseToExternalID string, textLanguage string) Msg
 }
 
 // NewBackend creates the type of backend passed in

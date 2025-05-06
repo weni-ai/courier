@@ -15,6 +15,7 @@ const (
 	Referral        ChannelEventType = "referral"
 	StopContact     ChannelEventType = "stop_contact"
 	WelcomeMessage  ChannelEventType = "welcome_message"
+	ContactUpdate   ChannelEventType = "contact_update"
 )
 
 //-----------------------------------------------------------------------------

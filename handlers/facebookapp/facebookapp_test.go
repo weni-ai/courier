@@ -358,6 +358,12 @@ var testCasesWAC = []ChannelHandleTestCase{
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Valid Contact Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/contactWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("+1 415-858-6273, +1 415-858-6274"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Message Unavailable", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/msgUnavailableWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("This message is currently unavailable. Please check your phone for the message."), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Message Echo", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/messageEchoWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Invalid JSON", URL: wacReceiveURL, Data: "not json", Status: 400, Response: "unable to parse", PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Invalid JSON", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/invalidFrom.json")), Status: 400, Response: "invalid whatsapp id", PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Invalid JSON", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/invalidTimestamp.json")), Status: 400, Response: "invalid timestamp", PrepRequest: addValidSignatureWAC},
@@ -374,6 +380,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 	{Label: "Receive Empty Changes", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/emptyChangesWAC.json")), Status: 200, Response: `"Events Handled"`, PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Empty Contacts", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/emptyContactsWAC.json")), Status: 400, Response: `"no shared contact"`, PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Unsupported Message Type", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/invalidTypeMsgWAC.json")), Status: 200, Response: `"Events Handled"`, PrepRequest: addValidSignatureWAC},
+	{Label: "Receive State Sync", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/contactUpdateWAC.json")), Status: 200, Response: `"Events Handled"`, ChannelEvent: Sp(courier.ContactUpdate), PrepRequest: addValidSignatureWAC},
 }
 
 func TestHandler(t *testing.T) {

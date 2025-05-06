@@ -639,6 +639,9 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(msg.ID).WithContactName(contactNames[msg.From])
 				event := h.Backend().CheckExternalIDSeen(ev)
 
+				// write the contact last seen
+				h.Backend().WriteContactLastSeen(ctx, ev, date)
+
 				// we had an error downloading media
 				if err != nil {
 					courier.LogRequestError(r, channel, err)

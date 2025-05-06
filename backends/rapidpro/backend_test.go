@@ -721,6 +721,36 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	ts.NoError(tx.Commit())
 }
 
+func (ts *BackendTestSuite) TestContactLastSeen() {
+	ctx := context.Background()
+	channel := ts.getChannel("TG", "dbc126ed-66bc-4e28-b67b-81dc3327c98a")
+
+	// create a message with a contact to test with
+	urn, _ := urns.NewTelURNForCountry("12065551616", channel.Country())
+
+	msg := ts.b.NewIncomingMsg(channel, urn, "test")
+	err := ts.b.WriteMsg(ctx, msg)
+	ts.NoError(err)
+
+	// verify that the contact linked to the message does not have the last_seen_on updated
+	contact, err := contactForURN(ctx, ts.b, channel.OrgID_, channel, urn, "", "")
+	ts.NoError(err)
+	ts.Nil(contact.LastSeenOn_)
+
+	// have to round to microseconds because postgres can't store nanos
+	now := time.Now().Round(time.Microsecond)
+
+	err = ts.b.WriteContactLastSeen(ctx, msg, now)
+	ts.NoError(err)
+	time.Sleep(2 * time.Second)
+
+	// check that the contact last seen is written
+	contact, err = contactForURN(ctx, ts.b, channel.OrgID_, channel, urn, "", "")
+	ts.NoError(err)
+	ts.NotNil(contact.LastSeenOn_)
+	ts.Equal(now.UTC(), contact.LastSeenOn_.UTC())
+}
+
 func (ts *BackendTestSuite) TestHealth() {
 	// all should be well in test land
 	ts.Equal(ts.b.Health(), "")

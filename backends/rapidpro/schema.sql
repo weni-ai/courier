@@ -37,7 +37,8 @@ CREATE TABLE contacts_contact (
     language character varying(3),
     created_by_id integer NOT NULL,
     modified_by_id integer NOT NULL,
-    org_id integer references orgs_org(id) on delete cascade
+    org_id integer references orgs_org(id) on delete cascade,
+    last_seen_on timestamp with time zone NULL
 );
 
 DROP TABLE IF EXISTS contacts_contacturn CASCADE;

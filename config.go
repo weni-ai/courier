@@ -60,6 +60,8 @@ type Config struct {
 
 	EmailProxyURL       string `help:"email proxy url"`
 	EmailProxyAuthToken string `help:"email proxy auth token"`
+
+	TemplatesExchangeName string `help:"templates exchange name"`
 }
 
 // NewConfig returns a new default configuration object
@@ -94,6 +96,7 @@ func NewConfig() *Config {
 		BillingExchangeName:          "msgs.topic",
 		EmailProxyURL:                "http://localhost:9090",
 		EmailProxyAuthToken:          "",
+		TemplatesExchangeName:        "templates",
 	}
 }
 

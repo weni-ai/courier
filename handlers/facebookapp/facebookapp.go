@@ -751,6 +751,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 				// Add to the existing metadata, the message context
 				if msg.Context != nil {
+					fmt.Println("msg.Context: ", msg.Context)
 					metadata := event.Metadata()
 					if metadata == nil {
 						newMetadata := make(map[string]interface{})
@@ -775,6 +776,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 						}
 					}
 
+					fmt.Println("event with metadata: ", metadata)
 					event.WithMetadata(metadata)
 				}
 

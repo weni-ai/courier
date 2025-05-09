@@ -1,3 +1,7 @@
+1.23.0
+----------
+ * Implement contact last seen feature
+
 1.22.0
 ----------
  * add wenichats msg uuid that be sent to rmq exchange

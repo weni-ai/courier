@@ -1,3 +1,7 @@
+1.23.1
+----------
+ * Fix contact created with name as identity instead real name on WriteLastSeenOn
+
 1.23.0
 ----------
  * Implement contact last seen feature

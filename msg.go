@@ -152,6 +152,7 @@ type Msg interface {
 	IGTag() string
 
 	ActionType() MsgActionType
+	ActionExternalID() string
 }
 
 type ButtonComponent struct {

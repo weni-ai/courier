@@ -3192,14 +3192,14 @@ var _ courier.ActionSender = (*handler)(nil)
 func (h *handler) SendAction(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
 	channel := msg.Channel()
 	actionType := msg.ActionType()
-	targetMessageID := msg.ExternalID()
+	targetMessageID := msg.ActionExternalID()
 
 	// Use o logger do handler
 	actionLog := logrus.WithFields(logrus.Fields{
 		"channel_uuid": channel.UUID(),
 		"action_type":  actionType,
+		"external_id":  targetMessageID,
 		"channel_type": channel.ChannelType().String(),
-		"msg_id":       msg.ID().String(),
 	})
 
 	// Ensure this action is only executed for WAC (WhatsApp Cloud) channel types

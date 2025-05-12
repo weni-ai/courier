@@ -1094,3 +1094,11 @@ func (m *DBMsg) ActionType() courier.MsgActionType {
 	actionType, _, _, _ := jsonparser.Get(m.Metadata_, "action_type")
 	return courier.MsgActionType(actionType)
 }
+
+func (m *DBMsg) ActionExternalID() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	actionExternalID, _, _, _ := jsonparser.Get(m.Metadata_, "action_external_id")
+	return string(actionExternalID)
+}

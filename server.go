@@ -597,6 +597,7 @@ func (s *server) SendMsgAction(ctx context.Context, msg Msg) (MsgStatus, error) 
 		"comp":        "server",
 		"msg_id":      msg.ID().String(),
 		"action_type": msg.ActionType(),
+		"external_id": msg.ActionExternalID(),
 	})
 	if msg.Channel() == nil {
 		err := errors.New("cannot send message action: message channel is nil")

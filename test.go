@@ -1033,6 +1033,14 @@ func (m *mockMsg) ActionType() MsgActionType {
 	return MsgActionType(actionType)
 }
 
+func (m *mockMsg) ActionExternalID() string {
+	if m.metadata == nil {
+		return ""
+	}
+	actionExternalID, _, _, _ := jsonparser.Get(m.metadata, "action_external_id")
+	return string(actionExternalID)
+}
+
 //-----------------------------------------------------------------------------
 // Mock status implementation
 //-----------------------------------------------------------------------------

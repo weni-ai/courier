@@ -721,6 +721,24 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	ts.NoError(tx.Commit())
 }
 
+func (ts *BackendTestSuite) TestContactLastSeenWithName() {
+	ctx := context.Background()
+	channel := ts.getChannel("TG", "dbc126ed-66bc-4e28-b67b-81dc3327c98a")
+
+	contactName := "flapjack"
+
+	urn, _ := urns.NewTelegramURN(1234567890, "test")
+	msg := ts.b.NewIncomingMsg(channel, urn, "test").WithContactName(contactName)
+
+	ts.b.WriteContactLastSeen(ctx, msg, time.Now())
+	time.Sleep(2 * time.Second)
+
+	contact, err := contactForURN(ctx, ts.b, channel.OrgID_, channel, urn, "", "")
+	ts.NoError(err)
+	ts.NotNil(contact.LastSeenOn_)
+	ts.Equal(null.String(contactName), contact.Name_)
+}
+
 func (ts *BackendTestSuite) TestContactLastSeen() {
 	ctx := context.Background()
 	channel := ts.getChannel("TG", "dbc126ed-66bc-4e28-b67b-81dc3327c98a")

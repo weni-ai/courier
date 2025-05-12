@@ -743,7 +743,7 @@ func (ts *BackendTestSuite) TestContactLastSeenWithoutName() {
 	ctx := context.Background()
 	channel := ts.getChannel("TG", "dbc126ed-66bc-4e28-b67b-81dc3327c98a")
 
-	urn, _ := urns.NewTelegramURN(1234567890, "test")
+	urn, _ := urns.NewTelegramURN(1234567891, "test")
 	msg := ts.b.NewIncomingMsg(channel, urn, "test")
 
 	ts.b.WriteContactLastSeen(ctx, msg, time.Now())

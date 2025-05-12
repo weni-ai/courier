@@ -50,3 +50,11 @@ func GetHandler(ct ChannelType) ChannelHandler {
 
 var registeredHandlers = make(map[ChannelType]ChannelHandler)
 var activeHandlers = make(map[ChannelType]ChannelHandler)
+
+// ActionSender is a optional interface for handlers that support
+// sending message actions (ex: typing indicators, read receipts).
+type ActionSender interface {
+	// SendAction sends an action defined in the message.
+	// Returns a MsgStatus and an error, similar to SendMsg.
+	SendAction(ctx context.Context, msg Msg) (MsgStatus, error)
+}

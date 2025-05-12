@@ -27,6 +27,16 @@ func NewMsgID(id int64) MsgID {
 	return MsgID(id)
 }
 
+// MsgActionType defines the type of special action for a message.
+type MsgActionType string
+
+const (
+	// MsgActionNone indicates a normal message, with no special action.
+	MsgActionNone MsgActionType = ""
+	// MsgActionTypingIndicator indicates that a "typing on" should be sent.
+	MsgActionTypingIndicator MsgActionType = "typing_indicator"
+)
+
 // String satisfies the Stringer interface
 func (i MsgID) String() string {
 	if i != NilMsgID {
@@ -140,6 +150,9 @@ type Msg interface {
 	IGCommentID() string
 	IGResponseType() string
 	IGTag() string
+
+	ActionType() MsgActionType
+	ActionExternalID() string
 }
 
 type ButtonComponent struct {

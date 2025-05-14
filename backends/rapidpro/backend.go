@@ -483,7 +483,7 @@ func (b *backend) WriteContactLastSeen(ctx context.Context, msg courier.Msg, las
 	defer cancel()
 
 	dbChannel := msg.Channel().(*DBChannel)
-	contact, err := contactForURN(ctx, b, dbChannel.OrgID(), dbChannel, msg.URN(), "", "")
+	contact, err := contactForURN(ctx, b, dbChannel.OrgID(), dbChannel, msg.URN(), "", msg.ContactName())
 	if err != nil {
 		return errors.Wrap(err, "error getting contact")
 	}

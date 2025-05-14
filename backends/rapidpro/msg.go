@@ -123,9 +123,9 @@ func newMsg(direction MsgDirection, channel courier.Channel, urn urns.URN, text 
 const insertMsgSQL = `
 INSERT INTO
 	msgs_msg(org_id, uuid, direction, text, attachments, msg_count, error_count, high_priority, status,
-             visibility, external_id, channel_id, contact_id, contact_urn_id, created_on, modified_on, next_attempt, queued_on, sent_on)
+             visibility, external_id, channel_id, contact_id, contact_urn_id, created_on, modified_on, next_attempt, queued_on, sent_on, metadata)
     VALUES(:org_id, :uuid, :direction, :text, :attachments, :msg_count, :error_count, :high_priority, :status,
-           :visibility, :external_id, :channel_id, :contact_id, :contact_urn_id, :created_on, :modified_on, :next_attempt, :queued_on, :sent_on)
+           :visibility, :external_id, :channel_id, :contact_id, :contact_urn_id, :created_on, :modified_on, :next_attempt, :queued_on, :sent_on, :metadata)
 RETURNING id
 `
 

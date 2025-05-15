@@ -1681,15 +1681,6 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
 
-	// Add log when using marketing messages endpoint
-	if useMarketingMessages {
-		logMsg := fmt.Sprintf("Using marketing messages endpoint for template '%s' (Category: %s, Namespace: %s)",
-			templating.Template.Name,
-			templating.Template.Category,
-			templating.Namespace)
-		status.AddLog(courier.NewChannelLogFromError(logMsg, msg.Channel(), msg.ID(), time.Since(start), nil))
-	}
-
 	msgParts := make([]string, 0)
 	if msg.Text() != "" {
 		if len(msg.ListMessage().ListItems) > 0 || len(msg.QuickReplies()) > 0 || msg.InteractionType() == "location" {

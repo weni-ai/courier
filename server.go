@@ -585,6 +585,7 @@ func handleBilling(s *server, msg Msg) error {
 		msg.QuickReplies(),
 		false,
 		"",
+		"",
 	)
 	billingMsg.ChannelType = string(msg.Channel().ChannelType())
 	billingMsg.Text = msg.Text()

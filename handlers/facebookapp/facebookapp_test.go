@@ -374,6 +374,26 @@ var testCasesWAC = []ChannelHandleTestCase{
 	{Label: "Receive Empty Changes", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/emptyChangesWAC.json")), Status: 200, Response: `"Events Handled"`, PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Empty Contacts", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/emptyContactsWAC.json")), Status: 400, Response: `"no shared contact"`, PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Unsupported Message Type", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/invalidTypeMsgWAC.json")), Status: 200, Response: `"Events Handled"`, PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Message WAC with Context", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloWithContextWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{"context": map[string]interface{}{
+			"forwarded":            false,
+			"frequently_forwarded": false,
+			"from":                 "5678",
+			"id":                   "9876",
+		}}),
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive NFM Reply With Context WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/flowWithContextWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{"context": map[string]interface{}{
+			"forwarded":            false,
+			"frequently_forwarded": false,
+			"from":                 "5678",
+			"id":                   "9876",
+		},
+			"nfm_reply": map[string]interface{}{
+				"name":          "Flow Wpp",
+				"response_json": map[string]interface{}{"flow_token": "<FLOW_TOKEN>", "optional_param1": "<value1>", "optional_param2": "<value2>"},
+			}}),
+		PrepRequest: addValidSignatureWAC},
 }
 
 func TestHandler(t *testing.T) {

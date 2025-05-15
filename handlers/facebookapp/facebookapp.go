@@ -694,6 +694,35 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					event.WithAttachment(mediaURL)
 				}
 
+				// Add to the existing metadata, the message context
+				if msg.Context != nil {
+					metadata := event.Metadata()
+					if metadata == nil {
+						newMetadata := make(map[string]interface{})
+						newMetadata["context"] = msg.Context
+
+						metadata, err = json.Marshal(newMetadata)
+						if err != nil {
+							courier.LogRequestError(r, channel, err)
+						}
+					} else {
+						newMetadata := make(map[string]interface{})
+						err := json.Unmarshal(metadata, &newMetadata)
+						if err != nil {
+							courier.LogRequestError(r, channel, err)
+						}
+
+						newMetadata["context"] = msg.Context
+
+						metadata, err = json.Marshal(newMetadata)
+						if err != nil {
+							courier.LogRequestError(r, channel, err)
+						}
+					}
+
+					event.WithMetadata(metadata)
+				}
+
 				err = h.Backend().WriteMsg(ctx, event)
 				if err != nil {
 					return nil, nil, err

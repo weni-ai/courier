@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gomodule/redigo/redis"
 	"github.com/nyaruka/gocommon/urns"
@@ -64,6 +65,9 @@ type Backend interface {
 
 	// WriteChannelLogs writes the passed in channel logs to our backend
 	WriteChannelLogs(context.Context, []*ChannelLog) error
+
+	// WriteContactLastSeen writes the passed in contact last seen to our backend
+	WriteContactLastSeen(context.Context, Msg, time.Time) error
 
 	// PopNextOutgoingMsg returns the next message that needs to be sent, callers should call MarkOutgoingMsgComplete with the
 	// returned message when they have dealt with the message (regardless of whether it was sent or not)

@@ -295,15 +295,16 @@ func (w *Sender) sendMessage(msg Msg) {
 
 		sentOk := status.Status() != MsgErrored && status.Status() != MsgFailed
 		if sentOk && w.foreman.server.Billing() != nil {
-			if msg.Channel().ChannelType() != "WAC" {
-				// if ticketer_type is eg: "wenichats" it is a message from ticketer sent by an agent, so must be sent to billing anyway
+			chatsUUID, _ := jsonparser.GetString(msg.Metadata(), "chats_msg_uuid")
+			if msg.Channel().ChannelType() != "WAC" || chatsUUID != "" { // if message is not to a WAC channel or is from a wenichats agent then send to exchange
 				ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
 				fromTicketer := ticketerType != ""
+
 				billingMsg := billing.NewMessage(
 					string(msg.URN().Identity()),
 					"",
 					msg.Channel().UUID().String(),
-					msg.ExternalID(),
+					status.ExternalID(),
 					time.Now().Format(time.RFC3339),
 					"O",
 					msg.Channel().ChannelType().String(),
@@ -311,14 +312,19 @@ func (w *Sender) sendMessage(msg Msg) {
 					msg.Attachments(),
 					msg.QuickReplies(),
 					fromTicketer,
+					chatsUUID,
 				)
-				w.foreman.server.Billing().SendAsync(billingMsg, billing.RoutingKeyCreate, nil, nil)
+				routingKey := billing.RoutingKeyCreate
+				if msg.Channel().ChannelType() == "WAC" {
+					routingKey = billing.RoutingKeyWAC
+				}
+				w.foreman.server.Billing().SendAsync(billingMsg, routingKey, nil, nil)
 			}
 		}
 	}
 
-	// we allot 10 seconds to write our status to the db
-	writeCTX, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	// we allot 15 seconds to write our status to the db
+	writeCTX, cancel := context.WithTimeout(context.Background(), time.Second*15)
 	defer cancel()
 
 	err = backend.WriteMsgStatus(writeCTX, status)
@@ -330,6 +336,12 @@ func (w *Sender) sendMessage(msg Msg) {
 	err = backend.WriteChannelLogs(writeCTX, status.Logs())
 	if err != nil {
 		log.WithError(err).Info("error writing msg logs")
+	}
+
+	// write our contact last seen
+	err = backend.WriteContactLastSeen(writeCTX, msg, time.Now())
+	if err != nil {
+		log.WithError(err).Info("error writing contact last seen")
 	}
 
 	// mark our send task as complete

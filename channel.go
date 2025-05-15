@@ -53,6 +53,9 @@ const (
 	// ConfigUseNational is a constant key for channel configs
 	ConfigUseNational = "use_national"
 	ConfigUserToken   = "wa_user_token"
+
+	// ConfigPageID is a constant key for channel configs
+	ConfigPageID = "page_id"
 )
 
 // ChannelType is our typing of the two char channel types

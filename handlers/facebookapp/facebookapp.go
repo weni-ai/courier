@@ -34,7 +34,7 @@ import (
 // Endpoints we hit
 var (
 	sendURL  = "https://graph.facebook.com/v12.0/me/messages"
-	graphURL = "https://graph.facebook.com/v12.0/"
+	graphURL = "https://graph.facebook.com/v22.0/"
 
 	signatureHeader = "X-Hub-Signature"
 
@@ -167,6 +167,18 @@ type moPayload struct {
 		Changes []struct {
 			Field string `json:"field"`
 			Value struct {
+				From struct {
+					ID       string `json:"id"`
+					Username string `json:"username"`
+				} `json:"from"`
+				ID    string `json:"id"`
+				Media struct {
+					AdID             string `json:"ad_id"`
+					ID               string `json:"id"`
+					MediaProductType string `json:"media_product_type"`
+					OriginalMediaID  string `json:"original_media_id"`
+				}
+				Text             string `json:"text"`
 				MessagingProduct string `json:"messaging_product"`
 				Metadata         *struct {
 					DisplayPhoneNumber string `json:"display_phone_number"`
@@ -368,6 +380,22 @@ type Flow struct {
 type NFMReply struct {
 	Name         string                 `json:"name,omitempty"`
 	ResponseJSON map[string]interface{} `json:"response_json"`
+}
+
+type IGComment struct {
+	Text string `json:"text,omitempty"`
+	From struct {
+		ID       string `json:"id,omitempty"`
+		Username string `json:"username,omitempty"`
+	} `json:"from,omitempty"`
+	Media struct {
+		AdID             string `json:"ad_id,omitempty"`
+		ID               string `json:"id,omitempty"`
+		MediaProductType string `json:"media_product_type,omitempty"`
+		OriginalMediaID  string `json:"original_media_id,omitempty"`
+	} `json:"media,omitempty"`
+	Time int64  `json:"time,omitempty"`
+	ID   string `json:"id,omitempty"`
 }
 
 type FeedbackQuestion struct {
@@ -611,6 +639,9 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(msg.ID).WithContactName(contactNames[msg.From])
 				event := h.Backend().CheckExternalIDSeen(ev)
 
+				// write the contact last seen
+				h.Backend().WriteContactLastSeen(ctx, ev, date)
+
 				// we had an error downloading media
 				if err != nil {
 					courier.LogRequestError(r, channel, err)
@@ -747,6 +778,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 								nil,
 								nil,
 								false,
+								"",
 							)
 							h.Server().Billing().SendAsync(billingMsg, billing.RoutingKeyUpdate, nil, nil)
 						}
@@ -775,8 +807,65 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 
 	// for each entry
 	for _, entry := range payload.Entry {
-		// no entry, ignore
+
 		if len(entry.Messaging) == 0 {
+			if len(entry.Changes) > 0 && entry.Changes[0].Field == "comments" {
+
+				// Build IGComment struct and wrapper
+				wrapper := struct {
+					IGComment IGComment `json:"ig_comment"`
+				}{
+					IGComment: IGComment{
+						Text: entry.Changes[0].Value.Text,
+						From: struct {
+							ID       string `json:"id,omitempty"`
+							Username string `json:"username,omitempty"`
+						}{
+							ID:       entry.Changes[0].Value.From.ID,
+							Username: entry.Changes[0].Value.From.Username,
+						},
+						Media: struct {
+							AdID             string `json:"ad_id,omitempty"`
+							ID               string `json:"id,omitempty"`
+							MediaProductType string `json:"media_product_type,omitempty"`
+							OriginalMediaID  string `json:"original_media_id,omitempty"`
+						}{
+							ID:               entry.Changes[0].Value.Media.ID,
+							AdID:             entry.Changes[0].Value.Media.AdID,
+							MediaProductType: entry.Changes[0].Value.Media.MediaProductType,
+							OriginalMediaID:  entry.Changes[0].Value.Media.OriginalMediaID,
+						},
+						Time: entry.Time,
+						ID:   entry.Changes[0].Value.ID,
+					},
+				}
+
+				// Marshal IGComment to JSON for metadata
+				metadataJSON, err := json.Marshal(wrapper)
+				if err != nil {
+					courier.LogRequestError(r, channel, err)
+				}
+				metadata := json.RawMessage(metadataJSON)
+
+				// Create message from comment
+				text := entry.Changes[0].Value.Text
+				urn, err := urns.NewInstagramURN(entry.Changes[0].Value.From.ID)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+
+				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithExternalID(entry.Changes[0].Value.ID).WithReceivedOn(time.Unix(0, entry.Time*1000000).UTC())
+				event := h.Backend().CheckExternalIDSeen(ev).WithMetadata(metadata)
+				err = h.Backend().WriteMsg(ctx, event)
+				if err != nil {
+					return nil, nil, err
+				}
+
+				h.Backend().WriteExternalIDSeen(event)
+				events = append(events, event)
+				data = append(data, courier.NewMsgReceiveData(event))
+
+			}
 			continue
 		}
 
@@ -1089,11 +1178,15 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 	payload := mtPayload{}
 
 	// set our message type
-	if msg.ResponseToExternalID() != "" {
+	if msg.ResponseToExternalID() != "" && msg.IGCommentID() == "" {
 		payload.MessagingType = "RESPONSE"
-	} else if topic != "" {
+	} else if topic != "" || msg.IGTag() != "" {
 		payload.MessagingType = "MESSAGE_TAG"
-		payload.Tag = tagByTopic[topic]
+		if topic != "" {
+			payload.Tag = tagByTopic[topic]
+		} else {
+			payload.Tag = msg.IGTag()
+		}
 	} else {
 		payload.MessagingType = "UPDATE"
 	}
@@ -1224,6 +1317,57 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 			}
 			status.SetStatus(courier.MsgWired)
 		}
+		return status, nil
+
+	} else if msg.IGCommentID() != "" && msg.Text() != "" {
+		var baseURL *url.URL
+		form := url.Values{}
+
+		commentID := msg.IGCommentID()
+		if msg.IGResponseType() == "comment" {
+			baseURL, _ = url.Parse(fmt.Sprintf(graphURL+"%s/replies", commentID))
+			form.Set("message", msg.Text())
+		} else if msg.IGResponseType() == "dm_comment" {
+			pageID := strconv.Itoa(msg.Channel().IntConfigForKey(courier.ConfigPageID, 0))
+			baseURL, _ = url.Parse(fmt.Sprintf(graphURL+"%s/messages", pageID))
+			query := baseURL.Query()
+			query.Set("recipient", fmt.Sprintf("{comment_id:%s}", commentID))
+			query.Set("message", fmt.Sprintf("{\"text\":\"%s\"}", strings.TrimSpace(msg.Text())))
+			baseURL.RawQuery = query.Encode()
+		}
+
+		query := baseURL.Query()
+		query.Set("access_token", accessToken)
+		baseURL.RawQuery = query.Encode()
+
+		req, _ := http.NewRequest(http.MethodPost, baseURL.String(), strings.NewReader(form.Encode()))
+		req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+		rr, err := utils.MakeHTTPRequest(req)
+
+		log := courier.NewChannelLogFromRR("Instagram Comment Reply", msg.Channel(), msg.ID(), rr)
+		if err != nil {
+			log = log.WithError("Instagram Comment Reply Error", err)
+			status.AddLog(log)
+			return status, err
+		}
+		status.AddLog(log)
+		if err != nil {
+			return status, nil
+		}
+		externalID, err := jsonparser.GetString(rr.Body, "id")
+		if err != nil {
+			// ID doesn't exist, let's try message_id
+			externalID, err = jsonparser.GetString(rr.Body, "message_id")
+			if err != nil {
+				log.WithError("Message Send Error", errors.Errorf("unable to get id or message_id from body"))
+				return status, nil
+			}
+		}
+
+		status.SetStatus(courier.MsgWired)
+		status.SetExternalID(externalID)
+
 		return status, nil
 	}
 
@@ -2382,7 +2526,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		isUnitaryProduct := true
 		var unitaryProduct string
 		for _, product := range products {
-			retailerIDs := toStringSlice(product["ProductRetailerIDs"])
+			retailerIDs := toStringSlice(product["product_retailer_ids"])
 			if len(products) > 1 || len(retailerIDs) > 1 {
 				isUnitaryProduct = false
 			} else {
@@ -2455,7 +2599,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 				for _, product := range products {
 					i++
-					retailerIDs := toStringSlice(product["ProductRetailerIDs"])
+					retailerIDs := toStringSlice(product["product_retailer_ids"])
 					sproducts := []wacMTProductItem{}
 
 					for _, p := range retailerIDs {
@@ -2464,7 +2608,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						})
 					}
 
-					title := product["Product"].(string)
+					title := product["product"].(string)
 					if title == "product_retailer_id" {
 						title = "items"
 					}

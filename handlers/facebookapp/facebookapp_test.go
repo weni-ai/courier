@@ -101,6 +101,10 @@ var testCasesIG = []ChannelHandleTestCase{
 		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		PrepRequest: addValidSignature},
 
+	{Label: "Receive Comment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "Handled",
+		Text: Sp("Hello World"), URN: Sp("instagram:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		PrepRequest: addValidSignature},
+
 	{Label: "Receive Attachment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/attachmentIG.json")), Status: 200, Response: "Handled",
 		Text: Sp(""), Attachments: []string{"https://image-url/foo.png"}, URN: Sp("instagram:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		PrepRequest: addValidSignature},
@@ -570,6 +574,24 @@ var SendTestCasesIG = []ChannelSendTestCase{
 		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
 		RequestBody: `{"messaging_type":"RESPONSE","recipient":{"id":"12345"},"message":{"text":"Simple Message"}}`,
 		SendPrep:    setSendURL},
+	{Label: "Instagram Comment Reply",
+		Text: "Reply to comment", URN: "instagram:12345",
+		Status: "W", ExternalID: "30065218",
+		Metadata:     json.RawMessage(`{"ig_comment_id": "30065218","ig_response_type": "comment"}`),
+		ResponseBody: `{"id": "30065218"}`, ResponseStatus: 200,
+		SendPrep: func(server *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+			graphURL = buildMockIGCommentReplyServer().URL + "/"
+		},
+	},
+	{Label: "Instagram DM Comment Reply",
+		Text: "Reply to comment", URN: "instagram:12345",
+		Status: "W", ExternalID: "mid.133",
+		Metadata:     json.RawMessage(`{"ig_comment_id": "30065218","ig_response_type": "dm_comment"}`),
+		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
+		SendPrep: func(server *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+			graphURL = buildMockIGCommentReplyServer().URL + "/"
+		},
+	},
 	{Label: "Quick Reply",
 		Text: "Are you happy?", URN: "instagram:12345", QuickReplies: []string{"Yes", "No"},
 		Status: "W", ExternalID: "mid.133",
@@ -846,21 +868,21 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		SendPrep:    setSendURL,
 		NewURN:      "whatsapp:551187654321"},
 	{Label: "Catalog Message Send 1 product",
-		Metadata: json.RawMessage(`{"body":"Catalog Body Msg", "products":[{"Product": "Product1","ProductRetailerIDs":["p90duct-23t41l32-1D"]}], "action": "View Products", "send_catalog":false}`),
+		Metadata: json.RawMessage(`{"body":"Catalog Body Msg", "products":[{"product": "Product1","product_retailer_ids":["p90duct-23t41l32-1D"]}], "action": "View Products", "send_catalog":false}`),
 		Text:     "Catalog Msg", URN: "whatsapp:250788123123",
 		Status: "W", ExternalID: "157b5e14568e8",
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"product","body":{"text":"Catalog Body Msg"},"action":{"catalog_id":"c4t4l0g-1D","product_retailer_id":"p90duct-23t41l32-1D","name":"View Products"}}}`,
 		SendPrep:    setSendURL},
 	{Label: "Catalog Message Send 2 products",
-		Metadata: json.RawMessage(`{"body":"Catalog Body Msg", "products": [{"Product": "product1","ProductRetailerIDs":["p1"]},{"Product": "long product name greate than 24","ProductRetailerIDs":["p2"]}], "action": "View Products", "send_catalog":false}`),
+		Metadata: json.RawMessage(`{"body":"Catalog Body Msg", "products": [{"product": "product1","product_retailer_ids":["p1"]},{"product": "long product name greate than 24","product_retailer_ids":["p2"]}], "action": "View Products", "send_catalog":false}`),
 		Text:     "Catalog Msg", URN: "whatsapp:250788123123",
 		Status: "W", ExternalID: "157b5e14568e8",
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"product_list","body":{"text":"Catalog Body Msg"},"action":{"sections":[{"title":"product1","product_items":[{"product_retailer_id":"p1"}]},{"title":"long product name greate","product_items":[{"product_retailer_id":"p2"}]}],"catalog_id":"c4t4l0g-1D","name":"View Products"}}}`,
 		SendPrep:    setSendURL},
 	{Label: "Catalog Message Send 2 products - With Header - With Footer",
-		Metadata: json.RawMessage(`{"header": "header text", "footer": "footer text", "body":"Catalog Body Msg", "products": [{"Product": "product1","ProductRetailerIDs":["p1"]},{"Product": "long product name greate than 24","ProductRetailerIDs":["p2"]}], "action": "View Products", "send_catalog":false}`),
+		Metadata: json.RawMessage(`{"header": "header text", "footer": "footer text", "body":"Catalog Body Msg", "products": [{"product": "product1","product_retailer_ids":["p1"]},{"product": "long product name greate than 24","product_retailer_ids":["p2"]}], "action": "View Products", "send_catalog":false}`),
 		Text:     "Catalog Msg", URN: "whatsapp:250788123123",
 		Status: "W", ExternalID: "157b5e14568e8",
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
@@ -1242,6 +1264,37 @@ func mockAttachmentURLs(mediaServer *httptest.Server, testCases []ChannelSendTes
 		casesWithMockedUrls[i] = mockedCase
 	}
 	return casesWithMockedUrls
+}
+
+func buildMockIGCommentReplyServer() *httptest.Server {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		if strings.Contains(r.URL.Path, "/replies") {
+			err := r.ParseForm()
+			if err != nil {
+				http.Error(w, "Bad request", http.StatusBadRequest)
+				return
+			}
+
+			w.Write([]byte(`{ "id": "30065218" }`))
+			return
+		}
+
+		if strings.Contains(r.URL.Path, "/messages") {
+			err := r.ParseForm()
+			if err != nil {
+				http.Error(w, "Bad request", http.StatusBadRequest)
+				return
+			}
+
+			w.Write([]byte(`{ "id": "mid.133" }`))
+			return
+		}
+
+		http.Error(w, "Unexpected endpoint", http.StatusNotFound)
+	}))
+
+	return server
 }
 
 func TestSending(t *testing.T) {

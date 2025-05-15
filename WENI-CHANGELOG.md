@@ -1,3 +1,39 @@
+1.23.1
+----------
+ * Fix contact created with name as identity instead real name on WriteLastSeenOn
+
+1.23.0
+----------
+ * Implement contact last seen feature
+
+1.22.0
+----------
+ * add wenichats msg uuid that be sent to rmq exchange
+
+1.21.0
+----------
+ * Add support for Instagram replies: comments, by tag and private reply
+
+1.20.1
+----------
+ * Fix version
+
+1.20.0
+----------
+ * Prevent contact duplication by check whatsapp variation before create
+
+1.19.4
+----------
+ * Change product field name
+
+1.19.3
+----------
+ * Fix webhook panic on value assertion failure
+
+1.19.2
+----------
+ * Fix webhook panic on parse nil to string for get method request value
+
 1.19.1
 ----------
  * Billing send message to exchange with routing keys instead directly to queue

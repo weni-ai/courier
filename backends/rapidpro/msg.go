@@ -605,11 +605,12 @@ func (m *DBMsg) QuickReplies() []string {
 		return m.quickReplies
 	}
 
-	if m.Metadata_ == nil {
-		return nil
+	m.quickReplies = []string{}
+
+	if m.Metadata_ == nil || *m.Metadata_ == nil {
+		return m.quickReplies
 	}
 
-	m.quickReplies = []string{}
 	jsonparser.ArrayEach(
 		*m.Metadata_,
 		func(value []byte, dataType jsonparser.ValueType, offset int, err error) {

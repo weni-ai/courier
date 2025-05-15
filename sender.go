@@ -313,6 +313,7 @@ func (w *Sender) sendMessage(msg Msg) {
 					msg.QuickReplies(),
 					fromTicketer,
 					chatsUUID,
+					"",
 				)
 				routingKey := billing.RoutingKeyCreate
 				if msg.Channel().ChannelType() == "WAC" {

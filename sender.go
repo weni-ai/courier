@@ -338,12 +338,6 @@ func (w *Sender) sendMessage(msg Msg) {
 		log.WithError(err).Info("error writing msg logs")
 	}
 
-	// write our contact last seen
-	err = backend.WriteContactLastSeen(writeCTX, msg, time.Now())
-	if err != nil {
-		log.WithError(err).Info("error writing contact last seen")
-	}
-
 	// mark our send task as complete
 	backend.MarkOutgoingMsgComplete(writeCTX, msg, status)
 }

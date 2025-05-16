@@ -2496,12 +2496,19 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				if err != nil {
 					return status, nil
 				}
-				err = status.SetUpdatedURN(msg.URN(), toUpdateURN)
+				// Instead of updating the existing URN, add a new URN to the contact
+				contact, err := h.Backend().GetContact(ctx, msg.Channel(), msg.URN(), "", "")
 				if err != nil {
-					log := courier.NewChannelLogFromError("unable to update contact URN for a new based on  wa_id", msg.Channel(), msg.ID(), time.Since(start), err)
+					log := courier.NewChannelLogFromError("unable to get contact for new URN", msg.Channel(), msg.ID(), time.Since(start), err)
 					status.AddLog(log)
+				} else {
+					_, err = h.Backend().AddURNtoContact(ctx, msg.Channel(), contact, toUpdateURN)
+					if err != nil {
+						log := courier.NewChannelLogFromError("unable to add new URN to contact", msg.Channel(), msg.ID(), time.Since(start), err)
+						status.AddLog(log)
+					}
+					hasNewURN = true
 				}
-				hasNewURN = true
 			}
 		}
 		if templating != nil && len(msg.Attachments()) > 0 || hasCaption {

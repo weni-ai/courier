@@ -1,3 +1,8 @@
+1.24.0
+----------
+ * Feat: Save WAC context in Msg metadata
+ * Feat: remove contact last seen write on sender
+
 1.23.1
 ----------
  * Fix contact created with name as identity instead real name on WriteLastSeenOn

@@ -1,3 +1,7 @@
+1.25.0
+----------
+ * Adjust number management with the ninth digit for WhatsApp
+
 1.24.0
 ----------
  * Feat: Save WAC context in Msg metadata

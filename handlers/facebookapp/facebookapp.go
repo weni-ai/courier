@@ -843,28 +843,29 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					}
 				}
 
-				templateType, isTemplateMessage := waTemplateTypeMapping[status.Conversation.Origin.Type]
-				fmt.Println("templateType: ", templateType)
-				fmt.Println("isTemplateMessage: ", isTemplateMessage)
-				if isTemplateMessage && h.Server().Templates() != nil {
-					fmt.Println("Sending template status1")
-					urn, err := urns.NewWhatsAppURN(status.RecipientID)
-					if err != nil {
-						handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
-					} else {
-						fmt.Println("Sending template status2")
-						statusMsg := templates.NewTemplateStatusMessage(
-							string(urn.Identity()),
-							channel.UUID().String(),
-							status.ID,
-							string(msgStatus),
-							templateType,
-						)
-						fmt.Println("statusMsg: ", statusMsg)
-						h.Server().Templates().SendAsync(statusMsg, templates.RoutingKeyStatus, nil, nil)
+				if status.Conversation != nil {
+					templateType, isTemplateMessage := waTemplateTypeMapping[status.Conversation.Origin.Type]
+					fmt.Println("templateType: ", templateType)
+					fmt.Println("isTemplateMessage: ", isTemplateMessage)
+					if isTemplateMessage && h.Server().Templates() != nil {
+						fmt.Println("Sending template status1")
+						urn, err := urns.NewWhatsAppURN(status.RecipientID)
+						if err != nil {
+							handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+						} else {
+							fmt.Println("Sending template status2")
+							statusMsg := templates.NewTemplateStatusMessage(
+								string(urn.Identity()),
+								channel.UUID().String(),
+								status.ID,
+								string(msgStatus),
+								templateType,
+							)
+							fmt.Println("statusMsg: ", statusMsg)
+							h.Server().Templates().SendAsync(statusMsg, templates.RoutingKeyStatus, nil, nil)
+						}
 					}
 				}
-
 				events = append(events, event)
 				data = append(data, courier.NewStatusData(event))
 

@@ -331,27 +331,17 @@ func (w *Sender) sendMessage(msg Msg) {
 				fmt.Println("Metadata: ", string(msg.Metadata()))
 
 				mdJSON := msg.Metadata()
-				if len(mdJSON) == 0 {
-					return
-				}
 				metadata := &templates.TemplateMetadata{}
 				err := json.Unmarshal(mdJSON, metadata)
 				if err != nil {
-					return
+					log.WithError(err).Error("error unmarshalling metadata")
 				}
 				templatingData := metadata.Templating
 				if templatingData == nil {
-					return
+					log.Error("templating data is nil")
 				}
 
 				if err == nil && templatingData != nil {
-					fmt.Println("templatingData: ", templatingData)
-					var templateMetadata map[string]interface{}
-
-					fmt.Println("templateMetadata: ", templateMetadata)
-
-					fmt.Println("template: ", templatingData)
-
 					templateName := templatingData.Template.Name
 					templateUUID := templatingData.Template.UUID
 					templateLanguage := templatingData.Language
@@ -377,9 +367,7 @@ func (w *Sender) sendMessage(msg Msg) {
 						templateNamespace,
 						templateVariables,
 					)
-					fmt.Println("templateMsg: ", templateMsg)
 					w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
-
 				}
 			}
 		}

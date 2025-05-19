@@ -10,6 +10,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/nyaruka/courier"
 	"github.com/sirupsen/logrus"
+	_ "go.uber.org/automaxprocs"
 
 	// load channel handler packages
 	"github.com/nyaruka/courier/billing"

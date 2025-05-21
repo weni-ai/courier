@@ -11,10 +11,10 @@ import (
 )
 
 var channelsToMonitor = map[uuid.UUID]bool{}
-var monitorAllChannels = os.Getenv("MAILROOM_PROMETHEUS_MONITOR_ALL_CHANNELS") == "true"
+var monitorAllChannels = os.Getenv("COURIER_PROMETHEUS_MONITOR_ALL_CHANNELS") == "true"
 
 func init() {
-	channelsString := os.Getenv("MAILROOM_PROMETHEUS_MONITOR_CHANNELS")
+	channelsString := os.Getenv("COURIER_PROMETHEUS_MONITOR_CHANNELS")
 	if channelsString != "" {
 		channels := strings.Split(channelsString, ",")
 		for _, channel := range channels {

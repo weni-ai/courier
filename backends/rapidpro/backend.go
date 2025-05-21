@@ -17,6 +17,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/batch"
+	"github.com/nyaruka/courier/metrics"
 	"github.com/nyaruka/courier/queue"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/storage"
@@ -550,6 +551,8 @@ func (b *backend) Heartbeat() error {
 	// log our total
 	librato.Gauge("courier.bulk_queue", float64(bulkSize))
 	librato.Gauge("courier.priority_queue", float64(prioritySize))
+	metrics.SetBulkQueueSize(float64(bulkSize))
+	metrics.SetPriorityQueueSize(float64(prioritySize))
 	logrus.WithField("bulk_queue", bulkSize).WithField("priority_queue", prioritySize).Info("heartbeat queue sizes calculated")
 
 	return nil

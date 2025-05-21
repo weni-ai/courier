@@ -229,20 +229,26 @@ func (w *Sender) sendMessage(msg Msg) {
 	}
 
 	if sent {
+		fmt.Println("--------- Message already sent, creating wired status")
 		// if this message was already sent, create a wired status for it
 		status = backend.NewMsgStatusForID(msg.Channel(), msg.ID(), MsgWired)
 		log.Warning("duplicate send, marking as wired")
 	} else if loop {
+		fmt.Println("--------- Message in loop, creating failed status")
 		// if this contact is in a loop, fail the message immediately without sending
 		status = backend.NewMsgStatusForID(msg.Channel(), msg.ID(), MsgFailed)
 		status.AddLog(NewChannelLogFromError("Message Loop", msg.Channel(), msg.ID(), 0, fmt.Errorf("message loop detected, failing message without send")))
 		log.Error("message loop detected, failing message")
 	} else {
+		fmt.Println("--------- Message not sent, processing action")
 		// Message is not a duplicate and not in a loop
 		actionType := msg.ActionType()
+		fmt.Printf("Action Type: %v\n", actionType)
+		fmt.Printf("Metadata: %v\n", string(msg.Metadata()))
 
 		if actionType == MsgActionTypingIndicator {
 			// --- HANDLE MESSAGE ACTION ---
+			fmt.Println("Processing message action")
 			actionLog := log.WithField("action_type", actionType)
 			actionLog.Info("Processing message action")
 
@@ -400,8 +406,7 @@ func (w *Sender) sendMessage(msg Msg) {
 						}
 					}
 
-					if w.foreman.server.Templates() != nil {
-
+					if w.foreman.server.Templates() != nil && msg.Metadata() != nil {
 						mdJSON := msg.Metadata()
 						metadata := &templates.TemplateMetadata{}
 						err := json.Unmarshal(mdJSON, metadata)

@@ -670,6 +670,9 @@ func (m *DBMsg) Metadata() json.RawMessage {
 	if m.Metadata_ == nil {
 		return nil
 	}
+	if *m.Metadata_ == nil {
+		return nil
+	}
 	return *m.Metadata_
 }
 

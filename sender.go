@@ -243,8 +243,10 @@ func (w *Sender) sendMessage(msg Msg) {
 		fmt.Println("--------- Message not sent, processing action")
 		// Message is not a duplicate and not in a loop
 		actionType := msg.ActionType()
-		fmt.Printf("Action Type: %v\n", actionType)
-		fmt.Printf("Metadata: %v\n", string(msg.Metadata()))
+		fmt.Printf("Action Type: %s\n", actionType)
+		fmt.Printf("Metadata: %s\n", string(msg.Metadata()))
+		fmt.Printf("ID: %d\n", msg.ID())
+		fmt.Printf("MSG: %+v\n", msg)
 
 		if actionType == MsgActionTypingIndicator {
 			// --- HANDLE MESSAGE ACTION ---

@@ -667,12 +667,16 @@ func (m *DBMsg) IGTag() string {
 
 // Metadata returns the metadata for this message if it exists
 func (m *DBMsg) Metadata() json.RawMessage {
+	fmt.Printf("DBMsg.Metadata() - Metadata_: %v\n", m.Metadata_)
 	if m.Metadata_ == nil {
+		fmt.Println("DBMsg.Metadata() - Metadata_ is nil")
 		return nil
 	}
 	if *m.Metadata_ == nil {
+		fmt.Println("DBMsg.Metadata() - *Metadata_ is nil")
 		return nil
 	}
+	fmt.Printf("DBMsg.Metadata() - returning: %v\n", string(*m.Metadata_))
 	return *m.Metadata_
 }
 
@@ -1095,10 +1099,13 @@ func (m *DBMsg) Buttons() []courier.ButtonComponent {
 }
 
 func (m *DBMsg) ActionType() courier.MsgActionType {
+	fmt.Printf("DBMsg.ActionType() - Metadata_: %v\n", m.Metadata_)
 	if m.Metadata_ == nil {
+		fmt.Println("DBMsg.ActionType() - Metadata_ is nil")
 		return courier.MsgActionNone
 	}
 	actionType, _, _, _ := jsonparser.Get(*m.Metadata_, "action_type")
+	fmt.Printf("DBMsg.ActionType() - action_type from metadata: %v\n", string(actionType))
 	return courier.MsgActionType(actionType)
 }
 

@@ -54,6 +54,9 @@ type Server interface {
 
 	Templates() templates.Client
 	SetTemplates(templates templates.Client)
+
+	GetHandler(channelType ChannelType) (ChannelHandler, error)
+	SendMsgAction(ctx context.Context, msg Msg) (MsgStatus, error)
 }
 
 // NewServer creates a new Server for the passed in configuration. The server will have to be started
@@ -597,4 +600,46 @@ func handleBilling(s *server, msg Msg) error {
 	}
 
 	return nil
+}
+
+func (s *server) SendMsgAction(ctx context.Context, msg Msg) (MsgStatus, error) {
+	log := logrus.WithFields(logrus.Fields{
+		"comp":        "server",
+		"msg_id":      msg.ID().String(),
+		"action_type": msg.ActionType(),
+		"external_id": msg.ActionExternalID(),
+	})
+	if msg.Channel() == nil {
+		err := errors.New("cannot send message action: message channel is nil")
+		log.WithError(err).Error("Failed")
+		return nil, err
+	}
+	log = log.WithField("channel_uuid", msg.Channel().UUID())
+
+	handler, err := s.GetHandler(msg.Channel().ChannelType())
+	if err != nil {
+		log.WithError(err).Error("Handler not found")
+		status := s.backend.NewMsgStatusForID(msg.Channel(), msg.ID(), MsgErrored)
+		status.AddLog(NewChannelLogFromError("Action Handler Missing", msg.Channel(), msg.ID(), 0, err))
+		return status, err
+	}
+
+	if actionHandler, ok := handler.(ActionSender); ok {
+		log.Infof("Dispatching action to handler %s via ActionSender interface", handler.ChannelName())
+		return actionHandler.SendAction(ctx, msg)
+	}
+
+	err = fmt.Errorf("handler %s (%T) does not support actions", handler.ChannelName(), handler)
+	log.Warn("Action not supported by handler")
+	status := s.backend.NewMsgStatusForID(msg.Channel(), msg.ID(), MsgErrored)
+	status.AddLog(NewChannelLogFromError("Action Not Supported", msg.Channel(), msg.ID(), 0, err))
+	return status, err
+}
+
+func (s *server) GetHandler(channelType ChannelType) (ChannelHandler, error) {
+	handler, found := activeHandlers[channelType]
+	if !found {
+		return nil, fmt.Errorf("no active handler found for channel type: %s", channelType)
+	}
+	return handler, nil
 }

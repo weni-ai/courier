@@ -60,6 +60,10 @@ type Config struct {
 
 	EmailProxyURL       string `help:"email proxy url"`
 	EmailProxyAuthToken string `help:"email proxy auth token"`
+
+	WhatsappCloudDemoAddress string `help:"the address of the router"`
+	WhatsappCloudDemoURL     string `help:"the url of the demo"`
+	WhatsappCloudDemoToken   string `help:"the token of the demo"`
 }
 
 // NewConfig returns a new default configuration object
@@ -94,6 +98,9 @@ func NewConfig() *Config {
 		BillingExchangeName:          "msgs.topic",
 		EmailProxyURL:                "http://localhost:9090",
 		EmailProxyAuthToken:          "",
+		WhatsappCloudDemoAddress:     "1234567890",
+		WhatsappCloudDemoURL:         "http://localhost:3000",
+		WhatsappCloudDemoToken:       "1234567890",
 	}
 }
 

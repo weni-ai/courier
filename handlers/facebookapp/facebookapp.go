@@ -29,7 +29,6 @@ import (
 	"github.com/nyaruka/gocommon/uuids"
 	"github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 )
 
 // Endpoints we hit
@@ -3227,28 +3226,11 @@ var _ courier.ActionSender = (*handler)(nil)
 // This method is specific to the WhatsApp handler.
 func (h *handler) SendAction(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
 	channel := msg.Channel()
-	actionType := msg.ActionType()
 	targetMessageID := msg.ActionExternalID()
-
-	// Use o logger do handler
-	actionLog := logrus.WithFields(logrus.Fields{
-		"channel_uuid": channel.UUID(),
-		"action_type":  actionType,
-		"external_id":  targetMessageID,
-		"channel_type": channel.ChannelType().String(),
-	})
 
 	// Ensure this action is only executed for WAC (WhatsApp Cloud) channel types
 	if channel.ChannelType() != courier.ChannelType("WAC") {
-		err := fmt.Errorf("WhatsApp actions are only supported for WAC channels, not for %s", channel.ChannelType())
-		actionLog.WithError(err).Warn("Ignoring action for non-WAC channel")
-		status := h.Server().Backend().NewMsgStatusForID(channel, msg.ID(), courier.MsgErrored)
-		status.AddLog(courier.NewChannelLogFromError("Unsupported Channel Type for Action", channel, msg.ID(), 0, err))
-		return status, err
-	}
-
-	if targetMessageID != "" {
-		actionLog = actionLog.WithField("target_msg_id", targetMessageID)
+		return nil, fmt.Errorf("WhatsApp actions are only supported for WAC channels, not for %s", channel.ChannelType())
 	}
 
 	accessToken := h.Server().Config().WhatsappAdminSystemUserToken
@@ -3259,21 +3241,13 @@ func (h *handler) SendAction(ctx context.Context, msg courier.Msg) (courier.MsgS
 	}
 
 	if tokenToUse == "" {
-		err := errors.New("missing access token for WhatsApp action")
-		actionLog.WithError(err).Error("Failed")
-		status := h.Server().Backend().NewMsgStatusForID(channel, msg.ID(), courier.MsgErrored)
-		status.AddLog(courier.NewChannelLogFromError("Auth Error", channel, msg.ID(), 0, err))
-		return status, err
+		return nil, errors.New("missing access token for WhatsApp action")
 	}
 
 	apiURLString := fmt.Sprintf("%s%s/messages", graphURL, channel.Address())
 
 	if targetMessageID == "" {
-		err := errors.New("targetMessageID (ExternalID) is required for combined action")
-		actionLog.WithError(err).Error("Invalid arguments")
-		status := h.Server().Backend().NewMsgStatusForID(channel, msg.ID(), courier.MsgErrored)
-		status.AddLog(courier.NewChannelLogFromError("Args Error", channel, msg.ID(), 0, err))
-		return status, err
+		return nil, errors.New("targetMessageID (ExternalID) is required for combined action")
 	}
 
 	payloadMap := map[string]interface{}{
@@ -3285,67 +3259,28 @@ func (h *handler) SendAction(ctx context.Context, msg courier.Msg) (courier.MsgS
 		},
 	}
 
-	logReason := "WhatsApp Combined Action (Read + Typing)"
-	actionLog.Info("Sending combined WhatsApp action (read receipt + typing indicator)")
-
 	jsonBody, err := json.Marshal(payloadMap)
 	if err != nil {
-		errWrapped := errors.Wrap(err, "failed to marshal WhatsApp action payload")
-		actionLog.WithError(errWrapped).Error("Marshal failed")
-		status := h.Server().Backend().NewMsgStatusForID(channel, msg.ID(), courier.MsgErrored)
-		status.AddLog(courier.NewChannelLogFromError("Marshal Error", channel, msg.ID(), 0, errWrapped))
-		return status, errWrapped
+		return nil, errors.Wrap(err, "failed to marshal WhatsApp action payload")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURLString, bytes.NewReader(jsonBody))
 	if err != nil {
-		errWrapped := errors.Wrap(err, "failed to create HTTP request")
-		actionLog.WithError(errWrapped).Error("Request creation failed")
-		status := h.Server().Backend().NewMsgStatusForID(channel, msg.ID(), courier.MsgErrored)
-		status.AddLog(courier.NewChannelLogFromError("Request Creation Error", channel, msg.ID(), 0, errWrapped))
-		return status, errWrapped
+		return nil, errors.Wrap(err, "failed to create HTTP request")
 	}
 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", tokenToUse))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	// Log o payload exato que está sendo enviado
-	actionLog.WithField("payload", string(jsonBody)).Debug("Sending combined WhatsApp action payload")
-
 	rr, err := utils.MakeHTTPRequest(req)
-	logEntry := courier.NewChannelLogFromRR(fmt.Sprintf("WhatsApp Action (%s)", logReason), channel, msg.ID(), rr)
-
 	if err != nil {
-		errMsg := fmt.Sprintf("HTTP request failed: %v", err)
-		finalErr := errors.New(errMsg)
-		actionLog.WithError(finalErr).WithField("response_body", string(rr.Body)).Error("HTTP request failed")
-		status := h.Server().Backend().NewMsgStatusForID(channel, msg.ID(), courier.MsgErrored)
-		logEntry = logEntry.WithError("HTTP Error", finalErr)
-		status.AddLog(logEntry)
-		return status, finalErr
+		return nil, errors.Wrap(err, "HTTP request failed")
 	}
 
 	if rr.StatusCode < 200 || rr.StatusCode >= 300 {
-		errApi := fmt.Errorf("WhatsApp API error (%d): %s", rr.StatusCode, string(rr.Body))
-		actionLog.WithError(errApi).Error("API Error")
-		status := h.Server().Backend().NewMsgStatusForID(channel, msg.ID(), courier.MsgErrored)
-		logEntry = logEntry.WithError("API Error", errApi)
-		status.AddLog(logEntry)
-		return status, errApi
+		return nil, fmt.Errorf("WhatsApp API error (%d): %s", rr.StatusCode, string(rr.Body))
 	}
 
-	actionLog.WithField("response", string(rr.Body)).Info("Combined action sent successfully")
-
-	// Create a status but don't write the message since this is an action
-	status := h.Server().Backend().NewMsgStatusForID(channel, msg.ID(), courier.MsgWired)
-	status.AddLog(logEntry)
-
-	// Check if this is an action from context
-	if isAction, ok := ctx.Value("is_action").(bool); ok && isAction {
-		// Skip message writing for actions
-		return status, nil
-	}
-
-	return status, nil
+	return nil, nil
 }

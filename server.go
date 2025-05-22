@@ -609,23 +609,20 @@ func (s *server) SendMsgAction(ctx context.Context, msg Msg) (MsgStatus, error) 
 	handler, err := s.GetHandler(msg.Channel().ChannelType())
 	if err != nil {
 		log.WithError(err).Error("Handler not found")
-		status := s.backend.NewMsgStatusForID(msg.Channel(), msg.ID(), MsgErrored)
-		status.AddLog(NewChannelLogFromError("Action Handler Missing", msg.Channel(), msg.ID(), 0, err))
-		return status, err
+		return nil, err
 	}
 
 	if actionHandler, ok := handler.(ActionSender); ok {
 		log.Infof("Dispatching action to handler %s via ActionSender interface", handler.ChannelName())
 		// Set a flag in the context to indicate this is an action
 		ctx = context.WithValue(ctx, "is_action", true)
-		return actionHandler.SendAction(ctx, msg)
+		_, err := actionHandler.SendAction(ctx, msg)
+		return nil, err
 	}
 
 	err = fmt.Errorf("handler %s (%T) does not support actions", handler.ChannelName(), handler)
 	log.Warn("Action not supported by handler")
-	status := s.backend.NewMsgStatusForID(msg.Channel(), msg.ID(), MsgErrored)
-	status.AddLog(NewChannelLogFromError("Action Not Supported", msg.Channel(), msg.ID(), 0, err))
-	return status, err
+	return nil, err
 }
 
 func (s *server) GetHandler(channelType ChannelType) (ChannelHandler, error) {

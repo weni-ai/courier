@@ -176,6 +176,22 @@ func (w *Sender) Stop() {
 }
 
 func (w *Sender) sendMessage(msg Msg) {
+	// --- HANDLE MESSAGE ACTION ---
+	if msg.ActionType() == MsgActionTypingIndicator {
+		actionCallCtx, actionCallCancel := context.WithTimeout(context.Background(), time.Second*20)
+		defer actionCallCancel()
+
+		// Set a flag in the context to indicate this is an action
+		actionCallCtx = context.WithValue(actionCallCtx, "is_action", true)
+
+		_, err := w.foreman.server.SendMsgAction(actionCallCtx, msg)
+		if err != nil {
+			fmt.Printf("Error processing message action: %v\n", err)
+		}
+		return
+	}
+
+	// --- HANDLE NORMAL MESSAGE SENDING ---
 	log := logrus.WithField("comp", "sender").WithField("sender_id", w.id)
 	if msg.Channel() != nil {
 		log = log.WithField("channel_uuid", msg.Channel().UUID())
@@ -228,24 +244,7 @@ func (w *Sender) sendMessage(msg Msg) {
 		log.WithError(err).Error("error looking up msg loop")
 	}
 
-	if msg.ActionType() == MsgActionTypingIndicator {
-		actionLog := log.WithField("action_type", msg.ActionType())
-		actionLog.Info("Processing message action")
-
-		actionCallCtx, actionCallCancel := context.WithTimeout(context.Background(), time.Second*20) // Context for the action call
-		defer actionCallCancel()
-
-		// Set a flag in the context to indicate this is an action
-		actionCallCtx = context.WithValue(actionCallCtx, "is_action", true)
-
-		_, err := w.foreman.server.SendMsgAction(actionCallCtx, msg)
-		if err != nil {
-			actionLog.WithError(err).Error("Error processing message action")
-		} else {
-			actionLog.Info("Message action processed successfully")
-		}
-		return
-	} else if sent {
+	if sent {
 		fmt.Println("--------- Message already sent, creating wired status")
 		// if this message was already sent, create a wired status for it
 		status = backend.NewMsgStatusForID(msg.Channel(), msg.ID(), MsgWired)
@@ -449,6 +448,11 @@ func (w *Sender) sendMessage(msg Msg) {
 			log.Error("Cannot create fallback error status: channel or msg ID is nil. Skipping finalization for this message.")
 			return
 		}
+	}
+
+	// Skip all status and log recording for actions
+	if msg.ActionType() == MsgActionTypingIndicator {
+		return
 	}
 
 	// dbOpCtx is still valid here

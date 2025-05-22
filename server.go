@@ -297,9 +297,35 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 		baseCtx := context.WithValue(r.Context(), contextRequestURL, r.URL.String())
 		baseCtx = context.WithValue(baseCtx, contextRequestStart, time.Now())
 
+		// Check immediately if this is an action request from context or URL
+		// Actions should be processed but never logged/recorded in history
+		if isAction := r.URL.Query().Get("is_action"); isAction == "true" {
+			// Update context to flag this as an action
+			baseCtx = context.WithValue(baseCtx, "is_action", true)
+		}
+
 		// add a 30 second timeout
 		ctx, cancel := context.WithTimeout(baseCtx, time.Second*30)
 		defer cancel()
+
+		// If this is an action, we'll still process it but skip all logging
+		if isAction, ok := ctx.Value("is_action").(bool); ok && isAction {
+			// Get the channel to process the action
+			channel, err := handler.GetChannel(ctx, r)
+			if err != nil {
+				// Just return success even if there's an error - we don't want anything recorded
+				WriteStatusSuccess(ctx, w, r, nil)
+				return
+			}
+
+			// Process action but discard the result - we don't want it logged
+			r = r.WithContext(ctx)
+			_, _ = handlerFunc(ctx, channel, w, r)
+
+			// Return success without logging anything
+			WriteStatusSuccess(ctx, w, r, nil)
+			return
+		}
 
 		channel, err := handler.GetChannel(ctx, r)
 		if err != nil {

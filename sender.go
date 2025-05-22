@@ -228,7 +228,24 @@ func (w *Sender) sendMessage(msg Msg) {
 		log.WithError(err).Error("error looking up msg loop")
 	}
 
-	if sent {
+	if msg.ActionType() == MsgActionTypingIndicator {
+		actionLog := log.WithField("action_type", msg.ActionType())
+		actionLog.Info("Processing message action")
+
+		actionCallCtx, actionCallCancel := context.WithTimeout(context.Background(), time.Second*20) // Context for the action call
+		defer actionCallCancel()
+
+		// Set a flag in the context to indicate this is an action
+		actionCallCtx = context.WithValue(actionCallCtx, "is_action", true)
+
+		_, err := w.foreman.server.SendMsgAction(actionCallCtx, msg)
+		if err != nil {
+			actionLog.WithError(err).Error("Error processing message action")
+		} else {
+			actionLog.Info("Message action processed successfully")
+		}
+		return
+	} else if sent {
 		fmt.Println("--------- Message already sent, creating wired status")
 		// if this message was already sent, create a wired status for it
 		status = backend.NewMsgStatusForID(msg.Channel(), msg.ID(), MsgWired)
@@ -248,211 +265,171 @@ func (w *Sender) sendMessage(msg Msg) {
 		fmt.Printf("ID: %d\n", msg.ID())
 		fmt.Printf("MSG: %+v\n", msg)
 
-		if actionType == MsgActionTypingIndicator {
-			// --- HANDLE MESSAGE ACTION ---
-			fmt.Println("Processing message action")
-			actionLog := log.WithField("action_type", actionType)
-			actionLog.Info("Processing message action")
+		waitMediaChannels := w.foreman.server.Config().WaitMediaChannels
+		msgChannelTypeStr := ""
+		if msg.Channel() != nil {
+			msgChannelTypeStr = msg.Channel().ChannelType().String()
+		}
+		mustWait := utils.StringArrayContains(waitMediaChannels, msgChannelTypeStr)
 
-			actionCallCtx, actionCallCancel := context.WithTimeout(context.Background(), time.Second*20) // Context for the action call
-			defer actionCallCancel()
+		if mustWait && msg.Channel() != nil { // Ensure channel is not nil for this block
+			// check if previous message is already Delivered
+			msgUUID := msg.UUID().String()
 
-			// Set a flag in the context to indicate this is an action
-			actionCallCtx = context.WithValue(actionCallCtx, "is_action", true)
+			if msgUUID != "" {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*35)
+				defer cancel()
 
-			var actionErr error
-			status, actionErr = server.SendMsgAction(actionCallCtx, msg)
+				msgEvents, err := server.Backend().GetRunEventsByMsgUUIDFromDB(ctx, msgUUID)
 
-			if actionErr != nil {
-				actionLog.WithError(actionErr).Error("Error processing message action")
-				if status == nil {
-					if msg.Channel() != nil && msg.ID() != NilMsgID {
-						status = backend.NewMsgStatusForID(msg.Channel(), msg.ID(), MsgErrored)
-						status.AddLog(NewChannelLogFromError("Action Processing Error", msg.Channel(), msg.ID(), 0, actionErr))
-					} else {
-						actionLog.Error("Cannot create error status for action: channel or msg ID is nil")
-					}
+				if err != nil {
+					log.Error(errors.Wrap(err, "unable to get events"))
 				}
-			} else {
-				actionLog.Info("Message action processed successfully")
-				if status == nil {
-					actionLog.Warn("SendMsgAction returned nil status and nil error. Creating MsgWired status.")
-					if msg.Channel() != nil && msg.ID() != NilMsgID {
-						status = backend.NewMsgStatusForID(msg.Channel(), msg.ID(), MsgWired)
-					}
-				}
-			}
 
-			// Skip message writing for actions
-			return
-		} else {
-			// --- HANDLE NORMAL MESSAGE SENDING ---
-			waitMediaChannels := w.foreman.server.Config().WaitMediaChannels
-			msgChannelTypeStr := ""
-			if msg.Channel() != nil {
-				msgChannelTypeStr = msg.Channel().ChannelType().String()
-			}
-			mustWait := utils.StringArrayContains(waitMediaChannels, msgChannelTypeStr)
+				if msgEvents != nil {
 
-			if mustWait && msg.Channel() != nil { // Ensure channel is not nil for this block
-				// check if previous message is already Delivered
-				msgUUID := msg.UUID().String()
-
-				if msgUUID != "" {
-					ctx, cancel := context.WithTimeout(context.Background(), time.Second*35)
-					defer cancel()
-
-					msgEvents, err := server.Backend().GetRunEventsByMsgUUIDFromDB(ctx, msgUUID)
-
-					if err != nil {
-						log.Error(errors.Wrap(err, "unable to get events"))
-					}
-
-					if msgEvents != nil {
-
-						msgIndex := func(slice []RunEvent, item string) int {
-							for i := range slice {
-								if slice[i].Msg.UUID == item {
-									return i
-								}
+					msgIndex := func(slice []RunEvent, item string) int {
+						for i := range slice {
+							if slice[i].Msg.UUID == item {
+								return i
 							}
-							return -1
-						}(msgEvents, msg.UUID().String())
+						}
+						return -1
+					}(msgEvents, msg.UUID().String())
 
-						if msgIndex > 0 {
-							prevMsgCtx, prevMsgCancel := context.WithTimeout(context.Background(), time.Second*35)
-							defer prevMsgCancel()
-							previousEventMsgUUID := msgEvents[msgIndex-1].Msg.UUID
-							tries := 0
-							tryLimit := w.foreman.server.Config().WaitMediaCount
-							for tries < tryLimit {
-								tries++
-								prevMsg, err := server.Backend().GetMessage(prevMsgCtx, previousEventMsgUUID)
-								if err != nil {
-									log.Error(errors.Wrap(err, "GetMessage for previous message failed"))
-									break
-								}
-								if prevMsg != nil {
-									if prevMsg.Status() != MsgDelivered &&
-										prevMsg.Status() != MsgRead {
-										sleepDuration := time.Duration(w.foreman.server.Config().WaitMediaSleepDuration)
-										time.Sleep(time.Millisecond * sleepDuration)
-										continue
-									}
-								}
+					if msgIndex > 0 {
+						prevMsgCtx, prevMsgCancel := context.WithTimeout(context.Background(), time.Second*35)
+						defer prevMsgCancel()
+						previousEventMsgUUID := msgEvents[msgIndex-1].Msg.UUID
+						tries := 0
+						tryLimit := w.foreman.server.Config().WaitMediaCount
+						for tries < tryLimit {
+							tries++
+							prevMsg, err := server.Backend().GetMessage(prevMsgCtx, previousEventMsgUUID)
+							if err != nil {
+								log.Error(errors.Wrap(err, "GetMessage for previous message failed"))
 								break
 							}
+							if prevMsg != nil {
+								if prevMsg.Status() != MsgDelivered &&
+									prevMsg.Status() != MsgRead {
+									sleepDuration := time.Duration(w.foreman.server.Config().WaitMediaSleepDuration)
+									time.Sleep(time.Millisecond * sleepDuration)
+									continue
+								}
+							}
+							break
 						}
 					}
 				}
 			}
+		}
 
-			sendCallCtx, sendCallCancel := context.WithTimeout(context.Background(), time.Second*35)
-			defer sendCallCancel()
+		sendCallCtx, sendCallCancel := context.WithTimeout(context.Background(), time.Second*35)
+		defer sendCallCancel()
 
-			// send our message
-			var sendErr error
-			status, sendErr = server.SendMsg(sendCallCtx, msg)
-			duration := time.Now().Sub(start)
-			secondDuration := float64(duration) / float64(time.Second)
+		// send our message
+		var sendErr error
+		status, sendErr = server.SendMsg(sendCallCtx, msg)
+		duration := time.Now().Sub(start)
+		secondDuration := float64(duration) / float64(time.Second)
 
-			if sendErr != nil {
-				log.WithError(sendErr).WithField("elapsed", duration).Error("error sending message")
-				if status == nil {
-					if msg.Channel() != nil && msg.ID() != NilMsgID {
-						status = backend.NewMsgStatusForID(msg.Channel(), msg.ID(), MsgErrored)
-						status.AddLog(NewChannelLogFromError("Sending Error", msg.Channel(), msg.ID(), duration, sendErr))
-					} else {
-						log.Error("Cannot create error status for send: channel or msg ID is nil")
-					}
-				}
-			}
-
-			// report to librato and log locally
-			if status != nil {
-				if status.Status() == MsgErrored || status.Status() == MsgFailed {
-					log.WithField("elapsed", duration).Warning("msg errored")
-					librato.Gauge(fmt.Sprintf("courier.msg_send_error_%s", msg.Channel().ChannelType()), secondDuration)
-					metrics.SetMsgSendErrorByType(msg.Channel().ChannelType().String(), secondDuration)
-					metrics.SetMsgSendErrorByUUID(msg.Channel().UUID().UUID, secondDuration)
+		if sendErr != nil {
+			log.WithError(sendErr).WithField("elapsed", duration).Error("error sending message")
+			if status == nil {
+				if msg.Channel() != nil && msg.ID() != NilMsgID {
+					status = backend.NewMsgStatusForID(msg.Channel(), msg.ID(), MsgErrored)
+					status.AddLog(NewChannelLogFromError("Sending Error", msg.Channel(), msg.ID(), duration, sendErr))
 				} else {
-					log.WithField("elapsed", duration).Info("msg sent")
-					librato.Gauge(fmt.Sprintf("courier.msg_send_%s", msg.Channel().ChannelType()), secondDuration)
-					metrics.SetMsgSendSuccessByType(msg.Channel().ChannelType().String(), secondDuration)
-					metrics.SetMsgSendSuccessByUUID(msg.Channel().UUID().UUID, secondDuration)
+					log.Error("Cannot create error status for send: channel or msg ID is nil")
+				}
+			}
+		}
+
+		// report to librato and log locally
+		if status != nil {
+			if status.Status() == MsgErrored || status.Status() == MsgFailed {
+				log.WithField("elapsed", duration).Warning("msg errored")
+				librato.Gauge(fmt.Sprintf("courier.msg_send_error_%s", msg.Channel().ChannelType()), secondDuration)
+				metrics.SetMsgSendErrorByType(msg.Channel().ChannelType().String(), secondDuration)
+				metrics.SetMsgSendErrorByUUID(msg.Channel().UUID().UUID, secondDuration)
+			} else {
+				log.WithField("elapsed", duration).Info("msg sent")
+				librato.Gauge(fmt.Sprintf("courier.msg_send_%s", msg.Channel().ChannelType()), secondDuration)
+				metrics.SetMsgSendSuccessByType(msg.Channel().ChannelType().String(), secondDuration)
+				metrics.SetMsgSendSuccessByUUID(msg.Channel().UUID().UUID, secondDuration)
+			}
+
+			sentOk := status.Status() != MsgErrored && status.Status() != MsgFailed
+			if sentOk {
+				if w.foreman.server.Billing() != nil && msg.Channel() != nil {
+					chatsUUID, _ := jsonparser.GetString(msg.Metadata(), "chats_msg_uuid")
+					if msg.Channel().ChannelType() != "WAC" || chatsUUID != "" { // if message is not to a WAC channel or is from a wenichats agent then send to exchange
+						ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
+						fromTicketer := ticketerType != ""
+
+						billingMsg := billing.NewMessage(
+							string(msg.URN().Identity()),
+							"",
+							msg.Channel().UUID().String(),
+							status.ExternalID(),
+							time.Now().Format(time.RFC3339),
+							"O",
+							msg.Channel().ChannelType().String(),
+							msg.Text(),
+							msg.Attachments(),
+							msg.QuickReplies(),
+							fromTicketer,
+							chatsUUID,
+							"",
+						)
+						routingKey := billing.RoutingKeyCreate
+						if msg.Channel().ChannelType() == "WAC" {
+							routingKey = billing.RoutingKeyWAC
+						}
+						w.foreman.server.Billing().SendAsync(billingMsg, routingKey, nil, nil)
+					}
 				}
 
-				sentOk := status.Status() != MsgErrored && status.Status() != MsgFailed
-				if sentOk {
-					if w.foreman.server.Billing() != nil && msg.Channel() != nil {
-						chatsUUID, _ := jsonparser.GetString(msg.Metadata(), "chats_msg_uuid")
-						if msg.Channel().ChannelType() != "WAC" || chatsUUID != "" { // if message is not to a WAC channel or is from a wenichats agent then send to exchange
-							ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
-							fromTicketer := ticketerType != ""
-
-							billingMsg := billing.NewMessage(
-								string(msg.URN().Identity()),
-								"",
-								msg.Channel().UUID().String(),
-								status.ExternalID(),
-								time.Now().Format(time.RFC3339),
-								"O",
-								msg.Channel().ChannelType().String(),
-								msg.Text(),
-								msg.Attachments(),
-								msg.QuickReplies(),
-								fromTicketer,
-								chatsUUID,
-								"",
-							)
-							routingKey := billing.RoutingKeyCreate
-							if msg.Channel().ChannelType() == "WAC" {
-								routingKey = billing.RoutingKeyWAC
-							}
-							w.foreman.server.Billing().SendAsync(billingMsg, routingKey, nil, nil)
-						}
+				if w.foreman.server.Templates() != nil && msg.Metadata() != nil {
+					mdJSON := msg.Metadata()
+					metadata := &templates.TemplateMetadata{}
+					err := json.Unmarshal(mdJSON, metadata)
+					if err != nil {
+						log.WithError(err).Error("error unmarshalling metadata")
+					}
+					templatingData := metadata.Templating
+					if templatingData == nil {
+						log.Error("templating data is nil")
 					}
 
-					if w.foreman.server.Templates() != nil && msg.Metadata() != nil {
-						mdJSON := msg.Metadata()
-						metadata := &templates.TemplateMetadata{}
-						err := json.Unmarshal(mdJSON, metadata)
-						if err != nil {
-							log.WithError(err).Error("error unmarshalling metadata")
-						}
-						templatingData := metadata.Templating
-						if templatingData == nil {
-							log.Error("templating data is nil")
+					if err == nil && templatingData != nil {
+						templateName := templatingData.Template.Name
+						templateUUID := templatingData.Template.UUID
+						templateLanguage := templatingData.Language
+						templateNamespace := templatingData.Namespace
+
+						var templateVariables []string
+						if templatingData.Variables != nil {
+							templateVariables = templatingData.Variables
 						}
 
-						if err == nil && templatingData != nil {
-							templateName := templatingData.Template.Name
-							templateUUID := templatingData.Template.UUID
-							templateLanguage := templatingData.Language
-							templateNamespace := templatingData.Namespace
-
-							var templateVariables []string
-							if templatingData.Variables != nil {
-								templateVariables = templatingData.Variables
-							}
-
-							templateMsg := templates.NewTemplateMessage(
-								string(msg.URN().Identity()),
-								"",
-								msg.Channel().UUID().String(),
-								status.ExternalID(),
-								time.Now().Format(time.RFC3339),
-								"O",
-								msg.Channel().ChannelType().String(),
-								msg.Text(),
-								templateName,
-								templateUUID,
-								templateLanguage,
-								templateNamespace,
-								templateVariables,
-							)
-							w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
-						}
+						templateMsg := templates.NewTemplateMessage(
+							string(msg.URN().Identity()),
+							"",
+							msg.Channel().UUID().String(),
+							status.ExternalID(),
+							time.Now().Format(time.RFC3339),
+							"O",
+							msg.Channel().ChannelType().String(),
+							msg.Text(),
+							templateName,
+							templateUUID,
+							templateLanguage,
+							templateNamespace,
+							templateVariables,
+						)
+						w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
 					}
 				}
 			} else {

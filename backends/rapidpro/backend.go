@@ -344,6 +344,12 @@ func (b *backend) MarkOutgoingMsgComplete(ctx context.Context, msg courier.Msg, 
 
 // WriteMsg writes the passed in message to our store
 func (b *backend) WriteMsg(ctx context.Context, m courier.Msg) error {
+	// Check if this is an action from context
+	if isAction, ok := ctx.Value("is_action").(bool); ok && isAction {
+		// Skip message writing for actions
+		return nil
+	}
+
 	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
 	defer cancel()
 

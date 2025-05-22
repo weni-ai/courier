@@ -616,6 +616,8 @@ func (s *server) SendMsgAction(ctx context.Context, msg Msg) (MsgStatus, error) 
 
 	if actionHandler, ok := handler.(ActionSender); ok {
 		log.Infof("Dispatching action to handler %s via ActionSender interface", handler.ChannelName())
+		// Set a flag in the context to indicate this is an action
+		ctx = context.WithValue(ctx, "is_action", true)
 		return actionHandler.SendAction(ctx, msg)
 	}
 

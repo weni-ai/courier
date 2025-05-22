@@ -230,6 +230,9 @@ func (w *Sender) sendMessage(msg Msg) {
 			actionCallCtx, actionCallCancel := context.WithTimeout(context.Background(), time.Second*20) // Context for the action call
 			defer actionCallCancel()
 
+			// Set a flag in the context to indicate this is an action
+			actionCallCtx = context.WithValue(actionCallCtx, "is_action", true)
+
 			var actionErr error
 			status, actionErr = server.SendMsgAction(actionCallCtx, msg)
 
@@ -253,6 +256,8 @@ func (w *Sender) sendMessage(msg Msg) {
 				}
 			}
 
+			// Skip message writing for actions
+			return
 		} else {
 			// --- HANDLE NORMAL MESSAGE SENDING ---
 			waitMediaChannels := w.foreman.server.Config().WaitMediaChannels

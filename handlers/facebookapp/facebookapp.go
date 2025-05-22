@@ -3336,7 +3336,16 @@ func (h *handler) SendAction(ctx context.Context, msg courier.Msg) (courier.MsgS
 	}
 
 	actionLog.WithField("response", string(rr.Body)).Info("Combined action sent successfully")
+
+	// Create a status but don't write the message since this is an action
 	status := h.Server().Backend().NewMsgStatusForID(channel, msg.ID(), courier.MsgWired)
 	status.AddLog(logEntry)
+
+	// Check if this is an action from context
+	if isAction, ok := ctx.Value("is_action").(bool); ok && isAction {
+		// Skip message writing for actions
+		return status, nil
+	}
+
 	return status, nil
 }

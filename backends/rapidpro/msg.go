@@ -670,6 +670,11 @@ func (m *DBMsg) Metadata() json.RawMessage {
 	if m.Metadata_ == nil {
 		return nil
 	}
+
+	if *m.Metadata_ == nil {
+		return nil
+	}
+
 	return *m.Metadata_
 }
 
@@ -1089,4 +1094,20 @@ func (m *DBMsg) Buttons() []courier.ButtonComponent {
 	}
 
 	return nil
+}
+
+func (m *DBMsg) ActionType() courier.MsgActionType {
+	if m.Metadata_ == nil {
+		return courier.MsgActionNone
+	}
+	actionType, _, _, _ := jsonparser.Get(*m.Metadata_, "action_type")
+	return courier.MsgActionType(actionType)
+}
+
+func (m *DBMsg) ActionExternalID() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	actionExternalID, _, _, _ := jsonparser.Get(*m.Metadata_, "action_external_id")
+	return string(actionExternalID)
 }

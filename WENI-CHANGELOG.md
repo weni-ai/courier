@@ -1,3 +1,7 @@
+1.26.0
+----------
+ * Add ActionSender interface and MsgActionType for message actions
+
 1.25.0
 ----------
  * Adjust number management with the ninth digit for WhatsApp

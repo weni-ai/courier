@@ -1025,6 +1025,22 @@ func (m *mockMsg) Buttons() []ButtonComponent {
 	return nil
 }
 
+func (m *mockMsg) ActionType() MsgActionType {
+	if m.metadata == nil {
+		return MsgActionNone
+	}
+	actionType, _, _, _ := jsonparser.Get(m.metadata, "action_type")
+	return MsgActionType(actionType)
+}
+
+func (m *mockMsg) ActionExternalID() string {
+	if m.metadata == nil {
+		return ""
+	}
+	actionExternalID, _, _, _ := jsonparser.Get(m.metadata, "action_external_id")
+	return string(actionExternalID)
+}
+
 //-----------------------------------------------------------------------------
 // Mock status implementation
 //-----------------------------------------------------------------------------

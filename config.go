@@ -99,7 +99,7 @@ func NewConfig() *Config {
 		EmailProxyURL:                "http://localhost:9090",
 		EmailProxyAuthToken:          "",
 		WhatsappCloudDemoAddress:     "1234567890",
-		WhatsappCloudDemoURL:         "http://localhost:3000",
+		WhatsappCloudDemoURL:         "http://localhost:3000/wacr/receive",
 		WhatsappCloudDemoToken:       "1234567890",
 	}
 }

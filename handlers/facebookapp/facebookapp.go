@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -592,6 +593,9 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	}
 
 	// if the channel has the address equals to Config().DemoAddress, then we need to proxy the request to the demo url
+	log.Println("WHATSAPP ADDRESSES")
+	log.Println("channel.Address(): ", channel.Address())
+	log.Println("h.Server().Config().WhatsappCloudDemoAddress: ", h.Server().Config().WhatsappCloudDemoAddress)
 	if channel.Address() == h.Server().Config().WhatsappCloudDemoAddress {
 		demoURL := h.Server().Config().WhatsappCloudDemoURL
 		proxyReq, err := http.NewRequest(r.Method, demoURL, r.Body)

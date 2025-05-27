@@ -101,7 +101,7 @@ func NewConfig() *Config {
 		EmailProxyAuthToken:          "",
 		TemplatesExchangeName:        "templates",
 		WhatsappCloudDemoAddress:     "1234567890",
-		WhatsappCloudDemoURL:         "http://localhost:3000",
+		WhatsappCloudDemoURL:         "http://localhost:3000/wacr/receive",
 		WhatsappCloudDemoToken:       "1234567890",
 	}
 }

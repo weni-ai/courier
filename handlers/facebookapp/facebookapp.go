@@ -125,7 +125,7 @@ func init() {
 	courier.RegisterHandler(newHandler("IG", "Instagram", false))
 	courier.RegisterHandler(newHandler("FBA", "Facebook", false))
 	courier.RegisterHandler(newHandler("WAC", "WhatsApp Cloud", false))
-	courier.RegisterHandler(newWACDemoHandler("WAC", "WhatsApp Cloud Demo"))
+	courier.RegisterHandler(newWACDemoHandler("WCD", "WhatsApp Cloud Demo"))
 
 	failedMediaCache = cache.New(15*time.Minute, 15*time.Minute)
 }
@@ -1357,6 +1357,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	if msg.Channel().ChannelType() == "FBA" || msg.Channel().ChannelType() == "IG" {
 		return h.sendFacebookInstagramMsg(ctx, msg)
 	} else if msg.Channel().ChannelType() == "WAC" {
+		return h.sendCloudAPIWhatsappMsg(ctx, msg)
+	} else if msg.Channel().ChannelType() == "WCD" {
 		return h.sendCloudAPIWhatsappMsg(ctx, msg)
 	}
 

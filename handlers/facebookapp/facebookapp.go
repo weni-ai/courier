@@ -597,16 +597,19 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	log.Println("channel.Address(): ", channel.Address())
 	log.Println("h.Server().Config().WhatsappCloudDemoAddress: ", h.Server().Config().WhatsappCloudDemoAddress)
 	if channel.Address() == h.Server().Config().WhatsappCloudDemoAddress {
+		log.Println("PROXIING TO DEMO URL")
 		demoURL := h.Server().Config().WhatsappCloudDemoURL
 		proxyReq, err := http.NewRequest(r.Method, demoURL, r.Body)
 		if err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 		}
 		proxyReq.Header = r.Header
-		_, err = utils.MakeHTTPRequest(proxyReq)
+		rr, err := utils.MakeHTTPRequest(proxyReq)
 		if err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 		}
+		// print the response body
+		log.Println("rr.Body: ", string(rr.Body))
 		return nil, nil // must return events of proxied to demo?
 	}
 

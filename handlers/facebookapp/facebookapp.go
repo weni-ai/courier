@@ -468,6 +468,13 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 		if channelAddress == "" {
 			return nil, fmt.Errorf("no channel address found")
 		}
+
+		// get a value if exists from request header to a variable routerToken
+		routerToken := r.Header.Get("X-Router-Token")
+		if routerToken != "" {
+			return h.Backend().GetChannelByAddressWithRouterToken(ctx, courier.ChannelType("WAC"), courier.ChannelAddress(channelAddress), routerToken)
+		}
+
 		return h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WAC"), courier.ChannelAddress(channelAddress))
 	}
 }

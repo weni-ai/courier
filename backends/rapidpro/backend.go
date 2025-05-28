@@ -58,6 +58,14 @@ func (b *backend) GetChannelByAddress(ctx context.Context, ct courier.ChannelTyp
 	return getChannelByAddress(timeout, b.db, ct, address)
 }
 
+// GetChannelByAddressWithRouterToken returns the channel with the passed in type and address and a value from config by key
+func (b *backend) GetChannelByAddressWithRouterToken(ctx context.Context, ct courier.ChannelType, address courier.ChannelAddress, routerToken string) (courier.Channel, error) {
+	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
+	defer cancel()
+
+	return getChannelByAddressWithRouterToken(timeout, b.db, ct, address, routerToken)
+}
+
 // GetContact returns the contact for the passed in channel and URN
 func (b *backend) GetContact(ctx context.Context, c courier.Channel, urn urns.URN, auth string, name string) (courier.Contact, error) {
 	dbChannel := c.(*DBChannel)

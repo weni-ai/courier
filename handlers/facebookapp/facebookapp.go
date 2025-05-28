@@ -547,6 +547,22 @@ func (h *handler) receiveDemoEvent(ctx context.Context, channel courier.Channel,
 
 // receiveEvent is our HTTP handler function for incoming messages and status updates
 func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+	if h.ChannelType() == "WAC" {
+		routerToken := r.Header.Get("X-Router-Token")
+		if routerToken != "" {
+			payload := &moPayload{}
+			err := handlers.DecodeAndValidateJSON(payload, r)
+			if err != nil {
+				return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+			}
+			events, data, err := h.processCloudWhatsAppPayload(ctx, channel, payload, w, r)
+			if err != nil {
+				return nil, err
+			}
+			return events, courier.WriteDataResponse(ctx, w, http.StatusOK, "Events Handled", data)
+		}
+	}
+
 	err := h.validateSignature(r)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)

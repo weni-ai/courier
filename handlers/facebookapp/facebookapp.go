@@ -811,6 +811,13 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 		if len(entry.Messaging) == 0 {
 			if len(entry.Changes) > 0 && entry.Changes[0].Field == "comments" {
 
+				// Check if the comment is from our own channel to prevent loops
+				// When we reply to a comment, Instagram sends a webhook about our own reply
+				if entry.Changes[0].Value.From.ID == channel.Address() {
+					data = append(data, courier.NewInfoData(fmt.Sprintf("ignoring comment from our own channel: %s", entry.Changes[0].Value.From.ID)))
+					continue
+				}
+
 				// Build IGComment struct and wrapper
 				wrapper := struct {
 					IGComment IGComment `json:"ig_comment"`

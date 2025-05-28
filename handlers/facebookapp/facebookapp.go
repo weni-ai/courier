@@ -1065,11 +1065,10 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 				events = append(events, event)
 				data = append(data, courier.NewMsgReceiveData(event))
 
-				return events, data, nil
+				// return events, data, nil
 
-			} else {
-				continue
 			}
+			continue
 		}
 
 		// grab our message, there is always a single one

@@ -123,9 +123,9 @@ func newMsg(direction MsgDirection, channel courier.Channel, urn urns.URN, text 
 const insertMsgSQL = `
 INSERT INTO
 	msgs_msg(org_id, uuid, direction, text, attachments, msg_count, error_count, high_priority, status,
-             visibility, external_id, channel_id, contact_id, contact_urn_id, created_on, modified_on, next_attempt, queued_on, sent_on)
+             visibility, external_id, channel_id, contact_id, contact_urn_id, created_on, modified_on, next_attempt, queued_on, sent_on, metadata)
     VALUES(:org_id, :uuid, :direction, :text, :attachments, :msg_count, :error_count, :high_priority, :status,
-           :visibility, :external_id, :channel_id, :contact_id, :contact_urn_id, :created_on, :modified_on, :next_attempt, :queued_on, :sent_on)
+           :visibility, :external_id, :channel_id, :contact_id, :contact_urn_id, :created_on, :modified_on, :next_attempt, :queued_on, :sent_on, :metadata)
 RETURNING id
 `
 
@@ -547,7 +547,7 @@ type DBMsg struct {
 	ResponseToID_         courier.MsgID          `json:"response_to_id"  db:"response_to_id"`
 	ResponseToExternalID_ string                 `json:"response_to_external_id"`
 	IsResend_             bool                   `json:"is_resend,omitempty"`
-	Metadata_             json.RawMessage        `json:"metadata"        db:"metadata"`
+	Metadata_             *json.RawMessage       `json:"metadata,omitempty"        db:"metadata"`
 
 	ChannelID_    courier.ChannelID `json:"channel_id"      db:"channel_id"`
 	ContactID_    ContactID         `json:"contact_id"      db:"contact_id"`
@@ -605,13 +605,14 @@ func (m *DBMsg) QuickReplies() []string {
 		return m.quickReplies
 	}
 
-	if m.Metadata_ == nil {
-		return nil
+	m.quickReplies = []string{}
+
+	if m.Metadata_ == nil || *m.Metadata_ == nil {
+		return m.quickReplies
 	}
 
-	m.quickReplies = []string{}
 	jsonparser.ArrayEach(
-		m.Metadata_,
+		*m.Metadata_,
 		func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
 			m.quickReplies = append(m.quickReplies, string(value))
 		},
@@ -623,7 +624,7 @@ func (m *DBMsg) Topic() string {
 	if m.Metadata_ == nil {
 		return ""
 	}
-	topic, _, _, _ := jsonparser.Get(m.Metadata_, "topic")
+	topic, _, _, _ := jsonparser.Get(*m.Metadata_, "topic")
 	return string(topic)
 }
 
@@ -635,7 +636,7 @@ func (m *DBMsg) TextLanguage() string {
 		return ""
 	}
 
-	textLanguage, _, _, _ := jsonparser.Get(m.Metadata_, "text_language")
+	textLanguage, _, _, _ := jsonparser.Get(*m.Metadata_, "text_language")
 	return string(textLanguage)
 }
 
@@ -644,7 +645,7 @@ func (m *DBMsg) IGCommentID() string {
 		return ""
 	}
 
-	igCommentID, _, _, _ := jsonparser.Get(m.Metadata_, "ig_comment_id")
+	igCommentID, _, _, _ := jsonparser.Get(*m.Metadata_, "ig_comment_id")
 	return string(igCommentID)
 }
 
@@ -652,7 +653,7 @@ func (m *DBMsg) IGResponseType() string {
 	if m.Metadata_ == nil {
 		return ""
 	}
-	igResponseType, _, _, _ := jsonparser.Get(m.Metadata_, "ig_response_type")
+	igResponseType, _, _, _ := jsonparser.Get(*m.Metadata_, "ig_response_type")
 	return string(igResponseType)
 }
 
@@ -660,13 +661,21 @@ func (m *DBMsg) IGTag() string {
 	if m.Metadata_ == nil {
 		return ""
 	}
-	igTag, _, _, _ := jsonparser.Get(m.Metadata_, "ig_tag")
+	igTag, _, _, _ := jsonparser.Get(*m.Metadata_, "ig_tag")
 	return string(igTag)
 }
 
-// Metadata returns the metadata for this message
+// Metadata returns the metadata for this message if it exists
 func (m *DBMsg) Metadata() json.RawMessage {
-	return m.Metadata_
+	if m.Metadata_ == nil {
+		return nil
+	}
+
+	if *m.Metadata_ == nil {
+		return nil
+	}
+
+	return *m.Metadata_
 }
 
 // fingerprint returns a fingerprint for this msg, suitable for figuring out if this is a dupe
@@ -690,7 +699,7 @@ func (m *DBMsg) WithID(id courier.MsgID) courier.Msg { m.ID_ = id; return m }
 func (m *DBMsg) WithUUID(uuid courier.MsgUUID) courier.Msg { m.UUID_ = uuid; return m }
 
 // WithMetadata can be used to add metadata to a Msg
-func (m *DBMsg) WithMetadata(metadata json.RawMessage) courier.Msg { m.Metadata_ = metadata; return m }
+func (m *DBMsg) WithMetadata(metadata json.RawMessage) courier.Msg { m.Metadata_ = &metadata; return m }
 
 // WithAttachment can be used to append to the media urls for a message
 func (m *DBMsg) WithAttachment(url string) courier.Msg {
@@ -737,7 +746,7 @@ func (m *DBMsg) Products() []map[string]interface{} {
 		return nil
 	}
 
-	p, _, _, _ := jsonparser.Get(m.Metadata_, "products")
+	p, _, _, _ := jsonparser.Get(*m.Metadata_, "products")
 	err := json.Unmarshal(p, &m.products)
 	if err != nil {
 		return nil
@@ -749,7 +758,7 @@ func (m *DBMsg) Header() string {
 	if m.Metadata_ == nil {
 		return ""
 	}
-	header, _, _, _ := jsonparser.Get(m.Metadata_, "header")
+	header, _, _, _ := jsonparser.Get(*m.Metadata_, "header")
 	return string(header)
 }
 
@@ -757,7 +766,7 @@ func (m *DBMsg) Body() string {
 	if m.Metadata_ == nil {
 		return ""
 	}
-	body, _, _, _ := jsonparser.Get(m.Metadata_, "body")
+	body, _, _, _ := jsonparser.Get(*m.Metadata_, "body")
 	return string(body)
 }
 
@@ -765,7 +774,7 @@ func (m *DBMsg) Footer() string {
 	if m.Metadata_ == nil {
 		return ""
 	}
-	footer, _, _, _ := jsonparser.Get(m.Metadata_, "footer")
+	footer, _, _, _ := jsonparser.Get(*m.Metadata_, "footer")
 	return string(footer)
 }
 
@@ -773,7 +782,7 @@ func (m *DBMsg) Action() string {
 	if m.Metadata_ == nil {
 		return ""
 	}
-	action, _, _, _ := jsonparser.Get(m.Metadata_, "action")
+	action, _, _, _ := jsonparser.Get(*m.Metadata_, "action")
 	return string(action)
 }
 
@@ -781,7 +790,7 @@ func (m *DBMsg) SendCatalog() bool {
 	if m.Metadata_ == nil {
 		return false
 	}
-	byteValue, _, _, _ := jsonparser.Get(m.Metadata_, "send_catalog")
+	byteValue, _, _, _ := jsonparser.Get(*m.Metadata_, "send_catalog")
 	sendCatalog, err := strconv.ParseBool(string(byteValue))
 	if err != nil {
 		return false
@@ -793,7 +802,7 @@ func (m *DBMsg) HeaderType() string {
 	if m.Metadata_ == nil {
 		return ""
 	}
-	byteValue, _, _, _ := jsonparser.Get(m.Metadata_, "header_type")
+	byteValue, _, _, _ := jsonparser.Get(*m.Metadata_, "header_type")
 	return string(byteValue)
 }
 
@@ -801,7 +810,7 @@ func (m *DBMsg) HeaderText() string {
 	if m.Metadata_ == nil {
 		return ""
 	}
-	byteValue, _, _, _ := jsonparser.Get(m.Metadata_, "header_text")
+	byteValue, _, _, _ := jsonparser.Get(*m.Metadata_, "header_text")
 	return string(byteValue)
 }
 
@@ -809,7 +818,7 @@ func (m *DBMsg) InteractionType() string {
 	if m.Metadata_ == nil {
 		return ""
 	}
-	byteValue, _, _, _ := jsonparser.Get(m.Metadata_, "interaction_type")
+	byteValue, _, _, _ := jsonparser.Get(*m.Metadata_, "interaction_type")
 	return string(byteValue)
 }
 
@@ -819,7 +828,7 @@ func (m *DBMsg) ListMessage() courier.ListMessage {
 	}
 
 	var metadata map[string]interface{}
-	err := json.Unmarshal(m.Metadata_, &metadata)
+	err := json.Unmarshal(*m.Metadata_, &metadata)
 	if err != nil {
 		return m.listMessage
 	}
@@ -863,7 +872,7 @@ func (m *DBMsg) CTAMessage() *courier.CTAMessage {
 	}
 
 	var metadata map[string]interface{}
-	err := json.Unmarshal(m.Metadata_, &metadata)
+	err := json.Unmarshal(*m.Metadata_, &metadata)
 	if err != nil {
 		return nil
 	}
@@ -893,7 +902,7 @@ func (m *DBMsg) FlowMessage() *courier.FlowMessage {
 	}
 
 	var metadata map[string]interface{}
-	err := json.Unmarshal(m.Metadata_, &metadata)
+	err := json.Unmarshal(*m.Metadata_, &metadata)
 	if err != nil {
 		return nil
 	}
@@ -936,7 +945,7 @@ func (m *DBMsg) OrderDetailsMessage() *courier.OrderDetailsMessage {
 	}
 
 	var metadata map[string]interface{}
-	err := json.Unmarshal(m.Metadata_, &metadata)
+	err := json.Unmarshal(*m.Metadata_, &metadata)
 	if err != nil {
 		return nil
 	}
@@ -1052,7 +1061,7 @@ func (m *DBMsg) Buttons() []courier.ButtonComponent {
 	}
 
 	var metadata map[string]interface{}
-	err := json.Unmarshal(m.Metadata_, &metadata)
+	err := json.Unmarshal(*m.Metadata_, &metadata)
 	if err != nil {
 		return nil
 	}
@@ -1085,4 +1094,20 @@ func (m *DBMsg) Buttons() []courier.ButtonComponent {
 	}
 
 	return nil
+}
+
+func (m *DBMsg) ActionType() courier.MsgActionType {
+	if m.Metadata_ == nil {
+		return courier.MsgActionNone
+	}
+	actionType, _, _, _ := jsonparser.Get(*m.Metadata_, "action_type")
+	return courier.MsgActionType(actionType)
+}
+
+func (m *DBMsg) ActionExternalID() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	actionExternalID, _, _, _ := jsonparser.Get(*m.Metadata_, "action_external_id")
+	return string(actionExternalID)
 }

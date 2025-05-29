@@ -646,6 +646,9 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(msg.ID).WithContactName(contactNames[msg.From])
 				event := h.Backend().CheckExternalIDSeen(ev)
 
+				// write the contact last seen
+				h.Backend().WriteContactLastSeen(ctx, ev, date)
+
 				// we had an error downloading media
 				if err != nil {
 					courier.LogRequestError(r, channel, err)
@@ -696,6 +699,35 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 				if mediaURL != "" {
 					event.WithAttachment(mediaURL)
+				}
+
+				// Add to the existing metadata, the message context
+				if msg.Context != nil {
+					metadata := event.Metadata()
+					if metadata == nil {
+						newMetadata := make(map[string]interface{})
+						newMetadata["context"] = msg.Context
+
+						metadata, err = json.Marshal(newMetadata)
+						if err != nil {
+							courier.LogRequestError(r, channel, err)
+						}
+					} else {
+						newMetadata := make(map[string]interface{})
+						err := json.Unmarshal(metadata, &newMetadata)
+						if err != nil {
+							courier.LogRequestError(r, channel, err)
+						}
+
+						newMetadata["context"] = msg.Context
+
+						metadata, err = json.Marshal(newMetadata)
+						if err != nil {
+							courier.LogRequestError(r, channel, err)
+						}
+					}
+
+					event.WithMetadata(metadata)
 				}
 
 				err = h.Backend().WriteMsg(ctx, event)
@@ -2488,12 +2520,19 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				if err != nil {
 					return status, nil
 				}
-				err = status.SetUpdatedURN(msg.URN(), toUpdateURN)
+				// Instead of updating the existing URN, add a new URN to the contact
+				contact, err := h.Backend().GetContact(ctx, msg.Channel(), msg.URN(), "", "")
 				if err != nil {
-					log := courier.NewChannelLogFromError("unable to update contact URN for a new based on  wa_id", msg.Channel(), msg.ID(), time.Since(start), err)
+					log := courier.NewChannelLogFromError("unable to get contact for new URN", msg.Channel(), msg.ID(), time.Since(start), err)
 					status.AddLog(log)
+				} else {
+					_, err = h.Backend().AddURNtoContact(ctx, msg.Channel(), contact, toUpdateURN)
+					if err != nil {
+						log := courier.NewChannelLogFromError("unable to add new URN to contact", msg.Channel(), msg.ID(), time.Since(start), err)
+						status.AddLog(log)
+					}
+					hasNewURN = true
 				}
-				hasNewURN = true
 			}
 		}
 		if templating != nil && len(msg.Attachments()) > 0 || hasCaption {
@@ -3203,4 +3242,69 @@ func toStringSlice(v interface{}) []string {
 		return result
 	}
 	return nil
+}
+
+var _ courier.ActionSender = (*handler)(nil)
+
+// SendWhatsAppMessageAction sends a specific action to the WhatsApp API.
+// This method is specific to the WhatsApp handler.
+func (h *handler) SendAction(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
+	channel := msg.Channel()
+	targetMessageID := msg.ActionExternalID()
+
+	// Ensure this action is only executed for WAC (WhatsApp Cloud) channel types
+	if channel.ChannelType() != courier.ChannelType("WAC") {
+		return nil, fmt.Errorf("WhatsApp actions are only supported for WAC channels, not for %s", channel.ChannelType())
+	}
+
+	accessToken := h.Server().Config().WhatsappAdminSystemUserToken
+	userAccessToken := channel.StringConfigForKey(courier.ConfigUserToken, "")
+	tokenToUse := accessToken
+	if userAccessToken != "" {
+		tokenToUse = userAccessToken
+	}
+
+	if tokenToUse == "" {
+		return nil, errors.New("missing access token for WhatsApp action")
+	}
+
+	apiURLString := fmt.Sprintf("%s%s/messages", graphURL, channel.Address())
+
+	if targetMessageID == "" {
+		return nil, errors.New("targetMessageID (ExternalID) is required for combined action")
+	}
+
+	payloadMap := map[string]interface{}{
+		"messaging_product": "whatsapp",
+		"status":            "read",
+		"message_id":        targetMessageID,
+		"typing_indicator": map[string]interface{}{
+			"type": "text",
+		},
+	}
+
+	jsonBody, err := json.Marshal(payloadMap)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to marshal WhatsApp action payload")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURLString, bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create HTTP request")
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", tokenToUse))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	rr, err := utils.MakeHTTPRequest(req)
+	if err != nil {
+		return nil, errors.Wrap(err, "HTTP request failed")
+	}
+
+	if rr.StatusCode < 200 || rr.StatusCode >= 300 {
+		return nil, fmt.Errorf("WhatsApp API error (%d): %s", rr.StatusCode, string(rr.Body))
+	}
+
+	return nil, nil
 }

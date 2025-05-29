@@ -1,3 +1,24 @@
+1.26.0
+----------
+ * Add ActionSender interface and MsgActionType for message actions
+
+1.25.0
+----------
+ * Adjust number management with the ninth digit for WhatsApp
+
+1.24.0
+----------
+ * Feat: Save WAC context in Msg metadata
+ * Feat: remove contact last seen write on sender
+
+1.23.1
+----------
+ * Fix contact created with name as identity instead real name on WriteLastSeenOn
+
+1.23.0
+----------
+ * Implement contact last seen feature
+
 1.22.0
 ----------
  * add wenichats msg uuid that be sent to rmq exchange

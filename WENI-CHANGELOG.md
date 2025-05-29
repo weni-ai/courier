@@ -1,3 +1,8 @@
+1.27.0
+----------
+ * Feat/prometheus
+ * Enhance Instagram payload processing to ignore comments from the channel itself, preventing potential reply loops
+
 1.26.0
 ----------
  * Add ActionSender interface and MsgActionType for message actions

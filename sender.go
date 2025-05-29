@@ -340,19 +340,16 @@ func (w *Sender) sendMessage(msg Msg) {
 				}
 			}
 
-			if w.foreman.server.Templates() != nil {
+			if w.foreman.server.Templates() != nil && msg.Metadata() != nil {
 				mdJSON := msg.Metadata()
-				if len(mdJSON) == 0 {
-					return
-				}
 				metadata := &templates.TemplateMetadata{}
 				err := json.Unmarshal(mdJSON, metadata)
 				if err != nil {
-					return
+					log.WithError(err).Error("error unmarshalling metadata")
 				}
 				templatingData := metadata.Templating
 				if templatingData == nil {
-					return
+					log.Error("templating data is nil")
 				}
 
 				if err == nil && templatingData != nil {
@@ -382,7 +379,6 @@ func (w *Sender) sendMessage(msg Msg) {
 						templateVariables,
 					)
 					w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
-
 				}
 			}
 		}

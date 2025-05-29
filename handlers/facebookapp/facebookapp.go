@@ -792,20 +792,22 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					}
 				}
 
-				templateType, isTemplateMessage := waTemplateTypeMapping[status.Conversation.Origin.Type]
-				if isTemplateMessage && h.Server().Templates() != nil {
-					urn, err := urns.NewWhatsAppURN(status.RecipientID)
-					if err != nil {
-						handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
-					} else {
-						statusMsg := templates.NewTemplateStatusMessage(
-							string(urn.Identity()),
-							channel.UUID().String(),
-							status.ID,
-							string(msgStatus),
-							templateType,
-						)
-						h.Server().Templates().SendAsync(statusMsg, templates.RoutingKeyStatus, nil, nil)
+				if status.Conversation != nil {
+					templateType, isTemplateMessage := waTemplateTypeMapping[status.Conversation.Origin.Type]
+					if isTemplateMessage && h.Server().Templates() != nil {
+						urn, err := urns.NewWhatsAppURN(status.RecipientID)
+						if err != nil {
+							handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+						} else {
+							statusMsg := templates.NewTemplateStatusMessage(
+								string(urn.Identity()),
+								channel.UUID().String(),
+								status.ID,
+								string(msgStatus),
+								templateType,
+							)
+							h.Server().Templates().SendAsync(statusMsg, templates.RoutingKeyStatus, nil, nil)
+						}
 					}
 				}
 

@@ -515,6 +515,13 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 		if channelAddress == "" {
 			return nil, fmt.Errorf("no channel address found")
 		}
+
+		// get a value if exists from request header to a variable routerToken
+		routerToken := r.Header.Get("X-Router-Token")
+		if routerToken != "" {
+			return h.Backend().GetChannelByAddressWithRouterToken(ctx, courier.ChannelType("WAC"), courier.ChannelAddress(channelAddress), routerToken)
+		}
+
 		return h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WAC"), courier.ChannelAddress(channelAddress))
 	}
 }
@@ -587,6 +594,22 @@ func (h *handler) receiveDemoEvent(ctx context.Context, channel courier.Channel,
 
 // receiveEvent is our HTTP handler function for incoming messages and status updates
 func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+	if h.ChannelType() == "WAC" {
+		routerToken := r.Header.Get("X-Router-Token")
+		if routerToken != "" {
+			payload := &moPayload{}
+			err := handlers.DecodeAndValidateJSON(payload, r)
+			if err != nil {
+				return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+			}
+			events, data, err := h.processCloudWhatsAppPayload(ctx, channel, payload, w, r)
+			if err != nil {
+				return nil, err
+			}
+			return events, courier.WriteDataResponse(ctx, w, http.StatusOK, "Events Handled", data)
+		}
+	}
+
 	err := h.validateSignature(r)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)

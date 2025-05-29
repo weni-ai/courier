@@ -37,6 +37,7 @@ require (
 	github.com/golang-jwt/jwt/v4 v4.4.1
 	github.com/lestrrat-go/jwx v1.2.25
 	github.com/prometheus/client_golang v1.22.0
+	go.uber.org/automaxprocs v1.6.0
 	gopkg.in/go-playground/assert.v1 v1.2.1
 )
 

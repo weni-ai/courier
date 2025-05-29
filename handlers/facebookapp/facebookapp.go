@@ -811,6 +811,13 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 		if len(entry.Messaging) == 0 {
 			if len(entry.Changes) > 0 && entry.Changes[0].Field == "comments" {
 
+				// Check if the comment is from our own channel to prevent loops
+				// When we reply to a comment, Instagram sends a webhook about our own reply
+				if entry.Changes[0].Value.From.ID == channel.Address() {
+					data = append(data, courier.NewInfoData(fmt.Sprintf("ignoring comment from our own channel: %s", entry.Changes[0].Value.From.ID)))
+					continue
+				}
+
 				// Build IGComment struct and wrapper
 				wrapper := struct {
 					IGComment IGComment `json:"ig_comment"`
@@ -3218,4 +3225,69 @@ func toStringSlice(v interface{}) []string {
 		return result
 	}
 	return nil
+}
+
+var _ courier.ActionSender = (*handler)(nil)
+
+// SendWhatsAppMessageAction sends a specific action to the WhatsApp API.
+// This method is specific to the WhatsApp handler.
+func (h *handler) SendAction(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
+	channel := msg.Channel()
+	targetMessageID := msg.ActionExternalID()
+
+	// Ensure this action is only executed for WAC (WhatsApp Cloud) channel types
+	if channel.ChannelType() != courier.ChannelType("WAC") {
+		return nil, fmt.Errorf("WhatsApp actions are only supported for WAC channels, not for %s", channel.ChannelType())
+	}
+
+	accessToken := h.Server().Config().WhatsappAdminSystemUserToken
+	userAccessToken := channel.StringConfigForKey(courier.ConfigUserToken, "")
+	tokenToUse := accessToken
+	if userAccessToken != "" {
+		tokenToUse = userAccessToken
+	}
+
+	if tokenToUse == "" {
+		return nil, errors.New("missing access token for WhatsApp action")
+	}
+
+	apiURLString := fmt.Sprintf("%s%s/messages", graphURL, channel.Address())
+
+	if targetMessageID == "" {
+		return nil, errors.New("targetMessageID (ExternalID) is required for combined action")
+	}
+
+	payloadMap := map[string]interface{}{
+		"messaging_product": "whatsapp",
+		"status":            "read",
+		"message_id":        targetMessageID,
+		"typing_indicator": map[string]interface{}{
+			"type": "text",
+		},
+	}
+
+	jsonBody, err := json.Marshal(payloadMap)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to marshal WhatsApp action payload")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURLString, bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create HTTP request")
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", tokenToUse))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	rr, err := utils.MakeHTTPRequest(req)
+	if err != nil {
+		return nil, errors.Wrap(err, "HTTP request failed")
+	}
+
+	if rr.StatusCode < 200 || rr.StatusCode >= 300 {
+		return nil, fmt.Errorf("WhatsApp API error (%d): %s", rr.StatusCode, string(rr.Body))
+	}
+
+	return nil, nil
 }

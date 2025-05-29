@@ -173,6 +173,21 @@ func (w *Sender) Stop() {
 }
 
 func (w *Sender) sendMessage(msg Msg) {
+	// --- HANDLE MESSAGE ACTION ---
+	if msg.ActionType() == MsgActionTypingIndicator {
+		actionCallCtx, actionCallCancel := context.WithTimeout(context.Background(), time.Second*20)
+		defer actionCallCancel()
+
+		// Set a flag in the context to indicate this is an action
+		actionCallCtx = context.WithValue(actionCallCtx, "is_action", true)
+
+		_, err := w.foreman.server.SendMsgAction(actionCallCtx, msg)
+		if err != nil {
+			fmt.Printf("Error processing message action: %v\n", err)
+		}
+		return
+	}
+
 	log := logrus.WithField("comp", "sender").WithField("sender_id", w.id).WithField("channel_uuid", msg.Channel().UUID())
 
 	var status MsgStatus

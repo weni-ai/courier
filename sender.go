@@ -7,6 +7,7 @@ import (
 
 	"github.com/buger/jsonparser"
 	"github.com/nyaruka/courier/billing"
+	"github.com/nyaruka/courier/metrics"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/librato"
 	"github.com/pkg/errors"
@@ -39,6 +40,9 @@ func NewForeman(server Server, maxSenders int) *Foreman {
 
 // Start starts the foreman and all its senders, assigning jobs while there are some
 func (f *Foreman) Start() {
+	metrics.SetAvailableWorkers(len(f.senders))
+	metrics.SetUsedWorkers(0)
+
 	for _, sender := range f.senders {
 		sender.Start()
 	}
@@ -52,6 +56,9 @@ func (f *Foreman) Stop() {
 	}
 	close(f.quit)
 	logrus.WithField("comp", "foreman").WithField("state", "stopping").Info("foreman stopping")
+
+	metrics.SetUsedWorkers(0)
+	metrics.SetAvailableWorkers(0)
 }
 
 // Assign is our main loop for the Foreman, it takes care of popping the next outgoing messages from our
@@ -68,6 +75,8 @@ func (f *Foreman) Assign() {
 
 	backend := f.server.Backend()
 	lastSleep := false
+
+	go f.RecordWorkerMetrics()
 
 	for true {
 		select {
@@ -102,6 +111,14 @@ func (f *Foreman) Assign() {
 				time.Sleep(250 * time.Millisecond)
 			}
 		}
+	}
+}
+
+func (f *Foreman) RecordWorkerMetrics() {
+	for {
+		metrics.SetAvailableWorkers(len(f.availableSenders))
+		metrics.SetUsedWorkers(len(f.senders) - len(f.availableSenders))
+		time.Sleep(1 * time.Second)
 	}
 }
 
@@ -303,9 +320,13 @@ func (w *Sender) sendMessage(msg Msg) {
 		if status.Status() == MsgErrored || status.Status() == MsgFailed {
 			log.WithField("elapsed", duration).Warning("msg errored")
 			librato.Gauge(fmt.Sprintf("courier.msg_send_error_%s", msg.Channel().ChannelType()), secondDuration)
+			metrics.SetMsgSendErrorByType(msg.Channel().ChannelType().String(), secondDuration)
+			metrics.SetMsgSendErrorByUUID(msg.Channel().UUID().UUID, secondDuration)
 		} else {
 			log.WithField("elapsed", duration).Info("msg sent")
 			librato.Gauge(fmt.Sprintf("courier.msg_send_%s", msg.Channel().ChannelType()), secondDuration)
+			metrics.SetMsgSendSuccessByType(msg.Channel().ChannelType().String(), secondDuration)
+			metrics.SetMsgSendSuccessByUUID(msg.Channel().UUID().UUID, secondDuration)
 		}
 
 		sentOk := status.Status() != MsgErrored && status.Status() != MsgFailed

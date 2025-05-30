@@ -97,10 +97,15 @@ func newHandler(channelType courier.ChannelType, name string, useUUIDRoutes bool
 	return &handler{handlers.NewBaseHandlerWithParams(channelType, name, useUUIDRoutes)}
 }
 
+func newWACDemoHandler(channelType courier.ChannelType, name string) courier.ChannelHandler {
+	return &handler{handlers.NewBaseHandler(channelType, name)}
+}
+
 func init() {
 	courier.RegisterHandler(newHandler("IG", "Instagram", false))
 	courier.RegisterHandler(newHandler("FBA", "Facebook", false))
 	courier.RegisterHandler(newHandler("WAC", "WhatsApp Cloud", false))
+	courier.RegisterHandler(newWACDemoHandler("WCD", "WhatsApp Cloud Demo"))
 
 	failedMediaCache = cache.New(15*time.Minute, 15*time.Minute)
 }
@@ -112,8 +117,12 @@ type handler struct {
 // Initialize is called by the engine once everything is loaded
 func (h *handler) Initialize(s courier.Server) error {
 	h.SetServer(s)
-	s.AddHandlerRoute(h, http.MethodGet, "receive", h.receiveVerify)
-	s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveEvent)
+	if h.ChannelName() == "WhatsApp Cloud Demo" {
+		s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveDemoEvent)
+	} else {
+		s.AddHandlerRoute(h, http.MethodGet, "receive", h.receiveVerify)
+		s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveEvent)
+	}
 	return nil
 }
 
@@ -459,6 +468,13 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 		if channelAddress == "" {
 			return nil, fmt.Errorf("no channel address found")
 		}
+
+		// get a value if exists from request header to a variable routerToken
+		routerToken := r.Header.Get("X-Router-Token")
+		if routerToken != "" {
+			return h.Backend().GetChannelByAddressWithRouterToken(ctx, courier.ChannelType("WAC"), courier.ChannelAddress(channelAddress), routerToken)
+		}
+
 		return h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WAC"), courier.ChannelAddress(channelAddress))
 	}
 }
@@ -514,11 +530,57 @@ func resolveMediaURL(channel courier.Channel, mediaID string, token string) (str
 	return mediaURL, err
 }
 
+func (h *handler) receiveDemoEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+	payload := &moPayload{}
+	err := handlers.DecodeAndValidateJSON(payload, r)
+	if err != nil {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+
+	events, data, err := h.processCloudWhatsAppPayload(ctx, channel, payload, w, r)
+	if err != nil {
+		return nil, err
+	}
+
+	return events, courier.WriteDataResponse(ctx, w, http.StatusOK, "Events Handled", data)
+}
+
 // receiveEvent is our HTTP handler function for incoming messages and status updates
 func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+	if h.ChannelType() == "WAC" {
+		routerToken := r.Header.Get("X-Router-Token")
+		if routerToken != "" {
+			payload := &moPayload{}
+			err := handlers.DecodeAndValidateJSON(payload, r)
+			if err != nil {
+				return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+			}
+			events, data, err := h.processCloudWhatsAppPayload(ctx, channel, payload, w, r)
+			if err != nil {
+				return nil, err
+			}
+			return events, courier.WriteDataResponse(ctx, w, http.StatusOK, "Events Handled", data)
+		}
+	}
+
 	err := h.validateSignature(r)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+
+	// if the channel has the address equals to Config().DemoAddress, then we need to proxy the request to the demo url
+	if channel.Address() == h.Server().Config().WhatsappCloudDemoAddress {
+		demoURL := h.Server().Config().WhatsappCloudDemoURL
+		proxyReq, err := http.NewRequest(r.Method, demoURL, r.Body)
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+		proxyReq.Header = r.Header
+		_, err = utils.MakeHTTPRequest(proxyReq)
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+		return nil, nil // must return events of proxied to demo?
 	}
 
 	payload := &moPayload{}
@@ -760,7 +822,9 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					return nil, nil, err
 				}
 
-				if msgStatus == courier.MsgDelivered || msgStatus == courier.MsgRead {
+				if (msgStatus == courier.MsgDelivered || msgStatus == courier.MsgRead) &&
+					channel.Address() != h.Server().Config().WhatsappCloudDemoAddress {
+					// if the channel is the demo channel, we don't need to send the message to the billing system
 					urn, err := urns.NewWhatsAppURN(status.RecipientID)
 					if err != nil {
 						handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
@@ -1168,6 +1232,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	if msg.Channel().ChannelType() == "FBA" || msg.Channel().ChannelType() == "IG" {
 		return h.sendFacebookInstagramMsg(ctx, msg)
 	} else if msg.Channel().ChannelType() == "WAC" {
+		return h.sendCloudAPIWhatsappMsg(ctx, msg)
+	} else if msg.Channel().ChannelType() == "WCD" {
 		return h.sendCloudAPIWhatsappMsg(ctx, msg)
 	}
 
@@ -1688,6 +1754,12 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 	start := time.Now()
 	hasNewURN := false
 	hasCaption := false
+
+	demoURL := msg.Channel().StringConfigForKey("demo_url", "")
+
+	if demoURL != "" {
+		graphURL = demoURL
+	}
 
 	base, _ := url.Parse(graphURL)
 	path, _ := url.Parse(fmt.Sprintf("/%s/messages", msg.Channel().Address()))

@@ -30,6 +30,9 @@ type Backend interface {
 	// GetChannelByAddress returns the channel with the passed in type and address
 	GetChannelByAddress(context.Context, ChannelType, ChannelAddress) (Channel, error)
 
+	// GetChannelByAddressWithRouterToken returns the channel with the passed in type and address and a value from config by key
+	GetChannelByAddressWithRouterToken(context.Context, ChannelType, ChannelAddress, string) (Channel, error)
+
 	// GetContact returns (or creates) the contact for the passed in channel and URN
 	GetContact(context context.Context, channel Channel, urn urns.URN, auth string, name string) (Contact, error)
 

@@ -23,6 +23,7 @@ import (
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/billing"
 	"github.com/nyaruka/courier/handlers"
+	"github.com/nyaruka/courier/templates"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/rcache"
 	"github.com/nyaruka/gocommon/urns"
@@ -74,6 +75,12 @@ var waStatusMapping = map[string]courier.MsgStatusValue{
 	"delivered": courier.MsgDelivered,
 	"read":      courier.MsgRead,
 	"failed":    courier.MsgFailed,
+}
+
+var waTemplateTypeMapping = map[string]string{
+	"authentication": "authentication",
+	"marketing":      "marketing",
+	"utility":        "utility",
 }
 
 var waIgnoreStatuses = map[string]bool{
@@ -845,6 +852,25 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 								"",
 							)
 							h.Server().Billing().SendAsync(billingMsg, billing.RoutingKeyUpdate, nil, nil)
+						}
+					}
+				}
+
+				if status.Conversation != nil {
+					templateType, isTemplateMessage := waTemplateTypeMapping[status.Conversation.Origin.Type]
+					if isTemplateMessage && h.Server().Templates() != nil {
+						urn, err := urns.NewWhatsAppURN(status.RecipientID)
+						if err != nil {
+							handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+						} else {
+							statusMsg := templates.NewTemplateStatusMessage(
+								string(urn.Identity()),
+								channel.UUID().String(),
+								status.ID,
+								string(msgStatus),
+								templateType,
+							)
+							h.Server().Templates().SendAsync(statusMsg, templates.RoutingKeyStatus, nil, nil)
 						}
 					}
 				}

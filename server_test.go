@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/nyaruka/courier/billing"
+	"github.com/nyaruka/courier/templates"
 	"github.com/nyaruka/courier/utils"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -31,6 +32,17 @@ func TestServer(t *testing.T) {
 		logrus.Fatalf("Error creating billing RabbitMQ client: %v", err)
 	}
 	server.SetBilling(billingClient)
+
+	templatesClient, err := templates.NewRMQTemplateClient(
+		"amqp://localhost:5672/",
+		config.RabbitmqRetryPubAttempts,
+		config.RabbitmqRetryPubDelay,
+		config.TemplatesExchangeName,
+	)
+	if err != nil {
+		logrus.Fatalf("Error creating templates RabbitMQ client: %v", err)
+	}
+	server.SetTemplates(templatesClient)
 
 	// wait for server to come up
 	time.Sleep(100 * time.Millisecond)

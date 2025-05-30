@@ -2,12 +2,14 @@ package courier
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/buger/jsonparser"
 	"github.com/nyaruka/courier/billing"
 	"github.com/nyaruka/courier/metrics"
+	"github.com/nyaruka/courier/templates"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/librato"
 	"github.com/pkg/errors"
@@ -330,31 +332,75 @@ func (w *Sender) sendMessage(msg Msg) {
 		}
 
 		sentOk := status.Status() != MsgErrored && status.Status() != MsgFailed
-		if sentOk && w.foreman.server.Billing() != nil {
-			chatsUUID, _ := jsonparser.GetString(msg.Metadata(), "chats_msg_uuid")
-			if msg.Channel().ChannelType() != "WAC" || chatsUUID != "" { // if message is not to a WAC channel or is from a wenichats agent then send to exchange
-				ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
-				fromTicketer := ticketerType != ""
+		if sentOk {
+			if w.foreman.server.Billing() != nil {
+				chatsUUID, _ := jsonparser.GetString(msg.Metadata(), "chats_msg_uuid")
+				if msg.Channel().ChannelType() != "WAC" || chatsUUID != "" {
+					ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
+					fromTicketer := ticketerType != ""
 
-				billingMsg := billing.NewMessage(
-					string(msg.URN().Identity()),
-					"",
-					msg.Channel().UUID().String(),
-					status.ExternalID(),
-					time.Now().Format(time.RFC3339),
-					"O",
-					msg.Channel().ChannelType().String(),
-					msg.Text(),
-					msg.Attachments(),
-					msg.QuickReplies(),
-					fromTicketer,
-					chatsUUID,
-				)
-				routingKey := billing.RoutingKeyCreate
-				if msg.Channel().ChannelType() == "WAC" {
-					routingKey = billing.RoutingKeyWAC
+					billingMsg := billing.NewMessage(
+						string(msg.URN().Identity()),
+						"",
+						msg.Channel().UUID().String(),
+						status.ExternalID(),
+						time.Now().Format(time.RFC3339),
+						"O",
+						msg.Channel().ChannelType().String(),
+						msg.Text(),
+						msg.Attachments(),
+						msg.QuickReplies(),
+						fromTicketer,
+						chatsUUID,
+					)
+					routingKey := billing.RoutingKeyCreate
+					if msg.Channel().ChannelType() == "WAC" {
+						routingKey = billing.RoutingKeyWAC
+					}
+					w.foreman.server.Billing().SendAsync(billingMsg, routingKey, nil, nil)
 				}
-				w.foreman.server.Billing().SendAsync(billingMsg, routingKey, nil, nil)
+			}
+
+			if w.foreman.server.Templates() != nil && msg.Metadata() != nil {
+				mdJSON := msg.Metadata()
+				metadata := &templates.TemplateMetadata{}
+				err := json.Unmarshal(mdJSON, metadata)
+				if err != nil {
+					log.WithError(err).Error("error unmarshalling metadata")
+				}
+				templatingData := metadata.Templating
+				if templatingData == nil {
+					log.Error("templating data is nil")
+				}
+
+				if err == nil && templatingData != nil {
+					templateName := templatingData.Template.Name
+					templateUUID := templatingData.Template.UUID
+					templateLanguage := templatingData.Language
+					templateNamespace := templatingData.Namespace
+
+					var templateVariables []string
+					if templatingData.Variables != nil {
+						templateVariables = templatingData.Variables
+					}
+
+					templateMsg := templates.NewTemplateMessage(
+						string(msg.URN().Identity()),
+						"",
+						msg.Channel().UUID().String(),
+						status.ExternalID(),
+						time.Now().Format(time.RFC3339),
+						"O",
+						msg.Channel().ChannelType().String(),
+						msg.Text(),
+						templateName,
+						templateUUID,
+						templateLanguage,
+						templateNamespace,
+						templateVariables,
+					)
+					w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
+				}
 			}
 		}
 	}

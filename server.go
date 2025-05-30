@@ -21,6 +21,7 @@ import (
 	"github.com/go-chi/chi/middleware"
 	"github.com/jmoiron/sqlx"
 	"github.com/nyaruka/courier/billing"
+	"github.com/nyaruka/courier/templates"
 	"github.com/nyaruka/courier/metrics"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/storage"
@@ -52,6 +53,9 @@ type Server interface {
 
 	SetBilling(billing.Client)
 	Billing() billing.Client
+
+	Templates() templates.Client
+	SetTemplates(templates templates.Client)
 
 	GetHandler(channelType ChannelType) (ChannelHandler, error)
 	SendMsgAction(ctx context.Context, msg Msg) (MsgStatus, error)
@@ -238,6 +242,9 @@ func (s *server) Router() chi.Router { return s.router }
 func (s *server) Billing() billing.Client          { return s.billing }
 func (s *server) SetBilling(client billing.Client) { s.billing = client }
 
+func (s *server) Templates() templates.Client             { return s.templates }
+func (s *server) SetTemplates(templates templates.Client) { s.templates = templates }
+
 type server struct {
 	backend Backend
 
@@ -256,6 +263,8 @@ type server struct {
 	routes []string
 
 	billing billing.Client
+
+	templates templates.Client
 }
 
 func (s *server) initializeChannelHandlers() {

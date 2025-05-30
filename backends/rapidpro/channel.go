@@ -293,7 +293,7 @@ func getChannelByAddressWithRouterToken(ctx context.Context, db *sqlx.DB, channe
 	// if it wasn't found in the DB, clear our cache and return that it wasn't found
 	if dbErr == courier.ErrChannelNotFound {
 		clearLocalChannelByAddressWithRouterToken(routerToken)
-		return cachedChannel, fmt.Errorf("unable to find channel with type: %s and address: %s", channelType.String(), address.String())
+		return cachedChannel, fmt.Errorf("unable to find channel with type: %s and address: %s and router token: %s", channelType.String(), address.String(), routerToken)
 	}
 
 	// if we had some other db error, return it if our cached channel was only just expired

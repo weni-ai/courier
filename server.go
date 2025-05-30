@@ -22,10 +22,12 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/nyaruka/courier/billing"
 	"github.com/nyaruka/courier/templates"
+	"github.com/nyaruka/courier/metrics"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/storage"
 	"github.com/nyaruka/librato"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 )
 
@@ -123,6 +125,7 @@ func (s *server) Start() error {
 	s.router.Get("/", s.handleIndex)
 	s.router.Get("/status", s.handleStatus)
 	s.router.Get("/c/health", s.handleCHealth)
+	s.router.Get("/c/metrics", promhttp.Handler().ServeHTTP)
 
 	// initialize our handlers
 	s.initializeChannelHandlers()
@@ -359,10 +362,14 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 				} else {
 					logs = append(logs, NewChannelLog("Channel Error", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
 					librato.Gauge(fmt.Sprintf("courier.channel_error_%s", channel.ChannelType()), secondDuration)
+					metrics.SetChannelErrorByType(channel.ChannelType().String(), secondDuration)
+					metrics.SetChannelErrorByUUID(channel.UUID().UUID, secondDuration)
 				}
 			} else {
 				logs = append(logs, NewChannelLog("Request Ignored", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
 				librato.Gauge(fmt.Sprintf("courier.channel_ignored_%s", channel.ChannelType()), secondDuration)
+				metrics.SetChannelIgnoredByType(channel.ChannelType().String(), secondDuration)
+				metrics.SetChannelIgnoredByUUID(channel.UUID().UUID, secondDuration)
 			}
 		}
 
@@ -372,6 +379,8 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 			case Msg:
 				logs = append(logs, NewChannelLog("Message Received", channel, e.ID(), r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
 				librato.Gauge(fmt.Sprintf("courier.msg_receive_%s", channel.ChannelType()), secondDuration)
+				metrics.SetMsgReceiveByType(channel.ChannelType().String(), secondDuration)
+				metrics.SetMsgReceiveByUUID(channel.UUID().UUID, secondDuration)
 				LogMsgReceived(r, e)
 
 				if err := handleBilling(s, e); err != nil {
@@ -381,10 +390,14 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 			case ChannelEvent:
 				logs = append(logs, NewChannelLog("Event Received", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
 				librato.Gauge(fmt.Sprintf("courier.evt_receive_%s", channel.ChannelType()), secondDuration)
+				metrics.SetChannelEventReceiveByType(channel.ChannelType().String(), secondDuration)
+				metrics.SetChannelEventReceiveByUUID(channel.UUID().UUID, secondDuration)
 				LogChannelEventReceived(r, e)
 			case MsgStatus:
 				logs = append(logs, NewChannelLog("Status Updated", channel, e.ID(), r.Method, url, ww.Status(), string(request), response.String(), duration, err))
 				librato.Gauge(fmt.Sprintf("courier.msg_status_%s", channel.ChannelType()), secondDuration)
+				metrics.SetMsgStatusReceiveByType(channel.ChannelType().String(), secondDuration)
+				metrics.SetMsgStatusReceiveByUUID(channel.UUID().UUID, secondDuration)
 				LogMsgStatusReceived(r, e)
 			}
 		}

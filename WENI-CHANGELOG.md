@@ -1,3 +1,8 @@
+1.28.0
+----------
+ * Implement template support in messaging system
+ * Feat/wac demo
+
 1.27.0
 ----------
  * Feat/prometheus

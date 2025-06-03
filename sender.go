@@ -309,6 +309,7 @@ func (w *Sender) sendMessage(msg Msg) {
 		status, err = server.SendMsg(nsendCTX, msg)
 		duration := time.Now().Sub(start)
 		secondDuration := float64(duration) / float64(time.Second)
+		millisecondDuration := float64(duration) / float64(time.Millisecond)
 
 		if err != nil {
 			log.WithError(err).WithField("elapsed", duration).Error("error sending message")
@@ -322,13 +323,13 @@ func (w *Sender) sendMessage(msg Msg) {
 		if status.Status() == MsgErrored || status.Status() == MsgFailed {
 			log.WithField("elapsed", duration).Warning("msg errored")
 			librato.Gauge(fmt.Sprintf("courier.msg_send_error_%s", msg.Channel().ChannelType()), secondDuration)
-			metrics.SetMsgSendErrorByType(msg.Channel().ChannelType().String(), secondDuration)
-			metrics.SetMsgSendErrorByUUID(msg.Channel().UUID().UUID, secondDuration)
+			metrics.SetMsgSendErrorByType(msg.Channel().ChannelType().String(), millisecondDuration)
+			metrics.SetMsgSendErrorByUUID(msg.Channel().UUID().UUID, millisecondDuration)
 		} else {
 			log.WithField("elapsed", duration).Info("msg sent")
 			librato.Gauge(fmt.Sprintf("courier.msg_send_%s", msg.Channel().ChannelType()), secondDuration)
-			metrics.SetMsgSendSuccessByType(msg.Channel().ChannelType().String(), secondDuration)
-			metrics.SetMsgSendSuccessByUUID(msg.Channel().UUID().UUID, secondDuration)
+			metrics.SetMsgSendSuccessByType(msg.Channel().ChannelType().String(), millisecondDuration)
+			metrics.SetMsgSendSuccessByUUID(msg.Channel().UUID().UUID, millisecondDuration)
 		}
 
 		sentOk := status.Status() != MsgErrored && status.Status() != MsgFailed

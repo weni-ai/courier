@@ -285,9 +285,9 @@ func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChanne
 
 	// log that we created a new contact to librato
 	librato.Gauge("courier.new_contact", float64(1))
-	metrics.SetNewContactsCount(1)
-	metrics.SetNewContactsByType(channel.ChannelType().String(), 1)
-	metrics.SetNewContactsByUUID(channel.UUID().UUID, 1)
+	metrics.IncrementNewContactsCount()
+	metrics.IncrementNewContactsByType(channel.ChannelType().String())
+	metrics.IncrementNewContactsByUUID(channel.UUID().UUID)
 
 	// and return it
 	return contact, nil

@@ -47,98 +47,88 @@ var availableWorkers = promauto.NewGauge(prometheus.GaugeOpts{
 	Help: "The number of workers currently available",
 })
 
-var msg_send_error_channel_type = promauto.NewGaugeVec(prometheus.GaugeOpts{
-	Name: "cr_msg_send_error",
-	Help: "The number of messages sent with an error (Errored or Failed)",
-}, []string{"channel_type"})
-
-var msg_send_success_channel_type = promauto.NewGaugeVec(prometheus.GaugeOpts{
-	Name: "cr_msg_send_success",
-	Help: "The number of messages sent successfully",
-}, []string{"channel_type"})
-
-var msg_send_error_duration_channel_type = promauto.NewSummaryVec(prometheus.SummaryOpts{
-	Name:       "cr_msg_send_error_duration",
-	Help:       "The processing duration of messages sent with an error (Errored or Failed)",
+var msg_send_error_channel_type = promauto.NewSummaryVec(prometheus.SummaryOpts{
+	Name:       "cr_msg_send_error",
+	Help:       "The processing duration (milliseconds) of messages sent with an error (Errored or Failed) by channel type",
 	Objectives: summaryObjectives,
 }, []string{"channel_type"})
 
-var msg_send_success_duration_channel_type = promauto.NewSummaryVec(prometheus.SummaryOpts{
-	Name:       "cr_msg_send_success_duration",
-	Help:       "The processing duration of messages sent successfully",
+var msg_send_success_channel_type = promauto.NewSummaryVec(prometheus.SummaryOpts{
+	Name:       "cr_msg_send_success",
+	Help:       "The processing duration (milliseconds) of messages sent successfully by channel type",
 	Objectives: summaryObjectives,
 }, []string{"channel_type"})
 
-var msg_send_success_channel_uuid = promauto.NewGaugeVec(prometheus.GaugeOpts{
-	Name: "cr_msg_send_success_channel",
-	Help: "The number of messages sent successfully",
-}, []string{"channel_uuid"})
-
-var msg_send_error_channel_uuid = promauto.NewGaugeVec(prometheus.GaugeOpts{
-	Name: "cr_msg_send_error_channel",
-	Help: "The number of messages sent with an error (Errored or Failed)",
-}, []string{"channel_uuid"})
-
-var msg_send_error_duration_channel_uuid = promauto.NewSummaryVec(prometheus.SummaryOpts{
-	Name:       "cr_msg_send_error_duration_channel",
-	Help:       "The processing duration of messages sent with an error (Errored or Failed)",
+var msg_send_success_channel_uuid = promauto.NewSummaryVec(prometheus.SummaryOpts{
+	Name:       "cr_msg_send_success_channel",
+	Help:       "The processing duration (milliseconds) of messages sent successfully by channel uuid",
 	Objectives: summaryObjectives,
 }, []string{"channel_uuid"})
 
-var msg_send_success_duration_channel_uuid = promauto.NewSummaryVec(prometheus.SummaryOpts{
-	Name:       "cr_msg_send_success_duration_channel",
-	Help:       "The processing duration of messages sent successfully",
+var msg_send_error_channel_uuid = promauto.NewSummaryVec(prometheus.SummaryOpts{
+	Name:       "cr_msg_send_error_channel",
+	Help:       "The processing duration (milliseconds) of messages sent with an error (Errored or Failed) by channel uuid",
 	Objectives: summaryObjectives,
 }, []string{"channel_uuid"})
 
-var channel_error_by_type = promauto.NewGaugeVec(prometheus.GaugeOpts{
-	Name: "cr_channel_error_by_type",
-	Help: "The number of errors for a channel",
+var channel_error_by_type = promauto.NewSummaryVec(prometheus.SummaryOpts{
+	Name:       "cr_channel_error_by_type",
+	Help:       "The processing duration (milliseconds) of errors for a channel",
+	Objectives: summaryObjectives,
 }, []string{"channel_type"})
 
-var channel_ignored_by_type = promauto.NewGaugeVec(prometheus.GaugeOpts{
-	Name: "cr_channel_ignored_by_type",
-	Help: "The number of ignored requests for a channel",
+var channel_ignored_by_type = promauto.NewSummaryVec(prometheus.SummaryOpts{
+	Name:       "cr_channel_ignored_by_type",
+	Help:       "The processing duration (milliseconds) of ignored requests for a channel",
+	Objectives: summaryObjectives,
 }, []string{"channel_type"})
 
-var channel_error_by_uuid = promauto.NewGaugeVec(prometheus.GaugeOpts{
-	Name: "cr_channel_error_by_uuid",
-	Help: "The number of errors for a channel",
+var channel_error_by_uuid = promauto.NewSummaryVec(prometheus.SummaryOpts{
+	Name:       "cr_channel_error_by_uuid",
+	Help:       "The processing duration (milliseconds) of errors for a channel",
+	Objectives: summaryObjectives,
 }, []string{"channel_uuid"})
 
-var channel_ignored_by_uuid = promauto.NewGaugeVec(prometheus.GaugeOpts{
-	Name: "cr_channel_ignored_by_uuid",
-	Help: "The number of ignored requests for a channel",
+var channel_ignored_by_uuid = promauto.NewSummaryVec(prometheus.SummaryOpts{
+	Name:       "cr_channel_ignored_by_uuid",
+	Help:       "The processing duration (milliseconds) of ignored requests for a channel",
+	Objectives: summaryObjectives,
 }, []string{"channel_uuid"})
 
-var msg_receive_by_type = promauto.NewGaugeVec(prometheus.GaugeOpts{
-	Name: "cr_msg_receive_by_type",
-	Help: "The number of messages received for a channel",
+var msg_receive_by_type = promauto.NewSummaryVec(prometheus.SummaryOpts{
+	Name:       "cr_msg_receive_by_type",
+	Help:       "The processing duration (milliseconds) of messages received for a channel",
+	Objectives: summaryObjectives,
 }, []string{"channel_type"})
 
-var msg_receive_by_uuid = promauto.NewGaugeVec(prometheus.GaugeOpts{
-	Name: "cr_msg_receive_by_uuid",
-	Help: "The number of messages received for a channel",
+var msg_receive_by_uuid = promauto.NewSummaryVec(prometheus.SummaryOpts{
+	Name:       "cr_msg_receive_by_uuid",
+	Help:       "The processing duration (milliseconds) of messages received for a channel",
+	Objectives: summaryObjectives,
 }, []string{"channel_uuid"})
 
-var channel_event_receive_by_type = promauto.NewGaugeVec(prometheus.GaugeOpts{
-	Name: "cr_channel_event_receive_by_type",
-	Help: "The number of channel events received for a channel",
+var channel_event_receive_by_type = promauto.NewSummaryVec(prometheus.SummaryOpts{
+	Name:       "cr_channel_event_receive_by_type",
+	Help:       "The processing duration (milliseconds) of channel events received for a channel",
+	Objectives: summaryObjectives,
 }, []string{"channel_type"})
 
-var channel_event_receive_by_uuid = promauto.NewGaugeVec(prometheus.GaugeOpts{
-	Name: "cr_channel_event_receive_by_uuid",
-	Help: "The number of channel events received for a channel",
+var channel_event_receive_by_uuid = promauto.NewSummaryVec(prometheus.SummaryOpts{
+	Name:       "cr_channel_event_receive_by_uuid",
+	Help:       "The processing duration (milliseconds) of channel events received for a channel",
+	Objectives: summaryObjectives,
 }, []string{"channel_uuid"})
 
-var msg_status_receive_by_type = promauto.NewGaugeVec(prometheus.GaugeOpts{
-	Name: "cr_msg_status_receive_by_type",
-	Help: "The number of message statuses received for a channel",
+var msg_status_receive_by_type = promauto.NewSummaryVec(prometheus.SummaryOpts{
+	Name:       "cr_msg_status_receive_by_type",
+	Help:       "The processing duration (milliseconds) of message statuses received for a channel",
+	Objectives: summaryObjectives,
 }, []string{"channel_type"})
 
-var msg_status_receive_by_uuid = promauto.NewGaugeVec(prometheus.GaugeOpts{
-	Name: "cr_msg_status_receive_by_uuid",
-	Help: "The number of message statuses received for a channel",
+var msg_status_receive_by_uuid = promauto.NewSummaryVec(prometheus.SummaryOpts{
+	Name:       "cr_msg_status_receive_by_uuid",
+	Help:       "The processing duration (milliseconds) of message statuses received for a channel",
+	Objectives: summaryObjectives,
 }, []string{"channel_uuid"})
 
 var bulk_queue_size = promauto.NewGauge(prometheus.GaugeOpts{
@@ -175,92 +165,72 @@ func SetUsedWorkers(count int) {
 }
 
 func SetMsgSendErrorByType(channelType string, duration float64) {
-	msg_send_error_channel_type.WithLabelValues(channelType).Set(duration)
+	msg_send_error_channel_type.WithLabelValues(channelType).Observe(duration)
 }
 
 func SetMsgSendSuccessByType(channelType string, duration float64) {
-	msg_send_success_channel_type.WithLabelValues(channelType).Set(duration)
-}
-
-func SetMsgSendErrorDurationByType(channelType string, duration float64) {
-	msg_send_error_duration_channel_type.WithLabelValues(channelType).Observe(duration)
-}
-
-func SetMsgSendSuccessDurationByType(channelType string, duration float64) {
-	msg_send_success_duration_channel_type.WithLabelValues(channelType).Observe(duration)
+	msg_send_success_channel_type.WithLabelValues(channelType).Observe(duration)
 }
 
 func SetMsgSendErrorByUUID(channelUUID uuid.UUID, duration float64) {
 	if monitorAllChannels || channelsToMonitor[channelUUID] {
-		msg_send_error_channel_uuid.WithLabelValues(channelUUID.String()).Set(duration)
+		msg_send_error_channel_uuid.WithLabelValues(channelUUID.String()).Observe(duration)
 	}
 }
 
 func SetMsgSendSuccessByUUID(channelUUID uuid.UUID, duration float64) {
 	if monitorAllChannels || channelsToMonitor[channelUUID] {
-		msg_send_success_channel_uuid.WithLabelValues(channelUUID.String()).Set(duration)
-	}
-}
-
-func SetMsgSendErrorDurationByUUID(channelUUID uuid.UUID, duration float64) {
-	if monitorAllChannels || channelsToMonitor[channelUUID] {
-		msg_send_error_duration_channel_uuid.WithLabelValues(channelUUID.String()).Observe(duration)
-	}
-}
-
-func SetMsgSendSuccessDurationByUUID(channelUUID uuid.UUID, duration float64) {
-	if monitorAllChannels || channelsToMonitor[channelUUID] {
-		msg_send_success_duration_channel_uuid.WithLabelValues(channelUUID.String()).Observe(duration)
+		msg_send_success_channel_uuid.WithLabelValues(channelUUID.String()).Observe(duration)
 	}
 }
 
 func SetChannelErrorByType(channelType string, duration float64) {
-	channel_error_by_type.WithLabelValues(channelType).Set(duration)
+	channel_error_by_type.WithLabelValues(channelType).Observe(duration)
 }
 
 func SetChannelIgnoredByType(channelType string, duration float64) {
-	channel_ignored_by_type.WithLabelValues(channelType).Set(duration)
+	channel_ignored_by_type.WithLabelValues(channelType).Observe(duration)
 }
 
 func SetChannelErrorByUUID(channelUUID uuid.UUID, duration float64) {
 	if monitorAllChannels || channelsToMonitor[channelUUID] {
-		channel_error_by_uuid.WithLabelValues(channelUUID.String()).Set(duration)
+		channel_error_by_uuid.WithLabelValues(channelUUID.String()).Observe(duration)
 	}
 }
 
 func SetChannelIgnoredByUUID(channelUUID uuid.UUID, duration float64) {
 	if monitorAllChannels || channelsToMonitor[channelUUID] {
-		channel_ignored_by_uuid.WithLabelValues(channelUUID.String()).Set(duration)
+		channel_ignored_by_uuid.WithLabelValues(channelUUID.String()).Observe(duration)
 	}
 }
 
 func SetMsgReceiveByType(channelType string, duration float64) {
-	msg_receive_by_type.WithLabelValues(channelType).Set(duration)
+	msg_receive_by_type.WithLabelValues(channelType).Observe(duration)
 }
 
 func SetMsgReceiveByUUID(channelUUID uuid.UUID, duration float64) {
 	if monitorAllChannels || channelsToMonitor[channelUUID] {
-		msg_receive_by_uuid.WithLabelValues(channelUUID.String()).Set(duration)
+		msg_receive_by_uuid.WithLabelValues(channelUUID.String()).Observe(duration)
 	}
 }
 
 func SetChannelEventReceiveByType(channelType string, duration float64) {
-	channel_event_receive_by_type.WithLabelValues(channelType).Set(duration)
+	channel_event_receive_by_type.WithLabelValues(channelType).Observe(duration)
 }
 
 func SetChannelEventReceiveByUUID(channelUUID uuid.UUID, duration float64) {
 	if monitorAllChannels || channelsToMonitor[channelUUID] {
-		channel_event_receive_by_uuid.WithLabelValues(channelUUID.String()).Set(duration)
+		channel_event_receive_by_uuid.WithLabelValues(channelUUID.String()).Observe(duration)
 	}
 }
 
 func SetMsgStatusReceiveByType(channelType string, duration float64) {
-	msg_status_receive_by_type.WithLabelValues(channelType).Set(duration)
+	msg_status_receive_by_type.WithLabelValues(channelType).Observe(duration)
 }
 
 func SetMsgStatusReceiveByUUID(channelUUID uuid.UUID, duration float64) {
 	if monitorAllChannels || channelsToMonitor[channelUUID] {
-		msg_status_receive_by_uuid.WithLabelValues(channelUUID.String()).Set(duration)
+		msg_status_receive_by_uuid.WithLabelValues(channelUUID.String()).Observe(duration)
 	}
 }
 
@@ -272,16 +242,16 @@ func SetPriorityQueueSize(size float64) {
 	priority_queue_size.Set(size)
 }
 
-func SetNewContactsCount(count float64) {
-	new_contacts_count.Set(count)
+func IncrementNewContactsCount() {
+	new_contacts_count.Inc()
 }
 
-func SetNewContactsByType(channelType string, count float64) {
-	new_contacts_by_type.WithLabelValues(channelType).Set(count)
+func IncrementNewContactsByType(channelType string) {
+	new_contacts_by_type.WithLabelValues(channelType).Inc()
 }
 
-func SetNewContactsByUUID(channelUUID uuid.UUID, count float64) {
+func IncrementNewContactsByUUID(channelUUID uuid.UUID) {
 	if monitorAllChannels || channelsToMonitor[channelUUID] {
-		new_contacts_by_uuid.WithLabelValues(channelUUID.String()).Set(count)
+		new_contacts_by_uuid.WithLabelValues(channelUUID.String()).Inc()
 	}
 }

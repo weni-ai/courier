@@ -334,6 +334,7 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 		events, err := handlerFunc(ctx, channel, ww, r)
 		duration := time.Now().Sub(start)
 		secondDuration := float64(duration) / float64(time.Second)
+		millisecondDuration := float64(duration) / float64(time.Millisecond)
 
 		// if we received an error, write it out and report it
 		if err != nil {
@@ -353,14 +354,14 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 				} else {
 					logs = append(logs, NewChannelLog("Channel Error", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
 					librato.Gauge(fmt.Sprintf("courier.channel_error_%s", channel.ChannelType()), secondDuration)
-					metrics.SetChannelErrorByType(channel.ChannelType().String(), secondDuration)
-					metrics.SetChannelErrorByUUID(channel.UUID().UUID, secondDuration)
+					metrics.SetChannelErrorByType(channel.ChannelType().String(), millisecondDuration)
+					metrics.SetChannelErrorByUUID(channel.UUID().UUID, millisecondDuration)
 				}
 			} else {
 				logs = append(logs, NewChannelLog("Request Ignored", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
 				librato.Gauge(fmt.Sprintf("courier.channel_ignored_%s", channel.ChannelType()), secondDuration)
-				metrics.SetChannelIgnoredByType(channel.ChannelType().String(), secondDuration)
-				metrics.SetChannelIgnoredByUUID(channel.UUID().UUID, secondDuration)
+				metrics.SetChannelIgnoredByType(channel.ChannelType().String(), millisecondDuration)
+				metrics.SetChannelIgnoredByUUID(channel.UUID().UUID, millisecondDuration)
 			}
 		}
 
@@ -370,8 +371,8 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 			case Msg:
 				logs = append(logs, NewChannelLog("Message Received", channel, e.ID(), r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
 				librato.Gauge(fmt.Sprintf("courier.msg_receive_%s", channel.ChannelType()), secondDuration)
-				metrics.SetMsgReceiveByType(channel.ChannelType().String(), secondDuration)
-				metrics.SetMsgReceiveByUUID(channel.UUID().UUID, secondDuration)
+				metrics.SetMsgReceiveByType(channel.ChannelType().String(), millisecondDuration)
+				metrics.SetMsgReceiveByUUID(channel.UUID().UUID, millisecondDuration)
 				LogMsgReceived(r, e)
 
 				if err := handleBilling(s, e); err != nil {
@@ -381,14 +382,14 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 			case ChannelEvent:
 				logs = append(logs, NewChannelLog("Event Received", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
 				librato.Gauge(fmt.Sprintf("courier.evt_receive_%s", channel.ChannelType()), secondDuration)
-				metrics.SetChannelEventReceiveByType(channel.ChannelType().String(), secondDuration)
-				metrics.SetChannelEventReceiveByUUID(channel.UUID().UUID, secondDuration)
+				metrics.SetChannelEventReceiveByType(channel.ChannelType().String(), millisecondDuration)
+				metrics.SetChannelEventReceiveByUUID(channel.UUID().UUID, millisecondDuration)
 				LogChannelEventReceived(r, e)
 			case MsgStatus:
 				logs = append(logs, NewChannelLog("Status Updated", channel, e.ID(), r.Method, url, ww.Status(), string(request), response.String(), duration, err))
 				librato.Gauge(fmt.Sprintf("courier.msg_status_%s", channel.ChannelType()), secondDuration)
-				metrics.SetMsgStatusReceiveByType(channel.ChannelType().String(), secondDuration)
-				metrics.SetMsgStatusReceiveByUUID(channel.UUID().UUID, secondDuration)
+				metrics.SetMsgStatusReceiveByType(channel.ChannelType().String(), millisecondDuration)
+				metrics.SetMsgStatusReceiveByUUID(channel.UUID().UUID, millisecondDuration)
 				LogMsgStatusReceived(r, e)
 			}
 		}

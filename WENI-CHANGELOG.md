@@ -1,3 +1,9 @@
+1.29.0
+----------
+ * Refactor model message sending logic to avoid unnecessary logging
+ * Refactor metrics handling
+ * Feat: s3 upload metric
+
 1.28.0
 ----------
  * Implement template support in messaging system

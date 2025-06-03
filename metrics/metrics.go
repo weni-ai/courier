@@ -156,6 +156,12 @@ var new_contacts_by_uuid = promauto.NewGaugeVec(prometheus.GaugeOpts{
 	Help: "The number of new contacts by uuid",
 }, []string{"channel_uuid"})
 
+var media_upload_size = promauto.NewSummary(prometheus.SummaryOpts{
+	Name:       "cr_media_upload_size",
+	Help:       "The size of media uploaded to S3 (bytes)",
+	Objectives: summaryObjectives,
+})
+
 func SetAvailableWorkers(count int) {
 	availableWorkers.Set(float64(count))
 }
@@ -254,4 +260,8 @@ func IncrementNewContactsByUUID(channelUUID uuid.UUID) {
 	if monitorAllChannels || channelsToMonitor[channelUUID] {
 		new_contacts_by_uuid.WithLabelValues(channelUUID.String()).Inc()
 	}
+}
+
+func IncrementMediaUploadSize(size int) {
+	media_upload_size.Observe(float64(size))
 }

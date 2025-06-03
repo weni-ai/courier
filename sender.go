@@ -362,46 +362,36 @@ func (w *Sender) sendMessage(msg Msg) {
 				}
 			}
 
-			if w.foreman.server.Templates() != nil && msg.Metadata() != nil {
-				mdJSON := msg.Metadata()
-				metadata := &templates.TemplateMetadata{}
-				err := json.Unmarshal(mdJSON, metadata)
-				if err != nil {
-					log.WithError(err).Error("error unmarshalling metadata")
-				}
+			isTemplateMessage, metadata := isTemplateMessage(msg)
+
+			if w.foreman.server.Templates() != nil && isTemplateMessage {
 				templatingData := metadata.Templating
-				if templatingData == nil {
-					log.Error("templating data is nil")
+				templateName := templatingData.Template.Name
+				templateUUID := templatingData.Template.UUID
+				templateLanguage := templatingData.Language
+				templateNamespace := templatingData.Namespace
+
+				var templateVariables []string
+				if templatingData.Variables != nil {
+					templateVariables = templatingData.Variables
 				}
 
-				if err == nil && templatingData != nil {
-					templateName := templatingData.Template.Name
-					templateUUID := templatingData.Template.UUID
-					templateLanguage := templatingData.Language
-					templateNamespace := templatingData.Namespace
-
-					var templateVariables []string
-					if templatingData.Variables != nil {
-						templateVariables = templatingData.Variables
-					}
-
-					templateMsg := templates.NewTemplateMessage(
-						string(msg.URN().Identity()),
-						"",
-						msg.Channel().UUID().String(),
-						status.ExternalID(),
-						time.Now().Format(time.RFC3339),
-						"O",
-						msg.Channel().ChannelType().String(),
-						msg.Text(),
-						templateName,
-						templateUUID,
-						templateLanguage,
-						templateNamespace,
-						templateVariables,
-					)
-					w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
-				}
+				templateMsg := templates.NewTemplateMessage(
+					string(msg.URN().Identity()),
+					"",
+					msg.Channel().UUID().String(),
+					status.ExternalID(),
+					time.Now().Format(time.RFC3339),
+					"O",
+					msg.Channel().ChannelType().String(),
+					msg.Text(),
+					templateName,
+					templateUUID,
+					templateLanguage,
+					templateNamespace,
+					templateVariables,
+				)
+				w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
 			}
 		}
 	}
@@ -423,4 +413,31 @@ func (w *Sender) sendMessage(msg Msg) {
 
 	// mark our send task as complete
 	backend.MarkOutgoingMsgComplete(writeCTX, msg, status)
+}
+
+// isTemplateMessage checks if a message contains valid template metadata
+func isTemplateMessage(msg Msg) (bool, *templates.TemplateMetadata) {
+	if msg.Metadata() == nil {
+		return false, nil
+	}
+
+	mdJSON := msg.Metadata()
+	metadata := &templates.TemplateMetadata{}
+	err := json.Unmarshal(mdJSON, metadata)
+	if err != nil {
+		return false, nil
+	}
+
+	// Check if templating data exists and has required fields
+	if metadata.Templating == nil {
+		return false, metadata
+	}
+
+	// Verify that essential template fields are present
+	templating := metadata.Templating
+	if templating.Template.Name == "" || templating.Template.UUID == "" || templating.Language == "" {
+		return false, metadata
+	}
+
+	return true, metadata
 }

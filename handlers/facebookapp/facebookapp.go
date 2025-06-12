@@ -309,6 +309,11 @@ type moPayload struct {
 				MessageTemplateID       int    `json:"message_template_id"`
 				MessageTemplateName     string `json:"message_template_name"`
 				MessageTemplateLanguage string `json:"message_template_language"`
+				WabaInfo                *struct {
+					WabaID          string `json:"waba_id"`
+					AdAccountID     string `json:"ad_account_id"`
+					OwnerBusinessID string `json:"owner_business_id"`
+				} `json:"waba_info"`
 			} `json:"value"`
 		} `json:"changes"`
 		Messaging []struct {
@@ -568,6 +573,32 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 		}
 
 		for _, change := range entry.Changes {
+			// Handle account_update webhook type
+			if change.Field == "account_update" && change.Value.Event == "AD_ACCOUNT_LINKED" && change.Value.WabaInfo != nil {
+				// Update channel config with ad_account_id
+				config := channel.Config()
+				config["ad_account_id"] = change.Value.WabaInfo.AdAccountID
+
+				err := h.Backend().UpdateChannelConfig(ctx, channel, config)
+				if err != nil {
+					return nil, nil, fmt.Errorf("error updating channel config with ad_account_id: %v", err)
+				}
+
+				urn, err := urns.NewWhatsAppURN(change.Value.From.ID)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+
+				// Add event to track the account update
+				event := h.Backend().NewChannelEvent(channel, "account_update", urn)
+				event.WithExtra(map[string]interface{}{
+					"ad_account_id":     change.Value.WabaInfo.AdAccountID,
+					"owner_business_id": change.Value.WabaInfo.OwnerBusinessID,
+				})
+				events = append(events, event)
+
+				continue
+			}
 
 			for _, contact := range change.Value.Contacts {
 				contactNames[contact.WaID] = contact.Profile.Name

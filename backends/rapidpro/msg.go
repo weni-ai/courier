@@ -22,6 +22,7 @@ import (
 	"github.com/gomodule/redigo/redis"
 	"github.com/lib/pq"
 	"github.com/nyaruka/courier"
+	"github.com/nyaruka/courier/metrics"
 	"github.com/nyaruka/courier/queue"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/urns"
@@ -345,6 +346,9 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 	if err != nil {
 		return "", err
 	}
+
+	// get the file size in bytes and increase our media upload size metric
+	metrics.IncrementMediaUploadSize(len(body))
 
 	// return our new media URL, which is prefixed by our content type
 	return fmt.Sprintf("%s:%s", mimeType, s3URL), nil

@@ -365,6 +365,11 @@ type moPayload struct {
 						Timestamp string `json:"timestamp"`
 					} `json:"metadata"`
 				} `json:"state_sync"`
+				WabaInfo *struct {
+					WabaID          string `json:"waba_id"`
+					AdAccountID     string `json:"ad_account_id"`
+					OwnerBusinessID string `json:"owner_business_id"`
+				} `json:"waba_info"`
 			} `json:"value"`
 		} `json:"changes"`
 		Messaging []struct {
@@ -683,6 +688,32 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 		}
 
 		for _, change := range entry.Changes {
+			// Handle account_update webhook type
+			if change.Field == "account_update" && change.Value.Event == "AD_ACCOUNT_LINKED" && change.Value.WabaInfo != nil {
+				// Update channel config with ad_account_id
+				config := channel.Config()
+				config["ad_account_id"] = change.Value.WabaInfo.AdAccountID
+
+				err := h.Backend().UpdateChannelConfig(ctx, channel, config)
+				if err != nil {
+					return nil, nil, fmt.Errorf("error updating channel config with ad_account_id: %v", err)
+				}
+
+				urn, err := urns.NewWhatsAppURN(change.Value.From.ID)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+
+				// Add event to track the account update
+				event := h.Backend().NewChannelEvent(channel, "account_update", urn)
+				event.WithExtra(map[string]interface{}{
+					"ad_account_id":     change.Value.WabaInfo.AdAccountID,
+					"owner_business_id": change.Value.WabaInfo.OwnerBusinessID,
+				})
+				events = append(events, event)
+
+				continue
+			}
 
 			for _, contact := range change.Value.Contacts {
 				contactNames[contact.WaID] = contact.Profile.Name
@@ -916,15 +947,11 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 				if status.Conversation != nil {
 					templateType, isTemplateMessage := waTemplateTypeMapping[status.Conversation.Origin.Type]
-					fmt.Println("templateType: ", templateType)
-					fmt.Println("isTemplateMessage: ", isTemplateMessage)
 					if isTemplateMessage && h.Server().Templates() != nil {
-						fmt.Println("Sending template status1")
 						urn, err := urns.NewWhatsAppURN(status.RecipientID)
 						if err != nil {
 							handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 						} else {
-							fmt.Println("Sending template status2")
 							statusMsg := templates.NewTemplateStatusMessage(
 								string(urn.Identity()),
 								channel.UUID().String(),
@@ -932,7 +959,6 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 								string(msgStatus),
 								templateType,
 							)
-							fmt.Println("statusMsg: ", statusMsg)
 							h.Server().Templates().SendAsync(statusMsg, templates.RoutingKeyStatus, nil, nil)
 						}
 					}
@@ -1033,6 +1059,13 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 
 		if len(entry.Messaging) == 0 {
 			if len(entry.Changes) > 0 && entry.Changes[0].Field == "comments" {
+
+				// Check if the comment is from our own channel to prevent loops
+				// When we reply to a comment, Instagram sends a webhook about our own reply
+				if entry.Changes[0].Value.From.ID == channel.Address() {
+					data = append(data, courier.NewInfoData(fmt.Sprintf("ignoring comment from our own channel: %s", entry.Changes[0].Value.From.ID)))
+					continue
+				}
 
 				// Build IGComment struct and wrapper
 				wrapper := struct {
@@ -1909,14 +1942,36 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 	hasNewURN := false
 	hasCaption := false
 
+	// Set the base URL and path based on whether we're using marketing messages or not
 	demoURL := msg.Channel().StringConfigForKey("demo_url", "")
 
 	if demoURL != "" {
 		graphURL = demoURL
 	}
 
+	// Check if we should use marketing messages
+	mmliteEnabled := msg.Channel().BoolConfigForKey("mmlite", false)
+
+	// Check if the message is a marketing template by examining metadata
+	isMarketingTemplate := false
+	var err error
+	templating, err := h.getTemplate(msg)
+	if err == nil && templating != nil {
+		// Check if template category is "MARKETING" in the template category
+		// This is how Meta identifies marketing templates
+		isMarketingTemplate = strings.ToUpper(templating.Template.Category) == "MARKETING"
+	}
+
+	// Only use marketing messages endpoint if mmlite is enabled AND it's a marketing template
+	useMarketingMessages := mmliteEnabled && isMarketingTemplate
+
 	base, _ := url.Parse(graphURL)
-	path, _ := url.Parse(fmt.Sprintf("/%s/messages", msg.Channel().Address()))
+	var path *url.URL
+	if useMarketingMessages {
+		path, _ = url.Parse(fmt.Sprintf("/%s/marketing_messages", msg.Channel().Address()))
+	} else {
+		path, _ = url.Parse(fmt.Sprintf("/%s/messages", msg.Channel().Address()))
+	}
 	wacPhoneURL := base.ResolveReference(path)
 
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
@@ -1937,15 +1992,8 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		payload := wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path()}
 
 		// do we have a template?
-		var templating *MsgTemplating
-		templating, err := h.getTemplate(msg)
 		if templating != nil || len(msg.Attachments()) == 0 {
-
-			if err != nil {
-				return nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())
-			}
 			if templating != nil {
-
 				payload.Type = "template"
 
 				template := wacTemplate{Name: templating.Template.Name, Language: &wacLanguage{Policy: "deterministic", Code: templating.Language}}
@@ -2449,7 +2497,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								zeroIndex = true
 							}
 							payloadAudio = wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path(), Type: "audio", Audio: &wacMTMedia{ID: mediaID, Link: attURL}}
-							status, _, err := requestWAC(payloadAudio, token, msg, status, wacPhoneURL, zeroIndex)
+							status, _, err := requestWAC(payloadAudio, token, msg, status, wacPhoneURL, zeroIndex, useMarketingMessages)
 							if err != nil {
 								return status, nil
 							}
@@ -2717,7 +2765,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			zeroIndex = true
 		}
 
-		status, respPayload, err := requestWAC(payload, token, msg, status, wacPhoneURL, zeroIndex)
+		status, respPayload, err := requestWAC(payload, token, msg, status, wacPhoneURL, zeroIndex, useMarketingMessages)
 		if err != nil {
 			return status, err
 		}
@@ -2827,7 +2875,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				Name: "catalog_message",
 			}
 			payload.Interactive = &interactive
-			status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true)
+			status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true, useMarketingMessages)
 			if err != nil {
 				return status, err
 			}
@@ -2881,7 +2929,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					}
 
 					payload.Interactive = &interactive
-					status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true)
+					status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true, useMarketingMessages)
 					if err != nil {
 						return status, err
 					}
@@ -2902,7 +2950,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					ProductRetailerID: unitaryProduct,
 				}
 				payload.Interactive = &interactive
-				status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true)
+				status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true, useMarketingMessages)
 				if err != nil {
 					return status, err
 				}
@@ -3032,43 +3080,96 @@ func mountOrderTaxShippingDiscount(orderDetails *courier.OrderDetailsMessage) (w
 	return orderTax, orderShipping, orderDiscount
 }
 
-func requestWAC[P wacInteractiveActionParams](payload wacMTPayload[P], accessToken string, msg courier.Msg, status courier.MsgStatus, wacPhoneURL *url.URL, zeroIndex bool) (courier.MsgStatus, *wacMTResponse, error) {
-	jsonBody, err := json.Marshal(payload)
+func requestWAC[P wacInteractiveActionParams](payload wacMTPayload[P], accessToken string, msg courier.Msg, status courier.MsgStatus, wacPhoneURL *url.URL, zeroIndex bool, useMarketingMessages bool) (courier.MsgStatus, *wacMTResponse, error) {
+	var jsonBody []byte
+	var err error
+
+	if useMarketingMessages {
+		// Add message_activity_sharing to the original payload
+		jsonBody, err = prepareMarketingMessagePayload(payload)
+	} else {
+		// Serialize the payload directly
+		jsonBody, err = json.Marshal(payload)
+	}
+
 	if err != nil {
 		return status, &wacMTResponse{}, err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, wacPhoneURL.String(), bytes.NewReader(jsonBody))
+	// Prepare and send HTTP request
+	req, err := prepareHTTPRequest(wacPhoneURL.String(), accessToken, jsonBody)
 	if err != nil {
 		return status, &wacMTResponse{}, err
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
 
 	rr, err := utils.MakeHTTPRequest(req)
 
-	// record our status and log
-	log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
+	// Register status log based on message type
+	logTitle := "Message Sent"
+	if useMarketingMessages {
+		logTitle = "Marketing Message Sent"
+	}
+	log := courier.NewChannelLogFromRR(logTitle, msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
 	status.AddLog(log)
+
 	if err != nil {
 		return status, &wacMTResponse{}, nil
 	}
 
-	respPayload := &wacMTResponse{}
-	err = json.Unmarshal(rr.Body, respPayload)
+	// Process the response
+	respPayload, err := processResponse(rr.Body)
 	if err != nil {
 		log.WithError("Message Send Error", errors.Errorf("unable to unmarshal response body"))
 		return status, respPayload, nil
 	}
-	externalID := respPayload.Messages[0].ID
-	if zeroIndex && externalID != "" {
-		status.SetExternalID(externalID)
+
+	// Update message status if there is an external ID
+	if len(respPayload.Messages) > 0 {
+		externalID := respPayload.Messages[0].ID
+		if zeroIndex && externalID != "" {
+			status.SetExternalID(externalID)
+		}
+		status.SetStatus(courier.MsgWired)
 	}
-	// this was wired successfully
-	status.SetStatus(courier.MsgWired)
 
 	return status, respPayload, nil
+}
+
+// Prepares the marketing message payload by adding message_activity_sharing
+func prepareMarketingMessagePayload[P wacInteractiveActionParams](payload wacMTPayload[P]) ([]byte, error) {
+	payloadMap := make(map[string]interface{})
+	jsonBody, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	err = json.Unmarshal(jsonBody, &payloadMap)
+	if err != nil {
+		return nil, err
+	}
+
+	payloadMap["message_activity_sharing"] = true
+
+	return json.Marshal(payloadMap)
+}
+
+// Prepares the HTTP request
+func prepareHTTPRequest(url string, accessToken string, jsonBody []byte) (*http.Request, error) {
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	return req, nil
+}
+
+// Process the response from the API
+func processResponse(body []byte) (*wacMTResponse, error) {
+	respPayload := &wacMTResponse{}
+	err := json.Unmarshal(body, respPayload)
+	return respPayload, err
 }
 
 // DescribeURN looks up URN metadata for new contacts
@@ -3212,8 +3313,9 @@ type TemplateMetadata struct {
 
 type MsgTemplating struct {
 	Template struct {
-		Name string `json:"name" validate:"required"`
-		UUID string `json:"uuid" validate:"required"`
+		Name     string `json:"name" validate:"required"`
+		UUID     string `json:"uuid" validate:"required"`
+		Category string `json:"category"`
 	} `json:"template" validate:"required,dive"`
 	Language  string   `json:"language" validate:"required"`
 	Country   string   `json:"country"`

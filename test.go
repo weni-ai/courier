@@ -588,6 +588,11 @@ func NewMockChannel(uuid string, channelType string, address string, country str
 	return channel
 }
 
+// Config returns the channel's configuration
+func (c *MockChannel) Config() map[string]interface{} {
+	return c.config
+}
+
 //-----------------------------------------------------------------------------
 // Mock msg implementation
 //-----------------------------------------------------------------------------
@@ -1154,4 +1159,12 @@ func ReadFile(path string) []byte {
 		panic(err)
 	}
 	return d
+}
+
+// UpdateChannelConfig updates the channel configuration
+func (mb *MockBackend) UpdateChannelConfig(ctx context.Context, channel Channel, config map[string]interface{}) error {
+	if mockChannel, ok := channel.(*MockChannel); ok {
+		mockChannel.config = config
+	}
+	return nil
 }

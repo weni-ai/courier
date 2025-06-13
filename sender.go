@@ -2,6 +2,7 @@ package courier
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -340,43 +341,7 @@ func (w *Sender) sendMessage(msg Msg) {
 				ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
 				fromTicketer := ticketerType != ""
 
-					billingMsg := billing.NewMessage(
-						string(msg.URN().Identity()),
-						"",
-						msg.Channel().UUID().String(),
-						status.ExternalID(),
-						time.Now().Format(time.RFC3339),
-						"O",
-						msg.Channel().ChannelType().String(),
-						msg.Text(),
-						msg.Attachments(),
-						msg.QuickReplies(),
-						fromTicketer,
-						chatsUUID,
-					)
-					routingKey := billing.RoutingKeyCreate
-					if msg.Channel().ChannelType() == "WAC" {
-						routingKey = billing.RoutingKeyWAC
-					}
-					w.foreman.server.Billing().SendAsync(billingMsg, routingKey, nil, nil)
-				}
-			}
-
-			isTemplateMessage, metadata := isTemplateMessage(msg)
-
-			if w.foreman.server.Templates() != nil && isTemplateMessage {
-				templatingData := metadata.Templating
-				templateName := templatingData.Template.Name
-				templateUUID := templatingData.Template.UUID
-				templateLanguage := templatingData.Language
-				templateNamespace := templatingData.Namespace
-
-				var templateVariables []string
-				if templatingData.Variables != nil {
-					templateVariables = templatingData.Variables
-				}
-
-				templateMsg := templates.NewTemplateMessage(
+				billingMsg := billing.NewMessage(
 					string(msg.URN().Identity()),
 					"",
 					msg.Channel().UUID().String(),
@@ -385,14 +350,50 @@ func (w *Sender) sendMessage(msg Msg) {
 					"O",
 					msg.Channel().ChannelType().String(),
 					msg.Text(),
-					templateName,
-					templateUUID,
-					templateLanguage,
-					templateNamespace,
-					templateVariables,
+					msg.Attachments(),
+					msg.QuickReplies(),
+					fromTicketer,
+					chatsUUID,
+					"",
 				)
-				w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
+				routingKey := billing.RoutingKeyCreate
+				if msg.Channel().ChannelType() == "WAC" {
+					routingKey = billing.RoutingKeyWAC
+				}
+				w.foreman.server.Billing().SendAsync(billingMsg, routingKey, nil, nil)
 			}
+		}
+
+		isTemplateMessage, metadata := isTemplateMessage(msg)
+
+		if w.foreman.server.Templates() != nil && isTemplateMessage {
+			templatingData := metadata.Templating
+			templateName := templatingData.Template.Name
+			templateUUID := templatingData.Template.UUID
+			templateLanguage := templatingData.Language
+			templateNamespace := templatingData.Namespace
+
+			var templateVariables []string
+			if templatingData.Variables != nil {
+				templateVariables = templatingData.Variables
+			}
+
+			templateMsg := templates.NewTemplateMessage(
+				string(msg.URN().Identity()),
+				"",
+				msg.Channel().UUID().String(),
+				status.ExternalID(),
+				time.Now().Format(time.RFC3339),
+				"O",
+				msg.Channel().ChannelType().String(),
+				msg.Text(),
+				templateName,
+				templateUUID,
+				templateLanguage,
+				templateNamespace,
+				templateVariables,
+			)
+			w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
 		}
 	}
 

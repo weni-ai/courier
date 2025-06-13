@@ -21,10 +21,13 @@ import (
 	"github.com/go-chi/chi/middleware"
 	"github.com/jmoiron/sqlx"
 	"github.com/nyaruka/courier/billing"
+	"github.com/nyaruka/courier/templates"
+	"github.com/nyaruka/courier/metrics"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/storage"
 	"github.com/nyaruka/librato"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 )
 
@@ -50,6 +53,12 @@ type Server interface {
 
 	SetBilling(billing.Client)
 	Billing() billing.Client
+
+	Templates() templates.Client
+	SetTemplates(templates templates.Client)
+
+	GetHandler(channelType ChannelType) (ChannelHandler, error)
+	SendMsgAction(ctx context.Context, msg Msg) (MsgStatus, error)
 }
 
 // NewServer creates a new Server for the passed in configuration. The server will have to be started
@@ -116,6 +125,7 @@ func (s *server) Start() error {
 	s.router.Get("/", s.handleIndex)
 	s.router.Get("/status", s.handleStatus)
 	s.router.Get("/c/health", s.handleCHealth)
+	s.router.Get("/c/metrics", promhttp.Handler().ServeHTTP)
 
 	// initialize our handlers
 	s.initializeChannelHandlers()
@@ -232,6 +242,9 @@ func (s *server) Router() chi.Router { return s.router }
 func (s *server) Billing() billing.Client          { return s.billing }
 func (s *server) SetBilling(client billing.Client) { s.billing = client }
 
+func (s *server) Templates() templates.Client             { return s.templates }
+func (s *server) SetTemplates(templates templates.Client) { s.templates = templates }
+
 type server struct {
 	backend Backend
 
@@ -250,6 +263,8 @@ type server struct {
 	routes []string
 
 	billing billing.Client
+
+	templates templates.Client
 }
 
 func (s *server) initializeChannelHandlers() {
@@ -328,6 +343,7 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 		events, err := handlerFunc(ctx, channel, ww, r)
 		duration := time.Now().Sub(start)
 		secondDuration := float64(duration) / float64(time.Second)
+		millisecondDuration := float64(duration) / float64(time.Millisecond)
 
 		// if we received an error, write it out and report it
 		if err != nil {
@@ -347,10 +363,14 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 				} else {
 					logs = append(logs, NewChannelLog("Channel Error", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
 					librato.Gauge(fmt.Sprintf("courier.channel_error_%s", channel.ChannelType()), secondDuration)
+					metrics.SetChannelErrorByType(channel.ChannelType().String(), millisecondDuration)
+					metrics.SetChannelErrorByUUID(channel.UUID().UUID, millisecondDuration)
 				}
 			} else {
 				logs = append(logs, NewChannelLog("Request Ignored", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
 				librato.Gauge(fmt.Sprintf("courier.channel_ignored_%s", channel.ChannelType()), secondDuration)
+				metrics.SetChannelIgnoredByType(channel.ChannelType().String(), millisecondDuration)
+				metrics.SetChannelIgnoredByUUID(channel.UUID().UUID, millisecondDuration)
 			}
 		}
 
@@ -360,6 +380,8 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 			case Msg:
 				logs = append(logs, NewChannelLog("Message Received", channel, e.ID(), r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
 				librato.Gauge(fmt.Sprintf("courier.msg_receive_%s", channel.ChannelType()), secondDuration)
+				metrics.SetMsgReceiveByType(channel.ChannelType().String(), millisecondDuration)
+				metrics.SetMsgReceiveByUUID(channel.UUID().UUID, millisecondDuration)
 				LogMsgReceived(r, e)
 
 				if err := handleBilling(s, e); err != nil {
@@ -369,10 +391,14 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 			case ChannelEvent:
 				logs = append(logs, NewChannelLog("Event Received", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
 				librato.Gauge(fmt.Sprintf("courier.evt_receive_%s", channel.ChannelType()), secondDuration)
+				metrics.SetChannelEventReceiveByType(channel.ChannelType().String(), millisecondDuration)
+				metrics.SetChannelEventReceiveByUUID(channel.UUID().UUID, millisecondDuration)
 				LogChannelEventReceived(r, e)
 			case MsgStatus:
 				logs = append(logs, NewChannelLog("Status Updated", channel, e.ID(), r.Method, url, ww.Status(), string(request), response.String(), duration, err))
 				librato.Gauge(fmt.Sprintf("courier.msg_status_%s", channel.ChannelType()), secondDuration)
+				metrics.SetMsgStatusReceiveByType(channel.ChannelType().String(), millisecondDuration)
+				metrics.SetMsgStatusReceiveByUUID(channel.UUID().UUID, millisecondDuration)
 				LogMsgStatusReceived(r, e)
 			}
 		}
@@ -587,4 +613,45 @@ func handleBilling(s *server, msg Msg) error {
 	}
 
 	return nil
+}
+
+func (s *server) SendMsgAction(ctx context.Context, msg Msg) (MsgStatus, error) {
+	log := logrus.WithFields(logrus.Fields{
+		"comp":        "server",
+		"msg_id":      msg.ID().String(),
+		"action_type": msg.ActionType(),
+		"external_id": msg.ActionExternalID(),
+	})
+	if msg.Channel() == nil {
+		err := errors.New("cannot send message action: message channel is nil")
+		log.WithError(err).Error("Failed")
+		return nil, err
+	}
+	log = log.WithField("channel_uuid", msg.Channel().UUID())
+
+	handler, err := s.GetHandler(msg.Channel().ChannelType())
+	if err != nil {
+		log.WithError(err).Error("Handler not found")
+		return nil, err
+	}
+
+	if actionHandler, ok := handler.(ActionSender); ok {
+		log.Infof("Dispatching action to handler %s via ActionSender interface", handler.ChannelName())
+		// Set a flag in the context to indicate this is an action
+		ctx = context.WithValue(ctx, "is_action", true)
+		_, err := actionHandler.SendAction(ctx, msg)
+		return nil, err
+	}
+
+	err = fmt.Errorf("handler %s (%T) does not support actions", handler.ChannelName(), handler)
+	log.Warn("Action not supported by handler")
+	return nil, err
+}
+
+func (s *server) GetHandler(channelType ChannelType) (ChannelHandler, error) {
+	handler, found := activeHandlers[channelType]
+	if !found {
+		return nil, fmt.Errorf("no active handler found for channel type: %s", channelType)
+	}
+	return handler, nil
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/batch"
+	"github.com/nyaruka/courier/metrics"
 	"github.com/nyaruka/courier/queue"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/storage"
@@ -56,6 +57,14 @@ func (b *backend) GetChannelByAddress(ctx context.Context, ct courier.ChannelTyp
 	defer cancel()
 
 	return getChannelByAddress(timeout, b.db, ct, address)
+}
+
+// GetChannelByAddressWithRouterToken returns the channel with the passed in type and address and a value from config by key
+func (b *backend) GetChannelByAddressWithRouterToken(ctx context.Context, ct courier.ChannelType, address courier.ChannelAddress, routerToken string) (courier.Channel, error) {
+	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
+	defer cancel()
+
+	return getChannelByAddressWithRouterToken(timeout, b.db, ct, address, routerToken)
 }
 
 // GetContact returns the contact for the passed in channel and URN
@@ -310,6 +319,12 @@ func (b *backend) MarkOutgoingMsgComplete(ctx context.Context, msg courier.Msg, 
 
 // WriteMsg writes the passed in message to our store
 func (b *backend) WriteMsg(ctx context.Context, m courier.Msg) error {
+	// Check if this is an action from context
+	if isAction, ok := ctx.Value("is_action").(bool); ok && isAction {
+		// Skip message writing for actions
+		return nil
+	}
+
 	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
 	defer cancel()
 
@@ -550,6 +565,8 @@ func (b *backend) Heartbeat() error {
 	// log our total
 	librato.Gauge("courier.bulk_queue", float64(bulkSize))
 	librato.Gauge("courier.priority_queue", float64(prioritySize))
+	metrics.SetBulkQueueSize(float64(bulkSize))
+	metrics.SetPriorityQueueSize(float64(prioritySize))
 	logrus.WithField("bulk_queue", bulkSize).WithField("priority_queue", prioritySize).Info("heartbeat queue sizes calculated")
 
 	return nil

@@ -300,6 +300,14 @@ func (mb *MockBackend) GetChannelByAddress(ctx context.Context, cType ChannelTyp
 	return channel, nil
 }
 
+func (mb *MockBackend) GetChannelByAddressWithRouterToken(ctx context.Context, cType ChannelType, address ChannelAddress, routerToken string) (Channel, error) {
+	channel, found := mb.channelsByAddress[ChannelAddress(routerToken)]
+	if !found {
+		return nil, ErrChannelNotFound
+	}
+	return channel, nil
+}
+
 // GetContact creates a new contact with the passed in channel and URN
 func (mb *MockBackend) GetContact(ctx context.Context, channel Channel, urn urns.URN, auth string, name string) (Contact, error) {
 	contact, found := mb.contacts[urn]
@@ -1028,6 +1036,22 @@ func (m *mockMsg) Buttons() []ButtonComponent {
 	}
 
 	return nil
+}
+
+func (m *mockMsg) ActionType() MsgActionType {
+	if m.metadata == nil {
+		return MsgActionNone
+	}
+	actionType, _, _, _ := jsonparser.Get(m.metadata, "action_type")
+	return MsgActionType(actionType)
+}
+
+func (m *mockMsg) ActionExternalID() string {
+	if m.metadata == nil {
+		return ""
+	}
+	actionExternalID, _, _, _ := jsonparser.Get(m.metadata, "action_external_id")
+	return string(actionExternalID)
 }
 
 //-----------------------------------------------------------------------------

@@ -10,6 +10,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/nyaruka/courier"
 	"github.com/sirupsen/logrus"
+	_ "go.uber.org/automaxprocs"
 
 	// load channel handler packages
 	"github.com/nyaruka/courier/billing"
@@ -73,6 +74,7 @@ import (
 	_ "github.com/nyaruka/courier/handlers/yo"
 	_ "github.com/nyaruka/courier/handlers/zenvia"
 	_ "github.com/nyaruka/courier/handlers/zenviaold"
+	"github.com/nyaruka/courier/templates"
 
 	// load available backends
 	_ "github.com/nyaruka/courier/backends/rapidpro"
@@ -128,6 +130,17 @@ func main() {
 			logrus.Fatalf("Error creating billing RabbitMQ client: %v", err)
 		}
 		server.SetBilling(billingClient)
+
+		templatesClient, err := templates.NewRMQTemplateClient(
+			config.RabbitmqURL,
+			config.RabbitmqRetryPubAttempts,
+			config.RabbitmqRetryPubDelay,
+			config.TemplatesExchangeName,
+		)
+		if err != nil {
+			logrus.Fatalf("Error creating templates RabbitMQ client: %v", err)
+		}
+		server.SetTemplates(templatesClient)
 	} else {
 		logrus.Error(errors.New("rabbitmq url is not configured"))
 	}

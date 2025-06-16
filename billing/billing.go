@@ -39,10 +39,11 @@ type Message struct {
 	QuickReplies []string `json:"quick_replies,omitempty"`
 	FromTicketer bool     `json:"from_ticketer"`
 	ChatsUUID    string   `json:"chats_uuid,omitempty"`
+	Status       string   `json:"status,omitempty"`
 }
 
 // Create a new message
-func NewMessage(contactURN, contactUUID, channelUUID, messageID, messageDate, direction, channelType, text string, attachments, quickreplies []string, fromTicketer bool, chatsUUID string) Message {
+func NewMessage(contactURN, contactUUID, channelUUID, messageID, messageDate, direction, channelType, text string, attachments, quickreplies []string, fromTicketer bool, chatsUUID string, status string) Message {
 	return Message{
 		ContactURN:   contactURN,
 		ContactUUID:  contactUUID,
@@ -56,6 +57,7 @@ func NewMessage(contactURN, contactUUID, channelUUID, messageID, messageDate, di
 		QuickReplies: quickreplies,
 		FromTicketer: fromTicketer,
 		ChatsUUID:    chatsUUID,
+		Status:       status,
 	}
 }
 

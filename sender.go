@@ -2,11 +2,14 @@ package courier
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/buger/jsonparser"
 	"github.com/nyaruka/courier/billing"
+	"github.com/nyaruka/courier/metrics"
+	"github.com/nyaruka/courier/templates"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/librato"
 	"github.com/pkg/errors"
@@ -39,6 +42,9 @@ func NewForeman(server Server, maxSenders int) *Foreman {
 
 // Start starts the foreman and all its senders, assigning jobs while there are some
 func (f *Foreman) Start() {
+	metrics.SetAvailableWorkers(len(f.senders))
+	metrics.SetUsedWorkers(0)
+
 	for _, sender := range f.senders {
 		sender.Start()
 	}
@@ -52,6 +58,9 @@ func (f *Foreman) Stop() {
 	}
 	close(f.quit)
 	logrus.WithField("comp", "foreman").WithField("state", "stopping").Info("foreman stopping")
+
+	metrics.SetUsedWorkers(0)
+	metrics.SetAvailableWorkers(0)
 }
 
 // Assign is our main loop for the Foreman, it takes care of popping the next outgoing messages from our
@@ -68,6 +77,8 @@ func (f *Foreman) Assign() {
 
 	backend := f.server.Backend()
 	lastSleep := false
+
+	go f.RecordWorkerMetrics()
 
 	for true {
 		select {
@@ -102,6 +113,14 @@ func (f *Foreman) Assign() {
 				time.Sleep(250 * time.Millisecond)
 			}
 		}
+	}
+}
+
+func (f *Foreman) RecordWorkerMetrics() {
+	for {
+		metrics.SetAvailableWorkers(len(f.availableSenders))
+		metrics.SetUsedWorkers(len(f.senders) - len(f.availableSenders))
+		time.Sleep(1 * time.Second)
 	}
 }
 
@@ -156,6 +175,21 @@ func (w *Sender) Stop() {
 }
 
 func (w *Sender) sendMessage(msg Msg) {
+	// --- HANDLE MESSAGE ACTION ---
+	if msg.ActionType() == MsgActionTypingIndicator {
+		actionCallCtx, actionCallCancel := context.WithTimeout(context.Background(), time.Second*20)
+		defer actionCallCancel()
+
+		// Set a flag in the context to indicate this is an action
+		actionCallCtx = context.WithValue(actionCallCtx, "is_action", true)
+
+		_, err := w.foreman.server.SendMsgAction(actionCallCtx, msg)
+		if err != nil {
+			fmt.Printf("Error processing message action: %v\n", err)
+		}
+		return
+	}
+
 	log := logrus.WithField("comp", "sender").WithField("sender_id", w.id).WithField("channel_uuid", msg.Channel().UUID())
 
 	var status MsgStatus
@@ -275,6 +309,7 @@ func (w *Sender) sendMessage(msg Msg) {
 		status, err = server.SendMsg(nsendCTX, msg)
 		duration := time.Now().Sub(start)
 		secondDuration := float64(duration) / float64(time.Second)
+		millisecondDuration := float64(duration) / float64(time.Millisecond)
 
 		if err != nil {
 			log.WithError(err).WithField("elapsed", duration).Error("error sending message")
@@ -288,19 +323,61 @@ func (w *Sender) sendMessage(msg Msg) {
 		if status.Status() == MsgErrored || status.Status() == MsgFailed {
 			log.WithField("elapsed", duration).Warning("msg errored")
 			librato.Gauge(fmt.Sprintf("courier.msg_send_error_%s", msg.Channel().ChannelType()), secondDuration)
+			metrics.SetMsgSendErrorByType(msg.Channel().ChannelType().String(), millisecondDuration)
+			metrics.SetMsgSendErrorByUUID(msg.Channel().UUID().UUID, millisecondDuration)
 		} else {
 			log.WithField("elapsed", duration).Info("msg sent")
 			librato.Gauge(fmt.Sprintf("courier.msg_send_%s", msg.Channel().ChannelType()), secondDuration)
+			metrics.SetMsgSendSuccessByType(msg.Channel().ChannelType().String(), millisecondDuration)
+			metrics.SetMsgSendSuccessByUUID(msg.Channel().UUID().UUID, millisecondDuration)
 		}
 
 		sentOk := status.Status() != MsgErrored && status.Status() != MsgFailed
-		if sentOk && w.foreman.server.Billing() != nil {
-			chatsUUID, _ := jsonparser.GetString(msg.Metadata(), "chats_msg_uuid")
-			if msg.Channel().ChannelType() != "WAC" || chatsUUID != "" { // if message is not to a WAC channel or is from a wenichats agent then send to exchange
-				ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
-				fromTicketer := ticketerType != ""
+		if sentOk {
+			if w.foreman.server.Billing() != nil {
+				chatsUUID, _ := jsonparser.GetString(msg.Metadata(), "chats_msg_uuid")
+				if msg.Channel().ChannelType() != "WAC" || chatsUUID != "" {
+					ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
+					fromTicketer := ticketerType != ""
 
-				billingMsg := billing.NewMessage(
+					billingMsg := billing.NewMessage(
+						string(msg.URN().Identity()),
+						"",
+						msg.Channel().UUID().String(),
+						status.ExternalID(),
+						time.Now().Format(time.RFC3339),
+						"O",
+						msg.Channel().ChannelType().String(),
+						msg.Text(),
+						msg.Attachments(),
+						msg.QuickReplies(),
+						fromTicketer,
+						chatsUUID,
+						"",
+					)
+					routingKey := billing.RoutingKeyCreate
+					if msg.Channel().ChannelType() == "WAC" {
+						routingKey = billing.RoutingKeyWAC
+					}
+					w.foreman.server.Billing().SendAsync(billingMsg, routingKey, nil, nil)
+				}
+			}
+
+			isTemplateMessage, metadata := isTemplateMessage(msg)
+
+			if w.foreman.server.Templates() != nil && isTemplateMessage {
+				templatingData := metadata.Templating
+				templateName := templatingData.Template.Name
+				templateUUID := templatingData.Template.UUID
+				templateLanguage := templatingData.Language
+				templateNamespace := templatingData.Namespace
+
+				var templateVariables []string
+				if templatingData.Variables != nil {
+					templateVariables = templatingData.Variables
+				}
+
+				templateMsg := templates.NewTemplateMessage(
 					string(msg.URN().Identity()),
 					"",
 					msg.Channel().UUID().String(),
@@ -309,17 +386,13 @@ func (w *Sender) sendMessage(msg Msg) {
 					"O",
 					msg.Channel().ChannelType().String(),
 					msg.Text(),
-					msg.Attachments(),
-					msg.QuickReplies(),
-					fromTicketer,
-					chatsUUID,
-					"",
+					templateName,
+					templateUUID,
+					templateLanguage,
+					templateNamespace,
+					templateVariables,
 				)
-				routingKey := billing.RoutingKeyCreate
-				if msg.Channel().ChannelType() == "WAC" {
-					routingKey = billing.RoutingKeyWAC
-				}
-				w.foreman.server.Billing().SendAsync(billingMsg, routingKey, nil, nil)
+				w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
 			}
 		}
 	}
@@ -339,12 +412,33 @@ func (w *Sender) sendMessage(msg Msg) {
 		log.WithError(err).Info("error writing msg logs")
 	}
 
-	// write our contact last seen
-	err = backend.WriteContactLastSeen(writeCTX, msg, time.Now())
-	if err != nil {
-		log.WithError(err).Info("error writing contact last seen")
-	}
-
 	// mark our send task as complete
 	backend.MarkOutgoingMsgComplete(writeCTX, msg, status)
+}
+
+// isTemplateMessage checks if a message contains valid template metadata
+func isTemplateMessage(msg Msg) (bool, *templates.TemplateMetadata) {
+	if msg.Metadata() == nil {
+		return false, nil
+	}
+
+	mdJSON := msg.Metadata()
+	metadata := &templates.TemplateMetadata{}
+	err := json.Unmarshal(mdJSON, metadata)
+	if err != nil {
+		return false, nil
+	}
+
+	// Check if templating data exists and has required fields
+	if metadata.Templating == nil {
+		return false, metadata
+	}
+
+	// Verify that essential template fields are present
+	templating := metadata.Templating
+	if templating.Template.Name == "" || templating.Template.UUID == "" || templating.Language == "" {
+		return false, metadata
+	}
+
+	return true, metadata
 }

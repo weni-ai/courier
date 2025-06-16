@@ -1,3 +1,40 @@
+1.29.0
+----------
+ * Refactor model message sending logic to avoid unnecessary logging
+ * Refactor metrics handling
+ * Feat: s3 upload metric
+
+1.28.0
+----------
+ * Implement template support in messaging system
+ * Feat/wac demo
+
+1.27.0
+----------
+ * Feat/prometheus
+ * Enhance Instagram payload processing to ignore comments from the channel itself, preventing potential reply loops
+
+1.26.0
+----------
+ * Add ActionSender interface and MsgActionType for message actions
+
+1.25.0
+----------
+ * Adjust number management with the ninth digit for WhatsApp
+
+1.24.0
+----------
+ * Feat: Save WAC context in Msg metadata
+ * Feat: remove contact last seen write on sender
+
+1.23.1
+----------
+ * Fix contact created with name as identity instead real name on WriteLastSeenOn
+
+1.23.0
+----------
+ * Implement contact last seen feature
+
 1.22.0
 ----------
  * add wenichats msg uuid that be sent to rmq exchange

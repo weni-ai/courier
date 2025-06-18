@@ -1168,3 +1168,9 @@ func (mb *MockBackend) UpdateChannelConfig(ctx context.Context, channel Channel,
 	}
 	return nil
 }
+
+// UpdateChannelConfigByWabaID updates the channel configuration for all channels with matching waba_id
+func (mb *MockBackend) UpdateChannelConfigByWabaID(ctx context.Context, wabaID string, configUpdates map[string]interface{}) error {
+	// For mock implementation, we'll just return nil since we don't have a real database
+	return nil
+}

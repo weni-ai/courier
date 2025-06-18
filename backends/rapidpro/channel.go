@@ -732,7 +732,7 @@ UPDATE channels_channel
 SET config = (config::jsonb || $1::jsonb)::text
 WHERE channel_type = 'WAC' 
 AND is_active = true 
-AND config::jsonb @> jsonb_build_object('wa_waba_id', $2)`
+AND config::jsonb @> jsonb_build_object('wa_waba_id', $2::text)`
 
 // UpdateChannelConfig updates the channel configuration
 func (b *backend) UpdateChannelConfig(ctx context.Context, channel courier.Channel, config map[string]interface{}) error {

@@ -168,6 +168,9 @@ type Channel interface {
 	// CallbackDomain returns the domain that should be used for any callbacks the channel registers
 	CallbackDomain(fallbackDomain string) string
 
+	// Config returns the channel's configuration
+	Config() map[string]interface{}
+
 	ConfigForKey(key string, defaultValue interface{}) interface{}
 	StringConfigForKey(key string, defaultValue string) string
 	BoolConfigForKey(key string, defaultValue bool) bool

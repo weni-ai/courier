@@ -114,6 +114,10 @@ type Backend interface {
 	GetRunEventsByMsgUUIDFromDB(context.Context, string) ([]RunEvent, error)
 
 	GetMessage(context.Context, string) (Msg, error)
+
+	UpdateChannelConfig(context.Context, Channel, map[string]interface{}) error
+
+	UpdateChannelConfigByWabaID(context.Context, string, map[string]interface{}) error
 }
 
 // NewBackend creates the type of backend passed in

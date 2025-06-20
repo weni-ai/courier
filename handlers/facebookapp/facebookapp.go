@@ -1820,10 +1820,18 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		// Check if template category is "MARKETING" in the template category
 		// This is how Meta identifies marketing templates
 		isMarketingTemplate = strings.ToUpper(templating.Template.Category) == "MARKETING"
+		fmt.Printf("Template Debug - Found template: %s, category: %s, isMarketing: %t\n",
+			templating.Template.Name, templating.Template.Category, isMarketingTemplate)
+	} else if err != nil {
+		fmt.Printf("Template Debug - Error getting template: %v\n", err)
+	} else {
+		fmt.Printf("Template Debug - No template found in metadata\n")
 	}
 
 	// Only use marketing messages endpoint if mmlite is enabled AND it's a marketing template
 	useMarketingMessages := mmliteEnabled && isMarketingTemplate
+
+	fmt.Printf("Template Debug - mmlite: %t, useMarketingMessages: %t\n", mmliteEnabled, useMarketingMessages)
 
 	base, _ := url.Parse(graphURL)
 	var path *url.URL
@@ -1854,8 +1862,8 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		// do we have a template?
 		if templating != nil || len(msg.Attachments()) == 0 {
 			if templating != nil {
+				fmt.Printf("Template Debug - Processing template: %s\n", templating.Template.Name)
 				payload.Type = "template"
-
 				template := wacTemplate{Name: templating.Template.Name, Language: &wacLanguage{Policy: "deterministic", Code: templating.Language}}
 				payload.Template = &template
 
@@ -2625,6 +2633,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			zeroIndex = true
 		}
 
+		fmt.Printf("Template Debug - Sending request: type=%s, useMarketing=%t\n", payload.Type, useMarketingMessages)
 		status, respPayload, err := requestWAC(payload, token, msg, status, wacPhoneURL, zeroIndex, useMarketingMessages)
 		if err != nil {
 			return status, err
@@ -3135,8 +3144,10 @@ func fbCalculateSignature(appSecret string, body []byte) (string, error) {
 func (h *handler) getTemplate(msg courier.Msg) (*MsgTemplating, error) {
 	mdJSON := msg.Metadata()
 	if len(mdJSON) == 0 {
+		fmt.Printf("getTemplate Debug - No metadata found\n")
 		return nil, nil
 	}
+	fmt.Printf("getTemplate Debug - Metadata found, length: %d\n", len(mdJSON))
 	metadata := &TemplateMetadata{}
 	err := json.Unmarshal(mdJSON, metadata)
 	if err != nil {

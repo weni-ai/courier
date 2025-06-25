@@ -489,6 +489,11 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 				if err != nil {
 					return nil, fmt.Errorf("error updating channel config with waba_id %s: %v", wabaID, err)
 				}
+
+				err = handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, "", true)
+				if err != nil {
+					courier.LogRequestError(r, nil, fmt.Errorf("could not send account_update webhook: %s", err))
+				}
 			}
 			return nil, fmt.Errorf("template update, so ignore")
 		}

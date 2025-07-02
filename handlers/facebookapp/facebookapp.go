@@ -111,7 +111,6 @@ var integrationWebhookFields = map[string]bool{
 	"message_template_status_update":  true,
 	"template_category_update":        true,
 	"message_template_quality_update": true,
-	"account_update":                  true,
 }
 
 func newHandler(channelType courier.ChannelType, name string, useUUIDRoutes bool) courier.ChannelHandler {

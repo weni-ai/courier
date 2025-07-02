@@ -516,10 +516,14 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 			}
 			return nil, fmt.Errorf("template update, so ignore")
 		} else if payload.Entry[0].Changes[0].Field == "account_update" {
+			fmt.Printf("payload: %+v\n", payload)
+
 			// Handle account_update webhook type
 			if payload.Entry[0].Changes[0].Value.Event == "AD_ACCOUNT_LINKED" && payload.Entry[0].Changes[0].Value.WabaInfo != nil {
 				wabaID := payload.Entry[0].Changes[0].Value.WabaInfo.WabaID
 				adAccountID := payload.Entry[0].Changes[0].Value.WabaInfo.AdAccountID
+
+				fmt.Printf("Processing AD_ACCOUNT_LINKED for wabaID: %s, adAccountID: %s\n", wabaID, adAccountID)
 
 				// Update channel config with ad_account_id and mmlite for all channels with matching waba_id
 				err := h.Backend().UpdateChannelConfigByWabaID(ctx, wabaID, map[string]interface{}{
@@ -527,13 +531,20 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 					"mmlite":        true,
 				})
 				if err != nil {
-					return nil, fmt.Errorf("error updating channel config with waba_id %s: %v", wabaID, err)
+					fmt.Printf("Error updating channel config with waba_id %s: %v\n", wabaID, err)
+					// Log error but don't fail the request - continue processing
+					courier.LogRequestError(r, nil, fmt.Errorf("error updating channel config with waba_id %s: %v", wabaID, err))
+				} else {
+					fmt.Printf("Successfully updated channel config for waba_id: %s\n", wabaID)
 				}
 
 				err = handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, "", true)
 				if err != nil {
 					courier.LogRequestError(r, nil, fmt.Errorf("could not send account_update webhook: %s", err))
 				}
+			} else {
+				fmt.Printf("AD_ACCOUNT_LINKED webhook received but conditions not met - Event: %s, WabaInfo: %v\n",
+					payload.Entry[0].Changes[0].Value.Event, payload.Entry[0].Changes[0].Value.WabaInfo)
 			}
 			return nil, fmt.Errorf("template update, so ignore")
 		}

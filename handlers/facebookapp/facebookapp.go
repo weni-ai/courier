@@ -100,6 +100,13 @@ const (
 	InteractiveProductCatalogMessageType = "catalog_message"
 )
 
+var integrationWebhookFields = map[string]bool{
+	"message_template_status_update":  true,
+	"template_category_update":        true,
+	"message_template_quality_update": true,
+	"account_update":                  true,
+}
+
 func newHandler(channelType courier.ChannelType, name string, useUUIDRoutes bool) courier.ChannelHandler {
 	return &handler{handlers.NewBaseHandlerWithParams(channelType, name, useUUIDRoutes)}
 }
@@ -463,37 +470,34 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 		if len(payload.Entry[0].Changes) == 0 {
 			return nil, fmt.Errorf("no changes found")
 		}
-		if payload.Entry[0].Changes[0].Field == "message_template_status_update" || payload.Entry[0].Changes[0].Field == "template_category_update" || payload.Entry[0].Changes[0].Field == "message_template_quality_update" {
+		if integrationWebhookFields[payload.Entry[0].Changes[0].Field] {
 			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, "", true)
 			if er != nil {
 				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
 			}
+
+			if payload.Entry[0].Changes[0].Field == "account_update" {
+				// Handle account_update webhook type
+				if payload.Entry[0].Changes[0].Value.Event == "AD_ACCOUNT_LINKED" && payload.Entry[0].Changes[0].Value.WabaInfo != nil {
+					wabaID := payload.Entry[0].Changes[0].Value.WabaInfo.WabaID
+					adAccountID := payload.Entry[0].Changes[0].Value.WabaInfo.AdAccountID
+	
+					// Update channel config with ad_account_id and mmlite for all channels with matching waba_id
+					err := h.Backend().UpdateChannelConfigByWabaID(ctx, wabaID, map[string]interface{}{
+						"ad_account_id": adAccountID,
+						"mmlite":        true,
+					})
+					if err != nil {
+						return nil, fmt.Errorf("error updating channel config with waba_id %s: %v", wabaID, err)
+					}
+				}
+			}
+			
 			return nil, fmt.Errorf("template update, so ignore")
 		} else if payload.Entry[0].Changes[0].Field == "flows" {
 			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrlFlows, h.Server().Config().WhatsappCloudWebhooksTokenFlows, false)
 			if er != nil {
 				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
-			}
-			return nil, fmt.Errorf("template update, so ignore")
-		} else if payload.Entry[0].Changes[0].Field == "account_update" {
-			// Handle account_update webhook type
-			if payload.Entry[0].Changes[0].Value.Event == "AD_ACCOUNT_LINKED" && payload.Entry[0].Changes[0].Value.WabaInfo != nil {
-				wabaID := payload.Entry[0].Changes[0].Value.WabaInfo.WabaID
-				adAccountID := payload.Entry[0].Changes[0].Value.WabaInfo.AdAccountID
-
-				// Update channel config with ad_account_id and mmlite for all channels with matching waba_id
-				err := h.Backend().UpdateChannelConfigByWabaID(ctx, wabaID, map[string]interface{}{
-					"ad_account_id": adAccountID,
-					"mmlite":        true,
-				})
-				if err != nil {
-					return nil, fmt.Errorf("error updating channel config with waba_id %s: %v", wabaID, err)
-				}
-
-				err = handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, "", true)
-				if err != nil {
-					courier.LogRequestError(r, nil, fmt.Errorf("could not send account_update webhook: %s", err))
-				}
 			}
 			return nil, fmt.Errorf("template update, so ignore")
 		}

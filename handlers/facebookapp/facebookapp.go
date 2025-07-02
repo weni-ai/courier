@@ -515,6 +515,27 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
 			}
 			return nil, fmt.Errorf("template update, so ignore")
+		} else if payload.Entry[0].Changes[0].Field == "account_update" {
+			// Handle account_update webhook type
+			if payload.Entry[0].Changes[0].Value.Event == "AD_ACCOUNT_LINKED" && payload.Entry[0].Changes[0].Value.WabaInfo != nil {
+				wabaID := payload.Entry[0].Changes[0].Value.WabaInfo.WabaID
+				adAccountID := payload.Entry[0].Changes[0].Value.WabaInfo.AdAccountID
+
+				// Update channel config with ad_account_id and mmlite for all channels with matching waba_id
+				err := h.Backend().UpdateChannelConfigByWabaID(ctx, wabaID, map[string]interface{}{
+					"ad_account_id": adAccountID,
+					"mmlite":        true,
+				})
+				if err != nil {
+					return nil, fmt.Errorf("error updating channel config with waba_id %s: %v", wabaID, err)
+				}
+
+				err = handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, "", true)
+				if err != nil {
+					courier.LogRequestError(r, nil, fmt.Errorf("could not send account_update webhook: %s", err))
+				}
+			}
+			return nil, fmt.Errorf("template update, so ignore")
 		}
 		channelAddress = payload.Entry[0].Changes[0].Value.Metadata.PhoneNumberID
 		if channelAddress == "" {
@@ -688,32 +709,6 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 		}
 
 		for _, change := range entry.Changes {
-			// Handle account_update webhook type
-			if change.Field == "account_update" && change.Value.Event == "AD_ACCOUNT_LINKED" && change.Value.WabaInfo != nil {
-				// Update channel config with ad_account_id
-				config := channel.Config()
-				config["ad_account_id"] = change.Value.WabaInfo.AdAccountID
-
-				err := h.Backend().UpdateChannelConfig(ctx, channel, config)
-				if err != nil {
-					return nil, nil, fmt.Errorf("error updating channel config with ad_account_id: %v", err)
-				}
-
-				urn, err := urns.NewWhatsAppURN(change.Value.From.ID)
-				if err != nil {
-					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
-				}
-
-				// Add event to track the account update
-				event := h.Backend().NewChannelEvent(channel, "account_update", urn)
-				event.WithExtra(map[string]interface{}{
-					"ad_account_id":     change.Value.WabaInfo.AdAccountID,
-					"owner_business_id": change.Value.WabaInfo.OwnerBusinessID,
-				})
-				events = append(events, event)
-
-				continue
-			}
 
 			for _, contact := range change.Value.Contacts {
 				contactNames[contact.WaID] = contact.Profile.Name
@@ -1960,6 +1955,8 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		// Check if template category is "MARKETING" in the template category
 		// This is how Meta identifies marketing templates
 		isMarketingTemplate = strings.ToUpper(templating.Template.Category) == "MARKETING"
+	} else if err != nil {
+		return nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())
 	}
 
 	// Only use marketing messages endpoint if mmlite is enabled AND it's a marketing template
@@ -1995,7 +1992,6 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		if templating != nil || len(msg.Attachments()) == 0 {
 			if templating != nil {
 				payload.Type = "template"
-
 				template := wacTemplate{Name: templating.Template.Name, Language: &wacLanguage{Policy: "deterministic", Code: templating.Language}}
 				payload.Template = &template
 

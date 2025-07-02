@@ -727,6 +727,13 @@ UPDATE channels_channel
 SET config = $1
 WHERE uuid = $2 AND is_active = true`
 
+const updateChannelConfigByWabaIDSQL = `
+UPDATE channels_channel 
+SET config = (config::jsonb || $1::jsonb)::text
+WHERE channel_type = 'WAC' 
+AND is_active = true 
+AND config::jsonb @> jsonb_build_object('wa_waba_id', $2::text)`
+
 // UpdateChannelConfig updates the channel configuration
 func (b *backend) UpdateChannelConfig(ctx context.Context, channel courier.Channel, config map[string]interface{}) error {
 	// Convert config to JSON
@@ -745,6 +752,33 @@ func (b *backend) UpdateChannelConfig(ctx context.Context, channel courier.Chann
 	clearLocalChannel(channel.UUID())
 	if channel.ChannelAddress() != courier.NilChannelAddress {
 		clearLocalChannelByAddress(channel.ChannelAddress())
+	}
+
+	return nil
+}
+
+// UpdateChannelConfigByWabaID updates the channel configuration for all channels with matching waba_id
+func (b *backend) UpdateChannelConfigByWabaID(ctx context.Context, wabaID string, configUpdates map[string]interface{}) error {
+	// Convert config updates to JSON
+	configJSON, err := json.Marshal(configUpdates)
+	if err != nil {
+		return fmt.Errorf("error marshaling channel config updates: %v", err)
+	}
+
+	// Update all channels with matching waba_id
+	result, err := b.db.ExecContext(ctx, updateChannelConfigByWabaIDSQL, configJSON, wabaID)
+	if err != nil {
+		return fmt.Errorf("error updating channel configs by waba_id: %v", err)
+	}
+
+	// Check how many rows were affected
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("error getting rows affected: %v", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("no channels found with waba_id: %s", wabaID)
 	}
 
 	return nil

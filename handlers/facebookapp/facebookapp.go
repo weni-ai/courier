@@ -271,6 +271,7 @@ type moPayload struct {
 						SourceURL  string    `json:"source_url"`
 						Image      *wacMedia `json:"image"`
 						Video      *wacMedia `json:"video"`
+						CtwaClid   string    `json:"ctwa_clid"`
 					} `json:"referral"`
 					Order struct {
 						CatalogID    string `json:"catalog_id"`
@@ -734,6 +735,14 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					}
 					metadata := json.RawMessage(referral)
 					event.WithMetadata(metadata)
+
+					if msg.Referral.CtwaClid != "" {
+						// Write ctwa data to database
+						err := h.Backend().WriteCtwaToDB(ctx, msg.Referral.CtwaClid, urn, date, channel.UUID(), entry.ID)
+						if err != nil {
+							courier.LogRequestError(r, channel, fmt.Errorf("error writing ctwa data: %v", err))
+						}
+					}
 				}
 
 				if msg.Interactive.Type == "nfm_reply" {

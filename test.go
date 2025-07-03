@@ -263,6 +263,12 @@ func (mb *MockBackend) WriteContactLastSeen(ctx context.Context, msg Msg, lastSe
 	return nil
 }
 
+// WriteCtwaToDB writes the passed in ctwa data to our backend (mock implementation)
+func (mb *MockBackend) WriteCtwaToDB(ctx context.Context, ctwaClid string, contactUrn urns.URN, timestamp time.Time, channelUUID ChannelUUID, waba string) error {
+	// For the mock backend, we just return nil as this is primarily for testing
+	return nil
+}
+
 // NewChannelEvent creates a new channel event with the passed in parameters
 func (mb *MockBackend) NewChannelEvent(channel Channel, eventType ChannelEventType, urn urns.URN) ChannelEvent {
 	return &mockChannelEvent{

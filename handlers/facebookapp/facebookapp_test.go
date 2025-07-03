@@ -1141,6 +1141,15 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		SendPrep:    setSendURL,
 		ContactURNs: map[string]bool{"whatsapp:5511987654321": true, "whatsapp:551187654321": true},
 	},
+	{Label: "Marketing Template Send - mmlite disabled",
+		Text:   "marketing template message",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "marketing_promo", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3", "category": "MARKETING" }, "language": "eng", "variables": ["Customer", "50%"]}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"marketing_promo","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","text":"Customer"},{"type":"text","text":"50%"}]}]}}`,
+		SendPrep:    setSendURL,
+	},
 }
 
 var CachedSendTestCasesWAC = []ChannelSendTestCase{
@@ -1325,10 +1334,11 @@ func TestSending(t *testing.T) {
 	var ChannelFBA = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "FBA", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
 	var ChannelIG = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "IG", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
 	var ChannelWAC = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WAC", "12345_ID", "", map[string]interface{}{courier.ConfigAuthToken: "a123", "catalog_id": "c4t4l0g-1D"})
+	var ChannelWACMarketing = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WAC", "12345_ID", "", map[string]interface{}{courier.ConfigAuthToken: "a123", "mmlite": true})
 	RunChannelSendTestCases(t, ChannelFBA, newHandler("FBA", "Facebook", false), SendTestCasesFBA, nil)
 	RunChannelSendTestCases(t, ChannelIG, newHandler("IG", "Instagram", false), SendTestCasesIG, nil)
 	RunChannelSendTestCases(t, ChannelWAC, newHandler("WAC", "Cloud API WhatsApp", false), SendTestCasesWAC, nil)
-
+	RunChannelSendTestCases(t, ChannelWACMarketing, newHandler("WAC", "Cloud API WhatsApp", false), MarketingMessageSendTestCasesWAC, nil)
 }
 
 func TestSigning(t *testing.T) {
@@ -1351,4 +1361,25 @@ func TestSigning(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, tc.Signature, sig, "%d: mismatched signature", i)
 	}
+}
+
+var MarketingMessageSendTestCasesWAC = []ChannelSendTestCase{
+	{Label: "Marketing Template Send - mmlite enabled",
+		Text:   "marketing template message",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "marketing_promo", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3", "category": "MARKETING" }, "language": "eng", "variables": ["Customer", "50%"]}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
+		RequestBody: `{"message_activity_sharing":true,"messaging_product":"whatsapp","recipient_type":"individual","template":{"components":[{"parameters":[{"text":"Customer","type":"text"},{"text":"50%","type":"text"}],"type":"body"}],"language":{"code":"en","policy":"deterministic"},"name":"marketing_promo"},"to":"250788123123","type":"template"}`,
+		SendPrep:    setSendURL,
+	},
+	{Label: "Non-Marketing Template Send - mmlite enabled",
+		Text:   "normal template message",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "normal_template", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3", "category": "NORMAL" }, "language": "eng", "variables": ["Customer", "Info"]}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"normal_template","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","text":"Customer"},{"type":"text","text":"Info"}]}]}}`,
+		SendPrep:    setSendURL,
+	},
 }

@@ -88,6 +88,11 @@ type moTemplatesPayload struct {
 				FlowID                  string `json:"flow_id,omitempty"`
 				OldStatus               string `json:"old_status,omitempty"`
 				NewStatus               string `json:"new_status,omitempty"`
+				WabaInfo                struct {
+					WabaID        string `json:"waba_id,omitempty"`
+					AdAccountID   string `json:"ad_account_id,omitempty"`
+					AdAccountName string `json:"ad_account_name,omitempty"`
+				} `json:"waba_info,omitempty"`
 			} `json:"value,omitempty"`
 		} `json:"changes"`
 	} `json:"entry"`

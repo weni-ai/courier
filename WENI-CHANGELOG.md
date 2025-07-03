@@ -1,3 +1,7 @@
+1.31.0
+----------
+ * Enhance WhatsApp message handling to support marketing templates
+
 1.30.0
 ----------
  * Add status field to Message struct and update related functions

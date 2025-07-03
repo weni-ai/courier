@@ -522,6 +522,22 @@ func (b *backend) WriteContactLastSeen(ctx context.Context, msg courier.Msg, las
 	return nil
 }
 
+// WriteCtwaToDB writes the passed in ctwa data to our backend
+func (b *backend) WriteCtwaToDB(ctx context.Context, ctwaClid string, contactUrn urns.URN, timestamp time.Time, channelUUID courier.ChannelUUID, waba string) error {
+	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
+	defer cancel()
+
+	ctwa := &DBCtwa{
+		CtwaClid:    ctwaClid,
+		ContactUrn:  contactUrn.String(),
+		Timestamp:   timestamp,
+		ChannelUUID: channelUUID.String(),
+		Waba:        waba,
+	}
+
+	return writeCtwa(timeout, b, ctwa)
+}
+
 // Check if external ID has been seen in a period
 func (b *backend) CheckExternalIDSeen(msg courier.Msg) courier.Msg {
 	var prevUUID = checkExternalIDSeen(b, msg)

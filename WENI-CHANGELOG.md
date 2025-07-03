@@ -1,3 +1,7 @@
+1.30.0
+----------
+ * Add status field to Message struct and update related functions
+
 1.29.0
 ----------
  * Refactor model message sending logic to avoid unnecessary logging

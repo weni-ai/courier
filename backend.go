@@ -72,6 +72,9 @@ type Backend interface {
 	// WriteContactLastSeen writes the passed in contact last seen to our backend
 	WriteContactLastSeen(context.Context, Msg, time.Time) error
 
+	// WriteCtwaToDB writes the passed in ctwa data to our backend
+	WriteCtwaToDB(context.Context, string, urns.URN, time.Time, ChannelUUID, string) error
+
 	// PopNextOutgoingMsg returns the next message that needs to be sent, callers should call MarkOutgoingMsgComplete with the
 	// returned message when they have dealt with the message (regardless of whether it was sent or not)
 	PopNextOutgoingMsg(context.Context) (Msg, error)

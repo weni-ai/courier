@@ -287,6 +287,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 			SourceType string `json:"source_type"`
 			SourceID   string `json:"source_id"`
 			SourceURL  string `json:"source_url"`
+			CtwaClid   string `json:"ctwa_clid"`
 			Image      *struct {
 				Caption  string `json:"caption"`
 				Filename string `json:"filename"`
@@ -301,7 +302,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 				Mimetype string `json:"mime_type"`
 				SHA256   string `json:"sha256"`
 			} `json:"video"`
-		}{Headline: "Our new product", Body: "This is a great product", SourceType: "SOURCE_TYPE", SourceID: "SOURCE_ID", SourceURL: "SOURCE_URL", Image: nil, Video: nil}),
+		}{Headline: "Our new product", Body: "This is a great product", SourceType: "SOURCE_TYPE", SourceID: "SOURCE_ID", SourceURL: "SOURCE_URL", Image: nil, Video: nil, CtwaClid: ""}),
 		PrepRequest: addValidSignatureWAC},
 
 	{Label: "Receive Order WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/orderWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,

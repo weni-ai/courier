@@ -1,3 +1,7 @@
+1.32.0
+----------
+ * Save data from click to whatsapp id
+
 1.31.0
 ----------
  * Enhance WhatsApp message handling to support marketing templates

@@ -93,6 +93,7 @@ func TestBillingResilientClient(t *testing.T) {
 	msg := NewMessage(
 		"telegram:123456789",
 		"02a6abf4-2145-4a2d-bf71-62d4039a2586",
+		"John Doe",
 		"64a75af3-7e8d-41a5-8ef8-c273056c4fca",
 		time.Now().Format(time.RFC3339),
 		msgUUID.String(),
@@ -163,6 +164,7 @@ func TestBillingResilientClientSendAsync(t *testing.T) {
 	msg := NewMessage(
 		"telegram:123456789",
 		"02a6abf4-2145-4a2d-bf71-62d4039a2586",
+		"John Doe",
 		"64a75af3-7e8d-41a5-8ef8-c273056c4fca",
 		time.Now().Format(time.RFC3339),
 		msgUUID.String(),
@@ -234,6 +236,7 @@ func TestBillingResilientClientSendAsyncWithPanic(t *testing.T) {
 	msg := NewMessage(
 		"telegram:123456789",
 		"02a6abf4-2145-4a2d-bf71-62d4039a2586",
+		"John Doe",
 		"64a75af3-7e8d-41a5-8ef8-c273056c4fca",
 		time.Now().Format(time.RFC3339),
 		msgUUID.String(),

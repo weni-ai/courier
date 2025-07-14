@@ -332,6 +332,9 @@ func (w *Sender) sendMessage(msg Msg) {
 			metrics.SetMsgSendSuccessByUUID(msg.Channel().UUID().UUID, millisecondDuration)
 		}
 
+		contactName := msg.ContactName()
+		log.WithField("contact_name", contactName).Info("contact name")
+
 		sentOk := status.Status() != MsgErrored && status.Status() != MsgFailed
 		if sentOk {
 			if w.foreman.server.Billing() != nil {
@@ -343,6 +346,7 @@ func (w *Sender) sendMessage(msg Msg) {
 					billingMsg := billing.NewMessage(
 						string(msg.URN().Identity()),
 						"",
+						msg.ContactName(),
 						msg.Channel().UUID().String(),
 						status.ExternalID(),
 						time.Now().Format(time.RFC3339),

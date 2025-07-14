@@ -29,6 +29,7 @@ const (
 type Message struct {
 	ContactURN   string   `json:"contact_urn,omitempty"`
 	ContactUUID  string   `json:"contact_uuid,omitempty"`
+	Name         string   `json:"name,omitempty"`
 	ChannelUUID  string   `json:"channel_uuid,omitempty"`
 	MessageID    string   `json:"message_id,omitempty"`
 	MessageDate  string   `json:"message_date,omitempty"`
@@ -43,10 +44,11 @@ type Message struct {
 }
 
 // Create a new message
-func NewMessage(contactURN, contactUUID, channelUUID, messageID, messageDate, direction, channelType, text string, attachments, quickreplies []string, fromTicketer bool, chatsUUID string, status string) Message {
+func NewMessage(contactURN, contactUUID, name, channelUUID, messageID, messageDate, direction, channelType, text string, attachments, quickreplies []string, fromTicketer bool, chatsUUID string, status string) Message {
 	return Message{
 		ContactURN:   contactURN,
 		ContactUUID:  contactUUID,
+		Name:         name,
 		ChannelUUID:  channelUUID,
 		MessageID:    messageID,
 		MessageDate:  messageDate,

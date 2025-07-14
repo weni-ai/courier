@@ -343,6 +343,7 @@ func (w *Sender) sendMessage(msg Msg) {
 					billingMsg := billing.NewMessage(
 						string(msg.URN().Identity()),
 						"",
+						msg.ContactName(),
 						msg.Channel().UUID().String(),
 						status.ExternalID(),
 						time.Now().Format(time.RFC3339),

@@ -482,7 +482,7 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 				if payload.Entry[0].Changes[0].Value.Event == "AD_ACCOUNT_LINKED" && payload.Entry[0].Changes[0].Value.WabaInfo != nil {
 					wabaID := payload.Entry[0].Changes[0].Value.WabaInfo.WabaID
 					adAccountID := payload.Entry[0].Changes[0].Value.WabaInfo.AdAccountID
-	
+
 					// Update channel config with ad_account_id and mmlite for all channels with matching waba_id
 					err := h.Backend().UpdateChannelConfigByWabaID(ctx, wabaID, map[string]interface{}{
 						"ad_account_id": adAccountID,
@@ -493,7 +493,7 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 					}
 				}
 			}
-			
+
 			return nil, fmt.Errorf("template update, so ignore")
 		} else if payload.Entry[0].Changes[0].Field == "flows" {
 			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrlFlows, h.Server().Config().WhatsappCloudWebhooksTokenFlows, false)
@@ -879,6 +879,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 							billingMsg := billing.NewMessage(
 								string(urn.Identity()),
 								"",
+								contactNames[status.RecipientID],
 								channel.UUID().String(),
 								status.ID,
 								time.Now().Format(time.RFC3339),

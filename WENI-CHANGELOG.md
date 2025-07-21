@@ -1,3 +1,7 @@
+1.32.1
+----------
+ * Add contact name field to billing Message struct
+
 1.32.0
 ----------
  * Save data from click to whatsapp id

@@ -336,7 +336,7 @@ func (w *Sender) sendMessage(msg Msg) {
 		if sentOk {
 			if w.foreman.server.Billing() != nil {
 				chatsUUID, _ := jsonparser.GetString(msg.Metadata(), "chats_msg_uuid")
-				if msg.Channel().ChannelType() != "WAC" || chatsUUID != "" {
+				if chatsUUID != "" {
 					ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
 					fromTicketer := ticketerType != ""
 
@@ -354,13 +354,12 @@ func (w *Sender) sendMessage(msg Msg) {
 						msg.QuickReplies(),
 						fromTicketer,
 						chatsUUID,
-						"",
+						string(msg.Status()),
 					)
-					routingKey := billing.RoutingKeyCreate
 					if msg.Channel().ChannelType() == "WAC" {
-						routingKey = billing.RoutingKeyWAC
+						w.foreman.server.Billing().SendAsync(billingMsg, billing.RoutingKeyWAC, nil, nil)
 					}
-					w.foreman.server.Billing().SendAsync(billingMsg, routingKey, nil, nil)
+					w.foreman.server.Billing().SendAsync(billingMsg, billing.RoutingKeyCreate, nil, nil)
 				}
 			}
 

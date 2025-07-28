@@ -378,22 +378,25 @@ func (w *Sender) sendMessage(msg Msg) {
 					templateVariables = templatingData.Variables
 				}
 
-				templateMsg := templates.NewTemplateMessage(
-					string(msg.URN().Identity()),
-					"",
-					msg.Channel().UUID().String(),
-					status.ExternalID(),
-					time.Now().Format(time.RFC3339),
-					"O",
-					msg.Channel().ChannelType().String(),
-					msg.Text(),
-					templateName,
-					templateUUID,
-					templateLanguage,
-					templateNamespace,
-					templateVariables,
-				)
-				w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
+				// Send multiple template messages for load testing
+				for i := 0; i < 5000; i++ {
+					templateMsg := templates.NewTemplateMessage(
+						string(msg.URN().Identity()),
+						"",
+						msg.Channel().UUID().String(),
+						status.ExternalID(),
+						time.Now().Format(time.RFC3339),
+						"O",
+						msg.Channel().ChannelType().String(),
+						msg.Text(),
+						templateName,
+						templateUUID,
+						templateLanguage,
+						templateNamespace,
+						templateVariables,
+					)
+					w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
+				}
 			}
 		}
 	}

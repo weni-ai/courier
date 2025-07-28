@@ -511,14 +511,10 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 			}
 
 			if payload.Entry[0].Changes[0].Field == "account_update" {
-				fmt.Printf("payload: %+v\n", payload)
-
 				// Handle account_update webhook type
 				if payload.Entry[0].Changes[0].Value.Event == "AD_ACCOUNT_LINKED" && payload.Entry[0].Changes[0].Value.WabaInfo != nil {
 					wabaID := payload.Entry[0].Changes[0].Value.WabaInfo.WabaID
 					adAccountID := payload.Entry[0].Changes[0].Value.WabaInfo.AdAccountID
-
-					fmt.Printf("Processing AD_ACCOUNT_LINKED for wabaID: %s, adAccountID: %s\n", wabaID, adAccountID)
 
 					// Update channel config with ad_account_id and mmlite for all channels with matching waba_id
 					err := h.Backend().UpdateChannelConfigByWabaID(ctx, wabaID, map[string]interface{}{
@@ -526,18 +522,12 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 						"mmlite":        true,
 					})
 					if err != nil {
-						fmt.Printf("Error updating channel config with waba_id %s: %v\n", wabaID, err)
-						// Log error but don't fail the request - continue processing
-						courier.LogRequestError(r, nil, fmt.Errorf("error updating channel config with waba_id %s: %v", wabaID, err))
-					} else {
-						fmt.Printf("Successfully updated channel config for waba_id: %s\n", wabaID)
+						return nil, fmt.Errorf("error updating channel config with waba_id %s: %v", wabaID, err)
 					}
-				} else {
-					fmt.Printf("AD_ACCOUNT_LINKED webhook received but conditions not met - Event: %s, WabaInfo: %v\n",
-						payload.Entry[0].Changes[0].Value.Event, payload.Entry[0].Changes[0].Value.WabaInfo)
 				}
 			}
-			return nil, fmt.Errorf("template update, so ignore") // todo: fix error return solution
+
+			return nil, fmt.Errorf("template update, so ignore")
 		} else if payload.Entry[0].Changes[0].Field == "flows" {
 			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrlFlows, h.Server().Config().WhatsappCloudWebhooksTokenFlows, false)
 			if er != nil {
@@ -939,6 +929,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 							billingMsg := billing.NewMessage(
 								string(urn.Identity()),
 								"",
+								contactNames[status.RecipientID],
 								channel.UUID().String(),
 								status.ID,
 								time.Now().Format(time.RFC3339),

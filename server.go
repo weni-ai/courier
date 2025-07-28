@@ -21,8 +21,8 @@ import (
 	"github.com/go-chi/chi/middleware"
 	"github.com/jmoiron/sqlx"
 	"github.com/nyaruka/courier/billing"
-	"github.com/nyaruka/courier/templates"
 	"github.com/nyaruka/courier/metrics"
+	"github.com/nyaruka/courier/templates"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/storage"
 	"github.com/nyaruka/librato"
@@ -618,6 +618,7 @@ func handleBilling(s *server, msg Msg) error {
 	billingMsg := billing.NewMessage(
 		string(msg.URN().Identity()),
 		"",
+		msg.ContactName(),
 		msg.Channel().UUID().String(),
 		msg.ExternalID(),
 		time.Now().Format(time.RFC3339),

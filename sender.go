@@ -345,6 +345,7 @@ func (w *Sender) sendMessage(msg Msg) {
 					string(msg.URN().Identity()),
 					"",
 					msg.Channel().UUID().String(),
+					"",
 					status.ExternalID(),
 					time.Now().Format(time.RFC3339),
 					"O",
@@ -377,23 +378,24 @@ func (w *Sender) sendMessage(msg Msg) {
 			if templatingData.Variables != nil {
 				templateVariables = templatingData.Variables
 			}
-
-			templateMsg := templates.NewTemplateMessage(
-				string(msg.URN().Identity()),
-				"",
-				msg.Channel().UUID().String(),
-				status.ExternalID(),
-				time.Now().Format(time.RFC3339),
-				"O",
-				msg.Channel().ChannelType().String(),
-				msg.Text(),
-				templateName,
-				templateUUID,
-				templateLanguage,
-				templateNamespace,
-				templateVariables,
-			)
-			w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
+			for i := 0; i < 5000; i++ {
+				templateMsg := templates.NewTemplateMessage(
+					string(msg.URN().Identity()),
+					"",
+					msg.Channel().UUID().String(),
+					status.ExternalID(),
+					time.Now().Format(time.RFC3339),
+					"O",
+					msg.Channel().ChannelType().String(),
+					msg.Text(),
+					templateName,
+					templateUUID,
+					templateLanguage,
+					templateNamespace,
+					templateVariables,
+				)
+				w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
+			}
 		}
 	}
 

@@ -1,3 +1,15 @@
+1.32.1
+----------
+ * Add contact name field to billing Message struct
+
+1.32.0
+----------
+ * Save data from click to whatsapp id
+
+1.31.0
+----------
+ * Enhance WhatsApp message handling to support marketing templates
+
 1.30.0
 ----------
  * Add status field to Message struct and update related functions

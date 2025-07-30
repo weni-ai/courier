@@ -134,6 +134,7 @@ func NewRMQBillingResilientClient(url string, retryAttempts int, retryDelay int,
 
 func (c *rabbitmqRetryClient) Send(msg Message, routingKey string) error {
 	fmt.Println("--------------------------------")
+	fmt.Println("Send")
 	fmt.Println("Message ID:", msg.MessageID)
 	fmt.Printf("MSG: %v\n", msg)
 	fmt.Println("--------------------------------")
@@ -155,6 +156,10 @@ func (c *rabbitmqRetryClient) Send(msg Message, routingKey string) error {
 }
 
 func (c *rabbitmqRetryClient) SendAsync(msg Message, routingKey string, pre func(), post func()) {
+	fmt.Println("--------------------------------")
+	fmt.Println("Message ID:", msg.MessageID)
+	fmt.Printf("MSG: %v\n", msg)
+	fmt.Println("--------------------------------")
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {

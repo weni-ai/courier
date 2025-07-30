@@ -336,31 +336,29 @@ func (w *Sender) sendMessage(msg Msg) {
 		if sentOk {
 			if w.foreman.server.Billing() != nil {
 				chatsUUID, _ := jsonparser.GetString(msg.Metadata(), "chats_msg_uuid")
-				if chatsUUID != "" {
-					ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
-					fromTicketer := ticketerType != ""
+				ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
+				fromTicketer := ticketerType != ""
 
-					billingMsg := billing.NewMessage(
-						string(msg.URN().Identity()),
-						"",
-						msg.ContactName(),
-						msg.Channel().UUID().String(),
-						status.ExternalID(),
-						time.Now().Format(time.RFC3339),
-						"O",
-						msg.Channel().ChannelType().String(),
-						msg.Text(),
-						msg.Attachments(),
-						msg.QuickReplies(),
-						fromTicketer,
-						chatsUUID,
-						string(msg.Status()),
-					)
-					if msg.Channel().ChannelType() == "WAC" {
-						w.foreman.server.Billing().SendAsync(billingMsg, billing.RoutingKeyWAC, nil, nil)
-					}
-					w.foreman.server.Billing().SendAsync(billingMsg, billing.RoutingKeyCreate, nil, nil)
+				billingMsg := billing.NewMessage(
+					string(msg.URN().Identity()),
+					"",
+					msg.ContactName(),
+					msg.Channel().UUID().String(),
+					status.ExternalID(),
+					time.Now().Format(time.RFC3339),
+					"O",
+					msg.Channel().ChannelType().String(),
+					msg.Text(),
+					msg.Attachments(),
+					msg.QuickReplies(),
+					fromTicketer,
+					chatsUUID,
+					string(msg.Status()),
+				)
+				if msg.Channel().ChannelType() == "WAC" {
+					w.foreman.server.Billing().SendAsync(billingMsg, billing.RoutingKeyWAC, nil, nil)
 				}
+				w.foreman.server.Billing().SendAsync(billingMsg, billing.RoutingKeyCreate, nil, nil)
 			}
 
 			isTemplateMessage, metadata := isTemplateMessage(msg)

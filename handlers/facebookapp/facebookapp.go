@@ -940,7 +940,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 								nil,
 								false,
 								"",
-								status.Status,
+								string(msgStatus),
 							)
 							h.Server().Billing().SendAsync(billingMsg, billing.RoutingKeyUpdate, nil, nil)
 						}

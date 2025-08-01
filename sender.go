@@ -202,7 +202,18 @@ func (w *Sender) sendMessage(msg Msg) {
 
 	log = log.WithField("msg_id", msg.ID().String()).WithField("msg_text", msg.Text()).WithField("msg_urn", msg.URN().Identity())
 	if len(msg.Attachments()) > 0 {
+		var attachments []string
 		log = log.WithField("attachments", msg.Attachments())
+		for _, att := range msg.Attachments() {
+			attType, attURL := SplitAttachment(att)
+			url, err := PresignedURL(attURL, server.Config().AWSAccessKeyID, server.Config().AWSSecretAccessKey, server.Config().S3Region, server.Config().S3PresignedURLExpiration)
+			if err != nil {
+				log.WithError(err).Error("error converting attachment for pre-signed url")
+			}
+			att = attType + ":" + url
+			attachments = append(attachments, att)
+		}
+		msg = msg.WithPresignedURL(attachments)
 	}
 	if len(msg.QuickReplies()) > 0 {
 		log = log.WithField("quick_replies", msg.QuickReplies())

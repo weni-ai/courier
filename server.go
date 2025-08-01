@@ -201,6 +201,9 @@ func (s *server) Stop() error {
 	s.stopped = true
 	close(s.stopChan)
 
+	// stop our AWS session cache
+	globalSessionCache.Stop()
+
 	// stop our backend
 	err := s.backend.Stop()
 	if err != nil {

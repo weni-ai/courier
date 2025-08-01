@@ -667,7 +667,11 @@ func (m *mockMsg) WithAttachment(url string) Msg {
 	return m
 }
 func (m *mockMsg) WithMetadata(metadata json.RawMessage) Msg { m.metadata = metadata; return m }
-func (m *mockMsg) Status() MsgStatusValue                    { return "" }
+func (m *mockMsg) WithPresignedURL(urls []string) Msg {
+	m.attachments = urls
+	return m
+}
+func (m *mockMsg) Status() MsgStatusValue { return "" }
 
 func (m *mockMsg) Header() string {
 	if m.metadata == nil {

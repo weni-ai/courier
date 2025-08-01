@@ -216,6 +216,9 @@ func (s *server) Stop() error {
 	// clean things up, tearing down any connections
 	s.backend.Cleanup()
 
+	// stop our AWS session cache last, after all other components
+	globalSessionCache.Stop()
+
 	log.WithField("state", "stopped").Info("server stopped")
 	return nil
 }

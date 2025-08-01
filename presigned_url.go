@@ -29,6 +29,7 @@ type sessionCache struct {
 	sync.RWMutex
 	sessions    map[string]*sessionEntry
 	stopCleanup chan struct{}
+	stopped     bool // flag to track if cache was stopped
 	log         *logrus.Entry
 }
 
@@ -42,6 +43,7 @@ func newSessionCache() *sessionCache {
 	cache := &sessionCache{
 		sessions:    make(map[string]*sessionEntry),
 		stopCleanup: make(chan struct{}),
+		stopped:     false,
 		log:         logrus.WithField("component", "aws-session-cache"),
 	}
 
@@ -53,8 +55,14 @@ func newSessionCache() *sessionCache {
 
 // Stop stops the cache cleanup routine
 func (c *sessionCache) Stop() {
-	c.log.Info("stopping session cache cleanup routine")
-	close(c.stopCleanup)
+	c.Lock()
+	defer c.Unlock()
+
+	if !c.stopped {
+		c.log.Info("stopping session cache cleanup routine")
+		close(c.stopCleanup)
+		c.stopped = true
+	}
 }
 
 // startCleanup starts the periodic cache cleanup routine

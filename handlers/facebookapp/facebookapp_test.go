@@ -1307,6 +1307,25 @@ func buildMockIGCommentReplyServer() *httptest.Server {
 	return server
 }
 
+func buildMockWACActionServer() *httptest.Server {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/messages") {
+			err := r.ParseForm()
+			if err != nil {
+				http.Error(w, "Bad request", http.StatusBadRequest)
+				return
+			}
+
+			w.Write([]byte(`"success": true`))
+			return
+		}
+
+		http.Error(w, "Unexpected endpoint", http.StatusNotFound)
+	}))
+
+	return server
+}
+
 func TestSending(t *testing.T) {
 	uuids.SetGenerator(uuids.NewSeededGenerator(1234))
 	defer uuids.SetGenerator(uuids.DefaultGenerator)
@@ -1340,6 +1359,7 @@ func TestSending(t *testing.T) {
 	RunChannelSendTestCases(t, ChannelIG, newHandler("IG", "Instagram", false), SendTestCasesIG, nil)
 	RunChannelSendTestCases(t, ChannelWAC, newHandler("WAC", "Cloud API WhatsApp", false), SendTestCasesWAC, nil)
 	RunChannelSendTestCases(t, ChannelWACMarketing, newHandler("WAC", "Cloud API WhatsApp", false), MarketingMessageSendTestCasesWAC, nil)
+	RunChannelActionTestCases(t, ChannelWAC, newHandler("WAC", "Cloud API WhatsApp", false), ActionTestCasesWAC, nil)
 }
 
 func TestSigning(t *testing.T) {
@@ -1382,5 +1402,18 @@ var MarketingMessageSendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"normal_template","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","text":"Customer"},{"type":"text","text":"Info"}]}]}}`,
 		SendPrep:    setSendURL,
+	},
+}
+
+var ActionTestCasesWAC = []ChannelSendTestCase{
+	{Label: "Send Typing Indicator",
+		URN:            "whatsapp:250788123123",
+		ExternalID:     "external_id",
+		ResponseBody:   `{"success": true}`,
+		ResponseStatus: 200,
+		RequestBody:    `{"messaging_product":"whatsapp","status":"read","message_id":"external_id","typing_indicator":{"type":"text"}}`,
+		SendPrep: func(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+			graphURL = buildMockWACActionServer().URL + "/"
+		},
 	},
 }

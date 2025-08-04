@@ -1,6 +1,7 @@
 package weniwebchat
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -267,4 +268,22 @@ func TestSending(t *testing.T) {
 	mediaServer.Close()
 
 	RunChannelSendTestCases(t, testChannels[0], newHandler(), mockedSendTestCases, nil)
+}
+
+// setSendURL takes care of setting the send_url to our test server host
+func setSendURL(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+	c.(*courier.MockChannel).SetConfig(courier.ConfigBaseURL, s.URL)
+}
+
+var ActionTestCases = []ChannelSendTestCase{
+	{Label: "Send Typing Indicator",
+		URN:            "ext:123",
+		Metadata:       json.RawMessage(`{"action_type":"typing_indicator"}`),
+		ResponseStatus: 200,
+		RequestBody:    `{"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c","from":"ai-assistant","to":"123","type":"typing_start"}`,
+		SendPrep:       setSendURL},
+}
+
+func TestActions(t *testing.T) {
+	RunChannelActionTestCases(t, testChannels[0], newHandler(), ActionTestCases, nil)
 }

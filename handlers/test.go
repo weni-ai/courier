@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"io/ioutil"
 	"mime/multipart"
 	"net/http"
@@ -503,6 +504,66 @@ func RunChannelBenchmarks(b *testing.B, channels []courier.Channel, handler cour
 			for i := 0; i < b.N; i++ {
 				testHandlerRequest(b, s, testCase.URL, testCase.Headers, testCase.Data, testCase.MultipartFormFields, testCase.Status, nil, testCase.PrepRequest)
 			}
+		})
+	}
+}
+
+// RunChannelActionTestCases runs all the passed in test cases against the channel for action sending
+func RunChannelActionTestCases(t *testing.T, channel courier.Channel, handler courier.ChannelHandler, testCases []ChannelSendTestCase, setupBackend func(*courier.MockBackend)) {
+	mb := courier.NewMockBackend()
+	if setupBackend != nil {
+		setupBackend(mb)
+	}
+	s := newServer(mb)
+	mb.AddChannel(channel)
+	handler.Initialize(s)
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Label, func(t *testing.T) {
+			require := require.New(t)
+
+			// Create a simple message with only the necessary fields for actions
+			msg := mb.NewOutgoingMsg(channel, courier.NewMsgID(10), urns.URN(testCase.URN), "", false, nil, "", 0, "", "")
+
+			// Set metadata with action type and external ID if provided
+			metadata := map[string]interface{}{
+				"action_type": "typing_indicator",
+			}
+			if testCase.ExternalID != "" {
+				metadata["action_external_id"] = testCase.ExternalID
+			}
+			metadataJSON, err := json.Marshal(metadata)
+			require.NoError(err)
+			msg.WithMetadata(metadataJSON)
+
+			// Set up our server
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Check the request body
+				body, err := io.ReadAll(r.Body)
+				require.NoError(err)
+
+				// Compare the request body with the expected body
+				if testCase.RequestBody != "" {
+					require.JSONEq(testCase.RequestBody, string(body))
+				}
+
+				// Write the response
+				w.WriteHeader(testCase.ResponseStatus)
+				w.Write([]byte(testCase.ResponseBody))
+			}))
+			defer server.Close()
+
+			// Call our prep function if we have one
+			if testCase.SendPrep != nil {
+				testCase.SendPrep(server, handler, channel, msg)
+			}
+
+			// Check the status
+			if testCase.Error != "" {
+				require.EqualError(err, testCase.Error)
+				return
+			}
+			require.NoError(err)
 		})
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/urns"
+	er "github.com/pkg/errors"
 )
 
 func init() {
@@ -243,6 +244,42 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 
 	return status, nil
+}
+
+var _ courier.ActionSender = (*handler)(nil)
+
+// SendAction sends a specific action to the Weni Webchat API.
+// This method is specific to the Weni Webchat handler.
+func (h *handler) SendAction(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
+	baseURL := msg.Channel().StringConfigForKey(courier.ConfigBaseURL, "")
+	if baseURL == "" {
+		return nil, errors.New("blank base_url")
+	}
+
+	sendURL := fmt.Sprintf("%s/send", baseURL)
+
+	// Create payload for typing indicator
+	payload := map[string]interface{}{
+		"type":         "typing_start",
+		"to":           msg.URN().Path(),
+		"from":         "ai-assistant",
+		"channel_uuid": msg.Channel().UUID().String(),
+	}
+
+	// build request
+	body, err := json.Marshal(&payload)
+	if err != nil {
+		return nil, er.Wrap(err, "HTTP request failed")
+	}
+
+	req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	res, err := utils.MakeHTTPRequest(req)
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return nil, fmt.Errorf("Weni Webchat API error (%d): %s", res.StatusCode, string(res.Body))
+	}
+
+	return nil, nil
 }
 
 func newOutgoingMessage(payType, to, from string, quickReplies []string, channelUUID string) *moPayload {

@@ -199,7 +199,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			}
 			req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
 			req.Header.Set("Content-Type", "application/json")
-			res, err := utils.MakeHTTPRequest(req)
+			idempotencyKey := fmt.Sprintf("%s-%d", msg.UUID().String(), time.Now().UnixNano())
+			res, err := utils.MakeHTTPRequestWithRetry(ctx, req, 3, 500*time.Millisecond, idempotencyKey)
 			if res != nil {
 				log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), res).WithError("Message Send Error", err)
 				logs = append(logs, log)
@@ -227,7 +228,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		} else {
 			req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
 			req.Header.Set("Content-Type", "application/json")
-			res, err := utils.MakeHTTPRequest(req)
+			idempotencyKey := fmt.Sprintf("%s-%d", msg.UUID().String(), time.Now().UnixNano())
+			res, err := utils.MakeHTTPRequestWithRetry(ctx, req, 3, 500*time.Millisecond, idempotencyKey)
 			if res != nil {
 				log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), res).WithError("Message Send Error", err)
 				logs = append(logs, log)

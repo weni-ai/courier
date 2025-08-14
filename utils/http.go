@@ -1,14 +1,21 @@
 package utils
 
 import (
+	"bytes"
+	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"math/rand"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -71,7 +78,7 @@ func MakeHTTPRequestWithClient(req *http.Request, client *http.Client) (*Request
 	defer resp.Body.Close()
 
 	rr, err := newRRFromResponse(req.Method, string(requestTrace), resp)
-	rr.Elapsed = time.Now().Sub(start)
+	rr.Elapsed = time.Since(start)
 	return rr, err
 }
 
@@ -143,7 +150,7 @@ func newRRFromResponse(method string, requestTrace string, r *http.Response) (*R
 	rr.Body = bodyBytes
 
 	// return an error if we got a non-200 status
-	if err == nil && rr.Status != RRStatusSuccess {
+	if rr.Status != RRStatusSuccess {
 		err = fmt.Errorf("received non 200 status: %d", rr.StatusCode)
 	}
 
@@ -194,3 +201,83 @@ var (
 
 	HTTPUserAgent = "Courier/vDev"
 )
+
+// MakeHTTPRequestWithRetry makes an HTTP request with the passed in client, returning a
+// RequestResponse containing logging information gathered during the request
+func MakeHTTPRequestWithRetry(ctx context.Context, original *http.Request, attempts int, baseBackoff time.Duration, idempotencyKey string) (*RequestResponse, error) {
+	if attempts < 1 {
+		attempts = 1
+	}
+	// snapshot the body to be able to recreate the request
+	var bodyBytes []byte
+	if original.Body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(original.Body)
+		_ = original.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	client := GetHTTPClient()
+	var lastRR *RequestResponse
+	var lastErr error
+
+	for i := 0; i < attempts; i++ {
+		req, err := http.NewRequestWithContext(ctx, original.Method, original.URL.String(), bytes.NewReader(bodyBytes))
+		if err != nil {
+			return nil, err
+		}
+		req.Header = original.Header.Clone()
+		if idempotencyKey != "" && (original.Method == http.MethodPost || original.Method == http.MethodPut || original.Method == http.MethodPatch) {
+			req.Header.Set("Idempotency-Key", idempotencyKey)
+		}
+		// avoid reuse of connection in LBs/Cloudflare in problematic cases
+		req.Close = true
+
+		rr, err := MakeHTTPRequestWithClient(req, client)
+		lastRR, lastErr = rr, err
+
+		if err == nil && rr != nil && rr.Status == RRStatusSuccess {
+			return rr, nil
+		}
+		if !shouldRetryTransient(rr, err) || i == attempts-1 {
+			break
+		}
+		time.Sleep(withJitter(baseBackoff, i))
+	}
+	return lastRR, lastErr
+}
+
+func shouldRetryTransient(rr *RequestResponse, err error) bool {
+	// Always honor retriable HTTP status codes if a response exists
+	if rr != nil {
+		if rr.StatusCode == http.StatusTooManyRequests ||
+			rr.StatusCode == http.StatusBadGateway ||
+			rr.StatusCode == http.StatusServiceUnavailable ||
+			rr.StatusCode == http.StatusGatewayTimeout {
+			return true
+		}
+	}
+
+	if err != nil {
+		var netErr net.Error
+		if errors.Is(err, io.EOF) ||
+			errors.Is(err, syscall.ECONNRESET) ||
+			errors.Is(err, context.DeadlineExceeded) ||
+			errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary()) {
+			return true
+		}
+		var _tlsErr *tls.RecordHeaderError
+		if errors.As(err, &_tlsErr) {
+			return true
+		}
+	}
+	return false
+}
+
+func withJitter(base time.Duration, attempt int) time.Duration {
+	backoff := base << attempt
+	j := time.Duration(rand.Int63n(int64(backoff / 2)))
+	return backoff/2 + j
+}

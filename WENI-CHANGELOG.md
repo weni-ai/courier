@@ -1,3 +1,7 @@
+1.33.0
+----------
+ * Add typing action handling for Weni Webchat
+
 1.32.1
 ----------
  * Add contact name field to billing Message struct

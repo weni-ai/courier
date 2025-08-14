@@ -1,3 +1,7 @@
+1.34.0
+----------
+ * Refactor billing message handling to simplify conditions and ensure status is included in billing messages
+
 1.33.0
 ----------
  * Add typing action handling for Weni Webchat

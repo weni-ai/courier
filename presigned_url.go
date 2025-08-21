@@ -5,12 +5,11 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
-func PresignedURL(link string, accessKey string, secretKey string, region string) (string, error) {
+func PresignedURL(link string, region string) (string, error) {
 
 	splitURL := strings.Split(link, ".")
 	bucketName := strings.TrimPrefix(splitURL[0], "https://")
@@ -19,8 +18,7 @@ func PresignedURL(link string, accessKey string, secretKey string, region string
 	objectKey := "/attachments" + splitURL[1]
 
 	sess, err := session.NewSession(&aws.Config{
-		Credentials: credentials.NewStaticCredentials(accessKey, secretKey, ""),
-		Region:      aws.String(region),
+		Region: aws.String(region),
 	})
 	if err != nil {
 		return "", err

@@ -170,7 +170,7 @@ func (w *Sender) sendMessage(msg Msg) {
 		log = log.WithField("attachments", msg.Attachments())
 		for _, att := range msg.Attachments() {
 			typeAtt, urlAtt := SplitAttachment(att)
-			url, err := PresignedURL(urlAtt, server.Config().AWSAccessKeyID, server.Config().AWSSecretAccessKey, server.Config().S3Region)
+			url, err := PresignedURL(urlAtt, server.Config().S3Region)
 			fmt.Println("URL: ", url)
 			if err != nil {
 				log.WithError(err).Error("error converting attachment for pre-signed url")

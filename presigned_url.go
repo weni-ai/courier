@@ -19,7 +19,6 @@ type sessionEntry struct {
 	session   *session.Session
 	lastUsed  time.Time
 	createdAt time.Time
-	accessKey string
 	region    string
 	useCount  int64
 }
@@ -113,8 +112,8 @@ func (c *sessionCache) cleanup() {
 }
 
 // getSession returns an existing AWS session from cache or creates a new one
-func (c *sessionCache) getSession(accessKey, secretKey, region string) (*session.Session, error) {
-	cacheKey := fmt.Sprintf("%s:%s:%s", accessKey, region, secretKey)
+func (c *sessionCache) getSession(region string, accessKey string, secretKey string) (*session.Session, error) {
+	cacheKey := fmt.Sprintf("%s:%s", region, accessKey) // For IAM role, accessKey will be empty
 
 	// First, try to read from cache
 	c.RLock()
@@ -144,11 +143,18 @@ func (c *sessionCache) getSession(accessKey, secretKey, region string) (*session
 		return entry.session, nil
 	}
 
+	// Create AWS config
+	awsConfig := &aws.Config{
+		Region: aws.String(region),
+	}
+
+	// If static credentials are provided, use them
+	if accessKey != "" && secretKey != "" {
+		awsConfig.Credentials = credentials.NewStaticCredentials(accessKey, secretKey, "")
+	}
+
 	// Create a new session
-	sess, err := session.NewSession(&aws.Config{
-		Credentials: credentials.NewStaticCredentials(accessKey, secretKey, ""),
-		Region:      aws.String(region),
-	})
+	sess, err := session.NewSession(awsConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AWS session: %w", err)
 	}
@@ -159,7 +165,6 @@ func (c *sessionCache) getSession(accessKey, secretKey, region string) (*session
 		session:   sess,
 		lastUsed:  now,
 		createdAt: now,
-		accessKey: accessKey,
 		region:    region,
 		useCount:  1,
 	}
@@ -174,9 +179,6 @@ func PresignedURL(link string, accessKey string, secretKey string, region string
 	// Validate input parameters
 	if link == "" {
 		return "", fmt.Errorf("empty link provided")
-	}
-	if accessKey == "" || secretKey == "" {
-		return "", fmt.Errorf("AWS credentials not provided")
 	}
 	if region == "" {
 		return "", fmt.Errorf("AWS region not provided")
@@ -203,8 +205,8 @@ func PresignedURL(link string, accessKey string, secretKey string, region string
 		objectKey = "/" + objectKey
 	}
 
-	// Get cached session or create new one
-	sess, err := globalSessionCache.getSession(accessKey, secretKey, region)
+	// Get cached session or create new one - passing empty credentials to force IAM role usage
+	sess, err := globalSessionCache.getSession(region, "", "")
 	if err != nil {
 		return "", err
 	}

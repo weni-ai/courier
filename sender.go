@@ -206,11 +206,11 @@ func (w *Sender) sendMessage(msg Msg) {
 		log = log.WithField("attachments", msg.Attachments())
 		for _, att := range msg.Attachments() {
 			attType, attURL := SplitAttachment(att)
-			// url, err := PresignedURL(attURL, "", "", server.Config().S3Region, server.Config().S3PresignedURLExpiration)
-			// if err != nil {
-			// 	log.WithError(err).Error("error converting attachment for pre-signed url")
-			// }
-			att = attType + ":" + attURL
+			url, err := PresignedURL(attURL, "", "", server.Config().S3Region, server.Config().S3PresignedURLExpiration)
+			if err != nil {
+				log.WithError(err).Error("error converting attachment for pre-signed url")
+			}
+			att = attType + ":" + url
 			attachments = append(attachments, att)
 		}
 		msg = msg.WithPresignedURL(attachments)

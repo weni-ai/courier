@@ -347,11 +347,16 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 		return "", err
 	}
 
+	presignedURL, err := courier.PresignedURL(s3URL, "", "", b.config.S3Region, b.config.S3PresignedURLExpiration)
+	if err != nil {
+		return "", err
+	}
+
 	// get the file size in bytes and increase our media upload size metric
 	metrics.IncrementMediaUploadSize(len(body))
 
 	// return our new media URL, which is prefixed by our content type
-	return fmt.Sprintf("%s:%s", mimeType, s3URL), nil
+	return fmt.Sprintf("%s:%s", mimeType, presignedURL), nil
 }
 
 //-----------------------------------------------------------------------------

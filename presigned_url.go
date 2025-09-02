@@ -14,19 +14,19 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// sessionEntry represents a cache entry with metadata
-type sessionEntry struct {
-	session   *session.Session
-	lastUsed  time.Time
-	createdAt time.Time
-	region    string
-	useCount  int64
+// SessionEntry represents a cache entry with metadata
+type SessionEntry struct {
+	Session   *session.Session
+	LastUsed  time.Time
+	CreatedAt time.Time
+	Region    string
+	UseCount  int64
 }
 
-// sessionCache maintains a cache of AWS sessions by region
-type sessionCache struct {
+// SessionCache maintains a cache of AWS sessions by region
+type SessionCache struct {
 	sync.RWMutex
-	sessions    map[string]*sessionEntry
+	Sessions    map[string]*SessionEntry
 	stopCleanup chan struct{}
 	stopped     bool // flag to track if cache was stopped
 	log         *logrus.Entry
@@ -34,13 +34,13 @@ type sessionCache struct {
 
 var (
 	// global session cache instance
-	globalSessionCache = newSessionCache()
+	globalSessionCache = NewSessionCache()
 )
 
-// newSessionCache creates and initializes a new session cache
-func newSessionCache() *sessionCache {
-	cache := &sessionCache{
-		sessions:    make(map[string]*sessionEntry),
+// NewSessionCache creates and initializes a new session cache
+func NewSessionCache() *SessionCache {
+	cache := &SessionCache{
+		Sessions:    make(map[string]*SessionEntry),
 		stopCleanup: make(chan struct{}),
 		stopped:     false,
 		log:         logrus.WithField("component", "aws-session-cache"),
@@ -53,7 +53,7 @@ func newSessionCache() *sessionCache {
 }
 
 // Stop stops the cache cleanup routine
-func (c *sessionCache) Stop() {
+func (c *SessionCache) Stop() {
 	c.Lock()
 	defer c.Unlock()
 
@@ -65,72 +65,72 @@ func (c *sessionCache) Stop() {
 }
 
 // startCleanup starts the periodic cache cleanup routine
-func (c *sessionCache) startCleanup() {
+func (c *SessionCache) startCleanup() {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			c.cleanup()
+			c.Cleanup()
 		case <-c.stopCleanup:
 			return
 		}
 	}
 }
 
-// cleanup removes expired sessions from the cache
-func (c *sessionCache) cleanup() {
+// Cleanup removes expired sessions from the cache
+func (c *SessionCache) Cleanup() {
 	c.Lock()
 	defer c.Unlock()
 
 	now := time.Now()
 	removedCount := 0
 
-	for key, entry := range c.sessions {
+	for key, entry := range c.Sessions {
 		// Remove sessions that:
 		// 1. Exceeded 24 hours lifetime
 		// 2. Haven't been used in the last 6 hours
-		if now.Sub(entry.createdAt) > 24*time.Hour ||
-			now.Sub(entry.lastUsed) > 6*time.Hour {
+		if now.Sub(entry.CreatedAt) > 24*time.Hour ||
+			now.Sub(entry.LastUsed) > 6*time.Hour {
 
-			delete(c.sessions, key)
+			delete(c.Sessions, key)
 			removedCount++
 
 			c.log.WithFields(logrus.Fields{
-				"region":   entry.region,
-				"age":      now.Sub(entry.createdAt).String(),
-				"lastUsed": now.Sub(entry.lastUsed).String(),
-				"useCount": entry.useCount,
+				"region":   entry.Region,
+				"age":      now.Sub(entry.CreatedAt).String(),
+				"lastUsed": now.Sub(entry.LastUsed).String(),
+				"useCount": entry.UseCount,
 			}).Debug("removed expired session from cache")
 		}
 	}
 
 	if removedCount > 0 {
-		c.log.WithField("removedCount", removedCount).Info("cleaned up expired sessions")
+		c.log.WithField("count", removedCount).Info("cleaned up expired sessions")
 	}
 }
 
-// getSession returns an existing AWS session from cache or creates a new one
-func (c *sessionCache) getSession(region string, accessKey string, secretKey string) (*session.Session, error) {
-	cacheKey := fmt.Sprintf("%s:%s", region, accessKey) // For IAM role, accessKey will be empty
+// GetSession returns an existing AWS session from cache or creates a new one
+func (c *SessionCache) GetSession(region string, accessKey string, secretKey string) (*session.Session, error) {
+	cacheKey := fmt.Sprintf("%s:%s:%s", accessKey, region, secretKey)
 
 	// First, try to read from cache
 	c.RLock()
-	if entry, ok := c.sessions[cacheKey]; ok {
+	if entry, ok := c.Sessions[cacheKey]; ok {
 		// Update session metadata
-		entry.lastUsed = time.Now()
-		entry.useCount++
+		entry.LastUsed = time.Now()
+		entry.UseCount++
 
 		c.RUnlock()
 
 		c.log.WithFields(logrus.Fields{
-			"region":   entry.region,
-			"useCount": entry.useCount,
-			"age":      time.Since(entry.createdAt).String(),
+			"region":   entry.Region,
+			"useCount": entry.UseCount,
+			"age":      time.Since(entry.CreatedAt).String(),
 		}).Debug("cache hit: reusing existing session")
 
-		return entry.session, nil
+		return entry.Session, nil
 	}
 	c.RUnlock()
 
@@ -139,8 +139,8 @@ func (c *sessionCache) getSession(region string, accessKey string, secretKey str
 	defer c.Unlock()
 
 	// Check again after acquiring exclusive lock
-	if entry, ok := c.sessions[cacheKey]; ok {
-		return entry.session, nil
+	if entry, ok := c.Sessions[cacheKey]; ok {
+		return entry.Session, nil
 	}
 
 	// Create AWS config
@@ -161,12 +161,12 @@ func (c *sessionCache) getSession(region string, accessKey string, secretKey str
 
 	// Store in cache with metadata
 	now := time.Now()
-	c.sessions[cacheKey] = &sessionEntry{
-		session:   sess,
-		lastUsed:  now,
-		createdAt: now,
-		region:    region,
-		useCount:  1,
+	c.Sessions[cacheKey] = &SessionEntry{
+		Session:   sess,
+		LastUsed:  now,
+		CreatedAt: now,
+		Region:    region,
+		UseCount:  1,
 	}
 
 	c.log.WithField("region", region).Debug("cache miss: created new session")
@@ -206,7 +206,7 @@ func PresignedURL(link string, accessKey string, secretKey string, region string
 	}
 
 	// Get cached session or create new one - passing empty credentials to force IAM role usage
-	sess, err := globalSessionCache.getSession(region, "", "")
+	sess, err := globalSessionCache.GetSession(region, "", "")
 	if err != nil {
 		return "", err
 	}

@@ -8,6 +8,8 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +32,8 @@ const (
 
 	ConfigSendTemplate    = "send_template"
 	ConfigReceiveTemplate = "receive_template"
+
+	ConfigSendAttachmentInParts = "send_attachment_in_parts"
 )
 
 var contentTypeMappings = map[string]string{
@@ -251,6 +255,12 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		contentTypeHeader = contentType
 	}
 
+	sendAttachmentInParts := msg.Channel().StringConfigForKey(ConfigSendAttachmentInParts, "false")
+	sendAttachmentInPartsBool, err := strconv.ParseBool(sendAttachmentInParts)
+	if err != nil {
+		return nil, errors.Wrapf(err, "invalid send attachment in parts")
+	}
+
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
 
 	defaultBody := map[string]any{
@@ -289,16 +299,38 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		return nil, errors.Wrapf(err, "failed to execute template")
 	}
 
-	var body io.Reader
-	if sendMethod == http.MethodPost || sendMethod == http.MethodPut {
-		body = strings.NewReader(outputBuffer.String())
+	var req *http.Request
+
+	switch contentTypeHeader {
+	case "application/x-www-form-urlencoded":
+		var body map[string]any
+		if err := json.Unmarshal(outputBuffer.Bytes(), &body); err != nil {
+			return nil, err
+		}
+
+		// body from map[string]any to url.Values
+		bodyValues := url.Values{}
+		for k, v := range body {
+			bodyValues.Add(k, fmt.Sprintf("%v", v))
+		}
+
+		req, err = http.NewRequest(sendMethod, sendURL, strings.NewReader(bodyValues.Encode()))
+		if err != nil {
+			return nil, err
+		}
+	case "application/json":
+		var body io.Reader
+		if sendMethod == http.MethodPost || sendMethod == http.MethodPut {
+			body = strings.NewReader(outputBuffer.String())
+		}
+		req, err = http.NewRequest(sendMethod, sendURL, body)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("unsupported content type: %s", contentTypeHeader)
 	}
 
-	req, err := http.NewRequest(sendMethod, sendURL, body)
-
-	if err != nil {
-		return nil, err
-	}
 	req.Header.Set("Content-Type", contentTypeHeader)
 
 	authorization := msg.Channel().StringConfigForKey(courier.ConfigSendAuthorization, "")

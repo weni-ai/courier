@@ -633,6 +633,13 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	if channel.ChannelType() == "FBA" || channel.ChannelType() == "IG" {
 		events, data, err = h.processFacebookInstagramPayload(ctx, channel, payload, w, r)
 	} else {
+
+		wabaID := channel.StringConfigForKey(courier.ConfigWabaID, "")
+		if wabaID != "" && wabaID != payload.Entry[0].ID {
+			data = append(data, courier.NewInfoData(fmt.Sprintf("ignoring messages from different waba id: %s, %s", payload.Entry[0].ID, wabaID)))
+			return nil, courier.WriteDataResponse(ctx, w, http.StatusOK, "Events Handled", data)
+		}
+
 		events, data, err = h.processCloudWhatsAppPayload(ctx, channel, payload, w, r)
 		webhook := channel.ConfigForKey("webhook", nil)
 		if webhook != nil {

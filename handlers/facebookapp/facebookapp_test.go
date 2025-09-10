@@ -27,7 +27,7 @@ var testChannelsIG = []courier.Channel{
 }
 
 var testChannelsWAC = []courier.Channel{
-	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "WAC", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123", "webhook": `{"url": "https://webhook.site", "method": "POST", "headers": {}}`}),
+	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "WAC", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123", "webhook": `{"url": "https://webhook.site", "method": "POST", "headers": {}}`, "wa_waba_id": "8856996819413533"}),
 }
 
 var testCasesFBA = []ChannelHandleTestCase{
@@ -402,6 +402,9 @@ var testCasesWAC = []ChannelHandleTestCase{
 			}}),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive State Sync", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/contactUpdateWAC.json")), Status: 200, Response: `"Events Handled"`, ChannelEvent: Sp(courier.ContactUpdate), PrepRequest: addValidSignatureWAC},
+
+	{Label: "Receive Invalid WABA ID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/invalidWabaWAC.json")), Status: 200, Response: `{"message":"Events Handled","data":[{"type":"info","info":"ignoring messages from different waba id: 1234567890, 8856996819413533"}]}`,
+		PrepRequest: addValidSignatureWAC},
 }
 
 func TestHandler(t *testing.T) {

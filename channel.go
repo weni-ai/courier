@@ -56,6 +56,8 @@ const (
 
 	// ConfigPageID is a constant key for channel configs
 	ConfigPageID = "page_id"
+
+	ConfigWabaID = "wa_waba_id"
 )
 
 // ChannelType is our typing of the two char channel types

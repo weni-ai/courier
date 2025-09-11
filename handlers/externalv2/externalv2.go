@@ -449,4 +449,7 @@ var funcMap = template.FuncMap{
 		}
 		return parts[1]
 	},
+	"int64ToString": func(i int64) string {
+		return strconv.FormatInt(i, 10)
+	},
 }

@@ -107,6 +107,13 @@ var sendTestCases = []ChannelSendTestCase{
 		ResponseBody: `{"status":"success","message_id":"msg_001"}`, ResponseStatus: 200,
 		RequestBody: `{"to":"+250788383383","text":"Simple Message"}`,
 		SendPrep:    setSendURL},
+	{Label: "Plain Send with URN auth",
+		Text: "Simple Message", URN: "tel:+250788383383", URNAuth: "1234567890",
+		Status:       "W",
+		ExternalID:   "",
+		ResponseBody: `{"status":"success","message_id":"msg_001"}`, ResponseStatus: 200,
+		RequestBody: `{"to":"+250788383383","text":"Simple Message","session_id":"1234567890"}`,
+		SendPrep:    setSendURL},
 	{Label: "Unicode Send",
 		Text: "☺", URN: "tel:+250788383383",
 		Status:       "W",
@@ -134,7 +141,7 @@ func TestSending(t *testing.T) {
 		map[string]interface{}{
 			courier.ConfigSendURL:     "http://example.com/send",
 			courier.ConfigSendMethod:  "POST",
-			configSendTemplate:        `{"to":"{{.contact}}","text":"{{.text}}"{{if .attachments}},"media":{{.attachments}}{{end}}}`,
+			configSendTemplate:        `{"to":"{{.contact}}","text":"{{.text}}"{{if .attachments}},"media":{{.attachments}}{{end}}{{if .urn_auth}},"session_id":"{{.urn_auth}}"{{end}}}`,
 			courier.ConfigContentType: "json",
 			configMTResponseCheck:     "",
 		})

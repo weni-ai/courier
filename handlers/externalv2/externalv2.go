@@ -336,6 +336,7 @@ func (h *handler) sendMsgPart(ctx context.Context, msg courier.Msg, sendURL, sen
 		"attachments":           attachments,
 		"contact":               msg.URN().Path(),
 		"urn":                   contactURN,
+		"urn_auth":              msg.URNAuth(),
 		"channel":               msg.Channel().Address(),
 		"channel_uuid":          msg.Channel().UUID().String(),
 		"quick_replies":         msg.QuickReplies(),

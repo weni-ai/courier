@@ -119,7 +119,7 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 		return nil, fmt.Errorf("receive body template is empty. It must be defined in the channel config")
 	}
 
-	tmpl, err := template.New("mapping").Parse(string(receiveBodyTemplate))
+	tmpl, err := template.New("mapping").Funcs(funcMap).Parse(string(receiveBodyTemplate))
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("unable to parse receive body template: %s", err))
 	}
@@ -135,7 +135,10 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 			bodyPayload[k] = v[0]
 		}
 	} else if strings.Contains(contentType, "application/json") {
-		if err := json.NewDecoder(r.Body).Decode(&bodyPayload); err != nil {
+
+		dec := json.NewDecoder(r.Body)
+		dec.UseNumber()
+		if err := dec.Decode(&bodyPayload); err != nil {
 			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("unable to decode request body: %s", err))
 		}
 	} else {
@@ -171,7 +174,7 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 		}
 		urn = urn.Normalize(channel.Country())
 
-		msg := h.Backend().NewIncomingMsg(channel, urn, text).WithURNAuth(pMsg.URNAuth).WithContactName(pMsg.ContactName)
+		msg := h.Backend().NewIncomingMsg(channel, urn, text).WithURNAuth(pMsg.URNAuth).WithContactName(pMsg.ContactName).WithExternalID(pMsg.ID)
 		for _, attachment := range attachments {
 			msg.WithAttachment(attachment)
 		}
@@ -451,5 +454,8 @@ var funcMap = template.FuncMap{
 	},
 	"int64ToString": func(i int64) string {
 		return strconv.FormatInt(i, 10)
+	},
+	"toString": func(i int64) string {
+		return fmt.Sprintf("%d", i)
 	},
 }

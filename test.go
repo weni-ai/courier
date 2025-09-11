@@ -594,6 +594,11 @@ func NewMockChannel(uuid string, channelType string, address string, country str
 	return channel
 }
 
+func (c *MockChannel) WithSchemes(schemes []string) *MockChannel {
+	c.schemes = schemes
+	return c
+}
+
 // Config returns the channel's configuration
 func (c *MockChannel) Config() map[string]interface{} {
 	return c.config

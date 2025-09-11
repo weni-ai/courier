@@ -10,23 +10,53 @@ import (
 )
 
 var (
-	receiveAttachment = "/c/x2/8eb23e93-5ecb-45ba-b726-3b064e0c56ab/receive/"
-	receiveNoParams   = "/c/x2/8eb23e93-5ecb-45ba-b726-3b064e0c56ab/receive/"
+	receiveAttachment = "/c/e2/8eb23e93-5ecb-45ba-b726-3b064e0c56ab/receive/"
+	receiveNoParams   = "/c/e2/8eb23e93-5ecb-45ba-b726-3b064e0c56ab/receive/"
 )
 
 var (
 	configReceiveTemplateTest       = `{"messages":[{"urn_identity":"{{.from}}","urn_auth":"{{.session_id}}","text":"{{.text}}"{{if .date}},"date":"{{.date}}"{{end}}{{if .media}},"attachments":["{{.media}}"]{{end}}}]}`
+	configReceiveTemplateTest2      = `{"messages":[{"urn_identity":"{{.message.from.id}}","text":"{{.message.text}}"{{if .date}},"date":"{{.date}}"{{end}},"contact_name":"{{.message.from.username}}","id":"{{.message.message_id}}"}]}`
 	configMOResponseContentTypeTest = "application/json"
 	configMOResponseTest            = `{"status":"received"}`
 )
 
 var testChannels = []courier.Channel{
-	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "X2", "2020", "US", map[string]interface{}{
+	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "E2", "2020", "US", map[string]interface{}{
 		configReceiveTemplate:       configReceiveTemplateTest,
 		configMOResponseContentType: configMOResponseContentTypeTest,
 		configMOResponse:            configMOResponseTest,
 	}),
 }
+
+var testChannels2 = []courier.Channel{
+	courier.NewMockChannel("e7152f4f-7189-4458-a91a-747d5404b50a", "E2", "2020", "US", map[string]interface{}{
+		configReceiveTemplate:       configReceiveTemplateTest2,
+		configMOResponseContentType: configMOResponseContentTypeTest,
+		configMOResponse:            `{"status":"Accepted"}`,
+	}).WithSchemes([]string{"telegram"}),
+}
+
+var helloMsg = `{
+  "update_id": 174114370,
+  "message": {
+	"message_id": 41,
+	"from": {
+		"id": 3527065,
+		"first_name": "John",
+		"last_name": "Doe",
+		"username": "johndoe"
+	},
+	"chat": {
+		"id": 3527065,
+		"first_name": "John",
+		"last_name": "Doe",
+		"type": "private"
+	},
+	"date": 1454119029,
+	"text": "Hello World"
+  }
+}`
 
 var handleTestCases = []ChannelHandleTestCase{
 	{
@@ -44,6 +74,14 @@ var handleTestCases = []ChannelHandleTestCase{
 	},
 }
 
+var handleTestCases2 = []ChannelHandleTestCase{
+	{Label: "Receive Valid Message", URL: "/c/e2/e7152f4f-7189-4458-a91a-747d5404b50a/receive/",
+		Data: helloMsg, Status: 200, Response: "Accepted",
+		Name: Sp("johndoe"), Text: Sp("Hello World"), URN: Sp("telegram:3527065"),
+		ExternalID: Sp("41"),
+	},
+}
+
 var templateTestCases = []ChannelHandleTestCase{
 	{Label: "Receive Valid Template", URL: receiveNoParams, Data: `{"from":"+2349067554729","text":"Join","date":"2017-06-23T12:30:00.500Z"}`, Status: 200, Response: `{"status":"received"}`,
 		Text: Sp("Join"), URN: Sp("tel:+2349067554729"), Date: Tp(time.Date(2017, 6, 23, 12, 30, 0, int(500*time.Millisecond), time.UTC))},
@@ -51,6 +89,10 @@ var templateTestCases = []ChannelHandleTestCase{
 
 func TestHandler(t *testing.T) {
 	RunChannelTestCases(t, testChannels, newHandler(), handleTestCases)
+}
+
+func TestHandler2(t *testing.T) {
+	RunChannelTestCases(t, testChannels2, newHandler(), handleTestCases2)
 }
 
 func TestTemplateHandler(t *testing.T) {

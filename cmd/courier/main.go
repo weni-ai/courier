@@ -28,6 +28,7 @@ import (
 	_ "github.com/nyaruka/courier/handlers/dmark"
 	_ "github.com/nyaruka/courier/handlers/email"
 	_ "github.com/nyaruka/courier/handlers/external"
+	_ "github.com/nyaruka/courier/handlers/externalv2"
 	_ "github.com/nyaruka/courier/handlers/facebook"
 	_ "github.com/nyaruka/courier/handlers/facebookapp"
 	_ "github.com/nyaruka/courier/handlers/firebase"

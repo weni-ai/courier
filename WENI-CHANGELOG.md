@@ -1,3 +1,7 @@
+1.36.0
+----------
+ * Add external api v2 channel handler
+
 1.35.0
 ----------
  * use MakeHTTPRequestWithRetry on weniwebchat handler to avoid request connection errors and other transitory errors

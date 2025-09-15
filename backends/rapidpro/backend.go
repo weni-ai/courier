@@ -782,22 +782,20 @@ func (b *backend) Start() error {
 	}
 
 	// create our storage (S3 or file system)
-	if b.config.AWSAccessKeyID != "" {
-		s3Client, err := storage.NewS3Client(&storage.S3Options{
-			AWSAccessKeyID:     b.config.AWSAccessKeyID,
-			AWSSecretAccessKey: b.config.AWSSecretAccessKey,
-			Endpoint:           b.config.S3Endpoint,
-			Region:             b.config.S3Region,
-			DisableSSL:         b.config.S3DisableSSL,
-			ForcePathStyle:     b.config.S3ForcePathStyle,
-			MaxRetries:         3,
-		})
-		if err != nil {
-			return err
-		}
-		b.storage = storage.NewS3(s3Client, b.config.S3MediaBucket, b.config.S3Region, 32)
-	} else {
+	s3Client, err := storage.NewS3Client(&storage.S3Options{
+		AWSAccessKeyID:     b.config.AWSAccessKeyID,
+		AWSSecretAccessKey: b.config.AWSSecretAccessKey,
+		Endpoint:           b.config.S3Endpoint,
+		Region:             b.config.S3Region,
+		DisableSSL:         b.config.S3DisableSSL,
+		ForcePathStyle:     b.config.S3ForcePathStyle,
+		MaxRetries:         3,
+	})
+	if err != nil {
+		// if we can't create S3 client, fallback to filesystem storage
 		b.storage = storage.NewFS("_storage")
+	} else {
+		b.storage = storage.NewS3(s3Client, b.config.S3MediaBucket, b.config.S3Region, 32)
 	}
 
 	// test our storage

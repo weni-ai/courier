@@ -37,6 +37,10 @@ O canal ExternalV2 (tipo `E2`) é um handler flexível que permite integração 
 | Tipo de Resposta MO | `mo_response_content_type` | - | Content-type da resposta MO |
 | Anexos em Partes | `send_attachment_in_parts` | `false` | Enviar anexos separadamente |
 
+## Template
+
+Os templates funcionam de acordo com o pacote [https://pkg.go.dev/text/template](https://pkg.go.dev/text/template)
+
 ## Templates de Envio
 
 ### Estrutura do Template

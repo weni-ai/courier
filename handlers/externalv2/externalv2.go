@@ -156,7 +156,12 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 
 	moPayload := &receivePayload{}
 	if err := json.Unmarshal(bodyBuffer.Bytes(), moPayload); err != nil {
-		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("unable to decode mo payload: %s", err))
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("unable to decode request payload: %s", err))
+	}
+
+	if len(moPayload.Messages) == 0 {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r,
+			fmt.Errorf("no messages, check if the channel config receive_template is valid: %s", bodyBuffer.String()))
 	}
 
 	var msgs []courier.Msg = make([]courier.Msg, 0, len(moPayload.Messages))

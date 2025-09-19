@@ -420,12 +420,12 @@ config = {
 	"mo_response_content_type": "application/json",
 	"mo_response": "",
 	"mt_response_check": "",
-	"send_url": "https://api.telegram.org/bot5311126581:AAGpycuyyZOTyUW2L-P7lMoTOy86sWugdDk/sendMessage",
-	"send_media_url": "https://api.telegram.org/bot5311126581:AAGpycuyyZOTyUW2L-P7lMoTOy86sWugdDk/sendPhoto",
+	"send_url": "https://api.telegram.org/bot<BOT_TOKEN>/sendMessage",
+	"send_media_url": "https://api.telegram.org/bot<BOT_TOKEN>/sendPhoto",
 	"send_method": "POST",
-	"send_template": "{\"chat_id\":\"{{.contact}}\",\"text\":\"{{.text}}\",\"parse_mode\":\"Markdown\"}",
+	"send_template": "{\"chat_id\":\"{{.urn_path}}\",\"text\":\"{{.text}}\",\"parse_mode\":\"Markdown\"}",
 	"content_type": "application/x-www-form-urlencoded",
-	"receive_template": "{\"messages\":[{\"urn_identity\":\"{{.message.from.id}}\",\"text\":\"{{.message.text}}\",\"contact_name\":\"{{.message.from.username}}\",\"id\":\"{{.message.message_id}}\"}]}",
+	"receive_template": "{\"messages\":[{\"urn_path\":\"{{.message.from.id}}\",\"text\":\"{{.message.text}}\",\"contact_name\":\"{{.message.from.username}}\",\"id\":\"{{.message.message_id}}\"}]}",
 	"send_authorization": ""
 }
 

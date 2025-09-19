@@ -99,6 +99,46 @@ func TestTemplateHandler(t *testing.T) {
 	RunChannelTestCases(t, testChannels, newHandler(), templateTestCases)
 }
 
+func TestHandleWithUrnAuth(t *testing.T) {
+	var channel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "E2", "2020", "US",
+		map[string]interface{}{
+			configReceiveTemplate:       `{"messages":[{"urn_path":"{{.from}}","urn_auth":"{{.session_id}}","text":"{{.text}}"}]}`,
+			configMOResponseContentType: configMOResponseContentTypeTest,
+			configMOResponse:            configMOResponseTest,
+		}).WithSchemes([]string{"whatsapp"})
+
+	testCases := []ChannelHandleTestCase{
+		{Label: "Receive Valid Message With URN Auth", URL: receiveNoParams,
+			Data:   `{"from":"2349067554729", "session_id":"1234567890","text":"Join"}`,
+			Status: 200, Response: `{"status":"received"}`,
+			URNAuth: Sp("1234567890"), URN: Sp("whatsapp:2349067554729"),
+			Text: Sp("Join"),
+		},
+	}
+
+	RunChannelTestCases(t, []courier.Channel{channel}, newHandler(), testCases)
+}
+
+func TestHandleWithUrnAuth2(t *testing.T) {
+	var channel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "E2", "2020", "US",
+		map[string]interface{}{
+			configReceiveTemplate:       `{"messages":[{"urn_path":"{{.urn_path}}","text":"{{.text}}","urn_auth":"{{.urn_auth}}"}]}`,
+			configMOResponseContentType: configMOResponseContentTypeTest,
+			configMOResponse:            configMOResponseTest,
+		}).WithSchemes([]string{"whatsapp"})
+
+	testCases := []ChannelHandleTestCase{
+		{Label: "Receive Valid Message With URN Auth", URL: receiveNoParams,
+			Data:   `{"urn_path":"2349067554729", "urn_auth":"1234567890","text":"Join"}`,
+			Status: 200, Response: `{"status":"received"}`,
+			URNAuth: Sp("1234567890"), URN: Sp("whatsapp:2349067554729"),
+			Text: Sp("Join"),
+		},
+	}
+
+	RunChannelTestCases(t, []courier.Channel{channel}, newHandler(), testCases)
+}
+
 var sendTestCases = []ChannelSendTestCase{
 	{Label: "Plain Send",
 		Text: "Simple Message", URN: "tel:+250788383383",
@@ -203,6 +243,28 @@ func TestSendingInParts(t *testing.T) {
 
 func setSendURL(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
 	c.(*courier.MockChannel).SetConfig(courier.ConfigSendURL, s.URL)
+}
+
+func TestSimpleSend(t *testing.T) {
+	var simpleSendChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "X2", "2020", "US",
+		map[string]interface{}{
+			courier.ConfigSendMethod:  "POST",
+			courier.ConfigContentType: "json",
+			configSendTemplate:        `{"contact": "{{.urn.path}}", "text": "{{.text}}", "urn_auth": "{{.urn_auth}}"}`,
+		})
+
+	simpleSendTestCases := []ChannelSendTestCase{
+		{Label: "Simple Send",
+			Text: "Simple Message", URN: "tel:+250788383383",
+			Status:       "W",
+			ResponseBody: `{"status":"success"}`, ResponseStatus: 200,
+			RequestBody: `{"contact": "+250788383383", "text": "Simple Message", "urn_auth": "1234567890"}`,
+			SendPrep:    setSendURL,
+			URNAuth:     "1234567890",
+		},
+	}
+
+	RunChannelSendTestCases(t, simpleSendChannel, newHandler(), simpleSendTestCases, nil)
 }
 
 func TestSendingWithCustomURL(t *testing.T) {

@@ -15,8 +15,8 @@ var (
 )
 
 var (
-	configReceiveTemplateTest       = `{"messages":[{"urn_identity":"{{.from}}","urn_auth":"{{.session_id}}","text":"{{.text}}"{{if .date}},"date":"{{.date}}"{{end}}{{if .media}},"attachments":["{{.media}}"]{{end}}}]}`
-	configReceiveTemplateTest2      = `{"messages":[{"urn_identity":"{{.message.from.id}}","text":"{{.message.text}}"{{if .date}},"date":"{{.date}}"{{end}},"contact_name":"{{.message.from.username}}","id":"{{.message.message_id}}"}]}`
+	configReceiveTemplateTest       = `{"messages":[{"urn_path":"{{.from}}","urn_auth":"{{.session_id}}","text":"{{.text}}"{{if .date}},"date":"{{.date}}"{{end}}{{if .media}},"attachments":["{{.media}}"]{{end}}}]}`
+	configReceiveTemplateTest2      = `{"messages":[{"urn_path":"{{.message.from.id}}","text":"{{.message.text}}"{{if .date}},"date":"{{.date}}"{{end}},"contact_name":"{{.message.from.username}}","id":"{{.message.message_id}}"}]}`
 	configMOResponseContentTypeTest = "application/json"
 	configMOResponseTest            = `{"status":"received"}`
 )
@@ -141,7 +141,7 @@ func TestSending(t *testing.T) {
 		map[string]interface{}{
 			courier.ConfigSendURL:     "http://example.com/send",
 			courier.ConfigSendMethod:  "POST",
-			configSendTemplate:        `{"to":"{{.contact}}","text":"{{.text}}"{{if .attachments}},"media":{{.attachments}}{{end}}{{if .urn_auth}},"session_id":"{{.urn_auth}}"{{end}}}`,
+			configSendTemplate:        `{"to":"{{.urn.path}}","text":"{{.text}}"{{if .attachments}},"media":{{.attachments}}{{end}}{{if .urn_auth}},"session_id":"{{.urn_auth}}"{{end}}}`,
 			courier.ConfigContentType: "json",
 			configMTResponseCheck:     "",
 		})
@@ -159,7 +159,7 @@ func TestSendingWithAuth(t *testing.T) {
 			courier.ConfigSendURL:           "http://example.com/send",
 			courier.ConfigSendMethod:        "POST",
 			courier.ConfigSendAuthorization: "Bearer secret123",
-			configSendTemplate:              `{"to":"{{.contact}}","text":"{{.text}}"}`,
+			configSendTemplate:              `{"to":"{{.urn.path}}","text":"{{.text}}"}`,
 			courier.ConfigContentType:       "json",
 		})
 
@@ -203,6 +203,44 @@ func TestSendingInParts(t *testing.T) {
 
 func setSendURL(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
 	c.(*courier.MockChannel).SetConfig(courier.ConfigSendURL, s.URL)
+}
+
+func TestSendingWithCustomURL(t *testing.T) {
+	var customURLChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "X2", "2020", "US",
+		map[string]interface{}{
+			courier.ConfigSendMethod:  "POST",
+			courier.ConfigContentType: "json",
+			configSendTemplate:        `{"to":"{{.urn.path}}","text":"{{.text}}","urn_auth":"{{.urn_auth}}"}`,
+		})
+
+	customURLTestCases := []ChannelSendTestCase{
+		{Label: "Send with Custom URL with Query param",
+			Text: "Simple Message", URN: "tel:+250788383383",
+			URNAuth:      "DUMMY_URN_AUTH_VALUE",
+			Status:       "W",
+			ResponseBody: `{"status":"success"}`, ResponseStatus: 200,
+			RequestBody: `{"to":"+250788383383","text":"Simple Message","urn_auth":"DUMMY_URN_AUTH_VALUE"}`,
+			SendPrep: func(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+				c.(*courier.MockChannel).SetConfig(configSendUrlTemplate, s.URL+"?custom_param={{.urn_auth}}")
+			},
+			URLParams: map[string]string{"custom_param": "DUMMY_URN_AUTH_VALUE"},
+		},
+		{Label: "Send with Custom URL",
+			Text: "Simple Message", URN: "tel:+250788383383",
+			URNAuth:      "DUMMY_URN_AUTH_VALUE",
+			Status:       "W",
+			ResponseBody: `{"status":"success"}`, ResponseStatus: 200,
+			RequestBody: `{"to":"+250788383383","text":"Simple Message","urn_auth":"DUMMY_URN_AUTH_VALUE"}`,
+			SendPrep:    setSendCustomURL,
+			Path:        "/DUMMY_URN_AUTH_VALUE",
+		},
+	}
+
+	RunChannelSendTestCases(t, customURLChannel, newHandler(), customURLTestCases, nil)
+}
+
+func setSendCustomURL(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+	c.(*courier.MockChannel).SetConfig(configSendUrlTemplate, s.URL+"/{{.urn_auth}}")
 }
 
 // BenchmarkHandler runs benchmarks on our handler

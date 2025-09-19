@@ -35,8 +35,9 @@ const (
 
 	configSendAttachmentInParts = "send_attachment_in_parts" // bool
 
-	configSendDefaulURL = "send_url"
-	configSendMediaURL  = "send_media_url"
+	configSendDefaulURL   = "send_url"
+	configSendMediaURL    = "send_media_url"
+	configSendUrlTemplate = "send_url_template"
 )
 
 var contentTypeMappings = map[string]string{
@@ -162,7 +163,7 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 	var msgs []courier.Msg = make([]courier.Msg, 0, len(moPayload.Messages))
 
 	for _, pMsg := range moPayload.Messages {
-		from := pMsg.URNIdentity
+		from := pMsg.URNPath
 		text := pMsg.Text
 		attachments := pMsg.Attachments
 		dateString := pMsg.Date
@@ -247,8 +248,12 @@ func (h *handler) receiveStatus(ctx context.Context, statusString string, channe
 // SendMsg sends the passed in message, returning any error
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
 	sendURL := msg.Channel().StringConfigForKey(configSendDefaulURL, "")
+	sendURLTemplate := msg.Channel().StringConfigForKey(configSendUrlTemplate, "")
+	if sendURLTemplate != "" {
+		sendURL = sendURLTemplate
+	}
 	if sendURL == "" {
-		return nil, fmt.Errorf("no send url set for EX channel")
+		return nil, fmt.Errorf("no send url set for E2 channel, must be set in the channel config as send_url or send_url_template")
 	}
 	sendMediaURL := msg.Channel().StringConfigForKey(configSendMediaURL, sendURL)
 
@@ -327,6 +332,8 @@ func (h *handler) sendMsgPart(ctx context.Context, msg courier.Msg, sendURL, sen
 		"path":     msg.URN().Path(),
 		"query":    urnQuery,
 		"fragment": msg.URN().Display(),
+		"identity": msg.URN().Identity(),
+		"auth":     msg.URNAuth(),
 	}
 
 	defaultBody := map[string]any{
@@ -334,8 +341,10 @@ func (h *handler) sendMsgPart(ctx context.Context, msg courier.Msg, sendURL, sen
 		"uuid":                  msg.UUID().String(),
 		"text":                  text,
 		"attachments":           attachments,
-		"contact":               msg.URN().Path(),
+		"contact_urn":           msg.URN(),
 		"urn":                   contactURN,
+		"urn_path":              msg.URN().Path(),
+		"urn_identity":          msg.URN().Identity(),
 		"urn_auth":              msg.URNAuth(),
 		"channel":               msg.Channel().Address(),
 		"channel_uuid":          msg.Channel().UUID().String(),
@@ -365,6 +374,20 @@ func (h *handler) sendMsgPart(ctx context.Context, msg courier.Msg, sendURL, sen
 	var outputBuffer bytes.Buffer
 	if err := tmpl.Execute(&outputBuffer, defaultBody); err != nil {
 		return status, errors.Wrapf(err, "failed to execute template")
+	}
+
+	if sendURLTemplate := msg.Channel().StringConfigForKey(configSendUrlTemplate, ""); sendURLTemplate != "" {
+		urlTmpl, err := template.New("mapping").Funcs(funcMap).Parse(string(sendURLTemplate))
+		if err != nil {
+			return status, errors.Wrapf(err, "invalid send url map")
+		}
+
+		var urlOutputBuffer bytes.Buffer
+		if err := urlTmpl.Execute(&urlOutputBuffer, defaultBody); err != nil {
+			return status, errors.Wrapf(err, "failed to execute template for send url")
+		}
+
+		sendURL = urlOutputBuffer.String()
 	}
 
 	var req *http.Request
@@ -428,6 +451,7 @@ func (h *handler) sendMsgPart(ctx context.Context, msg courier.Msg, sendURL, sen
 type receivePayload struct {
 	Messages []struct {
 		ID          string   `json:"id"`
+		URNPath     string   `json:"urn_path"`
 		URNIdentity string   `json:"urn_identity"`
 		URNAuth     string   `json:"urn_auth"`
 		ContactName string   `json:"contact_name"`

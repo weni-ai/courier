@@ -1,3 +1,7 @@
+1.36.1
+----------
+ * External v2 support for send_url_template like a send_template
+
 1.36.0
 ----------
  * Add external api v2 channel handler

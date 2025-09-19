@@ -205,6 +205,33 @@ func setSendURL(s *httptest.Server, h courier.ChannelHandler, c courier.Channel,
 	c.(*courier.MockChannel).SetConfig(courier.ConfigSendURL, s.URL)
 }
 
+func TestSendingWithCustomURL(t *testing.T) {
+	var customURLChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "X2", "2020", "US",
+		map[string]interface{}{
+			courier.ConfigSendMethod:  "POST",
+			courier.ConfigContentType: "json",
+			configSendTemplate:        `{"to":"{{.urn.path}}","text":"{{.text}}","urn_auth":"DUMMY_URN_AUTH_VALUE"}`,
+		})
+
+	customURLTestCases := []ChannelSendTestCase{
+		{Label: "Send with Custom URL",
+			Text: "Simple Message", URN: "tel:+250788383383",
+			URNAuth:      "DUMMY_URN_AUTH_VALUE",
+			Status:       "W",
+			ResponseBody: `{"status":"success"}`, ResponseStatus: 200,
+			RequestBody: `{"to":"+250788383383","text":"Simple Message","urn_auth":"DUMMY_URN_AUTH_VALUE"}`,
+			SendPrep:    setSendCustomURL,
+			Path:        "/DUMMY_URN_AUTH_VALUE",
+		},
+	}
+
+	RunChannelSendTestCases(t, customURLChannel, newHandler(), customURLTestCases, nil)
+}
+
+func setSendCustomURL(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+	c.(*courier.MockChannel).SetConfig(configSendUrlTemplate, s.URL+"/{{.urn_auth}}")
+}
+
 // BenchmarkHandler runs benchmarks on our handler
 func BenchmarkHandler(b *testing.B) {
 	RunChannelBenchmarks(b, testChannels, newHandler(), handleTestCases)

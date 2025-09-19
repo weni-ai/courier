@@ -35,8 +35,9 @@ const (
 
 	configSendAttachmentInParts = "send_attachment_in_parts" // bool
 
-	configSendDefaulURL = "send_url"
-	configSendMediaURL  = "send_media_url"
+	configSendDefaulURL   = "send_url"
+	configSendMediaURL    = "send_media_url"
+	configSendUrlTemplate = "send_url_template"
 )
 
 var contentTypeMappings = map[string]string{
@@ -156,7 +157,12 @@ func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w
 
 	moPayload := &receivePayload{}
 	if err := json.Unmarshal(bodyBuffer.Bytes(), moPayload); err != nil {
-		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("unable to decode mo payload: %s", err))
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("unable to decode request payload: %s", err))
+	}
+
+	if len(moPayload.Messages) == 0 {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r,
+			fmt.Errorf("no messages, check if the channel config receive_template is valid: %s", bodyBuffer.String()))
 	}
 
 	var msgs []courier.Msg = make([]courier.Msg, 0, len(moPayload.Messages))
@@ -247,8 +253,12 @@ func (h *handler) receiveStatus(ctx context.Context, statusString string, channe
 // SendMsg sends the passed in message, returning any error
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
 	sendURL := msg.Channel().StringConfigForKey(configSendDefaulURL, "")
+	sendURLTemplate := msg.Channel().StringConfigForKey(configSendUrlTemplate, "")
+	if sendURLTemplate != "" {
+		sendURL = sendURLTemplate
+	}
 	if sendURL == "" {
-		return nil, fmt.Errorf("no send url set for EX channel")
+		return nil, fmt.Errorf("no send url set for E2 channel. Must be set in the channel config as send_url or send_url_template")
 	}
 	sendMediaURL := msg.Channel().StringConfigForKey(configSendMediaURL, sendURL)
 
@@ -357,14 +367,28 @@ func (h *handler) sendMsgPart(ctx context.Context, msg courier.Msg, sendURL, sen
 		"action_type":           msg.ActionType(),
 	}
 
-	tmpl, err := template.New("mapping").Funcs(funcMap).Parse(string(sendBody))
+	bodyTmpl, err := template.New("mapping").Funcs(funcMap).Parse(string(sendBody))
 	if err != nil {
 		return status, errors.Wrapf(err, "invalid send params map")
 	}
 
 	var outputBuffer bytes.Buffer
-	if err := tmpl.Execute(&outputBuffer, defaultBody); err != nil {
+	if err := bodyTmpl.Execute(&outputBuffer, defaultBody); err != nil {
 		return status, errors.Wrapf(err, "failed to execute template")
+	}
+
+	if urlTemplate := msg.Channel().StringConfigForKey(configSendUrlTemplate, ""); urlTemplate != "" {
+		urlTmpl, err := template.New("mapping_url").Funcs(funcMap).Parse(string(urlTemplate))
+		if err != nil {
+			return status, errors.Wrapf(err, "invalid send url map")
+		}
+
+		var urlOutputBuffer bytes.Buffer
+		if err := urlTmpl.Execute(&urlOutputBuffer, defaultBody); err != nil {
+			return status, errors.Wrapf(err, "failed to execute template for send url")
+		}
+
+		sendURL = urlOutputBuffer.String()
 	}
 
 	var req *http.Request

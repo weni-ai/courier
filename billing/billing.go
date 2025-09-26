@@ -41,6 +41,7 @@ type Message struct {
 	FromTicketer bool     `json:"from_ticketer"`
 	ChatsUUID    string   `json:"chats_uuid,omitempty"`
 	Status       string   `json:"status,omitempty"`
+	TemplateUUID string   `json:"template_uuid,omitempty"`
 }
 
 // Create a new message

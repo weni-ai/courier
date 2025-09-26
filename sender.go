@@ -334,6 +334,8 @@ func (w *Sender) sendMessage(msg Msg) {
 
 		sentOk := status.Status() != MsgErrored && status.Status() != MsgFailed
 		if sentOk {
+			isTemplateMessage, metadata := isTemplateMessage(msg)
+
 			if w.foreman.server.Billing() != nil {
 				chatsUUID, _ := jsonparser.GetString(msg.Metadata(), "chats_msg_uuid")
 				ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
@@ -355,13 +357,16 @@ func (w *Sender) sendMessage(msg Msg) {
 					chatsUUID,
 					string(msg.Status()),
 				)
+
+				if isTemplateMessage {
+					billingMsg.TemplateUUID = metadata.Templating.Template.UUID
+				}
+
 				if msg.Channel().ChannelType() == "WAC" {
 					w.foreman.server.Billing().SendAsync(billingMsg, billing.RoutingKeyWAC, nil, nil)
 				}
 				w.foreman.server.Billing().SendAsync(billingMsg, billing.RoutingKeyCreate, nil, nil)
 			}
-
-			isTemplateMessage, metadata := isTemplateMessage(msg)
 
 			if w.foreman.server.Templates() != nil && isTemplateMessage {
 				templatingData := metadata.Templating

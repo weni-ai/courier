@@ -402,9 +402,9 @@ var testCasesWAC = []ChannelHandleTestCase{
 			}}),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive State Sync", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/contactUpdateWAC.json")), Status: 200, Response: `"Events Handled"`, ChannelEvent: Sp(courier.ContactUpdate), PrepRequest: addValidSignatureWAC},
-
 	{Label: "Receive Invalid WABA ID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/invalidWabaWAC.json")), Status: 200, Response: `{"message":"Events Handled","data":[{"type":"info","info":"ignoring messages from different waba id: 1234567890, 8856996819413533"}]}`,
 		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Unsupported Message Type", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/unsupportedMessageWAC.json")), Status: 200, Response: `"Events Handled"`, PrepRequest: addValidSignatureWAC},
 }
 
 func TestHandler(t *testing.T) {

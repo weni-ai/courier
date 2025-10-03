@@ -300,6 +300,11 @@ type moPayload struct {
 					Errors []struct {
 						Code  int    `json:"code"`
 						Title string `json:"title"`
+						Message string `json:"message"`
+						ErrorData struct {
+							Details string `json:"details"`
+						} `json:"error_data"`
+						Type string `json:"type"`
 					} `json:"errors"`
 				} `json:"messages"`
 				Statuses []struct {
@@ -737,6 +742,10 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 				if msg.Type == "text" {
 					text = msg.Text.Body
+				} else if msg.Type == "unsupported" {
+					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
+					data = append(data, courier.NewInfoData(fmt.Sprintf("unsupported message type %s", msg.Type)))
+					continue
 				} else if msg.Type == "audio" && msg.Audio != nil {
 					text = msg.Audio.Caption
 					mediaURL, err = resolveMediaURL(channel, msg.Audio.ID, token)

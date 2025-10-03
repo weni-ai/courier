@@ -395,6 +395,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 				"response_json": map[string]interface{}{"flow_token": "<FLOW_TOKEN>", "optional_param1": "<value1>", "optional_param2": "<value2>"},
 			}}),
 		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Unsupported Message Type", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/unsupportedMessageWAC.json")), Status: 200, Response: `"Events Handled"`, PrepRequest: addValidSignatureWAC},
 }
 
 func TestHandler(t *testing.T) {

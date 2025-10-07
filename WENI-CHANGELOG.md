@@ -1,3 +1,7 @@
+1.36.3
+----------
+ * Send TemplateUUID to billing create queue
+
 1.36.2
 ----------
  * Ignore unsupported messages in the Cloud API

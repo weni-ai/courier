@@ -1,3 +1,11 @@
+1.36.3
+----------
+ * Send TemplateUUID to billing create queue
+
+1.36.2
+----------
+ * Ignore unsupported messages in the Cloud API
+
 1.36.1
 ----------
  * External v2 support for send_url_template like a send_template

@@ -1161,6 +1161,50 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"marketing_promo","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","text":"Customer"},{"type":"text","text":"50%"}]}]}}`,
 		SendPrep:    setSendURL,
 	},
+	{
+		Label: "Catalog Message Split 35 Products",
+		Metadata: json.RawMessage(`{
+			"body": "Body test - multiple sections and over 30 products",
+			"products": [
+				{
+					"product": "Camisetas",
+					"product_retailer_ids": [
+						"p1","p2","p3","p4","p5","p6","p7","p8","p9","p10",
+						"p11","p12","p13","p14","p15"
+					]
+				},
+				{
+					"product": "Tênis",
+					"product_retailer_ids": [
+						"p16","p17","p18","p19","p20","p21","p22","p23","p24","p25"
+					]
+				},
+				{
+					"product": "Mochilas",
+					"product_retailer_ids": [
+						"p26","p27","p28","p29","p30","p31","p32","p33","p34","p35"
+					]
+				}
+			],
+			"action": "View Products",
+			"send_catalog": false
+		}`),
+		Text:       "Catalog Msg",
+		URN:        "whatsapp:250788123123",
+		Status:     "W",
+		ExternalID: "157b5e14568e8",
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"product_list","body":{"text":"Body test - multiple sections and over 30 products"},"action":{"sections":[{"title":"Mochilas","product_items":[{"product_retailer_id":"p31"},{"product_retailer_id":"p32"},{"product_retailer_id":"p33"},{"product_retailer_id":"p34"},{"product_retailer_id":"p35"}]}],"catalog_id":"c4t4l0g-1D","name":"View Products"}}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL,
+	},
 }
 
 var CachedSendTestCasesWAC = []ChannelSendTestCase{

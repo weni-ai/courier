@@ -7,11 +7,17 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/urns"
+)
+
+var (
+	sendURL   = ""
+	authToken = ""
 )
 
 func init() {
@@ -28,6 +34,14 @@ func newHandler() courier.ChannelHandler {
 
 func (h *handler) Initialize(s courier.Server) error {
 	h.SetServer(s)
+	sendURL = s.Config().EmailProxyURL
+	if sendURL == "" {
+		return errors.New("EMAIL_PROXY_URL is not set")
+	}
+	authToken = s.Config().EmailProxyAuthToken
+	if authToken == "" {
+		return errors.New("EMAIL_PROXY_AUTH_TOKEN is not set")
+	}
 	s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveEvent)
 	return nil
 }
@@ -37,6 +51,14 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 	err := handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+
+	if payload.From == "" {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("field 'from' required"))
+	}
+
+	if payload.Body == "" {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("field 'body' required"))
 	}
 
 	urn, err := urns.NewURNFromParts(urns.EmailScheme, payload.From, "", "")
@@ -81,14 +103,11 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		UUID:        msg.UUID(),
 		From:        senderEmail,
 		To:          msg.URN().Path(),
-		Subject:     trunkString(msg.Text(), 32),
+		Subject:     subjectFromMsg(msg),
 		Body:        msg.Text(),
 		Attachments: attachments,
 		ChannelUUID: msg.Channel().UUID(),
 	}
-
-	sendURL := h.Server().Config().EmailProxyURL + "/send"
-	authToken := h.Server().Config().EmailProxyAuthToken
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -116,4 +135,14 @@ func trunkString(str string, maxSize int) string {
 		return str
 	}
 	return str[:maxSize]
+}
+
+// subjectFromMsg extracts the subject from the message, it will return the first line of the
+// message, and return truncated with first 56 characteres if the first line is longer than 56 characters
+func subjectFromMsg(msg courier.Msg) string {
+	lines := strings.Split(msg.Text(), "\n")
+	if len(lines) == 0 {
+		return trunkString(msg.Text(), 56)
+	}
+	return trunkString(lines[0], 56)
 }

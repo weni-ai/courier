@@ -34,7 +34,7 @@ func newHandler() courier.ChannelHandler {
 
 func (h *handler) Initialize(s courier.Server) error {
 	h.SetServer(s)
-	sendURL = s.Config().EmailProxyURL
+	sendURL = s.Config().EmailProxyURL + "/send"
 	if sendURL == "" {
 		return errors.New("EMAIL_PROXY_URL is not set")
 	}

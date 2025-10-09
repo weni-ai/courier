@@ -2793,7 +2793,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					var sproducts []wacMTProductItem
 
 					for _, p := range retailerIDs {
-						// Se ainda couber o produto na mensagem atual
+						// If there is still room for the product in the current message
 						if totalProductsPerMsg < 30 {
 							sproducts = append(sproducts, wacMTProductItem{
 								ProductRetailerID: p,
@@ -2802,25 +2802,25 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							continue
 						}
 
-						// Quando chegar a 30 produtos, fecha a seção atual e inicia nova
+						// When reaching 30 products, close current section and start new one
 						if len(sproducts) > 0 {
 							sections = append(sections, wacMTSection{Title: title, ProductItems: sproducts})
 							sproducts = []wacMTProductItem{}
 						}
 
-						// Salva o grupo atual em actions e reinicia para nova mensagem
+						// Save current section to actions and restart for new message
 						if len(sections) > 0 {
 							actions = append(actions, sections)
 							sections = []wacMTSection{}
 							totalProductsPerMsg = 0
 						}
 
-						// Começa nova seção com o produto atual
+						// Start new section with current product
 						sproducts = append(sproducts, wacMTProductItem{ProductRetailerID: p})
 						totalProductsPerMsg++
 					}
 
-					// Ao terminar o loop interno, adiciona a seção com o produto atual
+					// After the inner loop, add the current section with the product
 					if len(sproducts) > 0 {
 						sections = append(sections, wacMTSection{Title: title, ProductItems: sproducts})
 					}

@@ -1,3 +1,7 @@
+1.36.4
+----------
+ * Email channel subject from first line first 56 characters
+ 
 1.36.3
 ----------
  * Send TemplateUUID to billing create queue

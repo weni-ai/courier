@@ -1,3 +1,7 @@
+1.37.0
+----------
+ * Separate product messages without limitation for WhatsApp
+
 1.36.3
 ----------
  * Send TemplateUUID to billing create queue

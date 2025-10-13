@@ -2777,34 +2777,58 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			if !isUnitaryProduct {
 				actions := [][]wacMTSection{}
 				sections := []wacMTSection{}
-				i := 0
+				totalProductsPerMsg := 0
 
 				for _, product := range products {
-					i++
 					retailerIDs := toStringSlice(product["product_retailer_ids"])
-					sproducts := []wacMTProductItem{}
-
-					for _, p := range retailerIDs {
-						sproducts = append(sproducts, wacMTProductItem{
-							ProductRetailerID: p,
-						})
-					}
 
 					title := product["product"].(string)
 					if title == "product_retailer_id" {
 						title = "items"
 					}
-
 					if len(title) > 24 {
 						title = title[:24]
 					}
 
-					sections = append(sections, wacMTSection{Title: title, ProductItems: sproducts})
+					var sproducts []wacMTProductItem
 
-					if len(sections) == 6 || i == len(products) {
-						actions = append(actions, sections)
-						sections = []wacMTSection{}
+					for _, p := range retailerIDs {
+						// If there is still room for the product in the current message
+						if totalProductsPerMsg < 30 {
+							sproducts = append(sproducts, wacMTProductItem{
+								ProductRetailerID: p,
+							})
+							totalProductsPerMsg++
+							continue
+						}
+
+						// When reaching 30 products, close current section and start new one
+						if len(sproducts) > 0 {
+							sections = append(sections, wacMTSection{Title: title, ProductItems: sproducts})
+							sproducts = []wacMTProductItem{}
+						}
+
+						// Save current section to actions and restart for new message
+						if len(sections) > 0 {
+							actions = append(actions, sections)
+							sections = []wacMTSection{}
+							totalProductsPerMsg = 0
+						}
+
+						// Start new section with current product
+						sproducts = append(sproducts, wacMTProductItem{ProductRetailerID: p})
+						totalProductsPerMsg++
 					}
+
+					// After the inner loop, add the current section with the product
+					if len(sproducts) > 0 {
+						sections = append(sections, wacMTSection{Title: title, ProductItems: sproducts})
+					}
+				}
+
+				if len(sections) > 0 {
+					actions = append(actions, sections)
+
 				}
 
 				for _, sections := range actions {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1461,4 +1462,123 @@ var ActionTestCasesWAC = []ChannelSendTestCase{
 			graphURL = buildMockWACActionServer().URL + "/"
 		},
 	},
+}
+
+func TestWACCallsWebhookSuccess(t *testing.T) {
+	mb := courier.NewMockBackend()
+	cfg := courier.NewConfig()
+	cfg.FacebookWebhookSecret = "fb_webhook_secret"
+	cfg.FacebookApplicationSecret = "fb_app_secret"
+	cfg.WhatsappCloudWebhookSecret = "wac_webhook_secret"
+	cfg.WhatsappCloudApplicationSecret = "wac_app_secret"
+
+	var receivedAuth string
+	var receivedProject string
+	var receivedChannel string
+	var receivedCallID string
+	callsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuth = r.Header.Get("Authorization")
+		body, _ := io.ReadAll(r.Body)
+		var bodyObj map[string]interface{}
+		_ = json.Unmarshal(body, &bodyObj)
+		if v, ok := bodyObj["project_uuid"].(string); ok {
+			receivedProject = v
+		}
+		if v, ok := bodyObj["channel_uuid"].(string); ok {
+			receivedChannel = v
+		}
+		if call, ok := bodyObj["call"].(map[string]interface{}); ok {
+			if id, ok := call["id"].(string); ok {
+				receivedCallID = id
+			}
+		}
+		w.WriteHeader(200)
+		w.Write([]byte("ok"))
+	}))
+	defer callsSrv.Close()
+
+	cfg.CallsWebhookURL = callsSrv.URL
+	cfg.CallsWebhookToken = "test-token"
+
+	s := courier.NewServer(cfg, mb)
+	ch := courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WAC", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
+	mb.AddChannel(ch)
+	h := newHandler("WAC", "Cloud API WhatsApp", false)
+	h.Initialize(s)
+
+	payload := fmt.Sprintf(`{"object":"whatsapp_business_account","entry":[{"id":"WABA_ID","time":1697040000,"changes":[{"field":"messages","value":{"metadata":{"display_phone_number":"15551234567","phone_number_id":"%s"},"calls":[{"id":"call_123"}]}}]}]}`, ch.Address())
+
+	req := httptest.NewRequest(http.MethodPost, "/c/wac/receive", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	addValidSignatureWAC(req)
+	rr := httptest.NewRecorder()
+	s.Router().ServeHTTP(rr, req)
+
+	assert.Equal(t, 200, rr.Code)
+	assert.Contains(t, rr.Body.String(), "Events Handled")
+	assert.Equal(t, "Bearer test-token", receivedAuth)
+	assert.Equal(t, "call_123", receivedCallID)
+	assert.Equal(t, "9bab7353-561c-42f7-860e-e24c86cfb8e6", receivedProject)
+	assert.Equal(t, ch.UUID().String(), receivedChannel)
+}
+
+func TestWACCallsWebhookMissingURL(t *testing.T) {
+	mb := courier.NewMockBackend()
+	cfg := courier.NewConfig()
+	cfg.FacebookWebhookSecret = "fb_webhook_secret"
+	cfg.FacebookApplicationSecret = "fb_app_secret"
+	cfg.WhatsappCloudWebhookSecret = "wac_webhook_secret"
+	cfg.WhatsappCloudApplicationSecret = "wac_app_secret"
+
+	s := courier.NewServer(cfg, mb)
+	ch := courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WAC", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
+	mb.AddChannel(ch)
+	h := newHandler("WAC", "Cloud API WhatsApp", false)
+	h.Initialize(s)
+
+	payload := fmt.Sprintf(`{"object":"whatsapp_business_account","entry":[{"id":"WABA_ID","time":1697040000,"changes":[{"field":"messages","value":{"metadata":{"display_phone_number":"15551234567","phone_number_id":"%s"},"calls":[{"id":"call_123"}]}}]}]}`, ch.Address())
+
+	req := httptest.NewRequest(http.MethodPost, "/c/wac/receive", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	addValidSignatureWAC(req)
+	rr := httptest.NewRecorder()
+	s.Router().ServeHTTP(rr, req)
+
+	assert.Equal(t, 400, rr.Code)
+	assert.Contains(t, rr.Body.String(), "calls webhook url is not set")
+}
+
+func TestWACCallsWebhookForwardError(t *testing.T) {
+	mb := courier.NewMockBackend()
+	cfg := courier.NewConfig()
+	cfg.FacebookWebhookSecret = "fb_webhook_secret"
+	cfg.FacebookApplicationSecret = "fb_app_secret"
+	cfg.WhatsappCloudWebhookSecret = "wac_webhook_secret"
+	cfg.WhatsappCloudApplicationSecret = "wac_app_secret"
+
+	callsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		w.Write([]byte("error"))
+	}))
+	defer callsSrv.Close()
+
+	cfg.CallsWebhookURL = callsSrv.URL
+	cfg.CallsWebhookToken = "test-token"
+
+	s := courier.NewServer(cfg, mb)
+	ch := courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WAC", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
+	mb.AddChannel(ch)
+	h := newHandler("WAC", "Cloud API WhatsApp", false)
+	h.Initialize(s)
+
+	payload := fmt.Sprintf(`{"object":"whatsapp_business_account","entry":[{"id":"WABA_ID","time":1697040000,"changes":[{"field":"messages","value":{"metadata":{"display_phone_number":"15551234567","phone_number_id":"%s"},"calls":[{"id":"call_123"}]}}]}]}`, ch.Address())
+
+	req := httptest.NewRequest(http.MethodPost, "/c/wac/receive", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	addValidSignatureWAC(req)
+	rr := httptest.NewRecorder()
+	s.Router().ServeHTTP(rr, req)
+
+	assert.Equal(t, 400, rr.Code)
+	assert.Contains(t, rr.Body.String(), "failed to send calls webhook")
 }

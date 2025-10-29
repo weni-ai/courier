@@ -422,6 +422,10 @@ func (b *MockBackend) GetMessage(ctx context.Context, msgUUID string) (Msg, erro
 	return nil, nil
 }
 
+func (b *MockBackend) GetProjectUUIDFromChannelUUID(ctx context.Context, channelUUID ChannelUUID) (string, error) {
+	return "9bab7353-561c-42f7-860e-e24c86cfb8e6", nil
+}
+
 func buildMockBackend(config *Config) Backend {
 	return NewMockBackend()
 }

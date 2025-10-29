@@ -1,3 +1,7 @@
+1.38.0
+----------
+ * Handle whatsapp calls
+
 1.37.0
 ----------
  * Separate product messages without limitation for WhatsApp

@@ -30,6 +30,7 @@ import (
 	"github.com/nyaruka/gocommon/uuids"
 	"github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 // Endpoints we hit
@@ -957,6 +958,11 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				if err != nil {
 					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 				}
+
+				logrus.WithFields(logrus.Fields{
+					"project_uuid": projectUUID,
+					"channel_uuid": channel.UUID().String(),
+				}).Info("Incoming call")
 
 				callData := map[string]interface{}{
 					"call":         call,

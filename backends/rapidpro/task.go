@@ -78,6 +78,18 @@ func queueChannelEvent(rc redis.Conn, c *DBContact, e *DBChannelEvent) error {
 		}
 		return queueMailroomTask(rc, "new_conversation", e.OrgID_, e.ContactID_, body)
 
+	case courier.PaymentMethod:
+		body := map[string]interface{}{
+			"org_id":      e.OrgID_,
+			"contact_id":  e.ContactID_,
+			"urn_id":      e.ContactURNID_,
+			"channel_id":  e.ChannelID_,
+			"extra":       e.Extra(),
+			"new_contact": c.IsNew_,
+			"occurred_on": e.OccurredOn_,
+		}
+		return queueMailroomTask(rc, "payment_method", e.OrgID_, e.ContactID_, body)
+
 	default:
 		return fmt.Errorf("unknown event type: %s", e.EventType())
 	}

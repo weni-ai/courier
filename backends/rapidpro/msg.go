@@ -986,6 +986,15 @@ func (m *DBMsg) OrderDetailsMessage() *courier.OrderDetailsMessage {
 					orderDetailsMessage.PaymentSettings.PixConfig.Code = pix_config_code
 				}
 			}
+			if offsite_card_pay, ok := paymentSettings["offsite_card_pay"].(map[string]interface{}); ok {
+				orderDetailsMessage.PaymentSettings.OffsiteCardPay = courier.OffsiteCardPay{}
+				if offsite_card_pay_last_four_digits, ok := offsite_card_pay["last_four_digits"].(string); ok {
+					orderDetailsMessage.PaymentSettings.OffsiteCardPay.LastFourDigits = offsite_card_pay_last_four_digits
+				}
+				if offsite_card_pay_credential_id, ok := offsite_card_pay["credential_id"].(string); ok {
+					orderDetailsMessage.PaymentSettings.OffsiteCardPay.CredentialID = offsite_card_pay_credential_id
+				}
+			}
 		}
 		if totalAmount, ok := orderDetailsMessageData["total_amount"].(float64); ok {
 			orderDetailsMessage.TotalAmount = int(totalAmount)

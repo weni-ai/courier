@@ -15,6 +15,10 @@ import (
 const channelUUID = "8eb23e93-5ecb-45ba-b726-3b064e0c568c"
 
 var testChannels = []courier.Channel{
+	courier.NewMockChannel(channelUUID, "WWC", "250788383383", "", map[string]interface{}{"catalog_id": "test-catalog-123"}),
+}
+
+var testChannelsWithoutCatalog = []courier.Channel{
 	courier.NewMockChannel(channelUUID, "WWC", "250788383383", "", map[string]interface{}{}),
 }
 
@@ -286,4 +290,63 @@ var ActionTestCases = []ChannelSendTestCase{
 
 func TestActions(t *testing.T) {
 	RunChannelActionTestCases(t, testChannels[0], newHandler(), ActionTestCases, nil)
+}
+
+// Product message tests
+var productSendTestCases = []ChannelSendTestCase{
+	{
+		Label:          "Single Product Send",
+		Text:           "Check out this product!",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"interactive","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","interactive":{"type":"product","body":{"text":"Check out this product!"},"action":{"catalog_id":"test-catalog-123","product_retailer_id":"product-123","name":"View Product"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+		Metadata:       json.RawMessage(`{"products":[{"product":"Product Name","product_retailer_ids":["product-123"]}],"action":"View Product"}`),
+	},
+	{
+		Label:          "Catalog Message Send",
+		Text:           "Browse our catalog!",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"interactive","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","interactive":{"type":"catalog_message","body":{"text":"Browse our catalog!"},"action":{"name":"catalog_message"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+		Metadata:       json.RawMessage(`{"send_catalog":true,"action":"Browse Catalog"}`),
+	},
+	{
+		Label:          "Multiple Products Send",
+		Text:           "Here are some products!",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"interactive","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","interactive":{"type":"product_list","body":{"text":"Here are some products!"},"action":{"catalog_id":"test-catalog-123","sections":[{"title":"Electronics","product_items":[{"product_retailer_id":"product-1"},{"product_retailer_id":"product-2"}]}],"name":"View Products"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+		Metadata:       json.RawMessage(`{"products":[{"product":"Electronics","product_retailer_ids":["product-1","product-2"]}],"action":"View Products"}`),
+	},
+	{
+		Label:    "Product Message Without Catalog ID",
+		Text:     "Product without catalog",
+		URN:      "ext:371298371241",
+		Status:   string(courier.MsgFailed),
+		Error:    "Catalog ID not found in channel config",
+		SendPrep: prepareSendMsg,
+		Metadata: json.RawMessage(`{"products":[{"product":"Product Name","product_retailer_ids":["product-123"]}],"action":"View Product"}`),
+	},
+}
+
+func TestProductSending(t *testing.T) {
+	// Test cases with catalog_id
+	casesWithCatalog := productSendTestCases[:3] // First 3 test cases
+	RunChannelSendTestCases(t, testChannels[0], newHandler(), casesWithCatalog, nil)
+
+	// Test case without catalog_id
+	casesWithoutCatalog := productSendTestCases[3:4] // Last test case
+	RunChannelSendTestCases(t, testChannelsWithoutCatalog[0], newHandler(), casesWithoutCatalog, nil)
 }

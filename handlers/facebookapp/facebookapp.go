@@ -3218,6 +3218,7 @@ func mountOrderTaxShippingDiscount(orderDetails *courier.OrderDetailsMessage) (w
 }
 
 func requestWAC[P wacInteractiveActionParams](payload wacMTPayload[P], accessToken string, msg courier.Msg, status courier.MsgStatus, wacPhoneURL *url.URL, zeroIndex bool, useMarketingMessages bool) (courier.MsgStatus, *wacMTResponse, error) {
+	fmt.Printf("facebookapp.go - requestWAC() - payload: %v\n", payload)
 	var jsonBody []byte
 	var err error
 
@@ -3240,6 +3241,8 @@ func requestWAC[P wacInteractiveActionParams](payload wacMTPayload[P], accessTok
 	}
 
 	rr, err := utils.MakeHTTPRequest(req)
+	fmt.Printf("facebookapp.go - requestWAC() - rr: %v\n", rr)
+	fmt.Printf("facebookapp.go - requestWAC() - err: %v\n", err)
 
 	// Register status log based on message type
 	logTitle := "Message Sent"

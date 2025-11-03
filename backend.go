@@ -124,6 +124,8 @@ type Backend interface {
 	UpdateChannelConfig(context.Context, Channel, map[string]interface{}) error
 
 	UpdateChannelConfigByWabaID(context.Context, string, map[string]interface{}) error
+
+	GetProjectUUIDFromChannelUUID(context.Context, ChannelUUID) (string, error)
 }
 
 // NewBackend creates the type of backend passed in

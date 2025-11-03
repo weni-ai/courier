@@ -4,7 +4,8 @@ CREATE TABLE orgs_org (
     name character varying(255) NOT NULL,
     language character varying(64),
     is_anon boolean NOT NULL,
-    config text NULL
+    config text NULL,
+    proj_uuid character varying(36) NOT NULL
 );
 
 DROP TABLE IF EXISTS channels_channel CASCADE;

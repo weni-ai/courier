@@ -383,6 +383,18 @@ type moPayload struct {
 					AdAccountID     string `json:"ad_account_id"`
 					OwnerBusinessID string `json:"owner_business_id"`
 				} `json:"waba_info"`
+				Calls []struct {
+					ID        string `json:"id"`
+					To        string `json:"to"`
+					From      string `json:"from"`
+					Event     string `json:"event"`
+					Timestamp string `json:"timestamp"`
+					Direction string `json:"direction"`
+					Session   struct {
+						SdpType string `json:"sdp_type"`
+						Sdp     string `json:"sdp"`
+					} `json:"session"`
+				} `json:"calls"`
 			} `json:"value"`
 		} `json:"changes"`
 		Messaging []struct {
@@ -792,24 +804,24 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 						phones = append(phones, phone.Phone)
 					}
 					text = strings.Join(phones, ", ")
-				// } else if msg.Type == "interactive" && msg.Interactive.Type == "payment_method" {
-				// 	paymentMethodData := map[string]interface{}{
-				// 		"credential_id":     msg.Interactive.PaymentMethod.CredentialID,
-				// 		"last_four_digits":  msg.Interactive.PaymentMethod.LastFourDigits,
-				// 		"reference_id":      msg.Interactive.PaymentMethod.ReferenceID,
-				// 		"payment_timestamp": msg.Interactive.PaymentMethod.PaymentTimestamp,
-				// 		"payment_method":    msg.Interactive.PaymentMethod.PaymentMethod,
-				// 	}
+					// } else if msg.Type == "interactive" && msg.Interactive.Type == "payment_method" {
+					// 	paymentMethodData := map[string]interface{}{
+					// 		"credential_id":     msg.Interactive.PaymentMethod.CredentialID,
+					// 		"last_four_digits":  msg.Interactive.PaymentMethod.LastFourDigits,
+					// 		"reference_id":      msg.Interactive.PaymentMethod.ReferenceID,
+					// 		"payment_timestamp": msg.Interactive.PaymentMethod.PaymentTimestamp,
+					// 		"payment_method":    msg.Interactive.PaymentMethod.PaymentMethod,
+					// 	}
 
-				// 	// Criar metadata com os dados do payment_method
-				// 	paymentMetadata, err := json.Marshal(paymentMethodData)
-				// 	if err != nil {
-				// 		courier.LogRequestError(r, channel, err)
-				// 	} else {
-				// 		// Adicionar os dados do payment_method ao metadata da mensagem
-				// 		//
-				// 		ev := h.Backend().NewChannelEvent()
-				// 	}
+					// 	// Criar metadata com os dados do payment_method
+					// 	paymentMetadata, err := json.Marshal(paymentMethodData)
+					// 	if err != nil {
+					// 		courier.LogRequestError(r, channel, err)
+					// 	} else {
+					// 		// Adicionar os dados do payment_method ao metadata da mensagem
+					// 		//
+					// 		ev := h.Backend().NewChannelEvent()
+					// 	}
 				} else {
 					// we received a message type we do not support.
 					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
@@ -1019,9 +1031,6 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				date := time.Unix(ts, 0).UTC()
 
 				urn, err := urns.NewWhatsAppURN(message.To)
-				if err != nil {
-					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
-				}
 
 				text := ""
 				mediaURL := ""
@@ -1081,6 +1090,47 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				}
 
 				events = append(events, event)
+			}
+
+			for _, call := range change.Value.Calls {
+				callsWebhookURL := h.Server().Config().CallsWebhookURL
+				callsWebhookToken := h.Server().Config().CallsWebhookToken
+				if callsWebhookURL == "" {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("calls webhook url is not set"))
+				}
+
+				projectUUID, err := h.Backend().GetProjectUUIDFromChannelUUID(ctx, channel.UUID())
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+
+				callData := map[string]interface{}{
+					"call":         call,
+					"project_uuid": projectUUID,
+					"channel_uuid": channel.UUID().String(),
+				}
+
+				callJSON, err := json.Marshal(callData)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+				req, err := http.NewRequest("POST", callsWebhookURL, bytes.NewBuffer(callJSON))
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+				if callsWebhookToken != "" {
+					req.Header.Set("Authorization", "Bearer "+callsWebhookToken)
+				}
+				req.Header.Set("Content-Type", "application/json")
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("failed to send calls webhook"))
+				}
+				data = append(data, courier.NewInfoData(fmt.Sprintf("New whatsapp call received: %s", call.ID)))
 			}
 		}
 

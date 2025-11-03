@@ -957,3 +957,7 @@ func (b *backend) GetRunEventsByMsgUUIDFromDB(ctx context.Context, msgUUID strin
 func (b *backend) GetMessage(ctx context.Context, msgUUID string) (courier.Msg, error) {
 	return GetMsgByUUID(b, msgUUID)
 }
+
+func (b *backend) GetProjectUUIDFromChannelUUID(ctx context.Context, channelUUID courier.ChannelUUID) (string, error) {
+	return getProjectUUIDFromChannelUUID(ctx, b.db, channelUUID.String())
+}

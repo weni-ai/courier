@@ -66,6 +66,9 @@ type Config struct {
 	WhatsappCloudDemoAddress string `help:"the address of the router"`
 	WhatsappCloudDemoURL     string `help:"the url of the demo"`
 	WhatsappCloudDemoToken   string `help:"the token of the demo"`
+
+	CallsWebhookURL   string `help:"the url where calls webhooks will be sent"`
+	CallsWebhookToken string `help:"the token for calls webhooks"`
 }
 
 // NewConfig returns a new default configuration object

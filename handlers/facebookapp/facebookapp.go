@@ -2930,9 +2930,15 @@ func castInteractive[I, O wacInteractiveActionParams](interactive wacInteractive
 }
 
 func mountOrderDetails(msg courier.Msg, paymentSettings []wacOrderDetailsPaymentSetting, catalogID *string, orderTax wacAmountWithOffset, orderShipping *wacAmountWithOffset, orderDiscount *wacAmountWithOffset) *wacOrderDetails {
+	var paymentType string
+	if msg.OrderDetailsMessage().PaymentSettings.OffsiteCardPay.CredentialID != "" {
+		paymentType = "digital-goods"
+	} else {
+		paymentType = msg.OrderDetailsMessage().PaymentSettings.Type
+	}
 	return &wacOrderDetails{
 		ReferenceID:     msg.OrderDetailsMessage().ReferenceID,
-		Type:            msg.OrderDetailsMessage().PaymentSettings.Type,
+		Type:            paymentType,
 		PaymentType:     "br",
 		PaymentSettings: paymentSettings,
 		Currency:        "BRL",

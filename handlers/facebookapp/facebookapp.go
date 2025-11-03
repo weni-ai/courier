@@ -2179,7 +2179,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				}
 
 			} else {
-				if i < (len(msgParts) + len(msg.Attachments()) - 1) {
+				if i < (len(msgParts) + len(msg.Attachments()) - 1) { // TODO: verify if this is correct. If any case makes the "if be true"
 					payload.Type = "text"
 					if strings.Contains(msgParts[i-len(msg.Attachments())], "https://") || strings.Contains(msgParts[i-len(msg.Attachments())], "http://") {
 						text := wacText{}
@@ -2426,7 +2426,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							payload.Interactive = &interactive
 						}
 					} else if msg.InteractionType() == "order_details" {
+						fmt.Println("facebookapp.go - msg.InteractionType() == 'order_details'")
 						if orderDetails := msg.OrderDetailsMessage(); orderDetails != nil {
+							fmt.Println("facebookapp.go - orderDetails != nil")
 							payload.Type = "interactive"
 
 							paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
@@ -3155,6 +3157,7 @@ func mountOrderPaymentSettings(orderDetails *courier.OrderDetailsMessage) []wacO
 	}
 
 	if orderDetails.PaymentSettings.OffsiteCardPay.CredentialID != "" {
+		fmt.Printf("facebookapp.go - mountOrderPaymentSettings() - Offsite card pay: %v", orderDetails.PaymentSettings.OffsiteCardPay)
 		paymentSettings = append(paymentSettings, wacOrderDetailsPaymentSetting{
 			Type: "offsite_card_pay",
 			OffsiteCardPay: &wacOrderDetailsOffsiteCardPay{
@@ -3168,7 +3171,7 @@ func mountOrderPaymentSettings(orderDetails *courier.OrderDetailsMessage) []wacO
 }
 
 func mountOrderInfo(msg courier.Msg) ([]wacOrderDetailsPaymentSetting, *string, wacAmountWithOffset, *wacAmountWithOffset, *wacAmountWithOffset) {
-
+	fmt.Printf("facebookapp.go - mountOrderInfo() - msg.OrderDetailsMessage(): %v", msg.OrderDetailsMessage())
 	paymentSettings := mountOrderPaymentSettings(msg.OrderDetailsMessage())
 
 	strCatalogID := msg.Channel().StringConfigForKey("catalog_id", "")

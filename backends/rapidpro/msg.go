@@ -956,13 +956,16 @@ func (m *DBMsg) FlowMessage() *courier.FlowMessage {
 }
 
 func (m *DBMsg) OrderDetailsMessage() *courier.OrderDetailsMessage {
+	fmt.Printf("DBMsg.OrderDetailsMessage() - Metadata_: %v\n", m.Metadata_)
 	if m.Metadata_ == nil {
+		fmt.Println("DBMsg.OrderDetailsMessage() - Metadata_ is nil")
 		return nil
 	}
 
 	var metadata map[string]interface{}
 	err := json.Unmarshal(*m.Metadata_, &metadata)
 	if err != nil {
+		fmt.Printf("DBMsg.OrderDetailsMessage() - Error unmarshalling metadata: %v", err)
 		return nil
 	}
 
@@ -971,11 +974,13 @@ func (m *DBMsg) OrderDetailsMessage() *courier.OrderDetailsMessage {
 	}
 
 	if orderDetailsMessageData, ok := metadata["order_details_message"].(map[string]interface{}); ok {
+		fmt.Printf("DBMsg.OrderDetailsMessage() - orderDetailsMessageData: %v", orderDetailsMessageData)
 		orderDetailsMessage := &courier.OrderDetailsMessage{}
 		if referenceID, ok := orderDetailsMessageData["reference_id"].(string); ok {
 			orderDetailsMessage.ReferenceID = referenceID
 		}
 		if paymentSettings, ok := orderDetailsMessageData["payment_settings"].(map[string]interface{}); ok {
+			fmt.Printf("DBMsg.OrderDetailsMessage() - paymentSettings: %v", paymentSettings)
 			orderDetailsMessage.PaymentSettings = courier.OrderPaymentSettings{}
 			if payment_type, ok := paymentSettings["type"].(string); ok {
 				orderDetailsMessage.PaymentSettings.Type = payment_type
@@ -999,6 +1004,7 @@ func (m *DBMsg) OrderDetailsMessage() *courier.OrderDetailsMessage {
 				}
 			}
 			if offsite_card_pay, ok := paymentSettings["offsite_card_pay"].(map[string]interface{}); ok {
+				fmt.Printf("DBMsg.OrderDetailsMessage() - Offsite card pay: %v", offsite_card_pay)
 				orderDetailsMessage.PaymentSettings.OffsiteCardPay = courier.OffsiteCardPay{}
 				if offsite_card_pay_last_four_digits, ok := offsite_card_pay["last_four_digits"].(string); ok {
 					orderDetailsMessage.PaymentSettings.OffsiteCardPay.LastFourDigits = offsite_card_pay_last_four_digits

@@ -959,9 +959,11 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				}
 
 				callData := map[string]interface{}{
-					"call":         call,
-					"project_uuid": projectUUID,
-					"channel_uuid": channel.UUID().String(),
+					"call":            call,
+					"project_uuid":    projectUUID,
+					"channel_uuid":    channel.UUID().String(),
+					"phone_number_id": change.Value.Metadata.PhoneNumberID,
+					"name":            change.Value.Contacts[0].Profile.Name,
 				}
 
 				callJSON, err := json.Marshal(callData)

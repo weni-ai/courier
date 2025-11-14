@@ -404,6 +404,16 @@ var testCasesWAC = []ChannelHandleTestCase{
 	{Label: "Receive Invalid WABA ID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/invalidWabaWAC.json")), Status: 200, Response: `{"message":"Events Handled","data":[{"type":"info","info":"ignoring messages from different waba id: 1234567890, 8856996819413533"}]}`,
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Unsupported Message Type", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/unsupportedMessageWAC.json")), Status: 200, Response: `"Events Handled"`, PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Payment Method WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/paymentMethodWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{
+			"payment_method": map[string]interface{}{
+				"credential_id":     "cred_123456789",
+				"last_four_digits":  "1234",
+				"reference_id":      "ref_987654321",
+				"payment_timestamp": int64(1640995200),
+				"payment_method":    "credit_card",
+			}}),
+		PrepRequest: addValidSignatureWAC},
 }
 
 func TestHandler(t *testing.T) {

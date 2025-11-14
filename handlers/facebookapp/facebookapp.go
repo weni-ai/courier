@@ -804,24 +804,8 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 						phones = append(phones, phone.Phone)
 					}
 					text = strings.Join(phones, ", ")
-					// } else if msg.Type == "interactive" && msg.Interactive.Type == "payment_method" {
-					// 	paymentMethodData := map[string]interface{}{
-					// 		"credential_id":     msg.Interactive.PaymentMethod.CredentialID,
-					// 		"last_four_digits":  msg.Interactive.PaymentMethod.LastFourDigits,
-					// 		"reference_id":      msg.Interactive.PaymentMethod.ReferenceID,
-					// 		"payment_timestamp": msg.Interactive.PaymentMethod.PaymentTimestamp,
-					// 		"payment_method":    msg.Interactive.PaymentMethod.PaymentMethod,
-					// 	}
-
-					// 	// Criar metadata com os dados do payment_method
-					// 	paymentMetadata, err := json.Marshal(paymentMethodData)
-					// 	if err != nil {
-					// 		courier.LogRequestError(r, channel, err)
-					// 	} else {
-					// 		// Adicionar os dados do payment_method ao metadata da mensagem
-					// 		//
-					// 		ev := h.Backend().NewChannelEvent()
-					// 	}
+				} else if msg.Type == "interactive" && msg.Interactive.Type == "payment_method" {
+					text = ""
 				} else {
 					// we received a message type we do not support.
 					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
@@ -896,6 +880,16 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 						courier.LogRequestError(r, channel, err)
 					}
 					metadata := json.RawMessage(nfmReplyJSON)
+					event.WithMetadata(metadata)
+				}
+
+				if msg.Interactive.Type == "payment_method" {
+					paymentMethodData := map[string]interface{}{"payment_method": msg.Interactive.PaymentMethod}
+					paymentMethodJSON, err := json.Marshal(paymentMethodData)
+					if err != nil {
+						courier.LogRequestError(r, channel, err)
+					}
+					metadata := json.RawMessage(paymentMethodJSON)
 					event.WithMetadata(metadata)
 				}
 

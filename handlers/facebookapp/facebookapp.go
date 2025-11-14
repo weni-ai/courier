@@ -259,7 +259,7 @@ type moPayload struct {
 						} `json:"nfm_reply"`
 						PaymentMethod struct {
 							PaymentMethod    string `json:"payment_method"`
-							PaymentTimestamp string `json:"payment_timestamp"`
+							PaymentTimestamp int64  `json:"payment_timestamp"`
 							ReferenceID      string `json:"reference_id"`
 							LastFourDigits   string `json:"last_four_digits"`
 							CredentialID     string `json:"credential_id"`

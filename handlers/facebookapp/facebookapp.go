@@ -2028,10 +2028,15 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 					paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
 
+					mountedOrderDetails := mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount)
+					if mountedOrderDetails == nil {
+						return status, fmt.Errorf("failed to mount order details")
+					}
+
 					param := wacParam{
 						Type: "action",
 						Action: &wacMTAction{
-							OrderDetails: mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount),
+							OrderDetails: mountedOrderDetails,
 						},
 					}
 
@@ -2304,6 +2309,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 							paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
 
+							mountedOrderDetails := mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount)
+							if mountedOrderDetails == nil {
+								return status, fmt.Errorf("failed to mount order details")
+							}
+
 							interactive := wacInteractive[wacOrderDetails]{
 								Type: "order_details",
 								Body: struct {
@@ -2319,7 +2329,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 									Parameters        wacOrderDetails "json:\"parameters,omitempty\""
 								}{
 									Name:       "review_and_pay",
-									Parameters: *mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount),
+									Parameters: *mountedOrderDetails,
 								},
 							}
 							if msg.Footer() != "" {
@@ -2678,6 +2688,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 					paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
 
+					mountedOrderDetails := mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount)
+					if mountedOrderDetails == nil {
+						return status, fmt.Errorf("failed to mount order details")
+					}
+
 					interactive := wacInteractive[wacOrderDetails]{
 						Type: "order_details",
 						Body: struct {
@@ -2693,7 +2708,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							Parameters        wacOrderDetails "json:\"parameters,omitempty\""
 						}{
 							Name:       "review_and_pay",
-							Parameters: *mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount),
+							Parameters: *mountedOrderDetails,
 						},
 					}
 					if msg.Footer() != "" {
@@ -2978,28 +2993,33 @@ func castInteractive[I, O wacInteractiveActionParams](interactive wacInteractive
 }
 
 func mountOrderDetails(msg courier.Msg, paymentSettings []wacOrderDetailsPaymentSetting, catalogID *string, orderTax wacAmountWithOffset, orderShipping *wacAmountWithOffset, orderDiscount *wacAmountWithOffset) *wacOrderDetails {
+	orderDetails := msg.OrderDetailsMessage()
+	if orderDetails == nil {
+		return nil
+	}
+
 	var paymentType string
-	if msg.OrderDetailsMessage().PaymentSettings.OffsiteCardPay.CredentialID != "" {
+	if orderDetails.PaymentSettings.OffsiteCardPay.CredentialID != "" {
 		paymentType = "digital-goods"
 	} else {
-		paymentType = msg.OrderDetailsMessage().PaymentSettings.Type
+		paymentType = orderDetails.PaymentSettings.Type
 	}
 	return &wacOrderDetails{
-		ReferenceID:     msg.OrderDetailsMessage().ReferenceID,
+		ReferenceID:     orderDetails.ReferenceID,
 		Type:            paymentType,
 		PaymentType:     "br",
 		PaymentSettings: paymentSettings,
 		Currency:        "BRL",
 		TotalAmount: wacAmountWithOffset{
-			Value:  msg.OrderDetailsMessage().TotalAmount,
+			Value:  orderDetails.TotalAmount,
 			Offset: 100,
 		},
 		Order: wacOrder{
 			Status:    "pending",
 			CatalogID: *catalogID,
-			Items:     msg.OrderDetailsMessage().Order.Items,
+			Items:     orderDetails.Order.Items,
 			Subtotal: wacAmountWithOffset{
-				Value:  msg.OrderDetailsMessage().Order.Subtotal,
+				Value:  orderDetails.Order.Subtotal,
 				Offset: 100,
 			},
 			Tax:      orderTax,

@@ -354,6 +354,18 @@ type moPayload struct {
 					AdAccountID     string `json:"ad_account_id"`
 					OwnerBusinessID string `json:"owner_business_id"`
 				} `json:"waba_info"`
+				Calls []struct {
+					ID        string `json:"id"`
+					To        string `json:"to"`
+					From      string `json:"from"`
+					Event     string `json:"event"`
+					Timestamp string `json:"timestamp"`
+					Direction string `json:"direction"`
+					Session   struct {
+						SdpType string `json:"sdp_type"`
+						Sdp     string `json:"sdp"`
+					} `json:"session"`
+				} `json:"calls"`
 			} `json:"value"`
 		} `json:"changes"`
 		Messaging []struct {
@@ -953,6 +965,48 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 			}
 
+			for _, call := range change.Value.Calls {
+				callsWebhookURL := h.Server().Config().CallsWebhookURL
+				callsWebhookToken := h.Server().Config().CallsWebhookToken
+				if callsWebhookURL == "" {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("calls webhook url is not set"))
+				}
+
+				projectUUID, err := h.Backend().GetProjectUUIDFromChannelUUID(ctx, channel.UUID())
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+
+				callData := map[string]interface{}{
+					"call":            call,
+					"project_uuid":    projectUUID,
+					"channel_uuid":    channel.UUID().String(),
+					"phone_number_id": change.Value.Metadata.PhoneNumberID,
+					"name":            change.Value.Contacts[0].Profile.Name,
+				}
+
+				callJSON, err := json.Marshal(callData)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+				req, err := http.NewRequest("POST", callsWebhookURL, bytes.NewBuffer(callJSON))
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+				if callsWebhookToken != "" {
+					req.Header.Set("Authorization", "Bearer "+callsWebhookToken)
+				}
+				req.Header.Set("Content-Type", "application/json")
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("failed to send calls webhook"))
+				}
+				data = append(data, courier.NewInfoData(fmt.Sprintf("New whatsapp call received: %s", call.ID)))
+			}
 		}
 
 	}

@@ -1,0 +1,46 @@
+{
+    "object": "whatsapp_business_account",
+    "entry": [
+        {
+            "id": "8856996819413533",
+            "changes": [
+                {
+                    "value": {
+                        "messaging_product": "whatsapp",
+                        "metadata": {
+                            "display_phone_number": "+250 788 123 200",
+                            "phone_number_id": "12345"
+                        },
+                        "contacts": [
+                            {
+                                "profile": {
+                                    "name": "Kerry Fisher"
+                                },
+                                "wa_id": "5678"
+                            }
+                        ],
+                        "messages": [
+                            {
+                                "from": "5678",
+                                "id": "external_id",
+                                "interactive": {
+                                    "type": "payment_method",
+                                    "payment_method": {
+                                        "payment_method": "credit_card",
+                                        "payment_timestamp": 1640995200,
+                                        "reference_id": "ref_987654321",
+                                        "last_four_digits": "1234",
+                                        "credential_id": "cred_123456789"
+                                    }
+                                },
+                                "timestamp": "1454119029",
+                                "type": "interactive"
+                            }
+                        ]
+                    },
+                    "field": "messages"
+                }
+            ]
+        }
+    ]
+}

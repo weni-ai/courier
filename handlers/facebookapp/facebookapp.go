@@ -266,7 +266,7 @@ type moPayload struct {
 						} `json:"nfm_reply"`
 						PaymentMethod struct {
 							PaymentMethod    string `json:"payment_method"`
-							PaymentTimestamp string `json:"payment_timestamp"`
+							PaymentTimestamp int64  `json:"payment_timestamp"`
 							ReferenceID      string `json:"reference_id"`
 							LastFourDigits   string `json:"last_four_digits"`
 							CredentialID     string `json:"credential_id"`
@@ -1016,7 +1016,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				data = append(data, courier.NewStatusData(event))
 
 			}
-			
+
 			for _, call := range change.Value.Calls {
 				callsWebhookURL := h.Server().Config().CallsWebhookURL
 				callsWebhookToken := h.Server().Config().CallsWebhookToken

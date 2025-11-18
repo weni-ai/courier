@@ -116,15 +116,15 @@ type moPayload struct {
 }
 
 type moMessage struct {
-	Type         string              `json:"type"      validate:"required"`
-	TimeStamp    string              `json:"timestamp" validate:"required"`
-	Text         string              `json:"text,omitempty"`
-	MediaURL     string              `json:"media_url,omitempty"`
-	Caption      string              `json:"caption,omitempty"`
-	Latitude     string              `json:"latitude,omitempty"`
-	Longitude    string              `json:"longitude,omitempty"`
-	QuickReplies []string            `json:"quick_replies,omitempty"`
-	ListMessage  courier.ListMessage `json:"list_message,omitempty"`
+	Type         string               `json:"type"      validate:"required"`
+	TimeStamp    string               `json:"timestamp" validate:"required"`
+	Text         string               `json:"text,omitempty"`
+	MediaURL     string               `json:"media_url,omitempty"`
+	Caption      string               `json:"caption,omitempty"`
+	Latitude     string               `json:"latitude,omitempty"`
+	Longitude    string               `json:"longitude,omitempty"`
+	QuickReplies []string             `json:"quick_replies,omitempty"`
+	ListMessage  *courier.ListMessage `json:"list_message,omitempty"`
 }
 
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
@@ -190,7 +190,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 				// add list message on last message
 				if len(msg.ListMessage().ListItems) > 0 {
-					payload.Message.ListMessage = msg.ListMessage()
+					listMessage := msg.ListMessage()
+					payload.Message.ListMessage = &listMessage
 				}
 			}
 
@@ -227,7 +228,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		}
 
 		if len(msg.ListMessage().ListItems) > 0 {
-			payload.Message.ListMessage = msg.ListMessage()
+			listMessage := msg.ListMessage()
+			payload.Message.ListMessage = &listMessage
 		}
 
 		// build request

@@ -116,14 +116,15 @@ type moPayload struct {
 }
 
 type moMessage struct {
-	Type         string   `json:"type"      validate:"required"`
-	TimeStamp    string   `json:"timestamp" validate:"required"`
-	Text         string   `json:"text,omitempty"`
-	MediaURL     string   `json:"media_url,omitempty"`
-	Caption      string   `json:"caption,omitempty"`
-	Latitude     string   `json:"latitude,omitempty"`
-	Longitude    string   `json:"longitude,omitempty"`
-	QuickReplies []string `json:"quick_replies,omitempty"`
+	Type         string               `json:"type"      validate:"required"`
+	TimeStamp    string               `json:"timestamp" validate:"required"`
+	Text         string               `json:"text,omitempty"`
+	MediaURL     string               `json:"media_url,omitempty"`
+	Caption      string               `json:"caption,omitempty"`
+	Latitude     string               `json:"latitude,omitempty"`
+	Longitude    string               `json:"longitude,omitempty"`
+	QuickReplies []string             `json:"quick_replies,omitempty"`
+	ListMessage  *courier.ListMessage `json:"list_message,omitempty"`
 }
 
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
@@ -181,10 +182,17 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 				payload.Message.Caption = msg.Text()
 			}
 
-			// add quickreplies on last message
+			// last message
 			if i == lenAttachments-1 {
+				// add quickreplies on last message
 				qrs := normalizeQuickReplies(msg.QuickReplies())
 				payload.Message.QuickReplies = qrs
+
+				// add list message on last message
+				if len(msg.ListMessage().ListItems) > 0 {
+					listMessage := msg.ListMessage()
+					payload.Message.ListMessage = &listMessage
+				}
 			}
 
 			// build request
@@ -218,6 +226,12 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			Text:         msg.Text(),
 			QuickReplies: qrs,
 		}
+
+		if len(msg.ListMessage().ListItems) > 0 {
+			listMessage := msg.ListMessage()
+			payload.Message.ListMessage = &listMessage
+		}
+
 		// build request
 		body, err := json.Marshal(&payload)
 		if err != nil {

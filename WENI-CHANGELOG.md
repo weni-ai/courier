@@ -1,3 +1,7 @@
+1.39.0
+----------
+ * Add support for WhatsApp One Click Payment
+
 1.38.0
 ----------
  * whatsapp calls with phone number id and name on callData

@@ -977,12 +977,17 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 				}
 
+				contactName := ""
+				if len(change.Value.Contacts) > 0 {
+					contactName = change.Value.Contacts[0].Profile.Name
+				}
+
 				callData := map[string]interface{}{
 					"call":            call,
 					"project_uuid":    projectUUID,
 					"channel_uuid":    channel.UUID().String(),
 					"phone_number_id": change.Value.Metadata.PhoneNumberID,
-					"name":            change.Value.Contacts[0].Profile.Name,
+					"name":            contactName,
 				}
 
 				callJSON, err := json.Marshal(callData)

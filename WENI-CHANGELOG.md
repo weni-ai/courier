@@ -1,3 +1,7 @@
+1.39.1
+----------
+ * Add support for List Message on Weni Webchat
+
 1.39.0
 ----------
  * Add support for WhatsApp One Click Payment

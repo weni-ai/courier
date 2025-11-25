@@ -414,6 +414,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 				"payment_method":    "credit_card",
 			}}),
 		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Reaction Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/reactionWAC.json")), Status: 200, Response: `"ignoring echo reaction message"`, PrepRequest: addValidSignatureWAC},
 }
 
 func TestHandler(t *testing.T) {

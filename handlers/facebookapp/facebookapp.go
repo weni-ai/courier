@@ -761,6 +761,9 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					text = strings.Join(phones, ", ")
 				} else if msg.Type == "interactive" && msg.Interactive.Type == "payment_method" {
 					text = ""
+				} else if msg.Type == "reaction" {
+					data = append(data, courier.NewInfoData("ignoring echo reaction message"))
+					continue
 				} else {
 					// we received a message type we do not support.
 					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))

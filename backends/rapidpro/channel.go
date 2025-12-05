@@ -15,6 +15,7 @@ import (
 	"github.com/lib/pq"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/utils"
+	"github.com/sirupsen/logrus"
 )
 
 // getChannel will look up the channel with the passed in UUID and channel type.
@@ -762,25 +763,31 @@ func (b *backend) UpdateChannelConfigByWabaID(ctx context.Context, wabaID string
 	// Convert config updates to JSON
 	configJSON, err := json.Marshal(configUpdates)
 	if err != nil {
+		logrus.WithError(err).Error("[mmlite] error marshaling channel config updates")
 		return fmt.Errorf("error marshaling channel config updates: %v", err)
 	}
 
+	logrus.WithField("waba_id", wabaID).Info("[mmlite] updating channel configs by waba_id")
 	// Update all channels with matching waba_id
 	result, err := b.db.ExecContext(ctx, updateChannelConfigByWabaIDSQL, configJSON, wabaID)
 	if err != nil {
+		logrus.WithError(err).Error("[mmlite] error updating channel configs by waba_id")
 		return fmt.Errorf("error updating channel configs by waba_id: %v", err)
 	}
 
 	// Check how many rows were affected
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
+		logrus.WithError(err).Error("[mmlite] error getting rows affected")
 		return fmt.Errorf("error getting rows affected: %v", err)
 	}
 
 	if rowsAffected == 0 {
+		logrus.WithField("waba_id", wabaID).Error("[mmlite] no channels found with waba_id")
 		return fmt.Errorf("no channels found with waba_id: %s", wabaID)
 	}
 
+	logrus.WithField("waba_id", wabaID).WithField("rows_affected", rowsAffected).Info("[mmlite] channels updated with waba_id")
 	return nil
 }
 

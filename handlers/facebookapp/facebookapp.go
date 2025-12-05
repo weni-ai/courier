@@ -30,6 +30,7 @@ import (
 	"github.com/nyaruka/gocommon/uuids"
 	"github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 // Endpoints we hit
@@ -499,14 +500,17 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 			return nil, fmt.Errorf("no changes found")
 		}
 		if integrationWebhookFields[payload.Entry[0].Changes[0].Field] {
+			logrus.WithField("field", payload.Entry[0].Changes[0].Field).Info("[integration_webhook] receiving integration webhook")
 			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, "", true)
 			if er != nil {
 				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
 			}
 
 			if payload.Entry[0].Changes[0].Field == "account_update" {
+				logrus.WithField("event", payload.Entry[0].Changes[0].Value.Event).WithField("waba_info", payload.Entry[0].Changes[0].Value.WabaInfo).Info("[account_update] receiving account_update webhook")
 				// Handle account_update webhook type
 				if payload.Entry[0].Changes[0].Value.Event == "MM_LITE_TERMS_SIGNED" && payload.Entry[0].Changes[0].Value.WabaInfo != nil {
+					logrus.WithField("waba_id", payload.Entry[0].Changes[0].Value.WabaInfo.WabaID).Info("[mmlite] MM_LITE_TERMS_SIGNED event detected for waba_id")
 					wabaID := payload.Entry[0].Changes[0].Value.WabaInfo.WabaID
 
 					// Update channel config with ad_account_id and mmlite for all channels with matching waba_id
@@ -514,8 +518,10 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 						"mmlite": true,
 					})
 					if err != nil {
+						logrus.WithError(err).WithField("waba_id", wabaID).Error("[mmlite] error updating channel config with waba_id")
 						return nil, fmt.Errorf("error updating channel config with waba_id %s: %v", wabaID, err)
 					}
+					logrus.WithField("waba_id", wabaID).Info("[mmlite] channel config updated with waba_id")
 				}
 			}
 

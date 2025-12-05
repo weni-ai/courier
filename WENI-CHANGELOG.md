@@ -1,3 +1,7 @@
+1.40.1
+----------
+ * Add mmlite debug logs
+
 1.40.0
 ----------
  * Update MMLite event handler

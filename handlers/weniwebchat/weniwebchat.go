@@ -132,6 +132,7 @@ type moMessage struct {
 	Longitude    string               `json:"longitude,omitempty"`
 	QuickReplies []string             `json:"quick_replies,omitempty"`
 	ListMessage  *courier.ListMessage `json:"list_message,omitempty"`
+	CTAMessage   *courier.CTAMessage  `json:"cta_message,omitempty"`
 	Interactive  *wwcInteractive      `json:"interactive,omitempty"`
 }
 
@@ -193,7 +194,6 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 
 	sendURL := fmt.Sprintf("%s/send", baseURL)
-
 	var logs []*courier.ChannelLog
 
 	// Check for product messages first
@@ -202,118 +202,82 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 
 	payload := newOutgoingMessage("message", msg.URN().Path(), msg.Channel().Address(), msg.QuickReplies(), msg.Channel().UUID().String())
-	lenAttachments := len(msg.Attachments())
-	if lenAttachments > 0 {
 
-	attachmentsLoop:
-		for i, attachment := range msg.Attachments() {
-			mimeType, attachmentURL := handlers.SplitAttachment(attachment)
-			payload.Message.TimeStamp = getTimestamp()
-			// parse attachment type
-			if strings.HasPrefix(mimeType, "audio") {
-				payload.Message = moMessage{
-					Type:     "audio",
-					MediaURL: attachmentURL,
-				}
-			} else if strings.HasPrefix(mimeType, "application") {
-				payload.Message = moMessage{
-					Type:     "file",
-					MediaURL: attachmentURL,
-				}
-			} else if strings.HasPrefix(mimeType, "image") {
-				payload.Message = moMessage{
-					Type:     "image",
-					MediaURL: attachmentURL,
-				}
-			} else if strings.HasPrefix(mimeType, "video") {
-				payload.Message = moMessage{
-					Type:     "video",
-					MediaURL: attachmentURL,
-				}
-			} else {
-				elapsed := time.Since(start)
-				log := courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, fmt.Errorf("unknown attachment mime type: %s", mimeType))
-				logs = append(logs, log)
-				status.SetStatus(courier.MsgFailed)
-				break attachmentsLoop
-			}
-
-			// add a caption to the first attachment
-			if i == 0 {
-				payload.Message.Caption = msg.Text()
-			}
-
-			// last message
-			if i == lenAttachments-1 {
-				// add quickreplies on last message
-				qrs := normalizeQuickReplies(msg.QuickReplies())
-				payload.Message.QuickReplies = qrs
-
-				// add list message on last message
-				if len(msg.ListMessage().ListItems) > 0 {
-					listMessage := msg.ListMessage()
-					payload.Message.ListMessage = &listMessage
-				}
-			}
-
-			// build request
-			var body []byte
-			body, err := json.Marshal(&payload)
-			if err != nil {
-				elapsed := time.Since(start)
-				log := courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, err)
-				logs = append(logs, log)
-				status.SetStatus(courier.MsgFailed)
-				break attachmentsLoop
-			}
-			req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
-			req.Header.Set("Content-Type", "application/json")
-			idempotencyKey := fmt.Sprintf("%s-%d", msg.UUID().String(), time.Now().UnixNano())
-			res, err := utils.MakeHTTPRequestWithRetry(ctx, req, 3, 500*time.Millisecond, idempotencyKey)
-			if res != nil {
-				log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), res).WithError("Message Send Error", err)
-				logs = append(logs, log)
-			}
-			if err != nil {
-				status.SetStatus(courier.MsgFailed)
-				break attachmentsLoop
-			}
+	// sendPayload marshals and sends the payload, collecting logs
+	sendPayload := func() error {
+		body, err := json.Marshal(&payload)
+		if err != nil {
+			elapsed := time.Since(start)
+			logs = append(logs, courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, err))
+			return err
 		}
-	} else {
-		qrs := normalizeQuickReplies(msg.QuickReplies())
-		payload.Message = moMessage{
-			Type:         "text",
-			TimeStamp:    getTimestamp(),
-			Text:         msg.Text(),
-			QuickReplies: qrs,
+		req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		idempotencyKey := fmt.Sprintf("%s-%d", msg.UUID().String(), time.Now().UnixNano())
+		res, err := utils.MakeHTTPRequestWithRetry(ctx, req, 3, 500*time.Millisecond, idempotencyKey)
+		if res != nil {
+			logs = append(logs, courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), res).WithError("Message Send Error", err))
 		}
+		return err
+	}
 
+	// addInteractiveElements adds quick replies, list message, and CTA to the payload
+	addInteractiveElements := func() {
+		payload.Message.QuickReplies = normalizeQuickReplies(msg.QuickReplies())
 		if len(msg.ListMessage().ListItems) > 0 {
 			listMessage := msg.ListMessage()
 			payload.Message.ListMessage = &listMessage
 		}
+		if msg.CTAMessage() != nil {
+			payload.Message.CTAMessage = msg.CTAMessage()
+		}
+	}
 
-		// build request
-		body, err := json.Marshal(&payload)
-		if err != nil {
-			elapsed := time.Since(start)
-			log := courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, err)
-			logs = append(logs, log)
-			status.SetStatus(courier.MsgFailed)
-		} else {
-			req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
-			req.Header.Set("Content-Type", "application/json")
-			idempotencyKey := fmt.Sprintf("%s-%d", msg.UUID().String(), time.Now().UnixNano())
-			res, err := utils.MakeHTTPRequestWithRetry(ctx, req, 3, 500*time.Millisecond, idempotencyKey)
-			if res != nil {
-				log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), res).WithError("Message Send Error", err)
-				logs = append(logs, log)
-			}
-			if err != nil {
+	lenAttachments := len(msg.Attachments())
+	if lenAttachments > 0 {
+		for i, attachment := range msg.Attachments() {
+			mimeType, attachmentURL := handlers.SplitAttachment(attachment)
+
+			msgType, ok := mimeTypeToMessageType(mimeType)
+			if !ok {
+				elapsed := time.Since(start)
+				logs = append(logs, courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, fmt.Errorf("unknown attachment mime type: %s", mimeType)))
 				status.SetStatus(courier.MsgFailed)
+				break
+			}
+
+			payload.Message = moMessage{
+				Type:      msgType,
+				TimeStamp: getTimestamp(),
+				MediaURL:  attachmentURL,
+			}
+
+			// add caption to first attachment
+			if i == 0 {
+				payload.Message.Caption = msg.Text()
+			}
+
+			// add interactive elements on last message
+			if i == lenAttachments-1 {
+				addInteractiveElements()
+			}
+
+			if err := sendPayload(); err != nil {
+				status.SetStatus(courier.MsgFailed)
+				break
 			}
 		}
+	} else {
+		payload.Message = moMessage{
+			Type:      "text",
+			TimeStamp: getTimestamp(),
+			Text:      msg.Text(),
+		}
+		addInteractiveElements()
 
+		if err := sendPayload(); err != nil {
+			status.SetStatus(courier.MsgFailed)
+		}
 	}
 
 	for _, log := range logs {
@@ -321,6 +285,22 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 
 	return status, nil
+}
+
+// mimeTypeToMessageType maps MIME type prefixes to message types
+func mimeTypeToMessageType(mimeType string) (string, bool) {
+	prefixMap := map[string]string{
+		"audio":       "audio",
+		"application": "file",
+		"image":       "image",
+		"video":       "video",
+	}
+	for prefix, msgType := range prefixMap {
+		if strings.HasPrefix(mimeType, prefix) {
+			return msgType, true
+		}
+	}
+	return "", false
 }
 
 var _ courier.ActionSender = (*handler)(nil)
@@ -352,8 +332,11 @@ func (h *handler) SendAction(ctx context.Context, msg courier.Msg) (courier.MsgS
 	req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	res, err := utils.MakeHTTPRequest(req)
+	if err != nil {
+		return nil, er.Wrap(err, "HTTP request failed")
+	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, fmt.Errorf("Weni Webchat API error (%d): %s", res.StatusCode, string(res.Body))
+		return nil, fmt.Errorf("weni webchat API error (%d): %s", res.StatusCode, string(res.Body))
 	}
 
 	return nil, nil

@@ -380,7 +380,6 @@ type moPayload struct {
 				} `json:"state_sync"`
 				WabaInfo *struct {
 					WabaID          string `json:"waba_id"`
-					AdAccountID     string `json:"ad_account_id"`
 					OwnerBusinessID string `json:"owner_business_id"`
 				} `json:"waba_info"`
 				Calls []struct {
@@ -536,14 +535,12 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 
 			if payload.Entry[0].Changes[0].Field == "account_update" {
 				// Handle account_update webhook type
-				if payload.Entry[0].Changes[0].Value.Event == "AD_ACCOUNT_LINKED" && payload.Entry[0].Changes[0].Value.WabaInfo != nil {
+				if payload.Entry[0].Changes[0].Value.Event == "MM_LITE_TERMS_SIGNED" && payload.Entry[0].Changes[0].Value.WabaInfo != nil {
 					wabaID := payload.Entry[0].Changes[0].Value.WabaInfo.WabaID
-					adAccountID := payload.Entry[0].Changes[0].Value.WabaInfo.AdAccountID
 
 					// Update channel config with ad_account_id and mmlite for all channels with matching waba_id
 					err := h.Backend().UpdateChannelConfigByWabaID(ctx, wabaID, map[string]interface{}{
-						"ad_account_id": adAccountID,
-						"mmlite":        true,
+						"mmlite": true,
 					})
 					if err != nil {
 						return nil, fmt.Errorf("error updating channel config with waba_id %s: %v", wabaID, err)
@@ -1032,12 +1029,17 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 				}
 
+				contactName := ""
+				if len(change.Value.Contacts) > 0 {
+					contactName = change.Value.Contacts[0].Profile.Name
+				}
+
 				callData := map[string]interface{}{
 					"call":            call,
 					"project_uuid":    projectUUID,
 					"channel_uuid":    channel.UUID().String(),
 					"phone_number_id": change.Value.Metadata.PhoneNumberID,
-					"name":            change.Value.Contacts[0].Profile.Name,
+					"name":            contactName,
 				}
 
 				callJSON, err := json.Marshal(callData)

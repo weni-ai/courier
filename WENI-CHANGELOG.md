@@ -1,3 +1,12 @@
+1.40.0
+----------
+ * Update MMLite event handler
+ * Add support for handling WhatsApp reaction messages
+
+1.39.2
+----------
+ * Fix handling contact name on whatsapp calls
+
 1.39.1
 ----------
  * Add support for List Message on Weni Webchat

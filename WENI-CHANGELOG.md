@@ -1,3 +1,7 @@
+1.41.0
+----------
+ * Add support for CTA Message on Weni Webchat
+
 1.40.1
 ----------
  * Add mmlite debug logs

@@ -38,9 +38,10 @@ func (h *handler) Initialize(s courier.Server) error {
 }
 
 type miPayload struct {
-	Type    string    `json:"type"           validate:"required"`
-	From    string    `json:"from,omitempty" validate:"required"`
-	Message miMessage `json:"message"`
+	Type          string            `json:"type"           validate:"required"`
+	From          string            `json:"from,omitempty" validate:"required"`
+	Message       miMessage         `json:"message"`
+	ContactFields map[string]string `json:"contact_fields,omitempty"`
 }
 
 type miMessage struct {
@@ -93,7 +94,11 @@ func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w htt
 
 	// build message
 	date := time.Unix(ts, 0).UTC()
-	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Message.Text).WithReceivedOn(date).WithContactName(payload.From)
+	msg := h.Backend().
+		NewIncomingMsg(channel, urn, payload.Message.Text).
+		WithReceivedOn(date).
+		WithContactName(payload.From).
+		WithNewContactFields(payload.ContactFields)
 
 	// write the contact last seen
 	h.Backend().WriteContactLastSeen(ctx, msg, date)

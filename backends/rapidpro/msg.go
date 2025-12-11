@@ -552,6 +552,7 @@ type DBMsg struct {
 	ResponseToExternalID_ string                 `json:"response_to_external_id"`
 	IsResend_             bool                   `json:"is_resend,omitempty"`
 	Metadata_             *json.RawMessage       `json:"metadata,omitempty"        db:"metadata"`
+	NewContactFields_     *map[string]string     `json:"new_contact_fields,omitempty"`
 
 	ChannelID_    courier.ChannelID `json:"channel_id"      db:"channel_id"`
 	ContactID_    ContactID         `json:"contact_id"      db:"contact_id"`
@@ -682,6 +683,18 @@ func (m *DBMsg) Metadata() json.RawMessage {
 	return *m.Metadata_
 }
 
+func (m *DBMsg) NewContactFields() map[string]string {
+	if m.NewContactFields_ == nil {
+		return nil
+	}
+
+	if *m.NewContactFields_ == nil {
+		return nil
+	}
+
+	return *m.NewContactFields_
+}
+
 // fingerprint returns a fingerprint for this msg, suitable for figuring out if this is a dupe
 func (m *DBMsg) urnFingerprint() string {
 	return fmt.Sprintf("%s:%s", m.ChannelUUID_, m.URN_.Identity())
@@ -689,6 +702,12 @@ func (m *DBMsg) urnFingerprint() string {
 
 // WithContactName can be used to set the contact name on a msg
 func (m *DBMsg) WithContactName(name string) courier.Msg { m.ContactName_ = name; return m }
+
+// WithNewContactFields can be used to set the new contact fields on a msg
+func (m *DBMsg) WithNewContactFields(fields map[string]string) courier.Msg {
+	m.NewContactFields_ = &fields
+	return m
+}
 
 // WithReceivedOn can be used to set sent_on on a msg in a chained call
 func (m *DBMsg) WithReceivedOn(date time.Time) courier.Msg { m.SentOn_ = &date; return m }

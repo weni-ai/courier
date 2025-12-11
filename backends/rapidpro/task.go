@@ -14,19 +14,20 @@ func queueMsgHandling(rc redis.Conn, c *DBContact, m *DBMsg) error {
 
 	// queue to mailroom
 	body := map[string]interface{}{
-		"contact_id":      c.ID_,
-		"org_id":          channel.OrgID_,
-		"channel_id":      channel.ID_,
-		"msg_id":          m.ID_,
-		"msg_uuid":        m.UUID_.String(),
-		"msg_external_id": m.ExternalID(),
-		"urn":             m.URN().String(),
-		"urn_id":          m.ContactURNID_,
-		"text":            m.Text(),
-		"attachments":     m.Attachments(),
-		"new_contact":     c.IsNew_,
-		"created_on":      m.CreatedOn_,
-		"metadata":        m.Metadata(),
+		"contact_id":         c.ID_,
+		"org_id":             channel.OrgID_,
+		"channel_id":         channel.ID_,
+		"msg_id":             m.ID_,
+		"msg_uuid":           m.UUID_.String(),
+		"msg_external_id":    m.ExternalID(),
+		"urn":                m.URN().String(),
+		"urn_id":             m.ContactURNID_,
+		"text":               m.Text(),
+		"attachments":        m.Attachments(),
+		"new_contact":        c.IsNew_,
+		"created_on":         m.CreatedOn_,
+		"metadata":           m.Metadata(),
+		"new_contact_fields": m.NewContactFields(),
 	}
 
 	return queueMailroomTask(rc, "msg_event", m.OrgID_, m.ContactID_, body)

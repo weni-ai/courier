@@ -132,4 +132,3 @@ func TestDBMsg_WithNewContactFields(t *testing.T) {
 	assert.Equal(t, "value", msg4.NewContactFields()["key"])
 	assert.Equal(t, "Test Name", msg4.ContactName())
 }
-

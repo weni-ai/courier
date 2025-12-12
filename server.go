@@ -563,7 +563,7 @@ func (s *server) CheckSentry() error {
 func (s *server) CheckS3() error {
 	var s3storage storage.Storage
 	// create our storage (S3 or file system)
-	if s.config.AWSAccessKeyID != "" || s.config.S3UseIAMRole {
+	if s.config.AWSAccessKeyID != "" || s.config.S3UseIamRole {
 		s3Client, err := storage.NewS3Client(&storage.S3Options{
 			AWSAccessKeyID:     s.config.AWSAccessKeyID,     // can be empty for IAM role
 			AWSSecretAccessKey: s.config.AWSSecretAccessKey, // can be empty for IAM role

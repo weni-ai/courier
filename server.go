@@ -565,8 +565,8 @@ func (s *server) CheckS3() error {
 	// create our storage (S3 or file system)
 	if s.config.AWSAccessKeyID != "" || s.config.S3UseIAMRole {
 		s3Client, err := storage.NewS3Client(&storage.S3Options{
-			AWSAccessKeyID:     s.config.AWSAccessKeyID,     // vazio = usa IAM role
-			AWSSecretAccessKey: s.config.AWSSecretAccessKey, // vazio = usa IAM role
+			AWSAccessKeyID:     s.config.AWSAccessKeyID,     // can be empty for IAM role
+			AWSSecretAccessKey: s.config.AWSSecretAccessKey, // can be empty for IAM role
 			Endpoint:           s.config.S3Endpoint,
 			Region:             s.config.S3Region,
 			DisableSSL:         s.config.S3DisableSSL,

@@ -15,6 +15,7 @@ import (
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/urns"
+	er "github.com/pkg/errors"
 )
 
 func init() {
@@ -115,14 +116,15 @@ type moPayload struct {
 }
 
 type moMessage struct {
-	Type         string   `json:"type"      validate:"required"`
-	TimeStamp    string   `json:"timestamp" validate:"required"`
-	Text         string   `json:"text,omitempty"`
-	MediaURL     string   `json:"media_url,omitempty"`
-	Caption      string   `json:"caption,omitempty"`
-	Latitude     string   `json:"latitude,omitempty"`
-	Longitude    string   `json:"longitude,omitempty"`
-	QuickReplies []string `json:"quick_replies,omitempty"`
+	Type         string               `json:"type"      validate:"required"`
+	TimeStamp    string               `json:"timestamp" validate:"required"`
+	Text         string               `json:"text,omitempty"`
+	MediaURL     string               `json:"media_url,omitempty"`
+	Caption      string               `json:"caption,omitempty"`
+	Latitude     string               `json:"latitude,omitempty"`
+	Longitude    string               `json:"longitude,omitempty"`
+	QuickReplies []string             `json:"quick_replies,omitempty"`
+	ListMessage  *courier.ListMessage `json:"list_message,omitempty"`
 }
 
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
@@ -180,10 +182,17 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 				payload.Message.Caption = msg.Text()
 			}
 
-			// add quickreplies on last message
+			// last message
 			if i == lenAttachments-1 {
+				// add quickreplies on last message
 				qrs := normalizeQuickReplies(msg.QuickReplies())
 				payload.Message.QuickReplies = qrs
+
+				// add list message on last message
+				if len(msg.ListMessage().ListItems) > 0 {
+					listMessage := msg.ListMessage()
+					payload.Message.ListMessage = &listMessage
+				}
 			}
 
 			// build request
@@ -198,7 +207,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			}
 			req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
 			req.Header.Set("Content-Type", "application/json")
-			res, err := utils.MakeHTTPRequest(req)
+			idempotencyKey := fmt.Sprintf("%s-%d", msg.UUID().String(), time.Now().UnixNano())
+			res, err := utils.MakeHTTPRequestWithRetry(ctx, req, 3, 500*time.Millisecond, idempotencyKey)
 			if res != nil {
 				log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), res).WithError("Message Send Error", err)
 				logs = append(logs, log)
@@ -216,6 +226,12 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			Text:         msg.Text(),
 			QuickReplies: qrs,
 		}
+
+		if len(msg.ListMessage().ListItems) > 0 {
+			listMessage := msg.ListMessage()
+			payload.Message.ListMessage = &listMessage
+		}
+
 		// build request
 		body, err := json.Marshal(&payload)
 		if err != nil {
@@ -226,7 +242,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		} else {
 			req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
 			req.Header.Set("Content-Type", "application/json")
-			res, err := utils.MakeHTTPRequest(req)
+			idempotencyKey := fmt.Sprintf("%s-%d", msg.UUID().String(), time.Now().UnixNano())
+			res, err := utils.MakeHTTPRequestWithRetry(ctx, req, 3, 500*time.Millisecond, idempotencyKey)
 			if res != nil {
 				log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), res).WithError("Message Send Error", err)
 				logs = append(logs, log)
@@ -243,6 +260,42 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 
 	return status, nil
+}
+
+var _ courier.ActionSender = (*handler)(nil)
+
+// SendAction sends a specific action to the Weni Webchat API.
+// This method is specific to the Weni Webchat handler.
+func (h *handler) SendAction(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
+	baseURL := msg.Channel().StringConfigForKey(courier.ConfigBaseURL, "")
+	if baseURL == "" {
+		return nil, errors.New("blank base_url")
+	}
+
+	sendURL := fmt.Sprintf("%s/send", baseURL)
+
+	// Create payload for typing indicator
+	payload := map[string]interface{}{
+		"type":         "typing_start",
+		"to":           msg.URN().Path(),
+		"from":         "ai-assistant",
+		"channel_uuid": msg.Channel().UUID().String(),
+	}
+
+	// build request
+	body, err := json.Marshal(&payload)
+	if err != nil {
+		return nil, er.Wrap(err, "HTTP request failed")
+	}
+
+	req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	res, err := utils.MakeHTTPRequest(req)
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return nil, fmt.Errorf("Weni Webchat API error (%d): %s", res.StatusCode, string(res.Body))
+	}
+
+	return nil, nil
 }
 
 func newOutgoingMessage(payType, to, from string, quickReplies []string, channelUUID string) *moPayload {

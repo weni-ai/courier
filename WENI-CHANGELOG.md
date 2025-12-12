@@ -1,3 +1,60 @@
+1.40.0
+----------
+ * Update MMLite event handler
+ * Add support for handling WhatsApp reaction messages
+
+1.39.2
+----------
+ * Fix handling contact name on whatsapp calls
+
+1.39.1
+----------
+ * Add support for List Message on Weni Webchat
+
+1.39.0
+----------
+ * Add support for WhatsApp One Click Payment
+
+1.38.0
+----------
+ * whatsapp calls with phone number id and name on callData
+
+1.38.0
+----------
+ * Handle whatsapp calls
+
+1.37.0
+----------
+ * Separate product messages without limitation for WhatsApp
+
+1.36.3
+----------
+ * Send TemplateUUID to billing create queue
+
+1.36.2
+----------
+ * Ignore unsupported messages in the Cloud API
+
+1.36.1
+----------
+ * External v2 support for send_url_template like a send_template
+
+1.36.0
+----------
+ * Add external api v2 channel handler
+
+1.35.0
+----------
+ * use MakeHTTPRequestWithRetry on weniwebchat handler to avoid request connection errors and other transitory errors
+
+1.34.0
+----------
+ * Refactor billing message handling to simplify conditions and ensure status is included in billing messages
+
+1.33.0
+----------
+ * Add typing action handling for Weni Webchat
+
 1.32.1
 ----------
  * Add contact name field to billing Message struct

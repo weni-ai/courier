@@ -1439,3 +1439,11 @@ func readMsgFromDB(b *backend, id courier.MsgID) *DBMsg {
 	m.channel = ch
 	return m
 }
+
+func (ts *BackendTestSuite) TestGetProjectUUIDFromChannelUUID() {
+	ctx := context.Background()
+	channelUUID, _ := courier.NewChannelUUID("dbc126ed-66bc-4e28-b67b-81dc3327222a")
+	projectUUID, err := ts.b.GetProjectUUIDFromChannelUUID(ctx, channelUUID)
+	ts.NoError(err)
+	ts.Equal("9bab7353-561c-42f7-860e-e24c86cfb8e6", projectUUID)
+}

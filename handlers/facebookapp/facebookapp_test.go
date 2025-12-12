@@ -395,6 +395,18 @@ var testCasesWAC = []ChannelHandleTestCase{
 				"response_json": map[string]interface{}{"flow_token": "<FLOW_TOKEN>", "optional_param1": "<value1>", "optional_param2": "<value2>"},
 			}}),
 		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Unsupported Message Type", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/unsupportedMessageWAC.json")), Status: 200, Response: `"Events Handled"`, PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Payment Method WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/paymentMethodWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{
+			"payment_method": map[string]interface{}{
+				"credential_id":     "cred_123456789",
+				"last_four_digits":  "1234",
+				"reference_id":      "ref_987654321",
+				"payment_timestamp": int64(1640995200),
+				"payment_method":    "credit_card",
+			}}),
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Reaction Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/reactionWAC.json")), Status: 200, Response: `"ignoring echo reaction message"`, PrepRequest: addValidSignatureWAC},
 }
 
 func TestHandler(t *testing.T) {
@@ -1151,6 +1163,50 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"marketing_promo","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","text":"Customer"},{"type":"text","text":"50%"}]}]}}`,
 		SendPrep:    setSendURL,
 	},
+	{
+		Label: "Catalog Message Split 35 Products",
+		Metadata: json.RawMessage(`{
+			"body": "Body test - multiple sections and over 30 products",
+			"products": [
+				{
+					"product": "Camisetas",
+					"product_retailer_ids": [
+						"p1","p2","p3","p4","p5","p6","p7","p8","p9","p10",
+						"p11","p12","p13","p14","p15"
+					]
+				},
+				{
+					"product": "Tênis",
+					"product_retailer_ids": [
+						"p16","p17","p18","p19","p20","p21","p22","p23","p24","p25"
+					]
+				},
+				{
+					"product": "Mochilas",
+					"product_retailer_ids": [
+						"p26","p27","p28","p29","p30","p31","p32","p33","p34","p35"
+					]
+				}
+			],
+			"action": "View Products",
+			"send_catalog": false
+		}`),
+		Text:       "Catalog Msg",
+		URN:        "whatsapp:250788123123",
+		Status:     "W",
+		ExternalID: "157b5e14568e8",
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"product_list","body":{"text":"Body test - multiple sections and over 30 products"},"action":{"sections":[{"title":"Mochilas","product_items":[{"product_retailer_id":"p31"},{"product_retailer_id":"p32"},{"product_retailer_id":"p33"},{"product_retailer_id":"p34"},{"product_retailer_id":"p35"}]}],"catalog_id":"c4t4l0g-1D","name":"View Products"}}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL,
+	},
 }
 
 var CachedSendTestCasesWAC = []ChannelSendTestCase{
@@ -1307,6 +1363,25 @@ func buildMockIGCommentReplyServer() *httptest.Server {
 	return server
 }
 
+func buildMockWACActionServer() *httptest.Server {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/messages") {
+			err := r.ParseForm()
+			if err != nil {
+				http.Error(w, "Bad request", http.StatusBadRequest)
+				return
+			}
+
+			w.Write([]byte(`"success": true`))
+			return
+		}
+
+		http.Error(w, "Unexpected endpoint", http.StatusNotFound)
+	}))
+
+	return server
+}
+
 func TestSending(t *testing.T) {
 	uuids.SetGenerator(uuids.NewSeededGenerator(1234))
 	defer uuids.SetGenerator(uuids.DefaultGenerator)
@@ -1340,6 +1415,7 @@ func TestSending(t *testing.T) {
 	RunChannelSendTestCases(t, ChannelIG, newHandler("IG", "Instagram", false), SendTestCasesIG, nil)
 	RunChannelSendTestCases(t, ChannelWAC, newHandler("WAC", "Cloud API WhatsApp", false), SendTestCasesWAC, nil)
 	RunChannelSendTestCases(t, ChannelWACMarketing, newHandler("WAC", "Cloud API WhatsApp", false), MarketingMessageSendTestCasesWAC, nil)
+	RunChannelActionTestCases(t, ChannelWAC, newHandler("WAC", "Cloud API WhatsApp", false), ActionTestCasesWAC, nil)
 }
 
 func TestSigning(t *testing.T) {
@@ -1382,5 +1458,18 @@ var MarketingMessageSendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"normal_template","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","text":"Customer"},{"type":"text","text":"Info"}]}]}}`,
 		SendPrep:    setSendURL,
+	},
+}
+
+var ActionTestCasesWAC = []ChannelSendTestCase{
+	{Label: "Send Typing Indicator",
+		URN:            "whatsapp:250788123123",
+		ExternalID:     "external_id",
+		ResponseBody:   `{"success": true}`,
+		ResponseStatus: 200,
+		RequestBody:    `{"messaging_product":"whatsapp","status":"read","message_id":"external_id","typing_indicator":{"type":"text"}}`,
+		SendPrep: func(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+			graphURL = buildMockWACActionServer().URL + "/"
+		},
 	},
 }

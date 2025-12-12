@@ -422,6 +422,10 @@ func (b *MockBackend) GetMessage(ctx context.Context, msgUUID string) (Msg, erro
 	return nil, nil
 }
 
+func (b *MockBackend) GetProjectUUIDFromChannelUUID(ctx context.Context, channelUUID ChannelUUID) (string, error) {
+	return "9bab7353-561c-42f7-860e-e24c86cfb8e6", nil
+}
+
 func buildMockBackend(config *Config) Backend {
 	return NewMockBackend()
 }
@@ -592,6 +596,11 @@ func NewMockChannel(uuid string, channelType string, address string, country str
 		orgConfig:   map[string]interface{}{},
 	}
 	return channel
+}
+
+func (c *MockChannel) WithSchemes(schemes []string) *MockChannel {
+	c.schemes = schemes
+	return c
 }
 
 // Config returns the channel's configuration
@@ -932,6 +941,15 @@ func (m *mockMsg) OrderDetailsMessage() *OrderDetailsMessage {
 				}
 				if pix_config_code, ok := pix_config["code"].(string); ok {
 					orderDetailsMessage.PaymentSettings.PixConfig.Code = pix_config_code
+				}
+			}
+			if offsite_card_pay, ok := paymentSettings["offsite_card_pay"].(map[string]interface{}); ok {
+				orderDetailsMessage.PaymentSettings.OffsiteCardPay = OffsiteCardPay{}
+				if offsite_card_pay_last_four_digits, ok := offsite_card_pay["last_four_digits"].(string); ok {
+					orderDetailsMessage.PaymentSettings.OffsiteCardPay.LastFourDigits = offsite_card_pay_last_four_digits
+				}
+				if offsite_card_pay_credential_id, ok := offsite_card_pay["credential_id"].(string); ok {
+					orderDetailsMessage.PaymentSettings.OffsiteCardPay.CredentialID = offsite_card_pay_credential_id
 				}
 			}
 		}

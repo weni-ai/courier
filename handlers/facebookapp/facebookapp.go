@@ -257,6 +257,13 @@ type moPayload struct {
 							Name         string `json:"name,omitempty"`
 							ResponseJSON string `json:"response_json"`
 						} `json:"nfm_reply"`
+						PaymentMethod struct {
+							PaymentMethod    string `json:"payment_method"`
+							PaymentTimestamp int64  `json:"payment_timestamp"`
+							ReferenceID      string `json:"reference_id"`
+							LastFourDigits   string `json:"last_four_digits"`
+							CredentialID     string `json:"credential_id"`
+						} `json:"payment_method,omitempty"`
 					} `json:"interactive,omitempty"`
 					Contacts []struct {
 						Name struct {
@@ -290,6 +297,15 @@ type moPayload struct {
 							Currency          string  `json:"currency"`
 						} `json:"product_items"`
 					} `json:"order"`
+					Errors []struct {
+						Code      int    `json:"code"`
+						Title     string `json:"title"`
+						Message   string `json:"message"`
+						ErrorData struct {
+							Details string `json:"details"`
+						} `json:"error_data"`
+						Type string `json:"type"`
+					} `json:"errors"`
 				} `json:"messages"`
 				Statuses []struct {
 					ID           string `json:"id"`
@@ -335,9 +351,20 @@ type moPayload struct {
 				MessageTemplateLanguage string `json:"message_template_language"`
 				WabaInfo                *struct {
 					WabaID          string `json:"waba_id"`
-					AdAccountID     string `json:"ad_account_id"`
 					OwnerBusinessID string `json:"owner_business_id"`
 				} `json:"waba_info"`
+				Calls []struct {
+					ID        string `json:"id"`
+					To        string `json:"to"`
+					From      string `json:"from"`
+					Event     string `json:"event"`
+					Timestamp string `json:"timestamp"`
+					Direction string `json:"direction"`
+					Session   struct {
+						SdpType string `json:"sdp_type"`
+						Sdp     string `json:"sdp"`
+					} `json:"session"`
+				} `json:"calls"`
 			} `json:"value"`
 		} `json:"changes"`
 		Messaging []struct {
@@ -479,14 +506,12 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 
 			if payload.Entry[0].Changes[0].Field == "account_update" {
 				// Handle account_update webhook type
-				if payload.Entry[0].Changes[0].Value.Event == "AD_ACCOUNT_LINKED" && payload.Entry[0].Changes[0].Value.WabaInfo != nil {
+				if payload.Entry[0].Changes[0].Value.Event == "MM_LITE_TERMS_SIGNED" && payload.Entry[0].Changes[0].Value.WabaInfo != nil {
 					wabaID := payload.Entry[0].Changes[0].Value.WabaInfo.WabaID
-					adAccountID := payload.Entry[0].Changes[0].Value.WabaInfo.AdAccountID
 
 					// Update channel config with ad_account_id and mmlite for all channels with matching waba_id
 					err := h.Backend().UpdateChannelConfigByWabaID(ctx, wabaID, map[string]interface{}{
-						"ad_account_id": adAccountID,
-						"mmlite":        true,
+						"mmlite": true,
 					})
 					if err != nil {
 						return nil, fmt.Errorf("error updating channel config with waba_id %s: %v", wabaID, err)
@@ -691,6 +716,10 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 				if msg.Type == "text" {
 					text = msg.Text.Body
+				} else if msg.Type == "unsupported" {
+					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
+					data = append(data, courier.NewInfoData(fmt.Sprintf("unsupported message type %s", msg.Type)))
+					continue
 				} else if msg.Type == "audio" && msg.Audio != nil {
 					text = msg.Audio.Caption
 					mediaURL, err = resolveMediaURL(channel, msg.Audio.ID, token)
@@ -730,6 +759,11 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 						phones = append(phones, phone.Phone)
 					}
 					text = strings.Join(phones, ", ")
+				} else if msg.Type == "interactive" && msg.Interactive.Type == "payment_method" {
+					text = ""
+				} else if msg.Type == "reaction" {
+					data = append(data, courier.NewInfoData("ignoring echo reaction message"))
+					continue
 				} else {
 					// we received a message type we do not support.
 					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
@@ -795,6 +829,16 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 						courier.LogRequestError(r, channel, err)
 					}
 					metadata := json.RawMessage(nfmReplyJSON)
+					event.WithMetadata(metadata)
+				}
+
+				if msg.Interactive.Type == "payment_method" {
+					paymentMethodData := map[string]interface{}{"payment_method": msg.Interactive.PaymentMethod}
+					paymentMethodJSON, err := json.Marshal(paymentMethodData)
+					if err != nil {
+						courier.LogRequestError(r, channel, err)
+					}
+					metadata := json.RawMessage(paymentMethodJSON)
 					event.WithMetadata(metadata)
 				}
 
@@ -890,7 +934,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 								nil,
 								false,
 								"",
-								status.Status,
+								string(msgStatus),
 							)
 							h.Server().Billing().SendAsync(billingMsg, billing.RoutingKeyUpdate, nil, nil)
 						}
@@ -921,6 +965,53 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 			}
 
+			for _, call := range change.Value.Calls {
+				callsWebhookURL := h.Server().Config().CallsWebhookURL
+				callsWebhookToken := h.Server().Config().CallsWebhookToken
+				if callsWebhookURL == "" {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("calls webhook url is not set"))
+				}
+
+				projectUUID, err := h.Backend().GetProjectUUIDFromChannelUUID(ctx, channel.UUID())
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+
+				contactName := ""
+				if len(change.Value.Contacts) > 0 {
+					contactName = change.Value.Contacts[0].Profile.Name
+				}
+
+				callData := map[string]interface{}{
+					"call":            call,
+					"project_uuid":    projectUUID,
+					"channel_uuid":    channel.UUID().String(),
+					"phone_number_id": change.Value.Metadata.PhoneNumberID,
+					"name":            contactName,
+				}
+
+				callJSON, err := json.Marshal(callData)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+				req, err := http.NewRequest("POST", callsWebhookURL, bytes.NewBuffer(callJSON))
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+				if callsWebhookToken != "" {
+					req.Header.Set("Authorization", "Bearer "+callsWebhookToken)
+				}
+				req.Header.Set("Content-Type", "application/json")
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("failed to send calls webhook"))
+				}
+				data = append(data, courier.NewInfoData(fmt.Sprintf("New whatsapp call received: %s", call.ID)))
+			}
 		}
 
 	}
@@ -1769,10 +1860,16 @@ type wacOrderDetailsPaymentLink struct {
 	URI string `json:"uri" validate:"required"`
 }
 
+type wacOrderDetailsOffsiteCardPay struct {
+	LastFourDigits string `json:"last_four_digits" validate:"required"`
+	CredentialID   string `json:"credential_id" validate:"required"`
+}
+
 type wacOrderDetailsPaymentSetting struct {
 	Type           string                         `json:"type" validate:"required"`
 	PaymentLink    *wacOrderDetailsPaymentLink    `json:"payment_link,omitempty"`
 	PixDynamicCode *wacOrderDetailsPixDynamicCode `json:"pix_dynamic_code,omitempty"`
+	OffsiteCardPay *wacOrderDetailsOffsiteCardPay `json:"offsite_card_pay,omitempty"`
 }
 
 type wacOrderDetails struct {
@@ -1936,10 +2033,15 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 					paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
 
+					mountedOrderDetails := mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount)
+					if mountedOrderDetails == nil {
+						return status, fmt.Errorf("failed to mount order details")
+					}
+
 					param := wacParam{
 						Type: "action",
 						Action: &wacMTAction{
-							OrderDetails: mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount),
+							OrderDetails: mountedOrderDetails,
 						},
 					}
 
@@ -2212,6 +2314,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 							paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
 
+							mountedOrderDetails := mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount)
+							if mountedOrderDetails == nil {
+								return status, fmt.Errorf("failed to mount order details")
+							}
+
 							interactive := wacInteractive[wacOrderDetails]{
 								Type: "order_details",
 								Body: struct {
@@ -2227,7 +2334,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 									Parameters        wacOrderDetails "json:\"parameters,omitempty\""
 								}{
 									Name:       "review_and_pay",
-									Parameters: *mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount),
+									Parameters: *mountedOrderDetails,
 								},
 							}
 							if msg.Footer() != "" {
@@ -2586,6 +2693,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 					paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
 
+					mountedOrderDetails := mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount)
+					if mountedOrderDetails == nil {
+						return status, fmt.Errorf("failed to mount order details")
+					}
+
 					interactive := wacInteractive[wacOrderDetails]{
 						Type: "order_details",
 						Body: struct {
@@ -2601,7 +2713,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							Parameters        wacOrderDetails "json:\"parameters,omitempty\""
 						}{
 							Name:       "review_and_pay",
-							Parameters: *mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount),
+							Parameters: *mountedOrderDetails,
 						},
 					}
 					if msg.Footer() != "" {
@@ -2764,34 +2876,58 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			if !isUnitaryProduct {
 				actions := [][]wacMTSection{}
 				sections := []wacMTSection{}
-				i := 0
+				totalProductsPerMsg := 0
 
 				for _, product := range products {
-					i++
 					retailerIDs := toStringSlice(product["product_retailer_ids"])
-					sproducts := []wacMTProductItem{}
-
-					for _, p := range retailerIDs {
-						sproducts = append(sproducts, wacMTProductItem{
-							ProductRetailerID: p,
-						})
-					}
 
 					title := product["product"].(string)
 					if title == "product_retailer_id" {
 						title = "items"
 					}
-
 					if len(title) > 24 {
 						title = title[:24]
 					}
 
-					sections = append(sections, wacMTSection{Title: title, ProductItems: sproducts})
+					var sproducts []wacMTProductItem
 
-					if len(sections) == 6 || i == len(products) {
-						actions = append(actions, sections)
-						sections = []wacMTSection{}
+					for _, p := range retailerIDs {
+						// If there is still room for the product in the current message
+						if totalProductsPerMsg < 30 {
+							sproducts = append(sproducts, wacMTProductItem{
+								ProductRetailerID: p,
+							})
+							totalProductsPerMsg++
+							continue
+						}
+
+						// When reaching 30 products, close current section and start new one
+						if len(sproducts) > 0 {
+							sections = append(sections, wacMTSection{Title: title, ProductItems: sproducts})
+							sproducts = []wacMTProductItem{}
+						}
+
+						// Save current section to actions and restart for new message
+						if len(sections) > 0 {
+							actions = append(actions, sections)
+							sections = []wacMTSection{}
+							totalProductsPerMsg = 0
+						}
+
+						// Start new section with current product
+						sproducts = append(sproducts, wacMTProductItem{ProductRetailerID: p})
+						totalProductsPerMsg++
 					}
+
+					// After the inner loop, add the current section with the product
+					if len(sproducts) > 0 {
+						sections = append(sections, wacMTSection{Title: title, ProductItems: sproducts})
+					}
+				}
+
+				if len(sections) > 0 {
+					actions = append(actions, sections)
+
 				}
 
 				for _, sections := range actions {
@@ -2862,22 +2998,33 @@ func castInteractive[I, O wacInteractiveActionParams](interactive wacInteractive
 }
 
 func mountOrderDetails(msg courier.Msg, paymentSettings []wacOrderDetailsPaymentSetting, catalogID *string, orderTax wacAmountWithOffset, orderShipping *wacAmountWithOffset, orderDiscount *wacAmountWithOffset) *wacOrderDetails {
+	orderDetails := msg.OrderDetailsMessage()
+	if orderDetails == nil {
+		return nil
+	}
+
+	var paymentType string
+	if orderDetails.PaymentSettings.OffsiteCardPay.CredentialID != "" {
+		paymentType = "digital-goods"
+	} else {
+		paymentType = orderDetails.PaymentSettings.Type
+	}
 	return &wacOrderDetails{
-		ReferenceID:     msg.OrderDetailsMessage().ReferenceID,
-		Type:            msg.OrderDetailsMessage().PaymentSettings.Type,
+		ReferenceID:     orderDetails.ReferenceID,
+		Type:            paymentType,
 		PaymentType:     "br",
 		PaymentSettings: paymentSettings,
 		Currency:        "BRL",
 		TotalAmount: wacAmountWithOffset{
-			Value:  msg.OrderDetailsMessage().TotalAmount,
+			Value:  orderDetails.TotalAmount,
 			Offset: 100,
 		},
 		Order: wacOrder{
 			Status:    "pending",
 			CatalogID: *catalogID,
-			Items:     msg.OrderDetailsMessage().Order.Items,
+			Items:     orderDetails.Order.Items,
 			Subtotal: wacAmountWithOffset{
-				Value:  msg.OrderDetailsMessage().Order.Subtotal,
+				Value:  orderDetails.Order.Subtotal,
 				Offset: 100,
 			},
 			Tax:      orderTax,
@@ -2907,6 +3054,16 @@ func mountOrderPaymentSettings(orderDetails *courier.OrderDetailsMessage) []wacO
 				MerchantName: orderDetails.PaymentSettings.PixConfig.MerchantName,
 				Key:          orderDetails.PaymentSettings.PixConfig.Key,
 				KeyType:      orderDetails.PaymentSettings.PixConfig.KeyType,
+			},
+		})
+	}
+
+	if orderDetails.PaymentSettings.OffsiteCardPay.CredentialID != "" {
+		paymentSettings = append(paymentSettings, wacOrderDetailsPaymentSetting{
+			Type: "offsite_card_pay",
+			OffsiteCardPay: &wacOrderDetailsOffsiteCardPay{
+				LastFourDigits: orderDetails.PaymentSettings.OffsiteCardPay.LastFourDigits,
+				CredentialID:   orderDetails.PaymentSettings.OffsiteCardPay.CredentialID,
 			},
 		})
 	}

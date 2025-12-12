@@ -345,37 +345,39 @@ func (w *Sender) sendMessage(msg Msg) {
 
 		sentOk := status.Status() != MsgErrored && status.Status() != MsgFailed
 		if sentOk {
+			isTemplateMessage, metadata := isTemplateMessage(msg)
+
 			if w.foreman.server.Billing() != nil {
 				chatsUUID, _ := jsonparser.GetString(msg.Metadata(), "chats_msg_uuid")
-				if msg.Channel().ChannelType() != "WAC" || chatsUUID != "" {
-					ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
-					fromTicketer := ticketerType != ""
+				ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
+				fromTicketer := ticketerType != ""
 
-					billingMsg := billing.NewMessage(
-						string(msg.URN().Identity()),
-						"",
-						msg.ContactName(),
-						msg.Channel().UUID().String(),
-						status.ExternalID(),
-						time.Now().Format(time.RFC3339),
-						"O",
-						msg.Channel().ChannelType().String(),
-						msg.Text(),
-						msg.Attachments(),
-						msg.QuickReplies(),
-						fromTicketer,
-						chatsUUID,
-						"",
-					)
-					routingKey := billing.RoutingKeyCreate
-					if msg.Channel().ChannelType() == "WAC" {
-						routingKey = billing.RoutingKeyWAC
-					}
-					w.foreman.server.Billing().SendAsync(billingMsg, routingKey, nil, nil)
+				billingMsg := billing.NewMessage(
+					string(msg.URN().Identity()),
+					"",
+					msg.ContactName(),
+					msg.Channel().UUID().String(),
+					status.ExternalID(),
+					time.Now().Format(time.RFC3339),
+					"O",
+					msg.Channel().ChannelType().String(),
+					msg.Text(),
+					msg.Attachments(),
+					msg.QuickReplies(),
+					fromTicketer,
+					chatsUUID,
+					string(msg.Status()),
+				)
+
+				if isTemplateMessage {
+					billingMsg.TemplateUUID = metadata.Templating.Template.UUID
 				}
-			}
 
-			isTemplateMessage, metadata := isTemplateMessage(msg)
+				if msg.Channel().ChannelType() == "WAC" {
+					w.foreman.server.Billing().SendAsync(billingMsg, billing.RoutingKeyWAC, nil, nil)
+				}
+				w.foreman.server.Billing().SendAsync(billingMsg, billing.RoutingKeyCreate, nil, nil)
+			}
 
 			if w.foreman.server.Templates() != nil && isTemplateMessage {
 				templatingData := metadata.Templating

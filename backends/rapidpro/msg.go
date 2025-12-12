@@ -707,6 +707,7 @@ func (m *DBMsg) WithContactName(name string) courier.Msg { m.ContactName_ = name
 
 // WithNewContactFields can be used to set the new contact fields on a msg
 func (m *DBMsg) WithNewContactFields(fields map[string]string) courier.Msg {
+	fmt.Printf("DBMsg.WithNewContactFields() - fields: %v\n", fields)
 	m.NewContactFields_ = &fields
 	return m
 }

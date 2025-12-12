@@ -30,6 +30,9 @@ func queueMsgHandling(rc redis.Conn, c *DBContact, m *DBMsg) error {
 		"new_contact_fields": m.NewContactFields(),
 	}
 
+	fmt.Printf("queueMsgHandling() - body: %v\n", body)
+	fmt.Printf("queueMsgHandling() - m.NewContactFields(): %v\n", m.NewContactFields())
+
 	return queueMailroomTask(rc, "msg_event", m.OrgID_, m.ContactID_, body)
 }
 

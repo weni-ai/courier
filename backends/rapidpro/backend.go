@@ -749,10 +749,10 @@ func (b *backend) Start() error {
 	}
 
 	// create our storage (S3 or file system)
-	if b.config.AWSAccessKeyID != "" {
+	if b.config.AWSAccessKeyID != "" || b.config.S3UseIAMRole {
 		s3Client, err := storage.NewS3Client(&storage.S3Options{
-			AWSAccessKeyID:     b.config.AWSAccessKeyID,
-			AWSSecretAccessKey: b.config.AWSSecretAccessKey,
+			AWSAccessKeyID:     b.config.AWSAccessKeyID,     // pode ser vazio para IAM role
+			AWSSecretAccessKey: b.config.AWSSecretAccessKey, // pode ser vazio para IAM role
 			Endpoint:           b.config.S3Endpoint,
 			Region:             b.config.S3Region,
 			DisableSSL:         b.config.S3DisableSSL,

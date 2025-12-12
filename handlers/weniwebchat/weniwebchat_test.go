@@ -39,6 +39,19 @@ const (
 	}
 	`
 
+	textMsgWithContactFieldsTemplate = `
+	{
+		"type":"message",
+		"from":%q,
+		"message":{
+			"type":"text",
+			"timestamp":%q,
+			"text":%q
+		},
+		"contact_fields":%s
+	}
+	`
+
 	imgMsgTemplate = `
 	{
 		"type":"message",
@@ -98,6 +111,36 @@ var testCases = []ChannelHandleTestCase{
 		Name:     Sp("2345678"),
 		URN:      Sp("ext:2345678"),
 		Text:     Sp("Hello Test!"),
+		Status:   200,
+		Response: "Accepted",
+	},
+	{
+		Label:    "Receive Valid Text Msg With Contact Fields",
+		URL:      receiveURL,
+		Data:     fmt.Sprintf(textMsgWithContactFieldsTemplate, "2345678", "1616586927", "Hello With Fields!", `{"name":"John Doe","email":"john@example.com"}`),
+		Name:     Sp("2345678"),
+		URN:      Sp("ext:2345678"),
+		Text:     Sp("Hello With Fields!"),
+		Status:   200,
+		Response: "Accepted",
+	},
+	{
+		Label:    "Receive Valid Text Msg With Empty Contact Fields",
+		URL:      receiveURL,
+		Data:     fmt.Sprintf(textMsgWithContactFieldsTemplate, "2345678", "1616586927", "Hello Empty Fields!", `{}`),
+		Name:     Sp("2345678"),
+		URN:      Sp("ext:2345678"),
+		Text:     Sp("Hello Empty Fields!"),
+		Status:   200,
+		Response: "Accepted",
+	},
+	{
+		Label:    "Receive Valid Text Msg With Null Contact Fields",
+		URL:      receiveURL,
+		Data:     fmt.Sprintf(textMsgWithContactFieldsTemplate, "2345678", "1616586927", "Hello Null Fields!", `null`),
+		Name:     Sp("2345678"),
+		URN:      Sp("ext:2345678"),
+		Text:     Sp("Hello Null Fields!"),
 		Status:   200,
 		Response: "Accepted",
 	},

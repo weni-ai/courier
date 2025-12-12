@@ -589,10 +589,10 @@ func (s *server) CheckSentry() error {
 func (s *server) CheckS3() error {
 	var s3storage storage.Storage
 	// create our storage (S3 or file system)
-	if s.config.AWSAccessKeyID != "" {
+	if s.config.AWSAccessKeyID != "" || s.config.S3UseIAMRole {
 		s3Client, err := storage.NewS3Client(&storage.S3Options{
-			AWSAccessKeyID:     s.config.AWSAccessKeyID,
-			AWSSecretAccessKey: s.config.AWSSecretAccessKey,
+			AWSAccessKeyID:     s.config.AWSAccessKeyID,     // can be empty for IAM role
+			AWSSecretAccessKey: s.config.AWSSecretAccessKey, // can be empty for IAM role
 			Endpoint:           s.config.S3Endpoint,
 			Region:             s.config.S3Region,
 			DisableSSL:         s.config.S3DisableSSL,

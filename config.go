@@ -82,7 +82,7 @@ func NewConfig() *Config {
 		DB:                           "postgres://temba:temba@localhost/temba?sslmode=disable",
 		Redis:                        "redis://localhost:6379/15",
 		SpoolDir:                     "/var/spool/courier",
-		S3Endpoint:                   "https://s3.amazonaws.com",
+		S3Endpoint:                   "",
 		S3Region:                     "us-east-1",
 		S3MediaBucket:                "courier-media",
 		S3MediaPrefix:                "/media/",

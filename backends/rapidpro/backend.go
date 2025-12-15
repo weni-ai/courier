@@ -750,15 +750,20 @@ func (b *backend) Start() error {
 
 	// create our storage (S3 or file system)
 	if b.config.AWSAccessKeyID != "" || b.config.S3UseIamRole {
-		s3Client, err := storage.NewS3Client(&storage.S3Options{
+		s3Opts := &storage.S3Options{
 			AWSAccessKeyID:     b.config.AWSAccessKeyID,     // can be empty for IAM role
 			AWSSecretAccessKey: b.config.AWSSecretAccessKey, // can be empty for IAM role
-			Endpoint:           b.config.S3Endpoint,
 			Region:             b.config.S3Region,
 			DisableSSL:         b.config.S3DisableSSL,
 			ForcePathStyle:     b.config.S3ForcePathStyle,
 			MaxRetries:         3,
-		})
+		}
+		// Only set endpoint if explicitly configured (non-empty)
+		// Empty endpoint allows SDK to auto-discover endpoints (required for IAM role/WebIdentity)
+		if b.config.S3Endpoint != "" {
+			s3Opts.Endpoint = b.config.S3Endpoint
+		}
+		s3Client, err := storage.NewS3Client(s3Opts)
 		if err != nil {
 			return err
 		}

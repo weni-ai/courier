@@ -117,22 +117,26 @@ func (c *SessionCache) GetSession(region string, accessKey string, secretKey str
 
 	// First, try to read from cache
 	c.RLock()
-	if entry, ok := c.Sessions[cacheKey]; ok {
-		// Update session metadata
+	entry, ok := c.Sessions[cacheKey]
+	c.RUnlock()
+
+	if ok {
+		// Update session metadata with write lock to avoid race condition
+		c.Lock()
 		entry.LastUsed = time.Now()
 		entry.UseCount++
-
-		c.RUnlock()
+		useCount := entry.UseCount
+		createdAt := entry.CreatedAt
+		c.Unlock()
 
 		c.log.WithFields(logrus.Fields{
 			"region":   entry.Region,
-			"useCount": entry.UseCount,
-			"age":      time.Since(entry.CreatedAt).String(),
+			"useCount": useCount,
+			"age":      time.Since(createdAt).String(),
 		}).Debug("cache hit: reusing existing session")
 
 		return entry.Session, nil
 	}
-	c.RUnlock()
 
 	// If not found in cache, create a new session
 	c.Lock()
@@ -206,7 +210,7 @@ func PresignedURL(link string, accessKey string, secretKey string, region string
 	}
 
 	// Get cached session or create new one - passing empty credentials to force IAM role usage
-	sess, err := globalSessionCache.GetSession(region, "", "")
+	sess, err := globalSessionCache.GetSession(region, accessKey, secretKey)
 	if err != nil {
 		return "", err
 	}

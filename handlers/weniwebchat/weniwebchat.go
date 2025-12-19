@@ -134,16 +134,13 @@ type moMessage struct {
 	Interactive  *wwcInteractive `json:"interactive,omitempty"`
 }
 
-// Product-related structures for interactive messages
+// Interactive message structures
 type wwcInteractive struct {
 	Type   string `json:"type"`
 	Header *struct {
 		Type string `json:"type"`
 		Text string `json:"text,omitempty"`
 	} `json:"header,omitempty"`
-	Body struct {
-		Text string `json:"text"`
-	} `json:"body,omitempty"`
 	Footer *struct {
 		Text string `json:"text,omitempty"`
 	} `json:"footer,omitempty"`
@@ -415,10 +412,19 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 		Type: interactiveType,
 	}
 
-	interactive.Body = struct {
-		Text string `json:"text"`
-	}{
-		Text: msg.Text(),
+	payload := moPayload{
+		Type:        "interactive",
+		To:          msg.URN().Path(),
+		From:        msg.Channel().Address(),
+		ChannelUUID: msg.Channel().UUID().String(),
+		Message: moMessage{
+			Type:      "interactive",
+			TimeStamp: getTimestamp(),
+		},
+	}
+
+	if msg.Text() != "" {
+		payload.Message.Text = msg.Text()
 	}
 
 	if msg.Header() != "" && !isUnitaryProduct && !msg.SendCatalog() {
@@ -451,18 +457,6 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 		}{
 			Name: "catalog_message",
 		}
-		payload := moPayload{
-			Type:        "interactive",
-			To:          msg.URN().Path(),
-			From:        msg.Channel().Address(),
-			ChannelUUID: msg.Channel().UUID().String(),
-			Message: moMessage{
-				Type:      "interactive",
-				TimeStamp: getTimestamp(),
-			},
-		}
-		payload.Message.Interactive = &interactive
-		return h.sendPayload(ctx, payload, status, sendURL, start, msg.Channel(), msg.ID())
 	} else if len(products) > 0 {
 		if !isUnitaryProduct {
 			actions := [][]wwcSection{}
@@ -534,22 +528,6 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 					Sections:  sections,
 					Name:      msg.Action(),
 				}
-
-				payload := moPayload{
-					Type:        "interactive",
-					To:          msg.URN().Path(),
-					From:        msg.Channel().Address(),
-					ChannelUUID: msg.Channel().UUID().String(),
-					Message: moMessage{
-						Type:      "interactive",
-						TimeStamp: getTimestamp(),
-					},
-				}
-				payload.Message.Interactive = &interactive
-				status, err := h.sendPayload(ctx, payload, status, sendURL, start, msg.Channel(), msg.ID())
-				if err != nil {
-					return status, err
-				}
 			}
 		} else {
 			interactive.Action = &struct {
@@ -565,22 +543,13 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 				Name:              msg.Action(),
 				ProductRetailerID: unitaryProduct,
 			}
-			payload := moPayload{
-				Type:        "interactive",
-				To:          msg.URN().Path(),
-				From:        msg.Channel().Address(),
-				ChannelUUID: msg.Channel().UUID().String(),
-				Message: moMessage{
-					Type:      "interactive",
-					TimeStamp: getTimestamp(),
-				},
-			}
-			payload.Message.Interactive = &interactive
-			status, err := h.sendPayload(ctx, payload, status, sendURL, start, msg.Channel(), msg.ID())
-			if err != nil {
-				return status, err
-			}
 		}
+	}
+
+	payload.Message.Interactive = &interactive
+	status, err := h.sendPayload(ctx, payload, status, sendURL, start, msg.Channel(), msg.ID())
+	if err != nil {
+		return status, err
 	}
 
 	return status, nil

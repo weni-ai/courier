@@ -325,13 +325,41 @@ var testCasesWAC = []ChannelHandleTestCase{
 					},
 				},
 			},
+			"overwrite_message": map[string]interface{}{
+				"order": map[string]interface{}{
+					"catalog_id": "800683284849775",
+					"text":       "",
+					"product_items": []map[string]interface{}{
+						{
+							"product_retailer_id": "1031",
+							"quantity":            1,
+							"item_price":          599.9,
+							"currency":            "BRL",
+						},
+						{
+							"product_retailer_id": "10320",
+							"quantity":            1,
+							"item_price":          2399,
+							"currency":            "BRL",
+						},
+					},
+				},
+			},
 		}),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive NFM Reply WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/flowWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
-		URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{"nfm_reply": map[string]interface{}{
-			"name":          "Flow Wpp",
-			"response_json": map[string]interface{}{"flow_token": "<FLOW_TOKEN>", "optional_param1": "<value1>", "optional_param2": "<value2>"},
-		}}),
+		URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{
+			"nfm_reply": map[string]interface{}{
+				"name":          "Flow Wpp",
+				"response_json": map[string]interface{}{"flow_token": "<FLOW_TOKEN>", "optional_param1": "<value1>", "optional_param2": "<value2>"},
+			},
+			"overwrite_message": map[string]interface{}{
+				"nfm_reply": map[string]interface{}{
+					"name":          "Flow Wpp",
+					"response_json": map[string]interface{}{"flow_token": "<FLOW_TOKEN>", "optional_param1": "<value1>", "optional_param2": "<value2>"},
+				},
+			},
+		}),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Valid Document Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/documentWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("80skaraokesonglistartist"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Attachment: Sp("https://foo.bar/attachmentURL_Document"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
@@ -384,16 +412,24 @@ var testCasesWAC = []ChannelHandleTestCase{
 		}}),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive NFM Reply With Context WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/flowWithContextWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
-		URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{"context": map[string]interface{}{
-			"forwarded":            false,
-			"frequently_forwarded": false,
-			"from":                 "5678",
-			"id":                   "9876",
-		},
+		URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{
+			"context": map[string]interface{}{
+				"forwarded":            false,
+				"frequently_forwarded": false,
+				"from":                 "5678",
+				"id":                   "9876",
+			},
 			"nfm_reply": map[string]interface{}{
 				"name":          "Flow Wpp",
 				"response_json": map[string]interface{}{"flow_token": "<FLOW_TOKEN>", "optional_param1": "<value1>", "optional_param2": "<value2>"},
-			}}),
+			},
+			"overwrite_message": map[string]interface{}{
+				"nfm_reply": map[string]interface{}{
+					"name":          "Flow Wpp",
+					"response_json": map[string]interface{}{"flow_token": "<FLOW_TOKEN>", "optional_param1": "<value1>", "optional_param2": "<value2>"},
+				},
+			},
+		}),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Unsupported Message Type", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/unsupportedMessageWAC.json")), Status: 200, Response: `"Events Handled"`, PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Payment Method WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/paymentMethodWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
@@ -404,7 +440,17 @@ var testCasesWAC = []ChannelHandleTestCase{
 				"reference_id":      "ref_987654321",
 				"payment_timestamp": int64(1640995200),
 				"payment_method":    "credit_card",
-			}}),
+			},
+			"overwrite_message": map[string]interface{}{
+				"payment_method": map[string]interface{}{
+					"credential_id":     "cred_123456789",
+					"last_four_digits":  "1234",
+					"reference_id":      "ref_987654321",
+					"payment_timestamp": int64(1640995200),
+					"payment_method":    "credit_card",
+				},
+			},
+		}),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Reaction Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/reactionWAC.json")), Status: 200, Response: `"ignoring echo reaction message"`, PrepRequest: addValidSignatureWAC},
 }

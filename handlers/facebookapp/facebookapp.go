@@ -468,6 +468,83 @@ type NFMReply struct {
 	ResponseJSON map[string]interface{} `json:"response_json"`
 }
 
+// wacMessageMetadata holds the metadata extracted from a WhatsApp Cloud API message
+type wacMessageMetadata struct {
+	Key   string
+	Value interface{}
+}
+
+// processWACOrderMetadata extracts order metadata from a WAC message
+func processWACOrderMetadata(order interface{}) *wacMessageMetadata {
+	return &wacMessageMetadata{
+		Key:   "order",
+		Value: order,
+	}
+}
+
+// processWACNFMReplyMetadata extracts nfm_reply metadata from a WAC message
+func processWACNFMReplyMetadata(name string, responseJSONStr string) (*wacMessageMetadata, error) {
+	var responseJSON map[string]interface{}
+	if err := json.Unmarshal([]byte(responseJSONStr), &responseJSON); err != nil {
+		return nil, err
+	}
+
+	nfmReply := NFMReply{
+		Name:         name,
+		ResponseJSON: responseJSON,
+	}
+
+	return &wacMessageMetadata{
+		Key:   "nfm_reply",
+		Value: nfmReply,
+	}, nil
+}
+
+// processWACPaymentMethodMetadata extracts payment_method metadata from a WAC message
+func processWACPaymentMethodMetadata(paymentMethod interface{}) *wacMessageMetadata {
+	return &wacMessageMetadata{
+		Key:   "payment_method",
+		Value: paymentMethod,
+	}
+}
+
+// buildWACMetadataWithOverwrite builds metadata JSON with both the original field and overwrite_message
+func buildWACMetadataWithOverwrite(event courier.Msg, meta *wacMessageMetadata) (json.RawMessage, error) {
+	// Build the original metadata
+	var originalJSON []byte
+	var err error
+
+	// For nfm_reply, use Flow struct directly (it already has "nfm_reply" as json tag)
+	if meta.Key == "nfm_reply" {
+		originalJSON, err = json.Marshal(Flow{NFMReply: meta.Value.(NFMReply)})
+	} else {
+		originalJSON, err = json.Marshal(map[string]interface{}{meta.Key: meta.Value})
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	event.WithMetadata(json.RawMessage(originalJSON))
+
+	// Build overwrite_message
+	existingMetadata := event.Metadata()
+	newMetadata := make(map[string]interface{})
+	if existingMetadata != nil {
+		if err := json.Unmarshal(existingMetadata, &newMetadata); err != nil {
+			return nil, err
+		}
+	}
+
+	overwriteMessage := make(map[string]interface{})
+	if existing, ok := newMetadata["overwrite_message"].(map[string]interface{}); ok {
+		overwriteMessage = existing
+	}
+	overwriteMessage[meta.Key] = meta.Value
+	newMetadata["overwrite_message"] = overwriteMessage
+
+	return json.Marshal(newMetadata)
+}
+
 type IGComment struct {
 	Text string `json:"text,omitempty"`
 	From struct {
@@ -838,14 +915,27 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					courier.LogRequestError(r, channel, err)
 				}
 
+				// Process WhatsApp metadata (order, nfm_reply, payment_method) with overwrite_message
+				var wacMeta *wacMessageMetadata
+
 				if msg.Type == "order" {
-					orderM := map[string]interface{}{"order": msg.Order}
-					orderJSON, err := json.Marshal(orderM)
+					wacMeta = processWACOrderMetadata(msg.Order)
+				} else if msg.Interactive.Type == "nfm_reply" {
+					var err error
+					wacMeta, err = processWACNFMReplyMetadata(msg.Interactive.NFMReply.Name, msg.Interactive.NFMReply.ResponseJSON)
 					if err != nil {
 						courier.LogRequestError(r, channel, err)
 					}
-					metadata := json.RawMessage(orderJSON)
-					event.WithMetadata(metadata)
+				} else if msg.Interactive.Type == "payment_method" {
+					wacMeta = processWACPaymentMethodMetadata(msg.Interactive.PaymentMethod)
+				}
+
+				if wacMeta != nil {
+					metadataJSON, err := buildWACMetadataWithOverwrite(event, wacMeta)
+					if err != nil {
+						courier.LogRequestError(r, channel, err)
+					}
+					event.WithMetadata(metadataJSON)
 				}
 
 				if msg.Referral.Headline != "" {
@@ -864,39 +954,6 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 							courier.LogRequestError(r, channel, fmt.Errorf("error writing ctwa data: %v", err))
 						}
 					}
-				}
-
-				if msg.Interactive.Type == "nfm_reply" {
-
-					var responseJSON map[string]interface{}
-					err := json.Unmarshal([]byte(msg.Interactive.NFMReply.ResponseJSON), &responseJSON)
-					if err != nil {
-						courier.LogRequestError(r, channel, err)
-					}
-
-					nfmReply := Flow{
-						NFMReply: NFMReply{
-							Name:         msg.Interactive.NFMReply.Name,
-							ResponseJSON: responseJSON,
-						},
-					}
-
-					nfmReplyJSON, err := json.Marshal(nfmReply)
-					if err != nil {
-						courier.LogRequestError(r, channel, err)
-					}
-					metadata := json.RawMessage(nfmReplyJSON)
-					event.WithMetadata(metadata)
-				}
-
-				if msg.Interactive.Type == "payment_method" {
-					paymentMethodData := map[string]interface{}{"payment_method": msg.Interactive.PaymentMethod}
-					paymentMethodJSON, err := json.Marshal(paymentMethodData)
-					if err != nil {
-						courier.LogRequestError(r, channel, err)
-					}
-					metadata := json.RawMessage(paymentMethodJSON)
-					event.WithMetadata(metadata)
 				}
 
 				if mediaURL != "" {

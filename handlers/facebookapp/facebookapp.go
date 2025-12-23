@@ -2063,9 +2063,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						// Build button components if present
 						for btnIdx, btnData := range cardData.Buttons {
 							buttonComponent := &wacComponent{Type: "button", SubType: btnData.SubType, Index: &btnIdx}
-							if btnData.SubType == "quick_reply" {
+							switch btnData.SubType {
+							case "quick_reply":
 								buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: "payload", Payload: btnData.Parameter})
-							} else if btnData.SubType == "url" {
+							case "url":
 								buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: "text", Text: btnData.Parameter})
 							}
 							card.Components = append(card.Components, buttonComponent)

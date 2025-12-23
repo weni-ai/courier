@@ -1759,6 +1759,7 @@ type wacMTAction struct {
 type wacParam struct {
 	Type     string       `json:"type"`
 	Text     string       `json:"text,omitempty"`
+	Payload  string       `json:"payload,omitempty"`
 	Image    *wacMTMedia  `json:"image,omitempty"`
 	Document *wacMTMedia  `json:"document,omitempty"`
 	Video    *wacMTMedia  `json:"video,omitempty"`
@@ -1766,10 +1767,17 @@ type wacParam struct {
 }
 
 type wacComponent struct {
-	Type    string      `json:"type"`
-	SubType string      `json:"sub_type,omitempty"`
-	Index   *int        `json:"index,omitempty"`
-	Params  []*wacParam `json:"parameters"`
+	Type    string             `json:"type"`
+	SubType string             `json:"sub_type,omitempty"`
+	Index   *int               `json:"index,omitempty"`
+	Params  []*wacParam        `json:"parameters,omitempty"`
+	Cards   []*wacCarouselCard `json:"cards,omitempty"`
+}
+
+// wacCarouselCard represents a card in a carousel template
+type wacCarouselCard struct {
+	CardIndex  int             `json:"card_index"`
+	Components []*wacComponent `json:"components"`
 }
 
 type wacText struct {
@@ -1991,8 +1999,84 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					template.Components = append(payload.Template.Components, component)
 				}
 
-				if len(msg.Attachments()) > 0 {
+				// Handle carousel templates - media comes from msg.Attachments()
+				if len(templating.CarouselCards) > 0 && len(msg.Attachments()) > 0 {
+					carouselComponent := &wacComponent{Type: "carousel"}
 
+					for cardIdx, cardData := range templating.CarouselCards {
+						// Skip if no attachment for this card
+						if cardIdx >= len(msg.Attachments()) {
+							break
+						}
+
+						card := &wacCarouselCard{CardIndex: cardIdx}
+
+						// Build header component with media from attachments
+						headerComponent := &wacComponent{Type: "header"}
+						attType, attURL := handlers.SplitAttachment(msg.Attachments()[cardIdx])
+						fileURL := attURL
+
+						mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
+						for _, log := range mediaLogs {
+							status.AddLog(log)
+						}
+						if err != nil {
+							status.AddLog(courier.NewChannelLogFromError("error on fetch media ID for carousel card", msg.Channel(), msg.ID(), time.Since(start), err))
+						} else if mediaID != "" {
+							attURL = ""
+						}
+						attType = strings.Split(attType, "/")[0]
+
+						parsedURL, err := url.Parse(attURL)
+						if err != nil {
+							return status, err
+						}
+						if attType == "application" {
+							attType = "document"
+						}
+
+						media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
+						if attType == "image" {
+							headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "image", Image: &media})
+						} else if attType == "video" {
+							headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "video", Video: &media})
+						} else if attType == "document" {
+							media.Filename, err = utils.BasePathForURL(fileURL)
+							if err != nil {
+								return nil, err
+							}
+							headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "document", Document: &media})
+						} else {
+							return nil, fmt.Errorf("unknown attachment mime type for carousel card: %s", attType)
+						}
+						card.Components = append(card.Components, headerComponent)
+
+						// Build body component with text variables if present
+						if len(cardData.Body) > 0 {
+							bodyComponent := &wacComponent{Type: "body"}
+							for _, textVar := range cardData.Body {
+								bodyComponent.Params = append(bodyComponent.Params, &wacParam{Type: "text", Text: textVar})
+							}
+							card.Components = append(card.Components, bodyComponent)
+						}
+
+						// Build button components if present
+						for btnIdx, btnData := range cardData.Buttons {
+							buttonComponent := &wacComponent{Type: "button", SubType: btnData.SubType, Index: &btnIdx}
+							if btnData.SubType == "quick_reply" {
+								buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: "payload", Payload: btnData.Parameter})
+							} else if btnData.SubType == "url" {
+								buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: "text", Text: btnData.Parameter})
+							}
+							card.Components = append(card.Components, buttonComponent)
+						}
+
+						carouselComponent.Cards = append(carouselComponent.Cards, card)
+					}
+
+					payload.Template.Components = append(payload.Template.Components, carouselComponent)
+				} else if len(msg.Attachments()) > 0 {
+					// Handle single header attachment (non-carousel)
 					header := &wacComponent{Type: "header"}
 
 					attType, attURL := handlers.SplitAttachment(msg.Attachments()[0])
@@ -3361,10 +3445,11 @@ type MsgTemplating struct {
 		UUID     string `json:"uuid" validate:"required"`
 		Category string `json:"category"`
 	} `json:"template" validate:"required,dive"`
-	Language  string   `json:"language" validate:"required"`
-	Country   string   `json:"country"`
-	Namespace string   `json:"namespace"`
-	Variables []string `json:"variables"`
+	Language      string                 `json:"language" validate:"required"`
+	Country       string                 `json:"country"`
+	Namespace     string                 `json:"namespace"`
+	Variables     []string               `json:"variables"`
+	CarouselCards []courier.CarouselCard `json:"carousel_cards,omitempty"`
 }
 
 // mapping from iso639-3_iso3166-2 to WA language code

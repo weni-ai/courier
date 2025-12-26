@@ -1757,13 +1757,15 @@ type wacMTAction struct {
 }
 
 type wacParam struct {
-	Type     string       `json:"type"`
-	Text     string       `json:"text,omitempty"`
-	Payload  string       `json:"payload,omitempty"`
-	Image    *wacMTMedia  `json:"image,omitempty"`
-	Document *wacMTMedia  `json:"document,omitempty"`
-	Video    *wacMTMedia  `json:"video,omitempty"`
-	Action   *wacMTAction `json:"action,omitempty"`
+	Type        string       `json:"type"`
+	Text        string       `json:"text,omitempty"`
+	Payload     string       `json:"payload,omitempty"`
+	PhoneNumber string       `json:"phone_number,omitempty"`
+	URL         string       `json:"url,omitempty"`
+	Image       *wacMTMedia  `json:"image,omitempty"`
+	Document    *wacMTMedia  `json:"document,omitempty"`
+	Video       *wacMTMedia  `json:"video,omitempty"`
+	Action      *wacMTAction `json:"action,omitempty"`
 }
 
 type wacComponent struct {
@@ -3433,8 +3435,10 @@ func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplat
 			switch btnData.SubType {
 			case "quick_reply":
 				buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: "payload", Payload: btnData.Parameter})
-			case "url", "phone_number":
-				buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: "text", Text: btnData.Parameter})
+			case "url":
+				buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: "url", Text: btnData.Text, URL: btnData.Parameter})
+			case "phone_number":
+				buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: "phone_number", Text: btnData.Text, PhoneNumber: btnData.Parameter})
 			}
 			card.Components = append(card.Components, buttonComponent)
 		}
@@ -3506,6 +3510,7 @@ type CarouselCard struct {
 // CarouselCardButton represents a button in a carousel card
 type CarouselCardButton struct {
 	SubType   string `json:"sub_type"`  // quick_reply, url, phone_number
+	Text      string `json:"text"`      // button label text
 	Parameter string `json:"parameter"` // payload for quick_reply, url variable for url, phone number for phone_number
 }
 

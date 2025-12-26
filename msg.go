@@ -153,8 +153,6 @@ type Msg interface {
 
 	ActionType() MsgActionType
 	ActionExternalID() string
-
-	CarouselCards() []CarouselCard
 }
 
 type ButtonComponent struct {
@@ -183,18 +181,6 @@ type FlowMessage struct {
 	FlowData   map[string]interface{} `json:"flow_data"`
 	FlowCTA    string                 `json:"flow_cta"`
 	FlowMode   string                 `json:"flow_mode"`
-}
-
-// CarouselCard represents a single card in a carousel template
-type CarouselCard struct {
-	Body    []string             `json:"body,omitempty"`
-	Buttons []CarouselCardButton `json:"buttons,omitempty"`
-}
-
-// CarouselCardButton represents a button in a carousel card
-type CarouselCardButton struct {
-	SubType   string `json:"sub_type"`  // quick_reply, url
-	Parameter string `json:"parameter"` // payload for quick_reply, url variable for url button
 }
 
 type ListItems struct {

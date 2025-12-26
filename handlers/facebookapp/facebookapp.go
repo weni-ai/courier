@@ -3490,11 +3490,23 @@ type MsgTemplating struct {
 		UUID     string `json:"uuid" validate:"required"`
 		Category string `json:"category"`
 	} `json:"template" validate:"required,dive"`
-	Language      string                 `json:"language" validate:"required"`
-	Country       string                 `json:"country"`
-	Namespace     string                 `json:"namespace"`
-	Variables     []string               `json:"variables"`
-	CarouselCards []courier.CarouselCard `json:"carousel_cards,omitempty"`
+	Language      string         `json:"language" validate:"required"`
+	Country       string         `json:"country"`
+	Namespace     string         `json:"namespace"`
+	Variables     []string       `json:"variables"`
+	CarouselCards []CarouselCard `json:"carousel_cards,omitempty"`
+}
+
+// CarouselCard represents a single card in a carousel template
+type CarouselCard struct {
+	Body    []string             `json:"body,omitempty"`
+	Buttons []CarouselCardButton `json:"buttons,omitempty"`
+}
+
+// CarouselCardButton represents a button in a carousel card
+type CarouselCardButton struct {
+	SubType   string `json:"sub_type"`  // quick_reply, url
+	Parameter string `json:"parameter"` // payload for quick_reply, url variable for url button
 }
 
 // mapping from iso639-3_iso3166-2 to WA language code

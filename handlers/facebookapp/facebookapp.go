@@ -3433,7 +3433,7 @@ func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplat
 			switch btnData.SubType {
 			case "quick_reply":
 				buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: "payload", Payload: btnData.Parameter})
-			case "url":
+			case "url", "phone_number":
 				buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: "text", Text: btnData.Parameter})
 			}
 			card.Components = append(card.Components, buttonComponent)
@@ -3505,8 +3505,8 @@ type CarouselCard struct {
 
 // CarouselCardButton represents a button in a carousel card
 type CarouselCardButton struct {
-	SubType   string `json:"sub_type"`  // quick_reply, url
-	Parameter string `json:"parameter"` // payload for quick_reply, url variable for url button
+	SubType   string `json:"sub_type"`  // quick_reply, url, phone_number
+	Parameter string `json:"parameter"` // payload for quick_reply, url variable for url, phone number for phone_number
 }
 
 // mapping from iso639-3_iso3166-2 to WA language code

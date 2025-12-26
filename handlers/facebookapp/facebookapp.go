@@ -3771,6 +3771,10 @@ func (h *handler) SendAction(ctx context.Context, msg courier.Msg) (courier.MsgS
 
 	rr, err := utils.MakeHTTPRequest(req)
 	if err != nil {
+		// Include response body in error if available (WhatsApp API error details)
+		if rr != nil && len(rr.Body) > 0 {
+			return nil, fmt.Errorf("HTTP request failed (%d): %s - Response: %s", rr.StatusCode, err.Error(), string(rr.Body))
+		}
 		return nil, errors.Wrap(err, "HTTP request failed")
 	}
 

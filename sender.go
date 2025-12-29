@@ -175,7 +175,7 @@ func (w *Sender) Stop() {
 }
 
 func (w *Sender) sendMessage(msg Msg) {
-	// --- HANDLE MESSAGE ACTION ---
+	// --- HANDLE MESSAGE ACTION (non-blocking) ---
 	if msg.ActionType() == MsgActionTypingIndicator {
 		actionCallCtx, actionCallCancel := context.WithTimeout(context.Background(), time.Second*20)
 		defer actionCallCancel()
@@ -185,7 +185,14 @@ func (w *Sender) sendMessage(msg Msg) {
 
 		_, err := w.foreman.server.SendMsgAction(actionCallCtx, msg)
 		if err != nil {
-			fmt.Printf("Error processing message action: %v\n", err)
+			// Log the error but don't interrupt the flow - typing indicator is non-critical
+			logrus.WithFields(logrus.Fields{
+				"comp":        "sender",
+				"sender_id":   w.id,
+				"action_type": msg.ActionType(),
+				"external_id": msg.ActionExternalID(),
+				"error":       err.Error(),
+			}).Warn("typing indicator action failed (non-critical, continuing flow)")
 		}
 		return
 	}

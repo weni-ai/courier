@@ -1,3 +1,7 @@
+1.41.1
+----------
+ * Implement metadata handling for WhatsApp Cloud API messages with overwrite support
+
 1.41.0
 ----------
  * Add support for CTA Message on Weni Webchat

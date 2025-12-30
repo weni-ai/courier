@@ -206,12 +206,16 @@ func (w *Sender) sendMessage(msg Msg) {
 		log = log.WithField("attachments", msg.Attachments())
 		for _, att := range msg.Attachments() {
 			attType, attURL := SplitAttachment(att)
-			url, err := PresignedURL(attURL, server.Config().AWSAccessKeyID, server.Config().AWSSecretAccessKey, server.Config().S3Region, server.Config().S3PresignedURLExpiration)
-			if err != nil {
-				log.WithError(err).Error("error converting attachment for pre-signed url")
+			// only sign URLs that belong to our S3 bucket
+			if IsS3URL(attURL, server.Config().S3MediaBucket) {
+				signedURL, err := PresignedURL(attURL, server.Config().AWSAccessKeyID, server.Config().AWSSecretAccessKey, server.Config().S3Region)
+				if err != nil {
+					log.WithError(err).Error("error converting attachment for pre-signed url")
+				} else {
+					attURL = signedURL
+				}
 			}
-			att = attType + ":" + url
-			attachments = append(attachments, att)
+			attachments = append(attachments, attType+":"+attURL)
 		}
 		msg = msg.WithPresignedURL(attachments)
 	}

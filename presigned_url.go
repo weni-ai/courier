@@ -23,6 +23,20 @@ type SessionEntry struct {
 	UseCount  int64
 }
 
+// IsS3URL checks if the URL belongs to the configured S3 bucket
+func IsS3URL(url string, bucket string) bool {
+	// Virtual-hosted-style format: https://bucket-name.s3.region.amazonaws.com/key
+	// or https://bucket-name.s3.amazonaws.com/key
+	if strings.Contains(url, bucket+".s3.") {
+		return true
+	}
+	// Path-style format: https://s3.region.amazonaws.com/bucket-name/key
+	if strings.Contains(url, "/"+bucket+"/") {
+		return true
+	}
+	return false
+}
+
 // SessionCache maintains a cache of AWS sessions by region
 type SessionCache struct {
 	sync.RWMutex

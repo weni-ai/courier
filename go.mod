@@ -33,6 +33,7 @@ require (
 )
 
 require (
+	github.com/aws/aws-sdk-go v1.44.34
 	github.com/gabriel-vasile/mimetype v1.4.0
 	github.com/golang-jwt/jwt/v4 v4.4.1
 	github.com/lestrrat-go/jwx v1.2.25

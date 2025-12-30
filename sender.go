@@ -208,7 +208,7 @@ func (w *Sender) sendMessage(msg Msg) {
 			attType, attURL := SplitAttachment(att)
 			// only sign URLs that belong to our S3 bucket
 			if IsS3URL(attURL, server.Config().S3MediaBucket) {
-				signedURL, err := PresignedURL(attURL, server.Config().AWSAccessKeyID, server.Config().AWSSecretAccessKey, server.Config().S3Region)
+				signedURL, err := PresignedURL(attURL, server.Config().AWSAccessKeyID, server.Config().AWSSecretAccessKey, server.Config().S3Region, 168)
 				if err != nil {
 					log.WithError(err).Error("error converting attachment for pre-signed url")
 				} else {

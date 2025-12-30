@@ -105,6 +105,7 @@ type Msg interface {
 	QuickReplies() []string
 	Topic() string
 	Metadata() json.RawMessage
+	NewContactFields() map[string]string
 	ResponseToID() MsgID
 	ResponseToExternalID() string
 	IsResend() bool
@@ -117,6 +118,7 @@ type Msg interface {
 	HighPriority() bool
 
 	WithContactName(name string) Msg
+	WithNewContactFields(fields map[string]string) Msg
 	WithReceivedOn(date time.Time) Msg
 	WithExternalID(id string) Msg
 	WithID(id MsgID) Msg

@@ -28,6 +28,7 @@ require (
 )
 
 require (
+	github.com/aws/aws-sdk-go v1.44.34
 	github.com/gabriel-vasile/mimetype v1.4.0
 	github.com/golang-jwt/jwt/v4 v4.4.1
 	github.com/lestrrat-go/jwx v1.2.25
@@ -39,7 +40,6 @@ require (
 
 require (
 	github.com/antchfx/xpath v0.0.0-20181208024549-4bbdf6db12aa // indirect
-	github.com/aws/aws-sdk-go v1.44.34 // indirect
 	github.com/certifi/gocertifi v0.0.0-20180118203423-deb3ae2ef261 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.0-20210816181553-5444fa50b93d // indirect

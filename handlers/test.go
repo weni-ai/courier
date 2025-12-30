@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"io/ioutil"
 	"mime/multipart"
 	"net/http"
@@ -43,6 +44,7 @@ type ChannelHandleTestCase struct {
 	Attachment  *string
 	Attachments []string
 	Date        *time.Time
+	Metadata    *json.RawMessage
 
 	MsgStatus *string
 
@@ -109,8 +111,9 @@ type ChannelSendTestCase struct {
 
 	ContactURNs map[string]bool
 
-	SendPrep SendPrepFunc
-	NewURN   string
+	SendPrep     SendPrepFunc
+	NewURN       string
+	TextLanguage string
 }
 
 // Sp is a utility method to get the pointer to the passed in string
@@ -118,6 +121,12 @@ func Sp(str interface{}) *string { asStr := fmt.Sprintf("%s", str); return &asSt
 
 // Tp is utility method to get the pointer to the passed in time
 func Tp(tm time.Time) *time.Time { return &tm }
+
+func Jp(js interface{}) *json.RawMessage {
+	referral, _ := json.Marshal(js)
+	metadata := json.RawMessage(referral)
+	return &metadata
+}
 
 // utility method to make sure the passed in host is up, prevents races with our test server
 func ensureTestServerUp(host string) {
@@ -225,7 +234,7 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 		t.Run(testCase.Label, func(t *testing.T) {
 			require := require.New(t)
 
-			msg := mb.NewOutgoingMsg(channel, courier.NewMsgID(10), urns.URN(testCase.URN), testCase.Text, testCase.HighPriority, testCase.QuickReplies, testCase.Topic, testCase.ResponseToExternalID)
+			msg := mb.NewOutgoingMsg(channel, courier.NewMsgID(10), urns.URN(testCase.URN), testCase.Text, testCase.HighPriority, testCase.QuickReplies, testCase.Topic, testCase.ResponseToID, testCase.ResponseToExternalID, testCase.TextLanguage)
 
 			for _, a := range testCase.Attachments {
 				msg.WithAttachment(a)
@@ -311,7 +320,7 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 			}
 
 			if (len(testCase.Responses)) != 0 {
-				require.Equal(mockRRCount, len(testCase.Responses))
+				require.Equal(len(testCase.Responses), mockRRCount, "Probably MockRequest or MockResponse from testcase is not equal that processed in handler", testCase.Responses)
 			}
 
 			if testCase.Headers != nil {
@@ -452,6 +461,11 @@ func RunChannelTestCases(t *testing.T, channels []courier.Channel, handler couri
 						require.Equal(*testCase.Date, nil)
 					}
 				}
+				if testCase.Metadata != nil {
+					wants := *testCase.Metadata
+					have := msg.Metadata()
+					require.JSONEq(string(wants), string(have))
+				}
 			}
 		})
 	}
@@ -493,6 +507,66 @@ func RunChannelBenchmarks(b *testing.B, channels []courier.Channel, handler cour
 			for i := 0; i < b.N; i++ {
 				testHandlerRequest(b, s, testCase.URL, testCase.Headers, testCase.Data, testCase.MultipartFormFields, testCase.Status, nil, testCase.PrepRequest)
 			}
+		})
+	}
+}
+
+// RunChannelActionTestCases runs all the passed in test cases against the channel for action sending
+func RunChannelActionTestCases(t *testing.T, channel courier.Channel, handler courier.ChannelHandler, testCases []ChannelSendTestCase, setupBackend func(*courier.MockBackend)) {
+	mb := courier.NewMockBackend()
+	if setupBackend != nil {
+		setupBackend(mb)
+	}
+	s := newServer(mb)
+	mb.AddChannel(channel)
+	handler.Initialize(s)
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Label, func(t *testing.T) {
+			require := require.New(t)
+
+			// Create a simple message with only the necessary fields for actions
+			msg := mb.NewOutgoingMsg(channel, courier.NewMsgID(10), urns.URN(testCase.URN), "", false, nil, "", 0, "", "")
+
+			// Set metadata with action type and external ID if provided
+			metadata := map[string]interface{}{
+				"action_type": "typing_indicator",
+			}
+			if testCase.ExternalID != "" {
+				metadata["action_external_id"] = testCase.ExternalID
+			}
+			metadataJSON, err := json.Marshal(metadata)
+			require.NoError(err)
+			msg.WithMetadata(metadataJSON)
+
+			// Set up our server
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Check the request body
+				body, err := io.ReadAll(r.Body)
+				require.NoError(err)
+
+				// Compare the request body with the expected body
+				if testCase.RequestBody != "" {
+					require.JSONEq(testCase.RequestBody, string(body))
+				}
+
+				// Write the response
+				w.WriteHeader(testCase.ResponseStatus)
+				w.Write([]byte(testCase.ResponseBody))
+			}))
+			defer server.Close()
+
+			// Call our prep function if we have one
+			if testCase.SendPrep != nil {
+				testCase.SendPrep(server, handler, channel, msg)
+			}
+
+			// Check the status
+			if testCase.Error != "" {
+				require.EqualError(err, testCase.Error)
+				return
+			}
+			require.NoError(err)
 		})
 	}
 }

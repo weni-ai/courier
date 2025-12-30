@@ -15,14 +15,13 @@ import (
 	"time"
 
 	"github.com/buger/jsonparser"
-	"github.com/gabriel-vasile/mimetype"
-	"github.com/pkg/errors"
 
 	"mime"
 
 	"github.com/gomodule/redigo/redis"
 	"github.com/lib/pq"
 	"github.com/nyaruka/courier"
+	"github.com/nyaruka/courier/metrics"
 	"github.com/nyaruka/courier/queue"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/urns"
@@ -124,9 +123,9 @@ func newMsg(direction MsgDirection, channel courier.Channel, urn urns.URN, text 
 const insertMsgSQL = `
 INSERT INTO
 	msgs_msg(org_id, uuid, direction, text, attachments, msg_count, error_count, high_priority, status,
-             visibility, external_id, channel_id, contact_id, contact_urn_id, created_on, modified_on, next_attempt, queued_on, sent_on)
+             visibility, external_id, channel_id, contact_id, contact_urn_id, created_on, modified_on, next_attempt, queued_on, sent_on, metadata)
     VALUES(:org_id, :uuid, :direction, :text, :attachments, :msg_count, :error_count, :high_priority, :status,
-           :visibility, :external_id, :channel_id, :contact_id, :contact_urn_id, :created_on, :modified_on, :next_attempt, :queued_on, :sent_on)
+           :visibility, :external_id, :channel_id, :contact_id, :contact_urn_id, :created_on, :modified_on, :next_attempt, :queued_on, :sent_on, :metadata)
 RETURNING id
 `
 
@@ -196,6 +195,33 @@ WHERE
 	id = $1
 `
 
+const selectMsgByUUIDSQL = `
+SELECT
+	id,
+	uuid,
+	org_id,
+	direction,
+	text,
+	attachments,
+	msg_count,
+	error_count,
+	high_priority,
+	status,
+	visibility,
+	external_id,
+	channel_id,
+	contact_id,
+	contact_urn_id,
+	created_on,
+	modified_on,
+	queued_on,
+	sent_on
+FROM
+	msgs_msg
+WHERE
+	uuid = $1
+`
+
 const selectChannelSQL = `
 SELECT
 	org_id,
@@ -248,9 +274,12 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 		}
 	}
 
-	// to allow download media from wac when receive media message
-	if channel.ChannelType() == "WAC" {
+	switch channel.ChannelType() {
+	case "WAC":
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", b.config.WhatsappAdminSystemUserToken))
+
+	case "SL":
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", channel.StringConfigForKey("user_token", "")))
 	}
 
 	resp, err := utils.GetHTTPClient().Do(req)
@@ -317,6 +346,9 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 	if err != nil {
 		return "", err
 	}
+
+	// get the file size in bytes and increase our media upload size metric
+	metrics.IncrementMediaUploadSize(len(body))
 
 	// return our new media URL, which is prefixed by our content type
 	return fmt.Sprintf("%s:%s", mimeType, s3URL), nil
@@ -388,9 +420,14 @@ func checkMsgSeen(b *backend, msg *DBMsg) courier.MsgUUID {
 	// if so, test whether the text it the same
 	if found != "" {
 		prevText := found[37:]
-
-		// if it is the same, return the UUID
-		if prevText == msg.Text() {
+		foundSplit := strings.Split(found, "|")
+		if len(foundSplit) > 2 && foundSplit[1] == "" {
+			prevAtt := foundSplit[2]
+			if prevAtt == string(msg.ExternalID_) {
+				return courier.NewMsgUUIDFromString(found[:36])
+			}
+		} else if prevText == msg.Text() {
+			// if it is the same, return the UUID
 			return courier.NewMsgUUIDFromString(found[:36])
 		}
 	}
@@ -409,11 +446,18 @@ func writeMsgSeen(b *backend, msg *DBMsg) {
 	defer r.Close()
 
 	urnFingerprint := msg.urnFingerprint()
-	uuidText := fmt.Sprintf("%s|%s", msg.UUID().String(), msg.Text_)
+	var msgSeen string
+
+	if msg.ExternalID_ != "" && msg.Attachments_ != nil {
+		msgSeen = fmt.Sprintf("%s|%s|%s", msg.UUID().String(), msg.Text_, msg.ExternalID_)
+	} else {
+		msgSeen = fmt.Sprintf("%s|%s", msg.UUID().String(), msg.Text_)
+	}
+
 	now := time.Now().In(time.UTC)
 	windowKey := fmt.Sprintf("seen:msgs:%s:%02d", now.Format("2006-01-02-15:04"), now.Second()/2*2)
 
-	luaWriteMsgSeen.Do(r, windowKey, urnFingerprint, uuidText)
+	luaWriteMsgSeen.Do(r, windowKey, urnFingerprint, msgSeen)
 }
 
 // clearMsgSeen clears our seen incoming messages for the passed in channel and URN
@@ -506,7 +550,7 @@ type DBMsg struct {
 	ExternalID_           null.String            `json:"external_id"     db:"external_id"`
 	ResponseToExternalID_ string                 `json:"response_to_external_id"`
 	IsResend_             bool                   `json:"is_resend,omitempty"`
-	Metadata_             json.RawMessage        `json:"metadata"        db:"metadata"`
+	Metadata_             *json.RawMessage       `json:"metadata,omitempty"        db:"metadata"`
 
 	ChannelID_    courier.ChannelID `json:"channel_id"      db:"channel_id"`
 	ContactID_    ContactID         `json:"contact_id"      db:"contact_id"`
@@ -537,6 +581,10 @@ type DBMsg struct {
 	workerToken    queue.WorkerToken
 	alreadyWritten bool
 	quickReplies   []string
+	textLanguage   string
+
+	products    []map[string]interface{}
+	listMessage courier.ListMessage
 }
 
 func (m *DBMsg) ID() courier.MsgID            { return m.ID_ }
@@ -578,13 +626,14 @@ func (m *DBMsg) QuickReplies() []string {
 		return m.quickReplies
 	}
 
-	if m.Metadata_ == nil {
-		return nil
+	m.quickReplies = []string{}
+
+	if m.Metadata_ == nil || *m.Metadata_ == nil {
+		return m.quickReplies
 	}
 
-	m.quickReplies = []string{}
 	jsonparser.ArrayEach(
-		m.Metadata_,
+		*m.Metadata_,
 		func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
 			m.quickReplies = append(m.quickReplies, string(value))
 		},
@@ -596,13 +645,58 @@ func (m *DBMsg) Topic() string {
 	if m.Metadata_ == nil {
 		return ""
 	}
-	topic, _, _, _ := jsonparser.Get(m.Metadata_, "topic")
+	topic, _, _, _ := jsonparser.Get(*m.Metadata_, "topic")
 	return string(topic)
 }
 
-// Metadata returns the metadata for this message
+func (m *DBMsg) TextLanguage() string {
+	if m.textLanguage != "" {
+		return m.textLanguage
+	}
+	if m.Metadata_ == nil {
+		return ""
+	}
+
+	textLanguage, _, _, _ := jsonparser.Get(*m.Metadata_, "text_language")
+	return string(textLanguage)
+}
+
+func (m *DBMsg) IGCommentID() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+
+	igCommentID, _, _, _ := jsonparser.Get(*m.Metadata_, "ig_comment_id")
+	return string(igCommentID)
+}
+
+func (m *DBMsg) IGResponseType() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	igResponseType, _, _, _ := jsonparser.Get(*m.Metadata_, "ig_response_type")
+	return string(igResponseType)
+}
+
+func (m *DBMsg) IGTag() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	igTag, _, _, _ := jsonparser.Get(*m.Metadata_, "ig_tag")
+	return string(igTag)
+}
+
+// Metadata returns the metadata for this message if it exists
 func (m *DBMsg) Metadata() json.RawMessage {
-	return m.Metadata_
+	if m.Metadata_ == nil {
+		return nil
+	}
+
+	if *m.Metadata_ == nil {
+		return nil
+	}
+
+	return *m.Metadata_
 }
 
 // fingerprint returns a fingerprint for this msg, suitable for figuring out if this is a dupe
@@ -628,9 +722,6 @@ func (m *DBMsg) WithUUID(uuid courier.MsgUUID) courier.Msg { m.UUID_ = uuid; ret
 // WithMetadata can be used to add metadata to a Msg
 func (m *DBMsg) WithMetadata(metadata json.RawMessage) courier.Msg { m.Metadata_ = metadata; return m }
 
-// WithFlow can be used to add flow to a Msg
-func (m *DBMsg) WithFlow(flow *courier.FlowReference) courier.Msg { m.Flow_ = flow; return m }
-
 // WithAttachment can be used to append to the media urls for a message
 func (m *DBMsg) WithAttachment(url string) courier.Msg {
 	m.Attachments_ = append(m.Attachments_, url)
@@ -640,10 +731,5 @@ func (m *DBMsg) WithAttachment(url string) courier.Msg {
 // WithURNAuth can be used to add a URN auth setting to a message
 func (m *DBMsg) WithURNAuth(auth string) courier.Msg {
 	m.URNAuth_ = auth
-	return m
-}
-
-func (m *DBMsg) WithPresignedURL(urls []string) courier.Msg {
-	m.Attachments_ = urls
 	return m
 }

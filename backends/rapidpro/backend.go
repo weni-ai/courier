@@ -16,6 +16,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/batch"
+	"github.com/nyaruka/courier/metrics"
 	"github.com/nyaruka/courier/queue"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/analytics"
@@ -53,6 +54,14 @@ func (b *backend) GetChannelByAddress(ctx context.Context, ct courier.ChannelTyp
 	defer cancel()
 
 	return getChannelByAddress(timeout, b.db, ct, address)
+}
+
+// GetChannelByAddressWithRouterToken returns the channel with the passed in type and address and a value from config by key
+func (b *backend) GetChannelByAddressWithRouterToken(ctx context.Context, ct courier.ChannelType, address courier.ChannelAddress, routerToken string) (courier.Channel, error) {
+	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
+	defer cancel()
+
+	return getChannelByAddressWithRouterToken(timeout, b.db, ct, address, routerToken)
 }
 
 // GetContact returns the contact for the passed in channel and URN
@@ -252,6 +261,12 @@ func (b *backend) MarkOutgoingMsgComplete(ctx context.Context, msg courier.Msg, 
 
 // WriteMsg writes the passed in message to our store
 func (b *backend) WriteMsg(ctx context.Context, m courier.Msg) error {
+	// Check if this is an action from context
+	if isAction, ok := ctx.Value("is_action").(bool); ok && isAction {
+		// Skip message writing for actions
+		return nil
+	}
+
 	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
 	defer cancel()
 
@@ -386,6 +401,52 @@ func (b *backend) WriteChannelLogs(ctx context.Context, logs []*courier.ChannelL
 	return nil
 }
 
+// WriteContactLastSeen writes the passed in contact last seen to our backend
+func (b *backend) WriteContactLastSeen(ctx context.Context, msg courier.Msg, lastSeenOn time.Time) error {
+	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
+	defer cancel()
+
+	dbChannel := msg.Channel().(*DBChannel)
+	contact, err := contactForURN(ctx, b, dbChannel.OrgID(), dbChannel, msg.URN(), "", msg.ContactName())
+	if err != nil {
+		return errors.Wrap(err, "error getting contact")
+	}
+
+	contactLastSeen := &DBContactLastSeen{
+		ID_:         contact.ID(),
+		LastSeenOn_: lastSeenOn,
+	}
+
+	// if we have an id, we can have our batch commit for us
+	if contactLastSeen.ID_ != NilContactID {
+		b.contactLastSeenCommitter.Queue(contactLastSeen)
+	} else {
+		// otherwise, write normally (synchronously)
+		err := writeContactLastSeen(timeout, b, contact, lastSeenOn)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// WriteCtwaToDB writes the passed in ctwa data to our backend
+func (b *backend) WriteCtwaToDB(ctx context.Context, ctwaClid string, contactUrn urns.URN, timestamp time.Time, channelUUID courier.ChannelUUID, waba string) error {
+	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
+	defer cancel()
+
+	ctwa := &DBCtwa{
+		CtwaClid:    ctwaClid,
+		ContactUrn:  contactUrn.String(),
+		Timestamp:   timestamp,
+		ChannelUUID: channelUUID.String(),
+		Waba:        waba,
+	}
+
+	return writeCtwa(timeout, b, ctwa)
+}
+
 // Check if external ID has been seen in a period
 func (b *backend) CheckExternalIDSeen(msg courier.Msg) courier.Msg {
 	var prevUUID = checkExternalIDSeen(b, msg)
@@ -459,39 +520,12 @@ func (b *backend) Heartbeat() error {
 		bulkSize += count
 	}
 
-	// get our DB and redis stats
-	dbStats := b.db.Stats()
-	redisStats := b.redisPool.Stats()
-
-	dbWaitDurationInPeriod := dbStats.WaitDuration - b.dbWaitDuration
-	dbWaitCountInPeriod := dbStats.WaitCount - b.dbWaitCount
-	redisWaitDurationInPeriod := redisStats.WaitDuration - b.redisWaitDuration
-	redisWaitCountInPeriod := redisStats.WaitCount - b.redisWaitCount
-
-	b.dbWaitDuration = dbStats.WaitDuration
-	b.dbWaitCount = dbStats.WaitCount
-	b.redisWaitDuration = redisStats.WaitDuration
-	b.redisWaitCount = redisStats.WaitCount
-
-	analytics.Gauge("courier.db_busy", float64(dbStats.InUse))
-	analytics.Gauge("courier.db_idle", float64(dbStats.Idle))
-	analytics.Gauge("courier.db_wait_ms", float64(dbWaitDurationInPeriod/time.Millisecond))
-	analytics.Gauge("courier.db_wait_count", float64(dbWaitCountInPeriod))
-	analytics.Gauge("courier.redis_wait_ms", float64(redisWaitDurationInPeriod/time.Millisecond))
-	analytics.Gauge("courier.redis_wait_count", float64(redisWaitCountInPeriod))
-	analytics.Gauge("courier.bulk_queue", float64(bulkSize))
-	analytics.Gauge("courier.priority_queue", float64(prioritySize))
-
-	logrus.WithFields(logrus.Fields{
-		"db_busy":          dbStats.InUse,
-		"db_idle":          dbStats.Idle,
-		"db_wait_time":     dbWaitDurationInPeriod,
-		"db_wait_count":    dbWaitCountInPeriod,
-		"redis_wait_time":  dbWaitDurationInPeriod,
-		"redis_wait_count": dbWaitCountInPeriod,
-		"priority_size":    prioritySize,
-		"bulk_size":        bulkSize,
-	}).Info("current analytics")
+	// log our total
+	librato.Gauge("courier.bulk_queue", float64(bulkSize))
+	librato.Gauge("courier.priority_queue", float64(prioritySize))
+	metrics.SetBulkQueueSize(float64(bulkSize))
+	metrics.SetPriorityQueueSize(float64(prioritySize))
+	logrus.WithField("bulk_queue", bulkSize).WithField("priority_queue", prioritySize).Info("heartbeat queue sizes calculated")
 
 	return nil
 }
@@ -732,11 +766,22 @@ func (b *backend) Start() error {
 		})
 	b.logCommitter.Start()
 
+	// create our contact last seen committer and start it
+	b.contactLastSeenCommitter = batch.NewCommitter("contact last seen committer", b.db, updateContactLastSeenSQL, time.Millisecond*500, b.committerWG,
+		func(err error, value batch.Value) {
+			logrus.WithField("comp", "contact last seen committer").WithError(err).Error("error writing contact last seen")
+			err = courier.WriteToSpool(b.config.SpoolDir, "contact_last_seens", value)
+			if err != nil {
+				logrus.WithField("comp", "contact last seen committer").WithError(err).Error("error writing contact last seen to spool")
+			}
+		})
+	b.contactLastSeenCommitter.Start()
+
 	// register and start our spool flushers
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "msgs"), b.flushMsgFile)
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "statuses"), b.flushStatusFile)
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "events"), b.flushChannelEventFile)
-
+	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "contact_last_seens"), b.flushContactLastSeenFile)
 	logrus.WithFields(logrus.Fields{
 		"comp":  "backend",
 		"state": "started",
@@ -764,6 +809,11 @@ func (b *backend) Cleanup() error {
 	// stop our log committer
 	if b.logCommitter != nil {
 		b.logCommitter.Stop()
+	}
+
+	// stop our contact last seen committer
+	if b.contactLastSeenCommitter != nil {
+		b.contactLastSeenCommitter.Stop()
 	}
 
 	// wait for them to flush fully
@@ -796,9 +846,10 @@ func newBackend(config *courier.Config) courier.Backend {
 type backend struct {
 	config *courier.Config
 
-	statusCommitter batch.Committer
-	logCommitter    batch.Committer
-	committerWG     *sync.WaitGroup
+	statusCommitter          batch.Committer
+	logCommitter             batch.Committer
+	contactLastSeenCommitter batch.Committer
+	committerWG              *sync.WaitGroup
 
 	db        *sqlx.DB
 	redisPool *redis.Pool
@@ -812,4 +863,28 @@ type backend struct {
 	dbWaitCount       int64
 	redisWaitDuration time.Duration
 	redisWaitCount    int64
+}
+
+func (b *backend) GetRunEventsByMsgUUIDFromDB(ctx context.Context, msgUUID string) ([]courier.RunEvent, error) {
+	events := []courier.RunEvent{}
+	jsonEvents, err := GetRunEventsJSONByMsgUUIDFromDB(ctx, b.db, msgUUID)
+	if err != nil {
+		return nil, err
+	}
+	if jsonEvents == "" {
+		return events, nil
+	}
+	err = json.Unmarshal([]byte(jsonEvents), &events)
+	if err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
+func (b *backend) GetMessage(ctx context.Context, msgUUID string) (courier.Msg, error) {
+	return GetMsgByUUID(b, msgUUID)
+}
+
+func (b *backend) GetProjectUUIDFromChannelUUID(ctx context.Context, channelUUID courier.ChannelUUID) (string, error) {
+	return getProjectUUIDFromChannelUUID(ctx, b.db, channelUUID.String())
 }

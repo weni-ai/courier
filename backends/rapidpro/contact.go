@@ -5,12 +5,12 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/nyaruka/courier"
-	"github.com/nyaruka/gocommon/analytics"
-	"github.com/nyaruka/gocommon/dbutil"
+	"github.com/nyaruka/courier/metrics"
 	"github.com/nyaruka/gocommon/urns"
 	"github.com/nyaruka/gocommon/uuids"
 	"github.com/nyaruka/null"
@@ -86,7 +86,8 @@ SELECT
 	c.created_on, 
 	c.name, 
 	u.id as "urn_id",
-	c.status
+	c.status,
+	c.last_seen_on
 FROM 
 	contacts_contact AS c, 
 	contacts_contacturn AS u 
@@ -97,14 +98,82 @@ WHERE
 	c.is_active = TRUE
 `
 
+const lookupContactFromTeamsURNSQL = `
+SELECT 
+	c.org_id, 
+	c.id, 
+	c.uuid, 
+	c.modified_on, 
+	c.created_on, 
+	c.name, 
+	u.id as "urn_id",
+	c.status,
+	c.last_seen_on
+FROM 
+	contacts_contact AS c, 
+	contacts_contacturn AS u 
+WHERE 
+	u.identity ~ $1 AND 
+	u.contact_id = c.id AND 
+	u.org_id = $2 AND 
+	c.is_active = TRUE
+	ORDER BY c.modified_on ASC
+	LIMIT 1
+`
+
+func contactForURNTeams(ctx context.Context, b *backend, urn urns.URN, org OrgID) (*DBContact, error) {
+	contact := &DBContact{}
+
+	urnIdentity := strings.Split(urn.Identity().String(), ":serviceURL:")
+	err := b.db.GetContext(ctx, contact, lookupContactFromTeamsURNSQL, urnIdentity[0], org)
+	if err != nil && err != sql.ErrNoRows {
+		logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
+		return contact, err
+	}
+
+	if err == sql.ErrNoRows {
+		return contact, err
+	}
+
+	err = updateContactTeamsURN(ctx, b.db, contact.URNID_, string(urn.Identity()))
+	if err != nil {
+		logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error updating contact urn")
+		return contact, err
+	}
+	return contact, nil
+}
+
 // contactForURN first tries to look up a contact for the passed in URN, if not finding one then creating one
 func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChannel, urn urns.URN, auth string, name string) (*DBContact, error) {
 	// try to look up our contact by URN
 	contact := &DBContact{}
+
 	err := b.db.GetContext(ctx, contact, lookupContactFromURNSQL, urn.Identity(), org)
 	if err != nil && err != sql.ErrNoRows {
 		logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
 		return nil, errors.Wrap(err, "error looking up contact by URN")
+	}
+
+	if urn.Scheme() == "teams" && err == sql.ErrNoRows {
+		contact, err = contactForURNTeams(ctx, b, urn, org)
+		if err != nil && err != sql.ErrNoRows {
+			logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
+			return nil, err
+		}
+	}
+
+	if err == sql.ErrNoRows {
+		// we not found a contact with the given urn, so try find one with another variation with or without extra 9
+		if urn.Scheme() == urns.WhatsAppScheme && strings.HasPrefix(urn.Path(), "55") {
+			urnVariation := newWhatsappURNVariation(urn)
+			if urnVariation != nil {
+				err = b.db.GetContext(ctx, contact, lookupContactFromURNSQL, urnVariation.Identity(), org)
+				if err != nil && err != sql.ErrNoRows {
+					logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
+					return nil, err
+				}
+			}
+		}
 	}
 
 	// we found it, return it
@@ -130,6 +199,7 @@ func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChanne
 	contact.UUID_, _ = courier.NewContactUUID(string(uuids.New()))
 	contact.CreatedOn_ = time.Now()
 	contact.ModifiedOn_ = time.Now()
+	contact.LastSeenOn_ = nil
 	contact.IsNew_ = true
 
 	// if we aren't an anonymous org, we want to look up a name if possible and set it
@@ -212,10 +282,35 @@ func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChanne
 	contact.URNID_ = contactURN.ID
 
 	// log that we created a new contact to librato
-	analytics.Gauge("courier.new_contact", float64(1))
+	librato.Gauge("courier.new_contact", float64(1))
+	metrics.IncrementNewContactsCount()
+	metrics.IncrementNewContactsByType(channel.ChannelType().String())
+	metrics.IncrementNewContactsByUUID(channel.UUID().UUID)
 
 	// and return it
 	return contact, nil
+}
+
+func newWhatsappURNVariation(urn urns.URN) *urns.URN {
+	path := urn.Path()
+	pathVariation := ""
+	if urn.Scheme() == urns.WhatsAppScheme && strings.HasPrefix(path, "55") {
+		addNine := !(len(path) == 13 && string(path[4]) == "9")
+		if addNine {
+			// provide with extra 9
+			pathVariation = path[:4] + "9" + path[4:]
+		} else {
+			// provide without extra 9
+			pathVariation = path[:4] + path[5:]
+		}
+	}
+
+	if pathVariation != "" {
+		urnVariation, _ := urns.NewURNFromParts(urn.Scheme(), pathVariation, "", "")
+		return &urnVariation
+	}
+
+	return nil
 }
 
 // DBContact is our struct for a contact in the database
@@ -227,8 +322,9 @@ type DBContact struct {
 
 	URNID_ ContactURNID `db:"urn_id"`
 
-	CreatedOn_  time.Time `db:"created_on"`
-	ModifiedOn_ time.Time `db:"modified_on"`
+	CreatedOn_  time.Time  `db:"created_on"`
+	ModifiedOn_ time.Time  `db:"modified_on"`
+	LastSeenOn_ *time.Time `db:"last_seen_on"`
 
 	CreatedBy_  int `db:"created_by_id"`
 	ModifiedBy_ int `db:"modified_by_id"`
@@ -239,3 +335,6 @@ type DBContact struct {
 
 // UUID returns the UUID for this contact
 func (c *DBContact) UUID() courier.ContactUUID { return c.UUID_ }
+
+// ID returns the ID for this contact
+func (c *DBContact) ID() ContactID { return c.ID_ }

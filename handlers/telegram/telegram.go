@@ -1,11 +1,15 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +24,8 @@ import (
 )
 
 var apiURL = "https://api.telegram.org"
+
+var defaultParseMode = "Markdown"
 
 func init() {
 	courier.RegisterHandler(newHandler())
@@ -213,19 +219,16 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			msgKeyBoard = keyboard
 		}
 
+		msgText := escapeTextForMarkdown(msg.Text())
+
 		form := url.Values{
 			"chat_id": []string{msg.URN().Path()},
-			"text":    []string{msg.Text()},
+			"text":    []string{msgText},
 		}
 
-		externalID, log, botBlocked, err := h.sendMsgPart(msg, authToken, "sendMessage", form, msgKeyBoard)
-		status.AddLog(log)
-		if botBlocked {
-			status.SetStatus(courier.MsgFailed)
-			channelEvent := h.Backend().NewChannelEvent(msg.Channel(), courier.StopContact, msg.URN())
-			err = h.Backend().WriteChannelEvent(ctx, channelEvent)
-			return status, err
-		}
+		form.Set("parse_mode", defaultParseMode)
+
+		externalID, log, err := h.sendMsgPart(msg, authToken, "sendMessage", form, msgKeyBoard)
 		status.SetExternalID(externalID)
 		hasError = err != nil
 
@@ -239,6 +242,10 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		}
 
 		mediaType, mediaURL := handlers.SplitAttachment(attachment)
+		fileName, err := utils.BasePathForURL(mediaURL)
+		if err != nil {
+			return nil, err
+		}
 		switch strings.Split(mediaType, "/")[0] {
 		case "image":
 			form := url.Values{
@@ -292,19 +299,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			hasError = err != nil
 
 		case "application":
-			form := url.Values{
-				"chat_id":  []string{msg.URN().Path()},
-				"document": []string{mediaURL},
-				"caption":  []string{caption},
-			}
-			externalID, log, botBlocked, err := h.sendMsgPart(msg, authToken, "sendDocument", form, attachmentKeyBoard)
-			status.AddLog(log)
-			if botBlocked {
-				status.SetStatus(courier.MsgFailed)
-				channelEvent := h.Backend().NewChannelEvent(msg.Channel(), courier.StopContact, msg.URN())
-				err = h.Backend().WriteChannelEvent(ctx, channelEvent)
-				return status, err
-			}
+			externalID, log, err := sendUploadDocument(msg, authToken, mediaURL, fileName, attachmentKeyBoard, caption)
 			status.SetExternalID(externalID)
 			hasError = err != nil
 
@@ -380,26 +375,26 @@ type moLocation struct {
 	Longitude float64 `json:"longitude"`
 }
 
-// {
-// 	"update_id": 174114370,
-// 	"message": {
-// 	  "message_id": 41,
-//      "from": {
-// 		  "id": 3527065,
-// 		  "first_name": "Nic",
-// 		  "last_name": "Pottier",
-//        "username": "nicpottier"
-// 	    },
-//     "chat": {
-//       "id": 3527065,
-// 		 "first_name": "Nic",
-//       "last_name": "Pottier",
-//       "type": "private"
-//     },
-// 	   "date": 1454119029,
-//     "text": "Hello World"
-// 	 }
-// }
+//	{
+//		"update_id": 174114370,
+//		"message": {
+//		  "message_id": 41,
+//	     "from": {
+//			  "id": 3527065,
+//			  "first_name": "Nic",
+//			  "last_name": "Pottier",
+//	       "username": "nicpottier"
+//		    },
+//	    "chat": {
+//	      "id": 3527065,
+//			 "first_name": "Nic",
+//	      "last_name": "Pottier",
+//	      "type": "private"
+//	    },
+//		   "date": 1454119029,
+//	    "text": "Hello World"
+//		 }
+//	}
 type moPayload struct {
 	UpdateID int64 `json:"update_id" validate:"required"`
 	Message  struct {
@@ -432,4 +427,120 @@ type moPayload struct {
 			LastName    string `json:"last_name"`
 		}
 	} `json:"message"`
+}
+
+func escapeTextForMarkdown(text string) string {
+	extraEscapeCases := []string{`*:`, `*=`}
+	escaped := regexReplace(`(?i)\b\w+_(?i)\w+\b`, `_`, `\_`, text)
+	escaped = regexReplace(`\b\w+\*\w+\b`, `\*`, `\*`, escaped)
+	escaped = strings.ReplaceAll(escaped, "[", "\\[")
+	escaped = strings.ReplaceAll(escaped, "]", "\\]")
+	escaped = strings.ReplaceAll(escaped, "`", "\\`")
+	for _, c := range extraEscapeCases {
+		escaped = strings.ReplaceAll(escaped, c, `\`+c)
+	}
+	escaped = escapeOdd(escaped, "*")
+	return escaped
+}
+
+func regexReplace(regexstr, target, replacement, text string) string {
+	re := regexp.MustCompile(regexstr)
+	return re.ReplaceAllStringFunc(text, func(match string) string {
+		return regexp.MustCompile(target).ReplaceAllString(match, replacement)
+	})
+}
+
+func escapeOdd(text string, c string) string {
+	if strings.Count(text, c)%2 != 0 {
+		last := strings.LastIndexByte(text, byte(c[0]))
+		if last == 0 || text[last-1] != '\\' {
+			return text[:last] + `\` + text[last:]
+		}
+	}
+	return text
+}
+
+func sendUploadDocument(msg courier.Msg, token string, mediaURL string, fileName string, attachmentKeyBoard *ReplyKeyboardMarkup, caption string) (string, *courier.ChannelLog, error) {
+	fileData, err := downloadFileToBytes(mediaURL)
+	if err != nil {
+		return "", nil, err
+	}
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	part, err := writer.CreateFormFile("document", filepath.Base(fileName))
+	if err != nil {
+		return "", nil, err
+	}
+
+	_, err = part.Write(fileData)
+	if err != nil {
+		return "", nil, err
+	}
+
+	_ = writer.WriteField("chat_id", msg.URN().Path())
+	if err != nil {
+		return "", nil, err
+	}
+
+	if attachmentKeyBoard == nil {
+		err = writer.WriteField("reply_markup", `{"remove_keyboard":true}`)
+	} else {
+		err = writer.WriteField("reply_markup", string(jsonx.MustMarshal(attachmentKeyBoard)))
+	}
+	if err != nil {
+		return "", nil, err
+	}
+
+	err = writer.WriteField("caption", caption)
+	if err != nil {
+		return "", nil, err
+	}
+
+	err = writer.Close()
+	if err != nil {
+		return "", nil, err
+	}
+
+	sendURL := fmt.Sprintf("%s/bot%s/%s", apiURL, token, "sendDocument")
+	req, err := http.NewRequest("POST", sendURL, body)
+	if err != nil {
+		return "", nil, err
+	}
+
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := utils.MakeHTTPRequest(req)
+
+	// build our channel log
+	log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), resp).WithError("Message Send Error", err)
+
+	// was this request successful?
+	ok, err := jsonparser.GetBoolean([]byte(resp.Body), "ok")
+	if err != nil || !ok {
+		return "", log, errors.Errorf("response not 'ok'")
+	}
+
+	// grab our message id
+	externalID, err := jsonparser.GetInt([]byte(resp.Body), "result", "message_id")
+	if err != nil {
+		return "", log, errors.Errorf("no 'result.message_id' in response")
+	}
+
+	return strconv.FormatInt(externalID, 10), log, nil
+}
+
+func downloadFileToBytes(fileURL string) ([]byte, error) {
+	req, err := http.NewRequest("GET", fileURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := utils.MakeHTTPRequest(req)
+	if err != nil {
+		return nil, fmt.Errorf("error downloading file: %v", err)
+	}
+
+	return resp.Body, nil
 }

@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nyaruka/courier/billing"
+	"github.com/nyaruka/courier/templates"
 	"github.com/nyaruka/courier/utils"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -19,6 +21,28 @@ func TestServer(t *testing.T) {
 	server := NewServerWithLogger(config, NewMockBackend(), logger)
 	server.Start()
 	defer server.Stop()
+
+	billingClient, err := billing.NewRMQBillingResilientClient(
+		"amqp://localhost:5672/",
+		config.RabbitmqRetryPubAttempts,
+		config.RabbitmqRetryPubDelay,
+		config.BillingExchangeName,
+	)
+	if err != nil {
+		logrus.Fatalf("Error creating billing RabbitMQ client: %v", err)
+	}
+	server.SetBilling(billingClient)
+
+	templatesClient, err := templates.NewRMQTemplateClient(
+		"amqp://localhost:5672/",
+		config.RabbitmqRetryPubAttempts,
+		config.RabbitmqRetryPubDelay,
+		config.TemplatesExchangeName,
+	)
+	if err != nil {
+		logrus.Fatalf("Error creating templates RabbitMQ client: %v", err)
+	}
+	server.SetTemplates(templatesClient)
 
 	// wait for server to come up
 	time.Sleep(100 * time.Millisecond)
@@ -53,6 +77,12 @@ func TestServer(t *testing.T) {
 	rr, err = utils.MakeHTTPRequest(req)
 	assert.Error(t, err)
 	assert.Contains(t, string(rr.Body), "method not allowed")
+
+	// health check
+	req, _ = http.NewRequest("GET", "http://localhost:8080/c/health", nil)
+	rr, err = utils.MakeHTTPRequest(req)
+	assert.NoError(t, err)
+	assert.Equal(t, 200, rr.StatusCode)
 }
 
 func TestSanitizeBody(t *testing.T) {

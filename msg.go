@@ -27,6 +27,16 @@ func NewMsgID(id int64) MsgID {
 	return MsgID(id)
 }
 
+// MsgActionType defines the type of special action for a message.
+type MsgActionType string
+
+const (
+	// MsgActionNone indicates a normal message, with no special action.
+	MsgActionNone MsgActionType = ""
+	// MsgActionTypingIndicator indicates that a "typing on" should be sent.
+	MsgActionTypingIndicator MsgActionType = "typing_indicator"
+)
+
 // String satisfies the Stringer interface
 func (i MsgID) String() string {
 	if i != NilMsgID {
@@ -127,4 +137,136 @@ type Msg interface {
 
 	EventID() int64
 	SessionStatus() string
+
+	TextLanguage() string
+
+	Status() MsgStatusValue
+
+	Products() []map[string]interface{}
+	Header() string
+	Body() string
+	Footer() string
+	Action() string
+	SendCatalog() bool
+	HeaderType() string
+	HeaderText() string
+	ListMessage() ListMessage
+	InteractionType() string
+	CTAMessage() *CTAMessage
+	FlowMessage() *FlowMessage
+	OrderDetailsMessage() *OrderDetailsMessage
+	Buttons() []ButtonComponent
+
+	IGCommentID() string
+	IGResponseType() string
+	IGTag() string
+
+	ActionType() MsgActionType
+	ActionExternalID() string
+}
+
+type ButtonComponent struct {
+	SubType    string        `json:"sub_type"`
+	Parameters []ButtonParam `json:"parameters"`
+}
+
+type ButtonParam struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type ListMessage struct {
+	ButtonText string      `json:"button_text"`
+	ListItems  []ListItems `json:"list_items"`
+}
+
+type CTAMessage struct {
+	URL         string `json:"url"`
+	DisplayText string `json:"display_text"`
+}
+
+type FlowMessage struct {
+	FlowID     string                 `json:"flow_id"`
+	FlowScreen string                 `json:"flow_screen"`
+	FlowData   map[string]interface{} `json:"flow_data"`
+	FlowCTA    string                 `json:"flow_cta"`
+	FlowMode   string                 `json:"flow_mode"`
+}
+
+type ListItems struct {
+	UUID        string `json:"uuid"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
+
+type RunEvent struct {
+	Type      string     `json:"type,omitempty"`
+	StepUUID  string     `json:"step_uuid,omitempty"`
+	CreatedOn *time.Time `json:"created_on,omitempty"`
+	Msg       EventMsg   `json:"msg,omitempty"`
+}
+
+type EventMsg struct {
+	ID   int64  `json:"id,omitempty"`
+	URN  string `json:"urn,omitempty"`
+	Text string `json:"text,omitempty"`
+	UUID string `json:"uuid,omitempty"`
+}
+
+type OrderAmountWithOffset struct {
+	Value  int `json:"value"`
+	Offset int `json:"offset"`
+}
+
+type OrderItem struct {
+	RetailerID string                 `json:"retailer_id"`
+	Name       string                 `json:"name"`
+	Quantity   int                    `json:"quantity"`
+	Amount     OrderAmountWithOffset  `json:"amount"`
+	SaleAmount *OrderAmountWithOffset `json:"sale_amount,omitempty"`
+}
+
+type OrderAmountWithDescription struct {
+	Value       int    `json:"value"`
+	Description string `json:"description,omitempty"`
+}
+
+type OrderDiscount struct {
+	Value       int    `json:"value"`
+	Description string `json:"description,omitempty"`
+	ProgramName string `json:"program_name,omitempty"`
+}
+
+type Order struct {
+	Items    []OrderItem                `json:"items"`
+	Subtotal int                        `json:"subtotal"`
+	Tax      OrderAmountWithDescription `json:"tax"`
+	Shipping OrderAmountWithDescription `json:"shipping,omitempty"`
+	Discount OrderDiscount              `json:"discount,omitempty"`
+}
+
+type OrderPixConfig struct {
+	Key          string `json:"key"`
+	KeyType      string `json:"key_type"`
+	MerchantName string `json:"merchant_name"`
+	Code         string `json:"code"`
+}
+
+type OffsiteCardPay struct {
+	LastFourDigits string `json:"last_four_digits,omitempty"`
+	CredentialID   string `json:"credential_id,omitempty"`
+}
+
+type OrderPaymentSettings struct {
+	Type           string         `json:"type"`
+	PaymentLink    string         `json:"payment_link,omitempty"`
+	PixConfig      OrderPixConfig `json:"pix_config,omitempty"`
+	OffsiteCardPay OffsiteCardPay `json:"offsite_card_pay,omitempty"`
+}
+
+type OrderDetailsMessage struct {
+	ReferenceID     string               `json:"reference_id"`
+	PaymentSettings OrderPaymentSettings `json:"payment_settings"`
+	TotalAmount     int                  `json:"total_amount"`
+	Order           Order                `json:"order"`
 }

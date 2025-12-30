@@ -1,10 +1,14 @@
 package courier
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/gofrs/uuid"
 )
+
+// ErrContactNotFound is returned when trying to queue the last seen for a Contact that doesn't exit
+var ErrContactNotFound = errors.New("contact not found")
 
 // ContactUUID is our typing of a contact's UUID
 type ContactUUID struct {

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/queue"
 	"github.com/nyaruka/gocommon/dbutil/assertdb"
@@ -212,33 +213,39 @@ func (ts *BackendTestSuite) TestCheckMsgExists() {
 	ts.Nil(err)
 }
 
-func (ts *BackendTestSuite) TestDeleteMsgWithExternalID() {
-	knChannel := ts.getChannel("KN", "dbc126ed-66bc-4e28-b67b-81dc3327c95d")
+func (ts *BackendTestSuite) TestContactForURN() {
+
+	db := sqlx.MustConnect("postgres", "postgres://courier:courier@localhost:5432/courier_test?sslmode=disable")
+	db.MustExec(`
+	INSERT INTO public.channels_channel
+(is_active, created_on, modified_on, "uuid", channel_type, "name", schemes, address, country, config, "role", org_id)
+VALUES(true, '2025-03-25 16:37:05.397', '2025-03-25 16:37:05.397', 'a863af77-9aaf-4845-9f95-af9288e6cb31', 'WAC', NULL, '{whatsapp}', NULL, 'US', NULL, '', 1);
+	`)
+
+	whatsappCloudChannel := ts.getChannel("WAC", "a863af77-9aaf-4845-9f95-af9288e6cb31")
+	urn, _ := urns.NewWhatsAppURN("5582999887766") // new urn with extra 9
+
+	var countCttWpp int
+	db.Get(&countCttWpp, `SELECT count(*) FROM contacts_contact as c, contacts_contacturn as u WHERE u.scheme = 'whatsapp' AND c.id = u.contact_id`)
+	ts.Equal(0, countCttWpp)
 
 	ctx := context.Background()
 
-	// no error for invalid external ID
-	err := ts.b.DeleteMsgWithExternalID(ctx, knChannel, "ext-invalid")
-	ts.Nil(err)
+	// a new contact is created
+	_, err := contactForURN(ctx, ts.b, whatsappCloudChannel.OrgID(), whatsappCloudChannel, urn, "", "")
+	ts.NoError(err)
 
-	// cannot change out going messages
-	err = ts.b.DeleteMsgWithExternalID(ctx, knChannel, "ext1")
-	ts.Nil(err)
+	db.Get(&countCttWpp, `SELECT count(*) FROM contacts_contact as c, contacts_contacturn as u WHERE u.scheme = 'whatsapp' AND c.id = u.contact_id`)
+	ts.Equal(1, countCttWpp)
 
-	m := readMsgFromDB(ts.b, courier.NewMsgID(10000))
-	ts.Equal(m.Text_, "test message")
-	ts.Equal(len(m.Attachments()), 0)
-	ts.Equal(m.Visibility_, MsgVisibility("V"))
+	urnVariation, _ := urns.NewWhatsAppURN("558299887766") // now using new variation without extra 9
 
-	// for incoming messages mark them deleted by sender and readact their text and clear their attachments
-	err = ts.b.DeleteMsgWithExternalID(ctx, knChannel, "ext2")
-	ts.Nil(err)
+	// no new contact is created here, only is getting the same previous contact
+	_, err = contactForURN(ctx, ts.b, whatsappCloudChannel.OrgID(), whatsappCloudChannel, urnVariation, "", "")
+	ts.NoError(err)
 
-	m = readMsgFromDB(ts.b, courier.NewMsgID(10002))
-	ts.Equal(m.Text_, "")
-	ts.Equal(len(m.Attachments()), 0)
-	ts.Equal(m.Visibility_, MsgVisibility("X"))
-
+	db.Get(&countCttWpp, `SELECT count(*) FROM contacts_contact as c, contacts_contacturn as u WHERE u.scheme = 'whatsapp' AND c.id = u.contact_id`)
+	ts.Equal(1, countCttWpp)
 }
 
 func (ts *BackendTestSuite) TestContact() {
@@ -546,6 +553,17 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	ts.True(m.ModifiedOn_.After(now))
 	ts.True(m.SentOn_.Equal(sentOn)) // no change
 
+	// update to READ using id
+	status = ts.b.NewMsgStatusForID(channel, courier.NewMsgID(10001), courier.MsgRead)
+	err = ts.b.WriteMsgStatus(ctx, status)
+	ts.NoError(err)
+	time.Sleep(time.Second)
+
+	m = readMsgFromDB(ts.b, courier.NewMsgID(10001))
+	ts.Equal(m.Status_, courier.MsgRead)
+	ts.True(m.ModifiedOn_.After(now))
+	ts.True(m.SentOn_.Equal(sentOn)) // no change
+
 	// no change for incoming messages
 	status = ts.b.NewMsgStatusForID(channel, courier.NewMsgID(10002), courier.MsgSent)
 	err = ts.b.WriteMsgStatus(ctx, status)
@@ -712,6 +730,70 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	ts.NoError(tx.Commit())
 }
 
+func (ts *BackendTestSuite) TestContactLastSeenWithName() {
+	ctx := context.Background()
+	channel := ts.getChannel("TG", "dbc126ed-66bc-4e28-b67b-81dc3327c98a")
+
+	contactName := "flapjack"
+
+	urn, _ := urns.NewTelegramURN(1234567890, "test")
+	msg := ts.b.NewIncomingMsg(channel, urn, "test").WithContactName(contactName)
+
+	ts.b.WriteContactLastSeen(ctx, msg, time.Now())
+	time.Sleep(2 * time.Second)
+
+	contact, err := contactForURN(ctx, ts.b, channel.OrgID_, channel, urn, "", "")
+	ts.NoError(err)
+	ts.NotNil(contact.LastSeenOn_)
+	ts.Equal(null.String(contactName), contact.Name_)
+}
+
+func (ts *BackendTestSuite) TestContactLastSeenWithoutName() {
+	ctx := context.Background()
+	channel := ts.getChannel("TG", "dbc126ed-66bc-4e28-b67b-81dc3327c98a")
+
+	urn, _ := urns.NewTelegramURN(1234567891, "test")
+	msg := ts.b.NewIncomingMsg(channel, urn, "test")
+
+	ts.b.WriteContactLastSeen(ctx, msg, time.Now())
+	time.Sleep(2 * time.Second)
+
+	contact, err := contactForURN(ctx, ts.b, channel.OrgID_, channel, urn, "", "")
+	ts.NoError(err)
+	ts.NotNil(contact.LastSeenOn_)
+	ts.Equal(null.String(""), contact.Name_)
+}
+
+func (ts *BackendTestSuite) TestContactLastSeen() {
+	ctx := context.Background()
+	channel := ts.getChannel("TG", "dbc126ed-66bc-4e28-b67b-81dc3327c98a")
+
+	// create a message with a contact to test with
+	urn, _ := urns.NewTelURNForCountry("12065551616", channel.Country())
+
+	msg := ts.b.NewIncomingMsg(channel, urn, "test")
+	err := ts.b.WriteMsg(ctx, msg)
+	ts.NoError(err)
+
+	// verify that the contact linked to the message does not have the last_seen_on updated
+	contact, err := contactForURN(ctx, ts.b, channel.OrgID_, channel, urn, "", "")
+	ts.NoError(err)
+	ts.Nil(contact.LastSeenOn_)
+
+	// have to round to microseconds because postgres can't store nanos
+	now := time.Now().Round(time.Microsecond)
+
+	err = ts.b.WriteContactLastSeen(ctx, msg, now)
+	ts.NoError(err)
+	time.Sleep(2 * time.Second)
+
+	// check that the contact last seen is written
+	contact, err = contactForURN(ctx, ts.b, channel.OrgID_, channel, urn, "", "")
+	ts.NoError(err)
+	ts.NotNil(contact.LastSeenOn_)
+	ts.Equal(now.UTC(), contact.LastSeenOn_.UTC())
+}
+
 func (ts *BackendTestSuite) TestHealth() {
 	// all should be well in test land
 	ts.Equal(ts.b.Health(), "")
@@ -828,11 +910,11 @@ func (ts *BackendTestSuite) TestOutgoingQueue() {
 	dbMsg.ChannelUUID_, _ = courier.NewChannelUUID("dbc126ed-66bc-4e28-b67b-81dc3327c95d")
 	ts.NotNil(dbMsg)
 
-	// serialize our message
-	msgJSON, err := json.Marshal([]interface{}{dbMsg})
-	ts.NoError(err)
+	var err error
 
-	err = queue.PushOntoQueue(r, msgQueueName, "dbc126ed-66bc-4e28-b67b-81dc3327c95d", 10, string(msgJSON), queue.HighPriority)
+	msgStrJSON := `[{"org_id":1,"id":10000,"uuid":"00000000-0000-0000-0000-000000000000","direction":"O","status":"F","visibility":"V","high_priority":true,"urn":"","urn_auth":"","text":"test message","attachments":null,"external_id":"ext1","response_to_id":null,"response_to_external_id":"","metadata":"{\"ticketer_id\":1, \"chats_msg_uuid\":\"adc67dda-314b-427a-b6c7-0cc8c2d89867\"}","channel_id":10,"contact_id":100,"contact_urn_id":1000,"msg_count":1,"error_count":3,"channel_uuid":"dbc126ed-66bc-4e28-b67b-81dc3327c95d","contact_name":"","next_attempt":"2024-11-06T20:45:31.123208Z","created_on":"2024-11-06T20:30:14.898168Z","modified_on":"2024-11-06T20:30:31.122974Z","queued_on":"2024-11-06T20:30:14.898168Z","sent_on":null}]`
+
+	err = queue.PushOntoQueue(r, msgQueueName, "dbc126ed-66bc-4e28-b67b-81dc3327c95d", 10, msgStrJSON, queue.HighPriority)
 	ts.NoError(err)
 
 	// pop a message off our queue
@@ -1148,6 +1230,7 @@ func (ts *BackendTestSuite) TestWriteMsg() {
 		"attachments":     nil,
 		"new_contact":     contact.IsNew_,
 		"created_on":      msg.CreatedOn_.Format(time.RFC3339Nano),
+		"metadata":        nil,
 	}, body["task"])
 }
 
@@ -1328,4 +1411,12 @@ func readMsgFromDB(b *backend, id courier.MsgID) *DBMsg {
 
 	m.channel = ch
 	return m
+}
+
+func (ts *BackendTestSuite) TestGetProjectUUIDFromChannelUUID() {
+	ctx := context.Background()
+	channelUUID, _ := courier.NewChannelUUID("dbc126ed-66bc-4e28-b67b-81dc3327222a")
+	projectUUID, err := ts.b.GetProjectUUIDFromChannelUUID(ctx, channelUUID)
+	ts.NoError(err)
+	ts.Equal("9bab7353-561c-42f7-860e-e24c86cfb8e6", projectUUID)
 }

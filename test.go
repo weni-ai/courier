@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/buger/jsonparser"
 	"github.com/nyaruka/gocommon/urns"
 	"github.com/nyaruka/gocommon/uuids"
 
@@ -31,12 +32,13 @@ type MockBackend struct {
 	queueMsgs         []Msg
 	errorOnQueue      bool
 
-	mutex           sync.RWMutex
-	outgoingMsgs    []Msg
-	msgStatuses     []MsgStatus
-	channelEvents   []ChannelEvent
-	channelLogs     []*ChannelLog
-	lastContactName string
+	mutex            sync.RWMutex
+	outgoingMsgs     []Msg
+	msgStatuses      []MsgStatus
+	channelEvents    []ChannelEvent
+	channelLogs      []*ChannelLog
+	contactLastSeens []Contact
+	lastContactName  string
 
 	sentMsgs  map[MsgID]bool
 	redisPool *redis.Pool
@@ -125,8 +127,13 @@ func (mb *MockBackend) NewIncomingMsg(channel Channel, urn urns.URN, text string
 }
 
 // NewOutgoingMsg creates a new outgoing message from the given params
-func (mb *MockBackend) NewOutgoingMsg(channel Channel, id MsgID, urn urns.URN, text string, highPriority bool, quickReplies []string, topic string, responseToExternalID string) Msg {
-	return &mockMsg{channel: channel, id: id, urn: urn, text: text, highPriority: highPriority, quickReplies: quickReplies, topic: topic, responseToExternalID: responseToExternalID}
+func (mb *MockBackend) NewOutgoingMsg(channel Channel, id MsgID, urn urns.URN, text string, highPriority bool, quickReplies []string, topic string, responseToID int64, responseToExternalID string, textLanguage string) Msg {
+	msgResponseToID := NilMsgID
+	if responseToID != 0 {
+		msgResponseToID = NewMsgID(responseToID)
+	}
+
+	return &mockMsg{channel: channel, id: id, urn: urn, text: text, highPriority: highPriority, quickReplies: quickReplies, topic: topic, responseToID: msgResponseToID, responseToExternalID: responseToExternalID, textLanguage: textLanguage}
 }
 
 // PushOutgoingMsg is a test method to add a message to our queue of messages to send
@@ -238,6 +245,25 @@ func (mb *MockBackend) WriteMsgStatus(ctx context.Context, status MsgStatus) err
 	return nil
 }
 
+// WriteContactLastSeen writes the contact last seen to our queue
+func (mb *MockBackend) WriteContactLastSeen(ctx context.Context, msg Msg, lastSeenOn time.Time) error {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+
+	contact, found := mb.contacts[msg.URN()]
+	if !found {
+		return errors.New("contact not found")
+	}
+	mb.contactLastSeens = append(mb.contactLastSeens, contact)
+	return nil
+}
+
+// WriteCtwaToDB writes the passed in ctwa data to our backend (mock implementation)
+func (mb *MockBackend) WriteCtwaToDB(ctx context.Context, ctwaClid string, contactUrn urns.URN, timestamp time.Time, channelUUID ChannelUUID, waba string) error {
+	// For the mock backend, we just return nil as this is primarily for testing
+	return nil
+}
+
 // NewChannelEvent creates a new channel event with the passed in parameters
 func (mb *MockBackend) NewChannelEvent(channel Channel, eventType ChannelEventType, urn urns.URN) ChannelEvent {
 	return &mockChannelEvent{
@@ -269,6 +295,14 @@ func (mb *MockBackend) GetChannel(ctx context.Context, cType ChannelType, uuid C
 // GetChannelByAddress returns the channel with the passed in type and channel address
 func (mb *MockBackend) GetChannelByAddress(ctx context.Context, cType ChannelType, address ChannelAddress) (Channel, error) {
 	channel, found := mb.channelsByAddress[address]
+	if !found {
+		return nil, ErrChannelNotFound
+	}
+	return channel, nil
+}
+
+func (mb *MockBackend) GetChannelByAddressWithRouterToken(ctx context.Context, cType ChannelType, address ChannelAddress, routerToken string) (Channel, error) {
+	channel, found := mb.channelsByAddress[ChannelAddress(routerToken)]
 	if !found {
 		return nil, ErrChannelNotFound
 	}
@@ -373,6 +407,18 @@ func (mb *MockBackend) Heartbeat() error {
 // RedisPool returns the redisPool for this backend
 func (mb *MockBackend) RedisPool() *redis.Pool {
 	return mb.redisPool
+}
+
+func (b *MockBackend) GetRunEventsByMsgUUIDFromDB(ctx context.Context, msgUUID string) ([]RunEvent, error) {
+	return nil, nil
+}
+
+func (b *MockBackend) GetMessage(ctx context.Context, msgUUID string) (Msg, error) {
+	return nil, nil
+}
+
+func (b *MockBackend) GetProjectUUIDFromChannelUUID(ctx context.Context, channelUUID ChannelUUID) (string, error) {
+	return "9bab7353-561c-42f7-860e-e24c86cfb8e6", nil
 }
 
 func buildMockBackend(config *Config) Backend {
@@ -547,6 +593,16 @@ func NewMockChannel(uuid string, channelType string, address string, country str
 	return channel
 }
 
+func (c *MockChannel) WithSchemes(schemes []string) *MockChannel {
+	c.schemes = schemes
+	return c
+}
+
+// Config returns the channel's configuration
+func (c *MockChannel) Config() map[string]interface{} {
+	return c.config
+}
+
 //-----------------------------------------------------------------------------
 // Mock msg implementation
 //-----------------------------------------------------------------------------
@@ -568,12 +624,16 @@ type mockMsg struct {
 	metadata             json.RawMessage
 	alreadyWritten       bool
 	isResend             bool
+	textLanguage         string
 
 	flow *FlowReference
 
 	receivedOn *time.Time
 	sentOn     *time.Time
 	wiredOn    *time.Time
+
+	products    []map[string]interface{}
+	listMessage ListMessage
 }
 
 func (m *mockMsg) SessionStatus() string { return "" }
@@ -610,6 +670,7 @@ func (m *mockMsg) Topic() string                { return m.topic }
 func (m *mockMsg) ResponseToExternalID() string { return m.responseToExternalID }
 func (m *mockMsg) Metadata() json.RawMessage    { return m.metadata }
 func (m *mockMsg) IsResend() bool               { return m.isResend }
+func (m *mockMsg) TextLanguage() string         { return m.textLanguage }
 
 func (m *mockMsg) ReceivedOn() *time.Time { return m.receivedOn }
 func (m *mockMsg) SentOn() *time.Time     { return m.sentOn }
@@ -626,6 +687,407 @@ func (m *mockMsg) WithAttachment(url string) Msg {
 	return m
 }
 func (m *mockMsg) WithMetadata(metadata json.RawMessage) Msg { m.metadata = metadata; return m }
+func (m *mockMsg) Status() MsgStatusValue                    { return "" }
+
+func (m *mockMsg) Header() string {
+	if m.metadata == nil {
+		return ""
+	}
+	header, _, _, _ := jsonparser.Get(m.metadata, "header")
+	return string(header)
+}
+
+func (m *mockMsg) IGCommentID() string {
+	if m.metadata == nil {
+		return ""
+	}
+	igCommentID, _, _, _ := jsonparser.Get(m.metadata, "ig_comment_id")
+	return string(igCommentID)
+}
+
+func (m *mockMsg) IGResponseType() string {
+	if m.metadata == nil {
+		return ""
+	}
+	igResponseType, _, _, _ := jsonparser.Get(m.metadata, "ig_response_type")
+	return string(igResponseType)
+}
+
+func (m *mockMsg) IGTag() string {
+	if m.metadata == nil {
+		return ""
+	}
+	igTag, _, _, _ := jsonparser.Get(m.metadata, "ig_tag")
+	return string(igTag)
+}
+
+func (m *mockMsg) Body() string {
+	if m.metadata == nil {
+		return ""
+	}
+	body, _, _, _ := jsonparser.Get(m.metadata, "body")
+	return string(body)
+}
+
+func (m *mockMsg) Footer() string {
+	if m.metadata == nil {
+		return ""
+	}
+	footer, _, _, _ := jsonparser.Get(m.metadata, "footer")
+	return string(footer)
+}
+
+func (m *mockMsg) Products() []map[string]interface{} {
+	if m.products != nil {
+		return m.products
+	}
+
+	if m.Metadata() == nil {
+		return nil
+	}
+
+	p, _, _, _ := jsonparser.Get(m.Metadata(), "products")
+	err := json.Unmarshal(p, &m.products)
+	if err != nil {
+		return nil
+	}
+
+	return m.products
+}
+
+func (m *mockMsg) Action() string {
+	if m.metadata == nil {
+		return ""
+	}
+	action, _, _, _ := jsonparser.Get(m.metadata, "action")
+	return string(action)
+}
+
+func (m *mockMsg) SendCatalog() bool {
+	if m.metadata == nil {
+		return false
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "send_catalog")
+	sendCatalog, err := strconv.ParseBool(string(byteValue))
+	if err != nil {
+		return false
+	}
+	return sendCatalog
+}
+
+func (m *mockMsg) ListMessage() ListMessage {
+	if m.metadata == nil {
+		return ListMessage{}
+	}
+
+	var metadata map[string]interface{}
+	err := json.Unmarshal(m.metadata, &metadata)
+	if err != nil {
+		return m.listMessage
+	}
+
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "interaction_type")
+	interactionType := string(byteValue)
+
+	if interactionType == "list" {
+		m.listMessage = ListMessage{}
+		m.listMessage.ButtonText = metadata["list_message"].(map[string]interface{})["button_text"].(string)
+
+		listItems := metadata["list_message"].(map[string]interface{})["list_items"].([]interface{})
+		m.listMessage.ListItems = make([]ListItems, len(listItems))
+		for i, item := range listItems {
+			itemMap := item.(map[string]interface{})
+			m.listMessage.ListItems[i] = ListItems{
+				Title: itemMap["title"].(string),
+				UUID:  itemMap["uuid"].(string),
+			}
+
+			if itemMap["description"] != nil {
+				m.listMessage.ListItems[i].Description = itemMap["description"].(string)
+			}
+		}
+	}
+	return m.listMessage
+}
+
+func (m *mockMsg) HeaderType() string {
+	if m.metadata == nil {
+		return ""
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "header_type")
+	return string(byteValue)
+}
+
+func (m *mockMsg) HeaderText() string {
+	if m.metadata == nil {
+		return ""
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "header_text")
+	return string(byteValue)
+}
+
+func (m *mockMsg) InteractionType() string {
+	if m.metadata == nil {
+		return ""
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "interaction_type")
+	return string(byteValue)
+}
+
+func (m *mockMsg) CTAMessage() *CTAMessage {
+	if m.metadata == nil {
+		return nil
+	}
+
+	var metadata map[string]interface{}
+	err := json.Unmarshal(m.metadata, &metadata)
+	if err != nil {
+		return nil
+	}
+
+	if metadata == nil {
+		return nil
+	}
+
+	if interactionType, ok := metadata["interaction_type"].(string); ok && interactionType == "cta_url" {
+		if ctaMessageData, ok := metadata["cta_message"].(map[string]interface{}); ok {
+			ctaMessage := &CTAMessage{}
+			if displayText, ok := ctaMessageData["display_text"].(string); ok {
+				ctaMessage.DisplayText = displayText
+			}
+			if actionURL, ok := ctaMessageData["url"].(string); ok {
+				ctaMessage.URL = actionURL
+			}
+			return ctaMessage
+		}
+	}
+	return nil
+}
+
+func (m *mockMsg) FlowMessage() *FlowMessage {
+	if m.metadata == nil {
+		return nil
+	}
+
+	var metadata map[string]interface{}
+	err := json.Unmarshal(m.metadata, &metadata)
+	if err != nil {
+		return nil
+	}
+
+	if metadata == nil {
+		return nil
+	}
+
+	if interactionType, ok := metadata["interaction_type"].(string); ok && interactionType == "flow_msg" {
+		if flowMessageData, ok := metadata["flow_message"].(map[string]interface{}); ok {
+			flowMessage := &FlowMessage{}
+			if flowID, ok := flowMessageData["flow_id"].(string); ok {
+				flowMessage.FlowID = flowID
+			}
+			if flowScreen, ok := flowMessageData["flow_screen"].(string); ok {
+				flowMessage.FlowScreen = flowScreen
+			}
+			if flowData, ok := flowMessageData["flow_data"].(map[string]interface{}); ok {
+				convertedFlowData := map[string]interface{}{}
+				for key, value := range flowData {
+					convertedFlowData[key] = value
+				}
+				flowMessage.FlowData = convertedFlowData
+			}
+			if flowCTA, ok := flowMessageData["flow_cta"].(string); ok {
+				flowMessage.FlowCTA = flowCTA
+			}
+			if flowMode, ok := flowMessageData["flow_mode"].(string); ok {
+				flowMessage.FlowMode = flowMode
+			}
+			return flowMessage
+		}
+	}
+	return nil
+}
+
+func (m *mockMsg) OrderDetailsMessage() *OrderDetailsMessage {
+	if m.metadata == nil {
+		return nil
+	}
+
+	var metadata map[string]interface{}
+	err := json.Unmarshal(m.metadata, &metadata)
+	if err != nil {
+		return nil
+	}
+
+	if metadata == nil {
+		return nil
+	}
+
+	if orderDetailsMessageData, ok := metadata["order_details_message"].(map[string]interface{}); ok {
+		orderDetailsMessage := &OrderDetailsMessage{}
+		if referenceID, ok := orderDetailsMessageData["reference_id"].(string); ok {
+			orderDetailsMessage.ReferenceID = referenceID
+		}
+		if paymentSettings, ok := orderDetailsMessageData["payment_settings"].(map[string]interface{}); ok {
+			orderDetailsMessage.PaymentSettings = OrderPaymentSettings{}
+			if payment_type, ok := paymentSettings["type"].(string); ok {
+				orderDetailsMessage.PaymentSettings.Type = payment_type
+			}
+			if payment_link, ok := paymentSettings["payment_link"].(string); ok {
+				orderDetailsMessage.PaymentSettings.PaymentLink = payment_link
+			}
+			if pix_config, ok := paymentSettings["pix_config"].(map[string]interface{}); ok {
+				orderDetailsMessage.PaymentSettings.PixConfig = OrderPixConfig{}
+				if pix_config_key, ok := pix_config["key"].(string); ok {
+					orderDetailsMessage.PaymentSettings.PixConfig.Key = pix_config_key
+				}
+				if pix_config_key_type, ok := pix_config["key_type"].(string); ok {
+					orderDetailsMessage.PaymentSettings.PixConfig.KeyType = pix_config_key_type
+				}
+				if pix_config_merchant_name, ok := pix_config["merchant_name"].(string); ok {
+					orderDetailsMessage.PaymentSettings.PixConfig.MerchantName = pix_config_merchant_name
+				}
+				if pix_config_code, ok := pix_config["code"].(string); ok {
+					orderDetailsMessage.PaymentSettings.PixConfig.Code = pix_config_code
+				}
+			}
+			if offsite_card_pay, ok := paymentSettings["offsite_card_pay"].(map[string]interface{}); ok {
+				orderDetailsMessage.PaymentSettings.OffsiteCardPay = OffsiteCardPay{}
+				if offsite_card_pay_last_four_digits, ok := offsite_card_pay["last_four_digits"].(string); ok {
+					orderDetailsMessage.PaymentSettings.OffsiteCardPay.LastFourDigits = offsite_card_pay_last_four_digits
+				}
+				if offsite_card_pay_credential_id, ok := offsite_card_pay["credential_id"].(string); ok {
+					orderDetailsMessage.PaymentSettings.OffsiteCardPay.CredentialID = offsite_card_pay_credential_id
+				}
+			}
+		}
+		if totalAmount, ok := orderDetailsMessageData["total_amount"].(float64); ok {
+			orderDetailsMessage.TotalAmount = int(totalAmount)
+		}
+		if orderData, ok := orderDetailsMessageData["order"].(map[string]interface{}); ok {
+			orderDetailsMessage.Order = Order{}
+			if itemsData, ok := orderData["items"].([]interface{}); ok {
+				orderDetailsMessage.Order.Items = make([]OrderItem, len(itemsData))
+				for i, item := range itemsData {
+					if itemMap, ok := item.(map[string]interface{}); ok {
+						itemAmount := itemMap["amount"].(map[string]interface{})
+						item := OrderItem{
+							RetailerID: itemMap["retailer_id"].(string),
+							Name:       itemMap["name"].(string),
+							Quantity:   int(itemMap["quantity"].(float64)),
+							Amount: OrderAmountWithOffset{
+								Value:  int(itemAmount["value"].(float64)),
+								Offset: int(itemAmount["offset"].(float64)),
+							},
+						}
+
+						if itemMap["sale_amount"] != nil {
+							saleAmount := itemMap["sale_amount"].(map[string]interface{})
+							item.SaleAmount = &OrderAmountWithOffset{
+								Value:  int(saleAmount["value"].(float64)),
+								Offset: int(saleAmount["offset"].(float64)),
+							}
+						}
+
+						orderDetailsMessage.Order.Items[i] = item
+					}
+				}
+			}
+			if subtotal, ok := orderData["subtotal"].(float64); ok {
+				orderDetailsMessage.Order.Subtotal = int(subtotal)
+			}
+			if taxData, ok := orderData["tax"].(map[string]interface{}); ok {
+				orderDetailsMessage.Order.Tax = OrderAmountWithDescription{}
+				if value, ok := taxData["value"].(float64); ok {
+					orderDetailsMessage.Order.Tax.Value = int(value)
+				}
+				if description, ok := taxData["description"].(string); ok {
+					orderDetailsMessage.Order.Tax.Description = description
+				}
+			}
+			if shippingData, ok := orderData["shipping"].(map[string]interface{}); ok {
+				orderDetailsMessage.Order.Shipping = OrderAmountWithDescription{}
+				if value, ok := shippingData["value"].(float64); ok {
+					orderDetailsMessage.Order.Shipping.Value = int(value)
+				}
+				if description, ok := shippingData["description"].(string); ok {
+					orderDetailsMessage.Order.Shipping.Description = description
+				}
+			}
+			if discountData, ok := orderData["discount"].(map[string]interface{}); ok {
+				orderDetailsMessage.Order.Discount = OrderDiscount{}
+				if value, ok := discountData["value"].(float64); ok {
+					orderDetailsMessage.Order.Discount.Value = int(value)
+				}
+				if description, ok := discountData["description"].(string); ok {
+					orderDetailsMessage.Order.Discount.Description = description
+				}
+				if programName, ok := discountData["program_name"].(string); ok {
+					orderDetailsMessage.Order.Discount.ProgramName = programName
+				}
+			}
+		}
+		return orderDetailsMessage
+	}
+
+	return nil
+}
+
+func (m *mockMsg) Buttons() []ButtonComponent {
+	if m.metadata == nil {
+		return nil
+	}
+
+	var metadata map[string]interface{}
+	err := json.Unmarshal(m.metadata, &metadata)
+	if err != nil {
+		return nil
+	}
+
+	if metadata == nil {
+		return nil
+	}
+
+	if buttonsData, ok := metadata["buttons"].([]interface{}); ok {
+		buttons := make([]ButtonComponent, len(buttonsData))
+		for i, button := range buttonsData {
+			buttonMap := button.(map[string]interface{})
+			buttons[i] = ButtonComponent{
+				SubType:    buttonMap["sub_type"].(string),
+				Parameters: []ButtonParam{},
+			}
+
+			if buttonMap["parameters"] != nil {
+				parameters := buttonMap["parameters"].([]interface{})
+				for _, parameter := range parameters {
+					parameterMap := parameter.(map[string]interface{})
+					buttons[i].Parameters = append(buttons[i].Parameters, ButtonParam{
+						Type: parameterMap["type"].(string),
+						Text: parameterMap["text"].(string),
+					})
+				}
+			}
+		}
+		return buttons
+	}
+
+	return nil
+}
+
+func (m *mockMsg) ActionType() MsgActionType {
+	if m.metadata == nil {
+		return MsgActionNone
+	}
+	actionType, _, _, _ := jsonparser.Get(m.metadata, "action_type")
+	return MsgActionType(actionType)
+}
+
+func (m *mockMsg) ActionExternalID() string {
+	if m.metadata == nil {
+		return ""
+	}
+	actionExternalID, _, _, _ := jsonparser.Get(m.metadata, "action_external_id")
+	return string(actionExternalID)
+}
 
 func (m *mockMsg) WithFlow(flow *FlowReference) Msg { m.flow = flow; return m }
 func (m *mockMsg) WithPresignedURL(urls []string) Msg {
@@ -738,4 +1200,18 @@ func ReadFile(path string) []byte {
 		panic(err)
 	}
 	return d
+}
+
+// UpdateChannelConfig updates the channel configuration
+func (mb *MockBackend) UpdateChannelConfig(ctx context.Context, channel Channel, config map[string]interface{}) error {
+	if mockChannel, ok := channel.(*MockChannel); ok {
+		mockChannel.config = config
+	}
+	return nil
+}
+
+// UpdateChannelConfigByWabaID updates the channel configuration for all channels with matching waba_id
+func (mb *MockBackend) UpdateChannelConfigByWabaID(ctx context.Context, wabaID string, configUpdates map[string]interface{}) error {
+	// For mock implementation, we'll just return nil since we don't have a real database
+	return nil
 }

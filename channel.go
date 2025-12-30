@@ -55,6 +55,11 @@ const (
 
 	// ConfigSendHeaders is a constant key for channel configs
 	ConfigSendHeaders = "headers"
+	
+	ConfigUserToken   = "wa_user_token"
+
+	// ConfigPageID is a constant key for channel configs
+	ConfigPageID = "page_id"
 )
 
 // ChannelType is our typing of the two char channel types
@@ -166,6 +171,9 @@ type Channel interface {
 
 	// CallbackDomain returns the domain that should be used for any callbacks the channel registers
 	CallbackDomain(fallbackDomain string) string
+
+	// Config returns the channel's configuration
+	Config() map[string]interface{}
 
 	ConfigForKey(key string, defaultValue interface{}) interface{}
 	StringConfigForKey(key string, defaultValue string) string

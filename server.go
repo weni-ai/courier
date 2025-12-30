@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"compress/flate"
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -19,9 +19,15 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/go-chi/chi/middleware"
+	"github.com/jmoiron/sqlx"
+	"github.com/nyaruka/courier/billing"
+	"github.com/nyaruka/courier/metrics"
+	"github.com/nyaruka/courier/templates"
 	"github.com/nyaruka/courier/utils"
-	"github.com/nyaruka/gocommon/analytics"
+	"github.com/nyaruka/gocommon/storage"
 	"github.com/nyaruka/librato"
+	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 )
 
@@ -44,6 +50,15 @@ type Server interface {
 
 	Start() error
 	Stop() error
+
+	SetBilling(billing.Client)
+	Billing() billing.Client
+
+	Templates() templates.Client
+	SetTemplates(templates templates.Client)
+
+	GetHandler(channelType ChannelType) (ChannelHandler, error)
+	SendMsgAction(ctx context.Context, msg Msg) (MsgStatus, error)
 }
 
 // NewServer creates a new Server for the passed in configuration. The server will have to be started
@@ -110,6 +125,8 @@ func (s *server) Start() error {
 	s.router.MethodNotAllowed(s.handle405)
 	s.router.Get("/", s.handleIndex)
 	s.router.Get("/status", s.handleStatus)
+	s.router.Get("/c/health", s.handleCHealth)
+	s.router.Get("/c/metrics", promhttp.Handler().ServeHTTP)
 
 	// initialize our handlers
 	s.initializeChannelHandlers()
@@ -222,6 +239,12 @@ func (s *server) Stopped() bool              { return s.stopped }
 func (s *server) Backend() Backend   { return s.backend }
 func (s *server) Router() chi.Router { return s.router }
 
+func (s *server) Billing() billing.Client          { return s.billing }
+func (s *server) SetBilling(client billing.Client) { s.billing = client }
+
+func (s *server) Templates() templates.Client             { return s.templates }
+func (s *server) SetTemplates(templates templates.Client) { s.templates = templates }
+
 type server struct {
 	backend Backend
 
@@ -238,6 +261,10 @@ type server struct {
 	stopped   bool
 
 	routes []string
+
+	billing billing.Client
+
+	templates templates.Client
 }
 
 func (s *server) initializeChannelHandlers() {
@@ -276,6 +303,10 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 
 		channel, err := handler.GetChannel(ctx, r)
 		if err != nil {
+			if err.Error() == "template update, so ignore" {
+				WriteStatusSuccess(ctx, w, r, nil)
+				return
+			}
 			WriteError(ctx, w, r, err)
 			return
 		}
@@ -312,6 +343,7 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 		events, err := handlerFunc(ctx, channel, ww, r)
 		duration := time.Now().Sub(start)
 		secondDuration := float64(duration) / float64(time.Second)
+		millisecondDuration := float64(duration) / float64(time.Millisecond)
 
 		// if we received an error, write it out and report it
 		if err != nil {
@@ -331,11 +363,14 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 				} else {
 					logs = append(logs, NewChannelLog("Channel Error", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
 					librato.Gauge(fmt.Sprintf("courier.channel_error_%s", channel.ChannelType()), secondDuration)
-					analytics.Gauge(fmt.Sprintf("courier.channel_error_%s", channel.ChannelType()), secondDuration)
+					metrics.SetChannelErrorByType(channel.ChannelType().String(), millisecondDuration)
+					metrics.SetChannelErrorByUUID(channel.UUID().UUID, millisecondDuration)
 				}
 			} else {
 				logs = append(logs, NewChannelLog("Request Ignored", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
-				analytics.Gauge(fmt.Sprintf("courier.channel_ignored_%s", channel.ChannelType()), secondDuration)
+				librato.Gauge(fmt.Sprintf("courier.channel_ignored_%s", channel.ChannelType()), secondDuration)
+				metrics.SetChannelIgnoredByType(channel.ChannelType().String(), millisecondDuration)
+				metrics.SetChannelIgnoredByUUID(channel.UUID().UUID, millisecondDuration)
 			}
 		}
 
@@ -344,15 +379,26 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 			switch e := event.(type) {
 			case Msg:
 				logs = append(logs, NewChannelLog("Message Received", channel, e.ID(), r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
-				analytics.Gauge(fmt.Sprintf("courier.msg_receive_%s", channel.ChannelType()), secondDuration)
+				librato.Gauge(fmt.Sprintf("courier.msg_receive_%s", channel.ChannelType()), secondDuration)
+				metrics.SetMsgReceiveByType(channel.ChannelType().String(), millisecondDuration)
+				metrics.SetMsgReceiveByUUID(channel.UUID().UUID, millisecondDuration)
 				LogMsgReceived(r, e)
+
+				if err := handleBilling(s, e); err != nil {
+					logrus.WithError(err).Info("Error handle billing on receive msg")
+				}
+
 			case ChannelEvent:
 				logs = append(logs, NewChannelLog("Event Received", channel, NilMsgID, r.Method, url, ww.Status(), string(request), prependHeaders(response.String(), ww.Status(), w), duration, err))
-				analytics.Gauge(fmt.Sprintf("courier.evt_receive_%s", channel.ChannelType()), secondDuration)
+				librato.Gauge(fmt.Sprintf("courier.evt_receive_%s", channel.ChannelType()), secondDuration)
+				metrics.SetChannelEventReceiveByType(channel.ChannelType().String(), millisecondDuration)
+				metrics.SetChannelEventReceiveByUUID(channel.UUID().UUID, millisecondDuration)
 				LogChannelEventReceived(r, e)
 			case MsgStatus:
 				logs = append(logs, NewChannelLog("Status Updated", channel, e.ID(), r.Method, url, ww.Status(), string(request), response.String(), duration, err))
-				analytics.Gauge(fmt.Sprintf("courier.msg_status_%s", channel.ChannelType()), secondDuration)
+				librato.Gauge(fmt.Sprintf("courier.msg_status_%s", channel.ChannelType()), secondDuration)
+				metrics.SetMsgStatusReceiveByType(channel.ChannelType().String(), millisecondDuration)
+				metrics.SetMsgStatusReceiveByUUID(channel.UUID().UUID, millisecondDuration)
 				LogMsgStatusReceived(r, e)
 			}
 		}
@@ -448,6 +494,25 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	w.Write(buf.Bytes())
 }
 
+func (s *server) handleCHealth(w http.ResponseWriter, r *http.Request) {
+	healthcheck := NewHealthCheck()
+
+	healthcheck.AddCheck("redis", s.CheckRedis)
+	healthcheck.AddCheck("database", s.CheckDB)
+	healthcheck.AddCheck("sentry", s.CheckSentry)
+	healthcheck.AddCheck("s3", s.CheckS3)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+	defer cancel()
+	healthcheck.CheckUp(ctx)
+
+	hsJSON, err := json.Marshal(healthcheck.HealthStatus)
+	if err != nil {
+		WriteDataResponse(context.Background(), w, http.StatusInternalServerError, "failed to marshal health status", []interface{}{err})
+	}
+	w.Write(hsJSON)
+}
+
 // for use in request.Context
 type contextKey int
 
@@ -462,3 +527,133 @@ var splash = `
     _  /  __  __ \  / / /_  ___/_  /_  _ \_  ___/
     / /__  / /_/ / /_/ /_  /   _  / /  __/  /    
     \____/ \____/\__,_/ /_/    /_/  \___//_/ v`
+
+func (s *server) CheckRedis() error {
+	rc := s.backend.RedisPool().Get()
+	defer rc.Close()
+	if _, err := rc.Do("PING"); err != nil {
+		return fmt.Errorf("failed to ping redis: %s", err.Error())
+	}
+	return nil
+}
+
+func (s *server) CheckDB() error {
+	db, err := sqlx.Open("postgres", s.config.DB)
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %s", err.Error())
+	}
+	defer db.Close()
+	if err := db.Ping(); err != nil {
+		return fmt.Errorf("failed tot ping database: %s", err.Error())
+	}
+	return nil
+}
+
+func (s *server) CheckSentry() error {
+	sentryDsn := s.config.SentryDSN
+	if sentryDsn == "" {
+		return errors.New("sentry dsn isn't configured")
+	}
+	return nil
+}
+
+func (s *server) CheckS3() error {
+	var s3storage storage.Storage
+	// create our storage (S3 or file system)
+	if s.config.AWSAccessKeyID != "" {
+		s3Client, err := storage.NewS3Client(&storage.S3Options{
+			AWSAccessKeyID:     s.config.AWSAccessKeyID,
+			AWSSecretAccessKey: s.config.AWSSecretAccessKey,
+			Endpoint:           s.config.S3Endpoint,
+			Region:             s.config.S3Region,
+			DisableSSL:         s.config.S3DisableSSL,
+			ForcePathStyle:     s.config.S3ForcePathStyle,
+			MaxRetries:         3,
+		})
+		if err != nil {
+			return err
+		}
+		s3storage = storage.NewS3(s3Client, s.config.S3MediaBucket, s.config.S3Region, 32)
+	} else {
+		return errors.New("s3 not configured")
+	}
+
+	// check our storage
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	err := s3storage.Test(ctx)
+	cancel()
+	if err != nil {
+		return errors.New(s3storage.Name() + " S3 storage not available " + err.Error())
+	}
+	return nil
+}
+
+func handleBilling(s *server, msg Msg) error {
+	billingMsg := billing.NewMessage(
+		string(msg.URN().Identity()),
+		"",
+		msg.ContactName(),
+		msg.Channel().UUID().String(),
+		msg.ExternalID(),
+		time.Now().Format(time.RFC3339),
+		"I",
+		msg.Channel().ChannelType().String(),
+		msg.Text(),
+		msg.Attachments(),
+		msg.QuickReplies(),
+		false,
+		"",
+		string(msg.Status()),
+	)
+	billingMsg.ChannelType = string(msg.Channel().ChannelType())
+	billingMsg.Text = msg.Text()
+	billingMsg.Attachments = msg.Attachments()
+	billingMsg.QuickReplies = msg.QuickReplies()
+
+	if s.Billing() != nil {
+		s.Billing().SendAsync(billingMsg, billing.RoutingKeyCreate, nil, nil)
+	}
+
+	return nil
+}
+
+func (s *server) SendMsgAction(ctx context.Context, msg Msg) (MsgStatus, error) {
+	log := logrus.WithFields(logrus.Fields{
+		"comp":        "server",
+		"msg_id":      msg.ID().String(),
+		"action_type": msg.ActionType(),
+		"external_id": msg.ActionExternalID(),
+	})
+	if msg.Channel() == nil {
+		err := errors.New("cannot send message action: message channel is nil")
+		log.WithError(err).Error("Failed")
+		return nil, err
+	}
+	log = log.WithField("channel_uuid", msg.Channel().UUID())
+
+	handler, err := s.GetHandler(msg.Channel().ChannelType())
+	if err != nil {
+		log.WithError(err).Error("Handler not found")
+		return nil, err
+	}
+
+	if actionHandler, ok := handler.(ActionSender); ok {
+		log.Infof("Dispatching action to handler %s via ActionSender interface", handler.ChannelName())
+		// Set a flag in the context to indicate this is an action
+		ctx = context.WithValue(ctx, "is_action", true)
+		_, err := actionHandler.SendAction(ctx, msg)
+		return nil, err
+	}
+
+	err = fmt.Errorf("handler %s (%T) does not support actions", handler.ChannelName(), handler)
+	log.Warn("Action not supported by handler")
+	return nil, err
+}
+
+func (s *server) GetHandler(channelType ChannelType) (ChannelHandler, error) {
+	handler, found := activeHandlers[channelType]
+	if !found {
+		return nil, fmt.Errorf("no active handler found for channel type: %s", channelType)
+	}
+	return handler, nil
+}

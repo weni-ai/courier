@@ -1,9 +1,11 @@
 package rapidpro
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"strings"
 
 	"github.com/nyaruka/null"
 	"github.com/pkg/errors"
@@ -294,6 +296,17 @@ WHERE
 	id = :id
 `
 
+const updateTeamsURN = `
+UPDATE 
+	contacts_contacturn
+SET 
+	identity = $1,
+	path = $3
+WHERE 
+	id = $2;
+
+`
+
 // UpdateContactURN updates the Channel and Contact on an existing URN
 func updateContactURN(db *sqlx.Tx, urn *DBContactURN) error {
 	rows, err := db.NamedQuery(updateURN, urn)
@@ -321,6 +334,17 @@ func fullyUpdateContactURN(db *sqlx.Tx, urn *DBContactURN) error {
 	if rows.Next() {
 		err = rows.Scan(&urn.ID)
 	}
+	return err
+}
+
+func updateContactTeamsURN(ctx context.Context, db *sqlx.DB, urnID ContactURNID, newURN string) error {
+	path := strings.TrimPrefix(newURN, "teams:")
+	_, err := db.ExecContext(ctx, updateTeamsURN, newURN, urnID, path)
+	if err != nil {
+		logrus.WithError(err).WithField("urn_id", urnID).Error("error updating contact urn")
+		return err
+	}
+
 	return err
 }
 

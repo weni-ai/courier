@@ -1,6 +1,10 @@
 package telegram
 
-import "github.com/nyaruka/courier/utils"
+import (
+	"strings"
+
+	"github.com/nyaruka/courier/utils"
+)
 
 // KeyboardButton is button on a keyboard, see https://core.telegram.org/bots/api/#keyboardbutton
 type KeyboardButton struct {
@@ -24,7 +28,15 @@ func NewKeyboardFromReplies(replies []string) *ReplyKeyboardMarkup {
 	for i := range rows {
 		keyboard[i] = make([]KeyboardButton, len(rows[i]))
 		for j := range rows[i] {
-			keyboard[i][j].Text = rows[i][j]
+			var text string
+			if strings.Contains(rows[i][j], "\\/") {
+				text = strings.Replace(rows[i][j], "\\", "", -1)
+			} else if strings.Contains(rows[i][j], "\\\\") {
+				text = strings.Replace(rows[i][j], "\\\\", "\\", -1)
+			} else {
+				text = rows[i][j]
+			}
+			keyboard[i][j].Text = text
 		}
 	}
 

@@ -15,6 +15,7 @@ import (
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/urns"
+	er "github.com/pkg/errors"
 )
 
 func init() {
@@ -94,6 +95,9 @@ func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w htt
 	date := time.Unix(ts, 0).UTC()
 	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Message.Text).WithReceivedOn(date).WithContactName(payload.From)
 
+	// write the contact last seen
+	h.Backend().WriteContactLastSeen(ctx, msg, date)
+
 	if mediaURL != "" {
 		msg.WithAttachment(mediaURL)
 	}
@@ -104,21 +108,24 @@ func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w htt
 var timestamp = ""
 
 type moPayload struct {
-	Type    string    `json:"type" validate:"required"`
-	To      string    `json:"to"   validate:"required"`
-	From    string    `json:"from" validate:"required"`
-	Message moMessage `json:"message"`
+	Type        string    `json:"type" validate:"required"`
+	To          string    `json:"to"   validate:"required"`
+	From        string    `json:"from" validate:"required"`
+	Message     moMessage `json:"message"`
+	ChannelUUID string    `json:"channel_uuid" validate:"required"`
 }
 
 type moMessage struct {
-	Type         string   `json:"type"      validate:"required"`
-	TimeStamp    string   `json:"timestamp" validate:"required"`
-	Text         string   `json:"text,omitempty"`
-	MediaURL     string   `json:"media_url,omitempty"`
-	Caption      string   `json:"caption,omitempty"`
-	Latitude     string   `json:"latitude,omitempty"`
-	Longitude    string   `json:"longitude,omitempty"`
-	QuickReplies []string `json:"quick_replies,omitempty"`
+	Type         string               `json:"type"      validate:"required"`
+	TimeStamp    string               `json:"timestamp" validate:"required"`
+	Text         string               `json:"text,omitempty"`
+	MediaURL     string               `json:"media_url,omitempty"`
+	Caption      string               `json:"caption,omitempty"`
+	Latitude     string               `json:"latitude,omitempty"`
+	Longitude    string               `json:"longitude,omitempty"`
+	QuickReplies []string             `json:"quick_replies,omitempty"`
+	ListMessage  *courier.ListMessage `json:"list_message,omitempty"`
+	CTAMessage   *courier.CTAMessage  `json:"cta_message,omitempty"`
 }
 
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
@@ -131,105 +138,85 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 
 	sendURL := fmt.Sprintf("%s/send", baseURL)
-
 	var logs []*courier.ChannelLog
 
-	payload := newOutgoingMessage("message", msg.URN().Path(), msg.Channel().Address(), msg.QuickReplies())
+	payload := newOutgoingMessage("message", msg.URN().Path(), msg.Channel().Address(), msg.QuickReplies(), msg.Channel().UUID().String())
+
+	// sendPayload marshals and sends the payload, collecting logs
+	sendPayload := func() error {
+		body, err := json.Marshal(&payload)
+		if err != nil {
+			elapsed := time.Since(start)
+			logs = append(logs, courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, err))
+			return err
+		}
+		req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		idempotencyKey := fmt.Sprintf("%s-%d", msg.UUID().String(), time.Now().UnixNano())
+		res, err := utils.MakeHTTPRequestWithRetry(ctx, req, 3, 500*time.Millisecond, idempotencyKey)
+		if res != nil {
+			logs = append(logs, courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), res).WithError("Message Send Error", err))
+		}
+		return err
+	}
+
+	// addInteractiveElements adds quick replies, list message, and CTA to the payload
+	addInteractiveElements := func() {
+		payload.Message.QuickReplies = normalizeQuickReplies(msg.QuickReplies())
+		if len(msg.ListMessage().ListItems) > 0 {
+			listMessage := msg.ListMessage()
+			payload.Message.ListMessage = &listMessage
+		}
+		if msg.CTAMessage() != nil {
+			payload.Message.CTAMessage = msg.CTAMessage()
+		}
+	}
+
 	lenAttachments := len(msg.Attachments())
 	if lenAttachments > 0 {
-
-	attachmentsLoop:
 		for i, attachment := range msg.Attachments() {
 			mimeType, attachmentURL := handlers.SplitAttachment(attachment)
-			payload.Message.TimeStamp = getTimestamp()
-			// parse attachment type
-			if strings.HasPrefix(mimeType, "audio") {
-				payload.Message = moMessage{
-					Type:     "audio",
-					MediaURL: attachmentURL,
-				}
-			} else if strings.HasPrefix(mimeType, "application") {
-				payload.Message = moMessage{
-					Type:     "file",
-					MediaURL: attachmentURL,
-				}
-			} else if strings.HasPrefix(mimeType, "image") {
-				payload.Message = moMessage{
-					Type:     "image",
-					MediaURL: attachmentURL,
-				}
-			} else if strings.HasPrefix(mimeType, "video") {
-				payload.Message = moMessage{
-					Type:     "video",
-					MediaURL: attachmentURL,
-				}
-			} else {
+
+			msgType, ok := mimeTypeToMessageType(mimeType)
+			if !ok {
 				elapsed := time.Since(start)
-				log := courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, fmt.Errorf("unknown attachment mime type: %s", mimeType))
-				logs = append(logs, log)
+				logs = append(logs, courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, fmt.Errorf("unknown attachment mime type: %s", mimeType)))
 				status.SetStatus(courier.MsgFailed)
-				break attachmentsLoop
+				break
 			}
 
-			// add a caption to the first attachment
+			payload.Message = moMessage{
+				Type:      msgType,
+				TimeStamp: getTimestamp(),
+				MediaURL:  attachmentURL,
+			}
+
+			// add caption to first attachment
 			if i == 0 {
 				payload.Message.Caption = msg.Text()
 			}
 
-			// add quickreplies on last message
+			// add interactive elements on last message
 			if i == lenAttachments-1 {
-				payload.Message.QuickReplies = msg.QuickReplies()
+				addInteractiveElements()
 			}
 
-			// build request
-			var body []byte
-			body, err := json.Marshal(&payload)
-			if err != nil {
-				elapsed := time.Since(start)
-				log := courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, err)
-				logs = append(logs, log)
+			if err := sendPayload(); err != nil {
 				status.SetStatus(courier.MsgFailed)
-				break attachmentsLoop
-			}
-			req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
-			req.Header.Set("Content-Type", "application/json")
-			res, err := utils.MakeHTTPRequest(req)
-			if res != nil {
-				log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), res).WithError("Message Send Error", err)
-				logs = append(logs, log)
-			}
-			if err != nil {
-				status.SetStatus(courier.MsgFailed)
-				break attachmentsLoop
+				break
 			}
 		}
 	} else {
 		payload.Message = moMessage{
-			Type:         "text",
-			TimeStamp:    getTimestamp(),
-			Text:         msg.Text(),
-			QuickReplies: msg.QuickReplies(),
+			Type:      "text",
+			TimeStamp: getTimestamp(),
+			Text:      msg.Text(),
 		}
-		// build request
-		body, err := json.Marshal(&payload)
-		if err != nil {
-			elapsed := time.Since(start)
-			log := courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, err)
-			logs = append(logs, log)
-			status.SetStatus(courier.MsgFailed)
-		} else {
-			req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
-			req.Header.Set("Content-Type", "application/json")
-			res, err := utils.MakeHTTPRequest(req)
-			if res != nil {
-				log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), res).WithError("Message Send Error", err)
-				logs = append(logs, log)
-			}
-			if err != nil {
-				status.SetStatus(courier.MsgFailed)
-			}
-		}
+		addInteractiveElements()
 
+		if err := sendPayload(); err != nil {
+			status.SetStatus(courier.MsgFailed)
+		}
 	}
 
 	for _, log := range logs {
@@ -239,7 +226,62 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	return status, nil
 }
 
-func newOutgoingMessage(payType, to, from string, quickReplies []string) *moPayload {
+// mimeTypeToMessageType maps MIME type prefixes to message types
+func mimeTypeToMessageType(mimeType string) (string, bool) {
+	prefixMap := map[string]string{
+		"audio":       "audio",
+		"application": "file",
+		"image":       "image",
+		"video":       "video",
+	}
+	for prefix, msgType := range prefixMap {
+		if strings.HasPrefix(mimeType, prefix) {
+			return msgType, true
+		}
+	}
+	return "", false
+}
+
+var _ courier.ActionSender = (*handler)(nil)
+
+// SendAction sends a specific action to the Weni Webchat API.
+// This method is specific to the Weni Webchat handler.
+func (h *handler) SendAction(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
+	baseURL := msg.Channel().StringConfigForKey(courier.ConfigBaseURL, "")
+	if baseURL == "" {
+		return nil, errors.New("blank base_url")
+	}
+
+	sendURL := fmt.Sprintf("%s/send", baseURL)
+
+	// Create payload for typing indicator
+	payload := map[string]interface{}{
+		"type":         "typing_start",
+		"to":           msg.URN().Path(),
+		"from":         "ai-assistant",
+		"channel_uuid": msg.Channel().UUID().String(),
+	}
+
+	// build request
+	body, err := json.Marshal(&payload)
+	if err != nil {
+		return nil, er.Wrap(err, "HTTP request failed")
+	}
+
+	req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	res, err := utils.MakeHTTPRequest(req)
+	if err != nil {
+		return nil, er.Wrap(err, "HTTP request failed")
+	}
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return nil, fmt.Errorf("weni webchat API error (%d): %s", res.StatusCode, string(res.Body))
+	}
+
+	return nil, nil
+}
+
+func newOutgoingMessage(payType, to, from string, quickReplies []string, channelUUID string) *moPayload {
 	return &moPayload{
 		Type: payType,
 		To:   to,
@@ -247,6 +289,7 @@ func newOutgoingMessage(payType, to, from string, quickReplies []string) *moPayl
 		Message: moMessage{
 			QuickReplies: quickReplies,
 		},
+		ChannelUUID: channelUUID,
 	}
 }
 
@@ -256,4 +299,20 @@ func getTimestamp() string {
 	}
 
 	return fmt.Sprint(time.Now().Unix())
+}
+
+func normalizeQuickReplies(quickReplies []string) []string {
+	var text string
+	var qrs []string
+	for _, qr := range quickReplies {
+		if strings.Contains(qr, "\\/") {
+			text = strings.Replace(qr, "\\", "", -1)
+		} else if strings.Contains(qr, "\\\\") {
+			text = strings.Replace(qr, "\\\\", "\\", -1)
+		} else {
+			text = qr
+		}
+		qrs = append(qrs, text)
+	}
+	return qrs
 }

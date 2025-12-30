@@ -3,6 +3,8 @@ package rapidpro
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	"github.com/lib/pq"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/utils"
+	"github.com/sirupsen/logrus"
 )
 
 // getChannel will look up the channel with the passed in UUID and channel type.
@@ -26,8 +29,31 @@ func getChannel(ctx context.Context, db *sqlx.DB, channelType courier.ChannelTyp
 		return cachedChannel, nil
 	}
 
+	// check if channel any thread alread has a call loadChannelFromDB
+	loadThrottled, _ := getChannelLoadLock(channelUUID)
+	if loadThrottled != nil {
+		//already loading channel by address from db? so every 200ms try to get from cache until its get cached from first load or after lock expire
+		ticker := time.NewTicker(time.Millisecond * 200)
+		for {
+			<-ticker.C
+			cachedChannel, err := getCachedChannel(channelType, channelUUID)
+			if cachedChannel != nil {
+				if err != nil { // found and is expired? clear from cache
+					clearLocalChannel(channelUUID)
+				}
+				// already loaded and cached, return it
+				return cachedChannel, nil
+			}
+		}
+	}
+	// not loaded from db yet, so throttle next loads until first one completes
+	lockLoadChannel(channelUUID)
+
 	// look in our database instead
 	channel, dbErr := loadChannelFromDB(ctx, db, channelType, channelUUID)
+
+	// loaded, so unlock the next loads to allow expired cachs to retrieve again
+	unlockLoadChannel(channelUUID)
 
 	// if it wasn't found in the DB, clear our cache and return that it wasn't found
 	if dbErr == courier.ErrChannelNotFound {
@@ -134,11 +160,43 @@ func clearLocalChannel(uuid courier.ChannelUUID) {
 	cacheMutex.Unlock()
 }
 
-// channels stay cached in memory for a minute at a time
-const localTTL = 60 * time.Second
+// channels stay cached in memory for 5 minutes
+const localTTL = 5 * time.Minute
 
 var cacheMutex sync.RWMutex
 var channelCache = make(map[courier.ChannelUUID]*DBChannel)
+
+type LoadLock struct {
+	expiration time.Time
+}
+
+var channelLoadLock = make(map[courier.ChannelUUID]*LoadLock)
+var channelLoadLockMutex sync.Mutex
+
+func getChannelLoadLock(channelUUID courier.ChannelUUID) (*LoadLock, error) {
+	channelLoadLockMutex.Lock()
+	defer channelLoadLockMutex.Unlock()
+	locked, found := channelLoadLock[channelUUID]
+	if found {
+		if locked.expiration.Before(time.Now()) {
+			return nil, errors.New("load lock expired")
+		}
+		return locked, nil
+	}
+	return nil, errors.New("not locked")
+}
+
+func lockLoadChannel(channelUUID courier.ChannelUUID) {
+	channelLoadLockMutex.Lock()
+	defer channelLoadLockMutex.Unlock()
+	channelLoadLock[channelUUID] = &LoadLock{expiration: time.Now().Add(time.Second * 10)}
+}
+
+func unlockLoadChannel(channelUUID courier.ChannelUUID) {
+	channelLoadLockMutex.Lock()
+	defer channelLoadLockMutex.Unlock()
+	delete(channelLoadLock, channelUUID)
+}
 
 // getChannelByAddress will look up the channel with the passed in address and channel type.
 // It will return an error if the channel does not exist or is not active.
@@ -151,8 +209,31 @@ func getChannelByAddress(ctx context.Context, db *sqlx.DB, channelType courier.C
 		return cachedChannel, nil
 	}
 
+	// check if channel any thread alread has a call loadChannelByAddressFromDB
+	lockLoad, _ := getChannelLoadByAddressLock(address)
+	if lockLoad != nil {
+		//already loading channel by address from db? so every 200ms try to get from cache until it get cached from first load or after lock expire
+		ticker := time.NewTicker(time.Millisecond * 200)
+		for {
+			<-ticker.C
+			cachedChannel, err := getCachedChannelByAddress(channelType, address)
+			if cachedChannel != nil {
+				if err != nil { // found and is expired? clear from cache
+					clearLocalChannelByAddress(address)
+				}
+				// already loaded and cached, return it
+				return cachedChannel, err
+			}
+		}
+	}
+	// not loaded from db yet, so lock next loads until first one completes
+	lockLoadChannelByAddress(address)
+
 	// look in our database instead
 	channel, dbErr := loadChannelByAddressFromDB(ctx, db, channelType, address)
+
+	// loaded, so unlock the next loads to allow expired cachs to retrieve again
+	unlockLoadChannelByAddress(address)
 
 	// if it wasn't found in the DB, clear our cache and return that it wasn't found
 	if dbErr == courier.ErrChannelNotFound {
@@ -171,7 +252,64 @@ func getChannelByAddress(ctx context.Context, db *sqlx.DB, channelType courier.C
 	}
 
 	// we found it in the db, cache it locally
-	cacheChannel(channel)
+	cacheChannelByAddress(channel)
+	return channel, nil
+}
+
+// getChannelByAddressWithRouterToken returns the channel with the passed in type and address and a value from config by key
+func getChannelByAddressWithRouterToken(ctx context.Context, db *sqlx.DB, channelType courier.ChannelType, address courier.ChannelAddress, routerToken string) (*DBChannel, error) {
+	// look for the channel locally
+	cachedChannel, localErr := getCachedChannelByAddressWithRouterToken(channelType, routerToken)
+
+	// found it? return it
+	if localErr == nil {
+		return cachedChannel, nil
+	}
+
+	// check if channel any thread alread has a call loadChannelByAddressFromDB
+	lockLoad, _ := getChannelLoadByAddressWithRouterTokenLock(routerToken)
+	if lockLoad != nil {
+		//already loading channel by address from db? so every 200ms try to get from cache until it get cached from first load or after lock expire
+		ticker := time.NewTicker(time.Millisecond * 200)
+		for {
+			<-ticker.C
+			cachedChannel, err := getCachedChannelByAddressWithRouterToken(channelType, routerToken)
+			if cachedChannel != nil {
+				if err != nil { // found and is expired? clear from cache
+					clearLocalChannelByAddressWithRouterToken(routerToken)
+				}
+				// already loaded and cached, return it
+				return cachedChannel, err
+			}
+		}
+	}
+	// not loaded from db yet, so lock next loads until first one completes
+	lockLoadChannelByAddressWithRouterToken(routerToken)
+
+	// look in our database instead
+	channel, dbErr := loadChannelByAddressWithRouterTokenFromDB(ctx, db, channelType, address, routerToken)
+
+	// loaded, so unlock the next loads to allow expired cachs to retrieve again
+	unlockLoadChannelByAddressWithRouterToken(routerToken)
+
+	// if it wasn't found in the DB, clear our cache and return that it wasn't found
+	if dbErr == courier.ErrChannelNotFound {
+		clearLocalChannelByAddressWithRouterToken(routerToken)
+		return cachedChannel, fmt.Errorf("unable to find channel with type: %s and address: %s and router token: %s", channelType.String(), address.String(), routerToken)
+	}
+
+	// if we had some other db error, return it if our cached channel was only just expired
+	if dbErr != nil && localErr == courier.ErrChannelExpired {
+		return cachedChannel, nil
+	}
+
+	// no cached channel, oh well, we fail
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	// we found it in the db, cache it locally
+	cacheChannelByAddressWithRouterToken(channel, routerToken)
 	return channel, nil
 }
 
@@ -194,6 +332,27 @@ WHERE
        ch.address = $1 AND
        ch.is_active = true AND
        ch.org_id IS NOT NULL`
+
+const lookupChannelFromAddressWithRouterTokenSQL = `
+			 SELECT
+							org_id,
+							ch.id as id,
+							ch.uuid as uuid,
+							ch.name as name,
+							channel_type, schemes,
+							address,
+							ch.country as country,
+							ch.config as config,
+							org.config as org_config,
+							org.is_anon as org_is_anon
+			 FROM
+							channels_channel ch
+							JOIN orgs_org org on ch.org_id = org.id
+			 WHERE
+							ch.address = $1 AND
+							(ch.config::jsonb)->>'router_token' = $2 AND
+							ch.is_active = true AND
+							ch.org_id IS NOT NULL`
 
 // loadChannelByAddressFromDB get the channel with the passed in channel type and address from the DB, returning it
 func loadChannelByAddressFromDB(ctx context.Context, db *sqlx.DB, channelType courier.ChannelType, address courier.ChannelAddress) (*DBChannel, error) {
@@ -250,7 +409,7 @@ func cacheChannelByAddress(channel *DBChannel) {
 	channel.expiration = time.Now().Add(localTTL)
 
 	// never cache if the address is nil or empty
-	if channel.ChannelAddress() != courier.NilChannelAddress {
+	if channel.ChannelAddress() == courier.NilChannelAddress {
 		return
 	}
 
@@ -267,6 +426,131 @@ func clearLocalChannelByAddress(address courier.ChannelAddress) {
 
 var cacheByAddressMutex sync.RWMutex
 var channelByAddressCache = make(map[courier.ChannelAddress]*DBChannel)
+
+// logic for throttle the request to channels by address to avoid multiple queries to db
+var channelLoadByAddressLocks = make(map[courier.ChannelAddress]*LoadLock)
+var channelLoadByAddressLockMutex sync.Mutex
+
+func getChannelLoadByAddressLock(address courier.ChannelAddress) (*LoadLock, error) {
+	channelLoadByAddressLockMutex.Lock()
+	locked, found := channelLoadByAddressLocks[address]
+	channelLoadByAddressLockMutex.Unlock()
+	if found {
+		if locked.expiration.Before(time.Now()) {
+			return nil, errors.New("load lock expired")
+		}
+		return locked, nil
+	}
+	return nil, errors.New("not locked")
+}
+
+func lockLoadChannelByAddress(address courier.ChannelAddress) {
+	if address == courier.NilChannelAddress {
+		return
+	}
+	channelLoadByAddressLockMutex.Lock()
+	channelLoadByAddressLocks[address] = &LoadLock{expiration: time.Now().Add(time.Second * 10)}
+	channelLoadByAddressLockMutex.Unlock()
+}
+
+func unlockLoadChannelByAddress(address courier.ChannelAddress) {
+	channelLoadByAddressLockMutex.Lock()
+	delete(channelLoadByAddressLocks, address)
+	channelLoadByAddressLockMutex.Unlock()
+}
+
+var cacheByAddressWithRouterTokenMutex sync.RWMutex
+var channelByAddressWithRouterTokenCache = make(map[string]*DBChannel)
+
+var channelLoadByAddressWithRouterTokenLocks = make(map[string]*LoadLock)
+var channelLoadByAddressWithRouterTokenLockMutex sync.Mutex
+
+func getChannelLoadByAddressWithRouterTokenLock(routerToken string) (*LoadLock, error) {
+	channelLoadByAddressWithRouterTokenLockMutex.Lock()
+	locked, found := channelLoadByAddressWithRouterTokenLocks[routerToken]
+	channelLoadByAddressWithRouterTokenLockMutex.Unlock()
+	if found {
+		if locked.expiration.Before(time.Now()) {
+			return nil, errors.New("load lock expired")
+		}
+		return locked, nil
+	}
+	return nil, errors.New("not locked")
+}
+
+func lockLoadChannelByAddressWithRouterToken(routerToken string) {
+	if routerToken == "" {
+		return
+	}
+	channelLoadByAddressWithRouterTokenLockMutex.Lock()
+	channelLoadByAddressWithRouterTokenLocks[routerToken] = &LoadLock{expiration: time.Now().Add(time.Second * 10)}
+	channelLoadByAddressWithRouterTokenLockMutex.Unlock()
+}
+
+func unlockLoadChannelByAddressWithRouterToken(routerToken string) {
+	channelLoadByAddressWithRouterTokenLockMutex.Lock()
+	delete(channelLoadByAddressWithRouterTokenLocks, routerToken)
+	channelLoadByAddressWithRouterTokenLockMutex.Unlock()
+}
+
+func getCachedChannelByAddressWithRouterToken(channelType courier.ChannelType, routerToken string) (*DBChannel, error) {
+	cacheByAddressWithRouterTokenMutex.RLock()
+	channel, found := channelByAddressWithRouterTokenCache[routerToken]
+	cacheByAddressWithRouterTokenMutex.RUnlock()
+
+	if found && routerToken != "" {
+		if channelType != courier.AnyChannelType && channel.ChannelType() != channelType {
+			return nil, courier.ErrChannelWrongType
+		}
+
+		if channel.expiration.Before(time.Now()) {
+			return channel, courier.ErrChannelExpired
+		}
+
+		return channel, nil
+	}
+
+	return nil, courier.ErrChannelNotFound
+}
+
+func cacheChannelByAddressWithRouterToken(channel *DBChannel, routerToken string) {
+	channel.expiration = time.Now().Add(localTTL)
+
+	cacheByAddressWithRouterTokenMutex.Lock()
+	channelByAddressWithRouterTokenCache[routerToken] = channel
+	cacheByAddressWithRouterTokenMutex.Unlock()
+}
+
+func clearLocalChannelByAddressWithRouterToken(routerToken string) {
+	cacheByAddressWithRouterTokenMutex.Lock()
+	delete(channelByAddressWithRouterTokenCache, routerToken)
+	cacheByAddressWithRouterTokenMutex.Unlock()
+}
+
+func loadChannelByAddressWithRouterTokenFromDB(ctx context.Context, db *sqlx.DB, channelType courier.ChannelType, address courier.ChannelAddress, routerToken string) (*DBChannel, error) {
+	channel := &DBChannel{Address_: sql.NullString{String: address.String(), Valid: address == courier.NilChannelAddress}}
+
+	// select just the fields we need
+	err := db.GetContext(ctx, channel, lookupChannelFromAddressWithRouterTokenSQL, address, routerToken)
+
+	// we didn't find a match
+	if err == sql.ErrNoRows {
+		return nil, courier.ErrChannelNotFound
+	}
+
+	// other error
+	if err != nil {
+		return nil, err
+	}
+
+	// is it the right type?
+	if channelType != courier.AnyChannelType && channelType != channel.ChannelType() {
+		return nil, courier.ErrChannelWrongType
+	}
+
+	// found it, return it
+	return channel, nil
+}
 
 //-----------------------------------------------------------------------------
 // Channel Implementation
@@ -437,4 +721,80 @@ func (c *DBChannel) supportsScheme(scheme string) bool {
 		}
 	}
 	return false
+}
+
+const updateChannelConfigSQL = `
+UPDATE channels_channel 
+SET config = $1
+WHERE uuid = $2 AND is_active = true`
+
+const updateChannelConfigByWabaIDSQL = `
+UPDATE channels_channel 
+SET config = (config::jsonb || $1::jsonb)::text
+WHERE channel_type = 'WAC' 
+AND is_active = true 
+AND config::jsonb @> jsonb_build_object('wa_waba_id', $2::text)`
+
+// UpdateChannelConfig updates the channel configuration
+func (b *backend) UpdateChannelConfig(ctx context.Context, channel courier.Channel, config map[string]interface{}) error {
+	// Convert config to JSON
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("error marshaling channel config: %v", err)
+	}
+
+	// Update the channel config in the database
+	_, err = b.db.ExecContext(ctx, updateChannelConfigSQL, configJSON, channel.UUID())
+	if err != nil {
+		return fmt.Errorf("error updating channel config: %v", err)
+	}
+
+	// Clear the channel from cache
+	clearLocalChannel(channel.UUID())
+	if channel.ChannelAddress() != courier.NilChannelAddress {
+		clearLocalChannelByAddress(channel.ChannelAddress())
+	}
+
+	return nil
+}
+
+// UpdateChannelConfigByWabaID updates the channel configuration for all channels with matching waba_id
+func (b *backend) UpdateChannelConfigByWabaID(ctx context.Context, wabaID string, configUpdates map[string]interface{}) error {
+	// Convert config updates to JSON
+	configJSON, err := json.Marshal(configUpdates)
+	if err != nil {
+		logrus.WithError(err).Error("[mmlite] error marshaling channel config updates")
+		return fmt.Errorf("error marshaling channel config updates: %v", err)
+	}
+
+	logrus.WithField("waba_id", wabaID).Info("[mmlite] updating channel configs by waba_id")
+	// Update all channels with matching waba_id
+	result, err := b.db.ExecContext(ctx, updateChannelConfigByWabaIDSQL, configJSON, wabaID)
+	if err != nil {
+		logrus.WithError(err).Error("[mmlite] error updating channel configs by waba_id")
+		return fmt.Errorf("error updating channel configs by waba_id: %v", err)
+	}
+
+	// Check how many rows were affected
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		logrus.WithError(err).Error("[mmlite] error getting rows affected")
+		return fmt.Errorf("error getting rows affected: %v", err)
+	}
+
+	if rowsAffected == 0 {
+		logrus.WithField("waba_id", wabaID).Error("[mmlite] no channels found with waba_id")
+		return fmt.Errorf("no channels found with waba_id: %s", wabaID)
+	}
+
+	logrus.WithField("waba_id", wabaID).WithField("rows_affected", rowsAffected).Info("[mmlite] channels updated with waba_id")
+	return nil
+}
+
+// Config returns the channel's configuration
+func (c *DBChannel) Config() map[string]interface{} {
+	if !c.Config_.Valid {
+		return make(map[string]interface{})
+	}
+	return c.Config_.Map
 }

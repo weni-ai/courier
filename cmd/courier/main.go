@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -9,8 +10,10 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/nyaruka/courier"
 	"github.com/sirupsen/logrus"
+	_ "go.uber.org/automaxprocs"
 
 	// load channel handler packages
+	"github.com/nyaruka/courier/billing"
 	_ "github.com/nyaruka/courier/handlers/africastalking"
 	_ "github.com/nyaruka/courier/handlers/arabiacell"
 	_ "github.com/nyaruka/courier/handlers/blackmyna"
@@ -23,7 +26,9 @@ import (
 	_ "github.com/nyaruka/courier/handlers/dart"
 	_ "github.com/nyaruka/courier/handlers/discord"
 	_ "github.com/nyaruka/courier/handlers/dmark"
+	_ "github.com/nyaruka/courier/handlers/email"
 	_ "github.com/nyaruka/courier/handlers/external"
+	_ "github.com/nyaruka/courier/handlers/externalv2"
 	_ "github.com/nyaruka/courier/handlers/facebook"
 	_ "github.com/nyaruka/courier/handlers/facebookapp"
 	_ "github.com/nyaruka/courier/handlers/firebase"
@@ -70,6 +75,7 @@ import (
 	_ "github.com/nyaruka/courier/handlers/yo"
 	_ "github.com/nyaruka/courier/handlers/zenvia"
 	_ "github.com/nyaruka/courier/handlers/zenviaold"
+	"github.com/nyaruka/courier/templates"
 
 	// load available backends
 	_ "github.com/nyaruka/courier/backends/rapidpro"
@@ -116,6 +122,28 @@ func main() {
 	err = server.Start()
 	if err != nil {
 		logrus.Fatalf("Error starting server: %s", err)
+	}
+
+	if config.RabbitmqURL != "" {
+		billingClient, err := billing.NewRMQBillingResilientClient(
+			config.RabbitmqURL, config.RabbitmqRetryPubAttempts, config.RabbitmqRetryPubDelay, config.BillingExchangeName)
+		if err != nil {
+			logrus.Fatalf("Error creating billing RabbitMQ client: %v", err)
+		}
+		server.SetBilling(billingClient)
+
+		templatesClient, err := templates.NewRMQTemplateClient(
+			config.RabbitmqURL,
+			config.RabbitmqRetryPubAttempts,
+			config.RabbitmqRetryPubDelay,
+			config.TemplatesExchangeName,
+		)
+		if err != nil {
+			logrus.Fatalf("Error creating templates RabbitMQ client: %v", err)
+		}
+		server.SetTemplates(templatesClient)
+	} else {
+		logrus.Error(errors.New("rabbitmq url is not configured"))
 	}
 
 	ch := make(chan os.Signal)

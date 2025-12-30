@@ -29,6 +29,9 @@ type Backend interface {
 	// GetChannelByAddress returns the channel with the passed in type and address
 	GetChannelByAddress(context.Context, ChannelType, ChannelAddress) (Channel, error)
 
+	// GetChannelByAddressWithRouterToken returns the channel with the passed in type and address and a value from config by key
+	GetChannelByAddressWithRouterToken(context.Context, ChannelType, ChannelAddress, string) (Channel, error)
+
 	// GetContact returns (or creates) the contact for the passed in channel and URN
 	GetContact(context context.Context, channel Channel, urn urns.URN, auth string, name string) (Contact, error)
 
@@ -65,6 +68,12 @@ type Backend interface {
 	// WriteChannelLogs writes the passed in channel logs to our backend
 	WriteChannelLogs(context.Context, []*ChannelLog) error
 
+	// WriteContactLastSeen writes the passed in contact last seen to our backend
+	WriteContactLastSeen(context.Context, Msg, time.Time) error
+
+	// WriteCtwaToDB writes the passed in ctwa data to our backend
+	WriteCtwaToDB(context.Context, string, urns.URN, time.Time, ChannelUUID, string) error
+
 	// PopNextOutgoingMsg returns the next message that needs to be sent, callers should call MarkOutgoingMsgComplete with the
 	// returned message when they have dealt with the message (regardless of whether it was sent or not)
 	PopNextOutgoingMsg(context.Context) (Msg, error)
@@ -99,6 +108,16 @@ type Backend interface {
 
 	// RedisPool returns the redisPool for this backend
 	RedisPool() *redis.Pool
+
+	GetRunEventsByMsgUUIDFromDB(context.Context, string) ([]RunEvent, error)
+
+	GetMessage(context.Context, string) (Msg, error)
+
+	UpdateChannelConfig(context.Context, Channel, map[string]interface{}) error
+
+	UpdateChannelConfigByWabaID(context.Context, string, map[string]interface{}) error
+
+	GetProjectUUIDFromChannelUUID(context.Context, ChannelUUID) (string, error)
 }
 
 // NewBackend creates the type of backend passed in

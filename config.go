@@ -30,15 +30,45 @@ type Config struct {
 	LogLevel                  string `help:"the logging level courier should use"`
 	Version                   string `help:"the version that will be used in request and response headers"`
 
-	WhatsappAdminSystemUserToken   string `help:"the token of the admin system user for WhatsApp"`
-	WhatsappCloudApplicationSecret string `help:"the Whatsapp Cloud app secret"`
-	WhatsappCloudWebhookSecret     string `help:"the secret for WhatsApp Cloud webhook URL verification"`
+	WhatsappAdminSystemUserToken    string `help:"the token of the admin system user for WhatsApp"`
+	WhatsappCloudApplicationSecret  string `help:"the Whatsapp Cloud app secret"`
+	WhatsappCloudWebhookSecret      string `help:"the secret for WhatsApp Cloud webhook URL verification"`
+	WhatsappCloudWebhooksUrl        string `help:"the url where all WhatsApp Cloud webhooks will be sent"`
+	WhatsappCloudWebhooksUrlFlows   string `help:"the url where WhatsApp Cloud flow_message webhooks will be sent to Flows"`
+	WhatsappCloudWebhooksTokenFlows string `help:"the token for sending WhatsApp Cloud flow_message webhooks that will be sent to Flows"`
 
 	// IncludeChannels is the list of channels to enable, empty means include all
 	IncludeChannels []string
 
 	// ExcludeChannels is the list of channels to exclude, empty means exclude none
 	ExcludeChannels []string
+
+	// WaitMediaCount is the count limit to wait for previous media message be delivered before current msg be send
+	// Default is 10
+	WaitMediaCount int
+	// WaitMediaSleepDuration is the duration time in milliseconds of each wait sleep
+	// Default is 1000
+	WaitMediaSleepDuration int
+	// WaitMediaChannels is the list of channels that have the logic of wait for previous media message be delivered before current msg be send
+	// Default is WA, WAC, FB, FBA, IG
+	WaitMediaChannels []string
+
+	RabbitmqURL              string `help:"rabbitmq url"`
+	RabbitmqRetryPubAttempts int    `help:"rabbitmq retry attempts"`
+	RabbitmqRetryPubDelay    int    `help:"rabbitmq retry delay"`
+	BillingExchangeName      string `help:"billing exchange name"`
+
+	EmailProxyURL       string `help:"email proxy url"`
+	EmailProxyAuthToken string `help:"email proxy auth token"`
+
+	TemplatesExchangeName string `help:"templates exchange name"`
+
+	WhatsappCloudDemoAddress string `help:"the address of the router"`
+	WhatsappCloudDemoURL     string `help:"the url of the demo"`
+	WhatsappCloudDemoToken   string `help:"the token of the demo"`
+
+	CallsWebhookURL   string `help:"the url where calls webhooks will be sent"`
+	CallsWebhookToken string `help:"the token for calls webhooks"`
 }
 
 // NewConfig returns a new default configuration object
@@ -65,6 +95,18 @@ func NewConfig() *Config {
 		MaxWorkers:                   32,
 		LogLevel:                     "error",
 		Version:                      "Dev",
+		WaitMediaCount:               10,
+		WaitMediaSleepDuration:       1000,
+		WaitMediaChannels:            []string{},
+		RabbitmqRetryPubAttempts:     3,
+		RabbitmqRetryPubDelay:        1000,
+		BillingExchangeName:          "msgs.topic",
+		EmailProxyURL:                "http://localhost:9090",
+		EmailProxyAuthToken:          "",
+		TemplatesExchangeName:        "templates",
+		WhatsappCloudDemoAddress:     "1234567890",
+		WhatsappCloudDemoURL:         "http://localhost:3000/wacr/receive",
+		WhatsappCloudDemoToken:       "1234567890",
 	}
 }
 

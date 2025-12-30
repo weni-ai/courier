@@ -8,33 +8,43 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/buger/jsonparser"
+	"github.com/gabriel-vasile/mimetype"
 	"github.com/nyaruka/courier"
+	"github.com/nyaruka/courier/billing"
 	"github.com/nyaruka/courier/handlers"
+	"github.com/nyaruka/courier/templates"
 	"github.com/nyaruka/courier/utils"
+	"github.com/nyaruka/gocommon/rcache"
 	"github.com/nyaruka/gocommon/urns"
+	"github.com/nyaruka/gocommon/uuids"
+	"github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 // Endpoints we hit
 var (
 	sendURL  = "https://graph.facebook.com/v12.0/me/messages"
-	graphURL = "https://graph.facebook.com/v12.0/"
+	graphURL = "https://graph.facebook.com/v22.0/"
 
 	signatureHeader = "X-Hub-Signature"
 
-	configWACPhoneNumberID = "wac_phone_number_id"
-
 	// max for the body
-	maxMsgLengthIG  = 1000
-	maxMsgLengthFBA = 2000
-	maxMsgLengthWAC = 4096
+	maxMsgLengthIG             = 1000
+	maxMsgLengthFBA            = 2000
+	maxMsgLengthWAC            = 4096
+	maxMsgLengthInteractiveWAC = 1024
 
 	// Sticker ID substitutions
 	stickerIDToEmoji = map[int64]string{
@@ -64,22 +74,55 @@ const (
 var waStatusMapping = map[string]courier.MsgStatusValue{
 	"sent":      courier.MsgSent,
 	"delivered": courier.MsgDelivered,
-	"read":      courier.MsgDelivered,
+	"read":      courier.MsgRead,
 	"failed":    courier.MsgFailed,
+}
+
+var waTemplateTypeMapping = map[string]string{
+	"authentication": "authentication",
+	"marketing":      "marketing",
+	"utility":        "utility",
 }
 
 var waIgnoreStatuses = map[string]bool{
 	"deleted": true,
 }
 
+const (
+	mediaCacheKeyPatternWhatsapp = "whatsapp_cloud_media_%s"
+)
+
+var failedMediaCache *cache.Cache
+
+const (
+	InteractiveProductSingleType         = "product"
+	InteractiveProductListType           = "product_list"
+	InteractiveProductCatalogType        = "catalog_product"
+	InteractiveProductCatalogMessageType = "catalog_message"
+)
+
+var integrationWebhookFields = map[string]bool{
+	"message_template_status_update":  true,
+	"template_category_update":        true,
+	"message_template_quality_update": true,
+	"account_update":                  true,
+}
+
 func newHandler(channelType courier.ChannelType, name string, useUUIDRoutes bool) courier.ChannelHandler {
 	return &handler{handlers.NewBaseHandlerWithParams(channelType, name, useUUIDRoutes)}
+}
+
+func newWACDemoHandler(channelType courier.ChannelType, name string) courier.ChannelHandler {
+	return &handler{handlers.NewBaseHandler(channelType, name)}
 }
 
 func init() {
 	courier.RegisterHandler(newHandler("IG", "Instagram", false))
 	courier.RegisterHandler(newHandler("FBA", "Facebook", false))
 	courier.RegisterHandler(newHandler("WAC", "WhatsApp Cloud", false))
+	courier.RegisterHandler(newWACDemoHandler("WCD", "WhatsApp Cloud Demo"))
+
+	failedMediaCache = cache.New(15*time.Minute, 15*time.Minute)
 }
 
 type handler struct {
@@ -89,8 +132,12 @@ type handler struct {
 // Initialize is called by the engine once everything is loaded
 func (h *handler) Initialize(s courier.Server) error {
 	h.SetServer(s)
-	s.AddHandlerRoute(h, http.MethodGet, "receive", h.receiveVerify)
-	s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveEvent)
+	if h.ChannelName() == "WhatsApp Cloud Demo" {
+		s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveDemoEvent)
+	} else {
+		s.AddHandlerRoute(h, http.MethodGet, "receive", h.receiveVerify)
+		s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveEvent)
+	}
 	return nil
 }
 
@@ -128,6 +175,14 @@ type wacMedia struct {
 	Mimetype string `json:"mime_type"`
 	SHA256   string `json:"sha256"`
 }
+
+type wacSticker struct {
+	Animated bool   `json:"animated"`
+	ID       string `json:"id"`
+	Mimetype string `json:"mime_type"`
+	SHA256   string `json:"sha256"`
+}
+
 type moPayload struct {
 	Object string `json:"object"`
 	Entry  []struct {
@@ -136,6 +191,18 @@ type moPayload struct {
 		Changes []struct {
 			Field string `json:"field"`
 			Value struct {
+				From struct {
+					ID       string `json:"id"`
+					Username string `json:"username"`
+				} `json:"from"`
+				ID    string `json:"id"`
+				Media struct {
+					AdID             string `json:"ad_id"`
+					ID               string `json:"id"`
+					MediaProductType string `json:"media_product_type"`
+					OriginalMediaID  string `json:"original_media_id"`
+				}
+				Text             string `json:"text"`
 				MessagingProduct string `json:"messaging_product"`
 				Metadata         *struct {
 					DisplayPhoneNumber string `json:"display_phone_number"`
@@ -161,11 +228,12 @@ type moPayload struct {
 					Text struct {
 						Body string `json:"body"`
 					} `json:"text"`
-					Image    *wacMedia `json:"image"`
-					Audio    *wacMedia `json:"audio"`
-					Video    *wacMedia `json:"video"`
-					Document *wacMedia `json:"document"`
-					Voice    *wacMedia `json:"voice"`
+					Image    *wacMedia   `json:"image"`
+					Audio    *wacMedia   `json:"audio"`
+					Video    *wacMedia   `json:"video"`
+					Document *wacMedia   `json:"document"`
+					Voice    *wacMedia   `json:"voice"`
+					Sticker  *wacSticker `json:"sticker"`
 					Location *struct {
 						Latitude  float64 `json:"latitude"`
 						Longitude float64 `json:"longitude"`
@@ -186,6 +254,17 @@ type moPayload struct {
 							ID    string `json:"id"`
 							Title string `json:"title"`
 						} `json:"list_reply,omitempty"`
+						NFMReply struct {
+							Name         string `json:"name,omitempty"`
+							ResponseJSON string `json:"response_json"`
+						} `json:"nfm_reply"`
+						PaymentMethod struct {
+							PaymentMethod    string `json:"payment_method"`
+							PaymentTimestamp int64  `json:"payment_timestamp"`
+							ReferenceID      string `json:"reference_id"`
+							LastFourDigits   string `json:"last_four_digits"`
+							CredentialID     string `json:"credential_id"`
+						} `json:"payment_method,omitempty"`
 					} `json:"interactive,omitempty"`
 					Contacts []struct {
 						Name struct {
@@ -199,6 +278,35 @@ type moPayload struct {
 							Type  string `json:"type"`
 						} `json:"phones"`
 					} `json:"contacts"`
+					Referral struct {
+						Headline   string    `json:"headline"`
+						Body       string    `json:"body"`
+						SourceType string    `json:"source_type"`
+						SourceID   string    `json:"source_id"`
+						SourceURL  string    `json:"source_url"`
+						Image      *wacMedia `json:"image"`
+						Video      *wacMedia `json:"video"`
+						CtwaClid   string    `json:"ctwa_clid"`
+					} `json:"referral"`
+					Order struct {
+						CatalogID    string `json:"catalog_id"`
+						Text         string `json:"text"`
+						ProductItems []struct {
+							ProductRetailerID string  `json:"product_retailer_id"`
+							Quantity          int     `json:"quantity"`
+							ItemPrice         float64 `json:"item_price"`
+							Currency          string  `json:"currency"`
+						} `json:"product_items"`
+					} `json:"order"`
+					Errors []struct {
+						Code      int    `json:"code"`
+						Title     string `json:"title"`
+						Message   string `json:"message"`
+						ErrorData struct {
+							Details string `json:"details"`
+						} `json:"error_data"`
+						Type string `json:"type"`
+					} `json:"errors"`
 				} `json:"messages"`
 				Statuses []struct {
 					ID           string `json:"id"`
@@ -222,6 +330,42 @@ type moPayload struct {
 					Code  int    `json:"code"`
 					Title string `json:"title"`
 				} `json:"errors"`
+				BanInfo struct {
+					WabaBanState []string `json:"waba_ban_state"`
+					WabaBanDate  string   `json:"waba_ban_date"`
+				} `json:"ban_info"`
+				CurrentLimit                 string `json:"current_limit"`
+				Decision                     string `json:"decision"`
+				DisplayPhoneNumber           string `json:"display_phone_number"`
+				Event                        string `json:"event"`
+				MaxDailyConversationPerPhone int    `json:"max_daily_conversation_per_phone"`
+				MaxPhoneNumbersPerBusiness   int    `json:"max_phone_numbers_per_business"`
+				MaxPhoneNumbersPerWaba       int    `json:"max_phone_numbers_per_waba"`
+				Reason                       string `json:"reason"`
+				RequestedVerifiedName        string `json:"requested_verified_name"`
+				RestrictionInfo              []struct {
+					RestrictionType string `json:"restriction_type"`
+					Expiration      string `json:"expiration"`
+				} `json:"restriction_info"`
+				MessageTemplateID       int    `json:"message_template_id"`
+				MessageTemplateName     string `json:"message_template_name"`
+				MessageTemplateLanguage string `json:"message_template_language"`
+				WabaInfo                *struct {
+					WabaID          string `json:"waba_id"`
+					OwnerBusinessID string `json:"owner_business_id"`
+				} `json:"waba_info"`
+				Calls []struct {
+					ID        string `json:"id"`
+					To        string `json:"to"`
+					From      string `json:"from"`
+					Event     string `json:"event"`
+					Timestamp string `json:"timestamp"`
+					Direction string `json:"direction"`
+					Session   struct {
+						SdpType string `json:"sdp_type"`
+						Sdp     string `json:"sdp"`
+					} `json:"session"`
+				} `json:"calls"`
 			} `json:"value"`
 		} `json:"changes"`
 		Messaging []struct {
@@ -286,6 +430,108 @@ type moPayload struct {
 	} `json:"entry"`
 }
 
+type Flow struct {
+	NFMReply NFMReply `json:"nfm_reply"`
+}
+
+type NFMReply struct {
+	Name         string                 `json:"name,omitempty"`
+	ResponseJSON map[string]interface{} `json:"response_json"`
+}
+
+// wacMessageMetadata holds the metadata extracted from a WhatsApp Cloud API message
+type wacMessageMetadata struct {
+	Key   string
+	Value interface{}
+}
+
+// processWACOrderMetadata extracts order metadata from a WAC message
+func processWACOrderMetadata(order interface{}) *wacMessageMetadata {
+	return &wacMessageMetadata{
+		Key:   "order",
+		Value: order,
+	}
+}
+
+// processWACNFMReplyMetadata extracts nfm_reply metadata from a WAC message
+func processWACNFMReplyMetadata(name string, responseJSONStr string) (*wacMessageMetadata, error) {
+	var responseJSON map[string]interface{}
+	if err := json.Unmarshal([]byte(responseJSONStr), &responseJSON); err != nil {
+		return nil, err
+	}
+
+	nfmReply := NFMReply{
+		Name:         name,
+		ResponseJSON: responseJSON,
+	}
+
+	return &wacMessageMetadata{
+		Key:   "nfm_reply",
+		Value: nfmReply,
+	}, nil
+}
+
+// processWACPaymentMethodMetadata extracts payment_method metadata from a WAC message
+func processWACPaymentMethodMetadata(paymentMethod interface{}) *wacMessageMetadata {
+	return &wacMessageMetadata{
+		Key:   "payment_method",
+		Value: paymentMethod,
+	}
+}
+
+// buildWACMetadataWithOverwrite builds metadata JSON with both the original field and overwrite_message
+func buildWACMetadataWithOverwrite(event courier.Msg, meta *wacMessageMetadata) (json.RawMessage, error) {
+	// Build the original metadata
+	var originalJSON []byte
+	var err error
+
+	// For nfm_reply, use Flow struct directly (it already has "nfm_reply" as json tag)
+	if meta.Key == "nfm_reply" {
+		originalJSON, err = json.Marshal(Flow{NFMReply: meta.Value.(NFMReply)})
+	} else {
+		originalJSON, err = json.Marshal(map[string]interface{}{meta.Key: meta.Value})
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	event.WithMetadata(json.RawMessage(originalJSON))
+
+	// Build overwrite_message
+	existingMetadata := event.Metadata()
+	newMetadata := make(map[string]interface{})
+	if existingMetadata != nil {
+		if err := json.Unmarshal(existingMetadata, &newMetadata); err != nil {
+			return nil, err
+		}
+	}
+
+	overwriteMessage := make(map[string]interface{})
+	if existing, ok := newMetadata["overwrite_message"].(map[string]interface{}); ok {
+		overwriteMessage = existing
+	}
+	overwriteMessage[meta.Key] = meta.Value
+	newMetadata["overwrite_message"] = overwriteMessage
+
+	return json.Marshal(newMetadata)
+}
+
+type IGComment struct {
+	Text string `json:"text,omitempty"`
+	From struct {
+		ID       string `json:"id,omitempty"`
+		Username string `json:"username,omitempty"`
+	} `json:"from,omitempty"`
+	Media struct {
+		AdID             string `json:"ad_id,omitempty"`
+		ID               string `json:"id,omitempty"`
+		MediaProductType string `json:"media_product_type,omitempty"`
+		OriginalMediaID  string `json:"original_media_id,omitempty"`
+	} `json:"media,omitempty"`
+	Time int64  `json:"time,omitempty"`
+	ID   string `json:"id,omitempty"`
+}
+
 type FeedbackQuestion struct {
 	Type     string `json:"type"`
 	Payload  string `json:"payload"`
@@ -330,11 +576,51 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 		if len(payload.Entry[0].Changes) == 0 {
 			return nil, fmt.Errorf("no changes found")
 		}
+		if integrationWebhookFields[payload.Entry[0].Changes[0].Field] {
+			logrus.WithField("field", payload.Entry[0].Changes[0].Field).Info("[integration_webhook] receiving integration webhook")
+			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, "", true)
+			if er != nil {
+				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
+			}
 
+			if payload.Entry[0].Changes[0].Field == "account_update" {
+				logrus.WithField("event", payload.Entry[0].Changes[0].Value.Event).WithField("waba_info", payload.Entry[0].Changes[0].Value.WabaInfo).Info("[account_update] receiving account_update webhook")
+				// Handle account_update webhook type
+				if payload.Entry[0].Changes[0].Value.Event == "MM_LITE_TERMS_SIGNED" && payload.Entry[0].Changes[0].Value.WabaInfo != nil {
+					logrus.WithField("waba_id", payload.Entry[0].Changes[0].Value.WabaInfo.WabaID).Info("[mmlite] MM_LITE_TERMS_SIGNED event detected for waba_id")
+					wabaID := payload.Entry[0].Changes[0].Value.WabaInfo.WabaID
+
+					// Update channel config with ad_account_id and mmlite for all channels with matching waba_id
+					err := h.Backend().UpdateChannelConfigByWabaID(ctx, wabaID, map[string]interface{}{
+						"mmlite": true,
+					})
+					if err != nil {
+						logrus.WithError(err).WithField("waba_id", wabaID).Error("[mmlite] error updating channel config with waba_id")
+						return nil, fmt.Errorf("error updating channel config with waba_id %s: %v", wabaID, err)
+					}
+					logrus.WithField("waba_id", wabaID).Info("[mmlite] channel config updated with waba_id")
+				}
+			}
+
+			return nil, fmt.Errorf("template update, so ignore")
+		} else if payload.Entry[0].Changes[0].Field == "flows" {
+			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrlFlows, h.Server().Config().WhatsappCloudWebhooksTokenFlows, false)
+			if er != nil {
+				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
+			}
+			return nil, fmt.Errorf("template update, so ignore")
+		}
 		channelAddress = payload.Entry[0].Changes[0].Value.Metadata.PhoneNumberID
 		if channelAddress == "" {
 			return nil, fmt.Errorf("no channel address found")
 		}
+
+		// get a value if exists from request header to a variable routerToken
+		routerToken := r.Header.Get("X-Router-Token")
+		if routerToken != "" {
+			return h.Backend().GetChannelByAddressWithRouterToken(ctx, courier.ChannelType("WAC"), courier.ChannelAddress(channelAddress), routerToken)
+		}
+
 		return h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WAC"), courier.ChannelAddress(channelAddress))
 	}
 }
@@ -390,27 +676,63 @@ func resolveMediaURL(channel courier.Channel, mediaID string, token string) (str
 	return mediaURL, err
 }
 
+func (h *handler) receiveDemoEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+	payload := &moPayload{}
+	err := handlers.DecodeAndValidateJSON(payload, r)
+	if err != nil {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+
+	events, data, err := h.processCloudWhatsAppPayload(ctx, channel, payload, w, r)
+	if err != nil {
+		return nil, err
+	}
+
+	return events, courier.WriteDataResponse(ctx, w, http.StatusOK, "Events Handled", data)
+}
+
 // receiveEvent is our HTTP handler function for incoming messages and status updates
 func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+	if h.ChannelType() == "WAC" {
+		routerToken := r.Header.Get("X-Router-Token")
+		if routerToken != "" {
+			payload := &moPayload{}
+			err := handlers.DecodeAndValidateJSON(payload, r)
+			if err != nil {
+				return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+			}
+			events, data, err := h.processCloudWhatsAppPayload(ctx, channel, payload, w, r)
+			if err != nil {
+				return nil, err
+			}
+			return events, courier.WriteDataResponse(ctx, w, http.StatusOK, "Events Handled", data)
+		}
+	}
+
 	err := h.validateSignature(r)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+
+	// if the channel has the address equals to Config().DemoAddress, then we need to proxy the request to the demo url
+	if channel.Address() == h.Server().Config().WhatsappCloudDemoAddress {
+		demoURL := h.Server().Config().WhatsappCloudDemoURL
+		proxyReq, err := http.NewRequest(r.Method, demoURL, r.Body)
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+		proxyReq.Header = r.Header
+		_, err = utils.MakeHTTPRequest(proxyReq)
+		if err != nil {
+			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+		}
+		return nil, nil // must return events of proxied to demo?
 	}
 
 	payload := &moPayload{}
 	err = handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
-	}
-
-	// is not a 'page' and 'instagram' object? ignore it
-	if payload.Object != "page" && payload.Object != "instagram" && payload.Object != "whatsapp_business_account" {
-		return nil, handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, "ignoring request")
-	}
-
-	// no entries? ignore this request
-	if len(payload.Entry) == 0 {
-		return nil, handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, "ignoring request, no entries")
 	}
 
 	var events []courier.Event
@@ -422,7 +744,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		events, data, err = h.processCloudWhatsAppPayload(ctx, channel, payload, w, r)
 		webhook := channel.ConfigForKey("webhook", nil)
 		if webhook != nil {
-			er := handlers.SendWebhooks(channel, r, webhook)
+			er := handlers.SendWebhooksExternal(r, webhook)
 			if er != nil {
 				courier.LogRequestError(r, channel, fmt.Errorf("could not send webhook: %s", er))
 			}
@@ -477,6 +799,10 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 				if msg.Type == "text" {
 					text = msg.Text.Body
+				} else if msg.Type == "unsupported" {
+					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
+					data = append(data, courier.NewInfoData(fmt.Sprintf("unsupported message type %s", msg.Type)))
+					continue
 				} else if msg.Type == "audio" && msg.Audio != nil {
 					text = msg.Audio.Caption
 					mediaURL, err = resolveMediaURL(channel, msg.Audio.ID, token)
@@ -491,15 +817,19 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				} else if msg.Type == "image" && msg.Image != nil {
 					text = msg.Image.Caption
 					mediaURL, err = resolveMediaURL(channel, msg.Image.ID, token)
+				} else if msg.Type == "sticker" && msg.Sticker != nil {
+					mediaURL, err = resolveMediaURL(channel, msg.Sticker.ID, token)
 				} else if msg.Type == "video" && msg.Video != nil {
 					text = msg.Video.Caption
 					mediaURL, err = resolveMediaURL(channel, msg.Video.ID, token)
 				} else if msg.Type == "location" && msg.Location != nil {
-					mediaURL = fmt.Sprintf("geo:%f,%f", msg.Location.Latitude, msg.Location.Longitude)
+					mediaURL = fmt.Sprintf("geo:%f,%f;name:%s;address:%s", msg.Location.Latitude, msg.Location.Longitude, msg.Location.Name, msg.Location.Address)
 				} else if msg.Type == "interactive" && msg.Interactive.Type == "button_reply" {
 					text = msg.Interactive.ButtonReply.Title
 				} else if msg.Type == "interactive" && msg.Interactive.Type == "list_reply" {
 					text = msg.Interactive.ListReply.Title
+				} else if msg.Type == "order" {
+					text = msg.Order.Text
 				} else if msg.Type == "contacts" {
 
 					if len(msg.Contacts) == 0 {
@@ -512,6 +842,11 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 						phones = append(phones, phone.Phone)
 					}
 					text = strings.Join(phones, ", ")
+				} else if msg.Type == "interactive" && msg.Interactive.Type == "payment_method" {
+					text = ""
+				} else if msg.Type == "reaction" {
+					data = append(data, courier.NewInfoData("ignoring echo reaction message"))
+					continue
 				} else {
 					// we received a message type we do not support.
 					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
@@ -521,13 +856,86 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(msg.ID).WithContactName(contactNames[msg.From])
 				event := h.Backend().CheckExternalIDSeen(ev)
 
+				// write the contact last seen
+				h.Backend().WriteContactLastSeen(ctx, ev, date)
+
 				// we had an error downloading media
 				if err != nil {
 					courier.LogRequestError(r, channel, err)
 				}
 
+				// Process WhatsApp metadata (order, nfm_reply, payment_method) with overwrite_message
+				var wacMeta *wacMessageMetadata
+
+				if msg.Type == "order" {
+					wacMeta = processWACOrderMetadata(msg.Order)
+				} else if msg.Interactive.Type == "nfm_reply" {
+					var err error
+					wacMeta, err = processWACNFMReplyMetadata(msg.Interactive.NFMReply.Name, msg.Interactive.NFMReply.ResponseJSON)
+					if err != nil {
+						courier.LogRequestError(r, channel, err)
+					}
+				} else if msg.Interactive.Type == "payment_method" {
+					wacMeta = processWACPaymentMethodMetadata(msg.Interactive.PaymentMethod)
+				}
+
+				if wacMeta != nil {
+					metadataJSON, err := buildWACMetadataWithOverwrite(event, wacMeta)
+					if err != nil {
+						courier.LogRequestError(r, channel, err)
+					}
+					event.WithMetadata(metadataJSON)
+				}
+
+				if msg.Referral.Headline != "" {
+
+					referral, err := json.Marshal(msg.Referral)
+					if err != nil {
+						courier.LogRequestError(r, channel, err)
+					}
+					metadata := json.RawMessage(referral)
+					event.WithMetadata(metadata)
+
+					if msg.Referral.CtwaClid != "" {
+						// Write ctwa data to database
+						err := h.Backend().WriteCtwaToDB(ctx, msg.Referral.CtwaClid, urn, date, channel.UUID(), entry.ID)
+						if err != nil {
+							courier.LogRequestError(r, channel, fmt.Errorf("error writing ctwa data: %v", err))
+						}
+					}
+				}
+
 				if mediaURL != "" {
 					event.WithAttachment(mediaURL)
+				}
+
+				// Add to the existing metadata, the message context
+				if msg.Context != nil {
+					metadata := event.Metadata()
+					if metadata == nil {
+						newMetadata := make(map[string]interface{})
+						newMetadata["context"] = msg.Context
+
+						metadata, err = json.Marshal(newMetadata)
+						if err != nil {
+							courier.LogRequestError(r, channel, err)
+						}
+					} else {
+						newMetadata := make(map[string]interface{})
+						err := json.Unmarshal(metadata, &newMetadata)
+						if err != nil {
+							courier.LogRequestError(r, channel, err)
+						}
+
+						newMetadata["context"] = msg.Context
+
+						metadata, err = json.Marshal(newMetadata)
+						if err != nil {
+							courier.LogRequestError(r, channel, err)
+						}
+					}
+
+					event.WithMetadata(metadata)
 				}
 
 				err = h.Backend().WriteMsg(ctx, event)
@@ -567,11 +975,106 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					return nil, nil, err
 				}
 
+				if (msgStatus == courier.MsgDelivered || msgStatus == courier.MsgRead) &&
+					channel.Address() != h.Server().Config().WhatsappCloudDemoAddress {
+					// if the channel is the demo channel, we don't need to send the message to the billing system
+					urn, err := urns.NewWhatsAppURN(status.RecipientID)
+					if err != nil {
+						handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+					} else {
+						if h.Server().Billing() != nil {
+							billingMsg := billing.NewMessage(
+								string(urn.Identity()),
+								"",
+								contactNames[status.RecipientID],
+								channel.UUID().String(),
+								status.ID,
+								time.Now().Format(time.RFC3339),
+								"",
+								channel.ChannelType().String(),
+								"",
+								nil,
+								nil,
+								false,
+								"",
+								string(msgStatus),
+							)
+							h.Server().Billing().SendAsync(billingMsg, billing.RoutingKeyUpdate, nil, nil)
+						}
+					}
+				}
+
+				if status.Conversation != nil {
+					templateType, isTemplateMessage := waTemplateTypeMapping[status.Conversation.Origin.Type]
+					if isTemplateMessage && h.Server().Templates() != nil {
+						urn, err := urns.NewWhatsAppURN(status.RecipientID)
+						if err != nil {
+							handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+						} else {
+							statusMsg := templates.NewTemplateStatusMessage(
+								string(urn.Identity()),
+								channel.UUID().String(),
+								status.ID,
+								string(msgStatus),
+								templateType,
+							)
+							h.Server().Templates().SendAsync(statusMsg, templates.RoutingKeyStatus, nil, nil)
+						}
+					}
+				}
+
 				events = append(events, event)
 				data = append(data, courier.NewStatusData(event))
 
 			}
 
+			for _, call := range change.Value.Calls {
+				callsWebhookURL := h.Server().Config().CallsWebhookURL
+				callsWebhookToken := h.Server().Config().CallsWebhookToken
+				if callsWebhookURL == "" {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("calls webhook url is not set"))
+				}
+
+				projectUUID, err := h.Backend().GetProjectUUIDFromChannelUUID(ctx, channel.UUID())
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+
+				contactName := ""
+				if len(change.Value.Contacts) > 0 {
+					contactName = change.Value.Contacts[0].Profile.Name
+				}
+
+				callData := map[string]interface{}{
+					"call":            call,
+					"project_uuid":    projectUUID,
+					"channel_uuid":    channel.UUID().String(),
+					"phone_number_id": change.Value.Metadata.PhoneNumberID,
+					"name":            contactName,
+				}
+
+				callJSON, err := json.Marshal(callData)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+				req, err := http.NewRequest("POST", callsWebhookURL, bytes.NewBuffer(callJSON))
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+				if callsWebhookToken != "" {
+					req.Header.Set("Authorization", "Bearer "+callsWebhookToken)
+				}
+				req.Header.Set("Content-Type", "application/json")
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("failed to send calls webhook"))
+				}
+				data = append(data, courier.NewInfoData(fmt.Sprintf("New whatsapp call received: %s", call.ID)))
+			}
 		}
 
 	}
@@ -589,8 +1092,72 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 
 	// for each entry
 	for _, entry := range payload.Entry {
-		// no entry, ignore
+
 		if len(entry.Messaging) == 0 {
+			if len(entry.Changes) > 0 && entry.Changes[0].Field == "comments" {
+
+				// Check if the comment is from our own channel to prevent loops
+				// When we reply to a comment, Instagram sends a webhook about our own reply
+				if entry.Changes[0].Value.From.ID == channel.Address() {
+					data = append(data, courier.NewInfoData(fmt.Sprintf("ignoring comment from our own channel: %s", entry.Changes[0].Value.From.ID)))
+					continue
+				}
+
+				// Build IGComment struct and wrapper
+				wrapper := struct {
+					IGComment IGComment `json:"ig_comment"`
+				}{
+					IGComment: IGComment{
+						Text: entry.Changes[0].Value.Text,
+						From: struct {
+							ID       string `json:"id,omitempty"`
+							Username string `json:"username,omitempty"`
+						}{
+							ID:       entry.Changes[0].Value.From.ID,
+							Username: entry.Changes[0].Value.From.Username,
+						},
+						Media: struct {
+							AdID             string `json:"ad_id,omitempty"`
+							ID               string `json:"id,omitempty"`
+							MediaProductType string `json:"media_product_type,omitempty"`
+							OriginalMediaID  string `json:"original_media_id,omitempty"`
+						}{
+							ID:               entry.Changes[0].Value.Media.ID,
+							AdID:             entry.Changes[0].Value.Media.AdID,
+							MediaProductType: entry.Changes[0].Value.Media.MediaProductType,
+							OriginalMediaID:  entry.Changes[0].Value.Media.OriginalMediaID,
+						},
+						Time: entry.Time,
+						ID:   entry.Changes[0].Value.ID,
+					},
+				}
+
+				// Marshal IGComment to JSON for metadata
+				metadataJSON, err := json.Marshal(wrapper)
+				if err != nil {
+					courier.LogRequestError(r, channel, err)
+				}
+				metadata := json.RawMessage(metadataJSON)
+
+				// Create message from comment
+				text := entry.Changes[0].Value.Text
+				urn, err := urns.NewInstagramURN(entry.Changes[0].Value.From.ID)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+
+				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithExternalID(entry.Changes[0].Value.ID).WithReceivedOn(time.Unix(0, entry.Time*1000000).UTC())
+				event := h.Backend().CheckExternalIDSeen(ev).WithMetadata(metadata)
+				err = h.Backend().WriteMsg(ctx, event)
+				if err != nil {
+					return nil, nil, err
+				}
+
+				h.Backend().WriteExternalIDSeen(event)
+				events = append(events, event)
+				data = append(data, courier.NewMsgReceiveData(event))
+
+			}
 			continue
 		}
 
@@ -887,6 +1454,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		return h.sendFacebookInstagramMsg(ctx, msg)
 	} else if msg.Channel().ChannelType() == "WAC" {
 		return h.sendCloudAPIWhatsappMsg(ctx, msg)
+	} else if msg.Channel().ChannelType() == "WCD" {
+		return h.sendCloudAPIWhatsappMsg(ctx, msg)
 	}
 
 	return nil, fmt.Errorf("unssuported channel type")
@@ -903,11 +1472,15 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 	payload := mtPayload{}
 
 	// set our message type
-	if msg.ResponseToExternalID() != "" {
+	if msg.ResponseToExternalID() != "" && msg.IGCommentID() == "" {
 		payload.MessagingType = "RESPONSE"
-	} else if topic != "" {
+	} else if topic != "" || msg.IGTag() != "" {
 		payload.MessagingType = "MESSAGE_TAG"
-		payload.Tag = tagByTopic[topic]
+		if topic != "" {
+			payload.Tag = tagByTopic[topic]
+		} else {
+			payload.Tag = msg.IGTag()
+		}
 	} else {
 		payload.MessagingType = "UPDATE"
 	}
@@ -1039,6 +1612,57 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 			status.SetStatus(courier.MsgWired)
 		}
 		return status, nil
+
+	} else if msg.IGCommentID() != "" && msg.Text() != "" {
+		var baseURL *url.URL
+		form := url.Values{}
+
+		commentID := msg.IGCommentID()
+		if msg.IGResponseType() == "comment" {
+			baseURL, _ = url.Parse(fmt.Sprintf(graphURL+"%s/replies", commentID))
+			form.Set("message", msg.Text())
+		} else if msg.IGResponseType() == "dm_comment" {
+			pageID := strconv.Itoa(msg.Channel().IntConfigForKey(courier.ConfigPageID, 0))
+			baseURL, _ = url.Parse(fmt.Sprintf(graphURL+"%s/messages", pageID))
+			query := baseURL.Query()
+			query.Set("recipient", fmt.Sprintf("{comment_id:%s}", commentID))
+			query.Set("message", fmt.Sprintf("{\"text\":\"%s\"}", strings.TrimSpace(msg.Text())))
+			baseURL.RawQuery = query.Encode()
+		}
+
+		query := baseURL.Query()
+		query.Set("access_token", accessToken)
+		baseURL.RawQuery = query.Encode()
+
+		req, _ := http.NewRequest(http.MethodPost, baseURL.String(), strings.NewReader(form.Encode()))
+		req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+		rr, err := utils.MakeHTTPRequest(req)
+
+		log := courier.NewChannelLogFromRR("Instagram Comment Reply", msg.Channel(), msg.ID(), rr)
+		if err != nil {
+			log = log.WithError("Instagram Comment Reply Error", err)
+			status.AddLog(log)
+			return status, err
+		}
+		status.AddLog(log)
+		if err != nil {
+			return status, nil
+		}
+		externalID, err := jsonparser.GetString(rr.Body, "id")
+		if err != nil {
+			// ID doesn't exist, let's try message_id
+			externalID, err = jsonparser.GetString(rr.Body, "message_id")
+			if err != nil {
+				log.WithError("Message Send Error", errors.Errorf("unable to get id or message_id from body"))
+				return status, nil
+			}
+		}
+
+		status.SetStatus(courier.MsgWired)
+		status.SetExternalID(externalID)
+
+		return status, nil
 	}
 
 	msgParts := make([]string, 0)
@@ -1166,8 +1790,9 @@ type wacMTMedia struct {
 }
 
 type wacMTSection struct {
-	Title string            `json:"title,omitempty"`
-	Rows  []wacMTSectionRow `json:"rows" validate:"required"`
+	Title        string             `json:"title,omitempty"`
+	Rows         []wacMTSectionRow  `json:"rows,omitempty"`
+	ProductItems []wacMTProductItem `json:"product_items,omitempty"`
 }
 
 type wacMTSectionRow struct {
@@ -1184,23 +1809,28 @@ type wacMTButton struct {
 	} `json:"reply" validate:"required"`
 }
 
+type wacMTAction struct {
+	OrderDetails *wacOrderDetails `json:"order_details,omitempty"`
+}
+
 type wacParam struct {
-	Type     string      `json:"type"`
-	Text     string      `json:"text,omitempty"`
-	Image    *wacMTMedia `json:"image,omitempty"`
-	Document *wacMTMedia `json:"document,omitempty"`
-	Video    *wacMTMedia `json:"video,omitempty"`
+	Type     string       `json:"type"`
+	Text     string       `json:"text,omitempty"`
+	Image    *wacMTMedia  `json:"image,omitempty"`
+	Document *wacMTMedia  `json:"document,omitempty"`
+	Video    *wacMTMedia  `json:"video,omitempty"`
+	Action   *wacMTAction `json:"action,omitempty"`
 }
 
 type wacComponent struct {
 	Type    string      `json:"type"`
 	SubType string      `json:"sub_type,omitempty"`
-	Index   string      `json:"index,omitempty"`
+	Index   *int        `json:"index,omitempty"`
 	Params  []*wacParam `json:"parameters"`
 }
 
 type wacText struct {
-	Body       string `json:"body"`
+	Body       string `json:"body,omitempty"`
 	PreviewURL bool   `json:"preview_url,omitempty"`
 }
 
@@ -1215,29 +1845,37 @@ type wacTemplate struct {
 	Components []*wacComponent `json:"components"`
 }
 
-type wacInteractive struct {
+type wacInteractiveActionParams interface {
+	~map[string]any | wacOrderDetails
+}
+
+type wacInteractive[P wacInteractiveActionParams] struct {
 	Type   string `json:"type"`
 	Header *struct {
-		Type     string     `json:"type"`
-		Text     string     `json:"text,omitempty"`
-		Video    wacMTMedia `json:"video,omitempty"`
-		Image    wacMTMedia `json:"image,omitempty"`
-		Document wacMTMedia `json:"document,omitempty"`
+		Type     string      `json:"type"`
+		Text     string      `json:"text,omitempty"`
+		Video    *wacMTMedia `json:"video,omitempty"`
+		Image    *wacMTMedia `json:"image,omitempty"`
+		Document *wacMTMedia `json:"document,omitempty"`
 	} `json:"header,omitempty"`
 	Body struct {
 		Text string `json:"text"`
-	} `json:"body" validate:"required"`
+	} `json:"body,omitempty"`
 	Footer *struct {
-		Text string `json:"text"`
+		Text string `json:"text,omitempty"`
 	} `json:"footer,omitempty"`
 	Action *struct {
-		Button   string         `json:"button,omitempty"`
-		Sections []wacMTSection `json:"sections,omitempty"`
-		Buttons  []wacMTButton  `json:"buttons,omitempty"`
+		Button            string         `json:"button,omitempty"`
+		Sections          []wacMTSection `json:"sections,omitempty"`
+		Buttons           []wacMTButton  `json:"buttons,omitempty"`
+		CatalogID         string         `json:"catalog_id,omitempty"`
+		ProductRetailerID string         `json:"product_retailer_id,omitempty"`
+		Name              string         `json:"name,omitempty"`
+		Parameters        P              `json:"parameters,omitempty"`
 	} `json:"action,omitempty"`
 }
 
-type wacMTPayload struct {
+type wacMTPayload[P wacInteractiveActionParams] struct {
 	MessagingProduct string `json:"messaging_product"`
 	RecipientType    string `json:"recipient_type"`
 	To               string `json:"to"`
@@ -1249,8 +1887,9 @@ type wacMTPayload struct {
 	Image    *wacMTMedia `json:"image,omitempty"`
 	Audio    *wacMTMedia `json:"audio,omitempty"`
 	Video    *wacMTMedia `json:"video,omitempty"`
+	Sticker  *wacMTMedia `json:"sticker,omitempty"`
 
-	Interactive *wacInteractive `json:"interactive,omitempty"`
+	Interactive *wacInteractive[P] `json:"interactive,omitempty"`
 
 	Template *wacTemplate `json:"template,omitempty"`
 }
@@ -1265,43 +1904,139 @@ type wacMTResponse struct {
 	} `json:"contacts,omitempty"`
 }
 
+type wacMTSectionProduct struct {
+	Title string `json:"title,omitempty"`
+}
+
+type wacMTProductItem struct {
+	ProductRetailerID string `json:"product_retailer_id" validate:"required"`
+}
+
+type wacOrderDetailsPixDynamicCode struct {
+	Code         string `json:"code" validate:"required"`
+	MerchantName string `json:"merchant_name" validate:"required"`
+	Key          string `json:"key" validate:"required"`
+	KeyType      string `json:"key_type" validate:"required"`
+}
+
+type wacOrderDetailsPaymentLink struct {
+	URI string `json:"uri" validate:"required"`
+}
+
+type wacOrderDetailsOffsiteCardPay struct {
+	LastFourDigits string `json:"last_four_digits" validate:"required"`
+	CredentialID   string `json:"credential_id" validate:"required"`
+}
+
+type wacOrderDetailsPaymentSetting struct {
+	Type           string                         `json:"type" validate:"required"`
+	PaymentLink    *wacOrderDetailsPaymentLink    `json:"payment_link,omitempty"`
+	PixDynamicCode *wacOrderDetailsPixDynamicCode `json:"pix_dynamic_code,omitempty"`
+	OffsiteCardPay *wacOrderDetailsOffsiteCardPay `json:"offsite_card_pay,omitempty"`
+}
+
+type wacOrderDetails struct {
+	ReferenceID     string                          `json:"reference_id" validate:"required"`
+	Type            string                          `json:"type" validate:"required"`
+	PaymentType     string                          `json:"payment_type" validate:"required"`
+	PaymentSettings []wacOrderDetailsPaymentSetting `json:"payment_settings" validate:"required"`
+	Currency        string                          `json:"currency" validate:"required"`
+	TotalAmount     wacAmountWithOffset             `json:"total_amount" validate:"required"`
+	Order           wacOrder                        `json:"order" validate:"required"`
+}
+
+type wacOrder struct {
+	Status    string               `json:"status" validate:"required"`
+	CatalogID string               `json:"catalog_id,omitempty"`
+	Items     []courier.OrderItem  `json:"items" validate:"required"`
+	Subtotal  wacAmountWithOffset  `json:"subtotal" validate:"required"`
+	Tax       wacAmountWithOffset  `json:"tax" validate:"required"`
+	Shipping  *wacAmountWithOffset `json:"shipping,omitempty"`
+	Discount  *wacAmountWithOffset `json:"discount,omitempty"`
+}
+
+type wacAmountWithOffset struct {
+	Value               int    `json:"value"`
+	Offset              int    `json:"offset"`
+	Description         string `json:"description,omitempty"`
+	DiscountProgramName string `json:"discount_program_name,omitempty"`
+}
+
+type wacFlowActionPayload struct {
+	Data   map[string]interface{} `json:"data,omitempty"`
+	Screen string                 `json:"screen"`
+}
+
 func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
 	// can't do anything without an access token
 	accessToken := h.Server().Config().WhatsappAdminSystemUserToken
+	userAccessToken := msg.Channel().StringConfigForKey(courier.ConfigUserToken, "")
+
+	// check that userAccessToken is not empty
+	token := accessToken
+	if userAccessToken != "" {
+		token = userAccessToken
+	}
 
 	start := time.Now()
 	hasNewURN := false
 	hasCaption := false
 
+	// Set the base URL and path based on whether we're using marketing messages or not
+	demoURL := msg.Channel().StringConfigForKey("demo_url", "")
+
+	if demoURL != "" {
+		graphURL = demoURL
+	}
+
+	// Check if we should use marketing messages
+	mmliteEnabled := msg.Channel().BoolConfigForKey("mmlite", false)
+
+	// Check if the message is a marketing template by examining metadata
+	isMarketingTemplate := false
+	var err error
+	templating, err := h.getTemplate(msg)
+	if err == nil && templating != nil {
+		// Check if template category is "MARKETING" in the template category
+		// This is how Meta identifies marketing templates
+		isMarketingTemplate = strings.ToUpper(templating.Template.Category) == "MARKETING"
+	} else if err != nil {
+		return nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())
+	}
+
+	// Only use marketing messages endpoint if mmlite is enabled AND it's a marketing template
+	useMarketingMessages := mmliteEnabled && isMarketingTemplate
+
 	base, _ := url.Parse(graphURL)
-	path, _ := url.Parse(fmt.Sprintf("/%s/messages", msg.Channel().Address()))
+	var path *url.URL
+	if useMarketingMessages {
+		path, _ = url.Parse(fmt.Sprintf("/%s/marketing_messages", msg.Channel().Address()))
+	} else {
+		path, _ = url.Parse(fmt.Sprintf("/%s/messages", msg.Channel().Address()))
+	}
 	wacPhoneURL := base.ResolveReference(path)
 
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
 
 	msgParts := make([]string, 0)
 	if msg.Text() != "" {
-		msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthWAC)
+		if len(msg.ListMessage().ListItems) > 0 || len(msg.QuickReplies()) > 0 || msg.InteractionType() == "location" {
+			msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthInteractiveWAC)
+		} else {
+			msgParts = handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLengthWAC)
+		}
 	}
 	qrs := msg.QuickReplies()
 
-	var payloadAudio wacMTPayload
+	var payloadAudio wacMTPayload[map[string]any]
 
 	for i := 0; i < len(msgParts)+len(msg.Attachments()); i++ {
-		payload := wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path()}
+		payload := wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path()}
 
 		// do we have a template?
-		var templating *MsgTemplating
-		templating, err := h.getTemplate(msg)
 		if templating != nil || len(msg.Attachments()) == 0 {
-
-			if err != nil {
-				return nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())
-			}
 			if templating != nil {
-
 				payload.Type = "template"
-
 				template := wacTemplate{Name: templating.Template.Name, Language: &wacLanguage{Policy: "deterministic", Code: templating.Language}}
 				payload.Template = &template
 
@@ -1318,7 +2053,18 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					header := &wacComponent{Type: "header"}
 
 					attType, attURL := handlers.SplitAttachment(msg.Attachments()[0])
+					fileURL := attURL
+					mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
+					for _, log := range mediaLogs {
+						status.AddLog(log)
+					}
+					if err != nil {
+						status.AddLog(courier.NewChannelLogFromError("error on fetch media ID", msg.Channel(), msg.ID(), time.Since(start), err))
+					} else if mediaID != "" {
+						attURL = ""
+					}
 					attType = strings.Split(attType, "/")[0]
+
 					parsedURL, err := url.Parse(attURL)
 					if err != nil {
 						return status, err
@@ -1327,13 +2073,14 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					if attType == "application" {
 						attType = "document"
 					}
-					media := wacMTMedia{Link: parsedURL.String()}
+
+					media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
 					if attType == "image" {
 						header.Params = append(header.Params, &wacParam{Type: "image", Image: &media})
 					} else if attType == "video" {
 						header.Params = append(header.Params, &wacParam{Type: "video", Video: &media})
 					} else if attType == "document" {
-						media.Filename, err = utils.BasePathForURL(attURL)
+						media.Filename, err = utils.BasePathForURL(fileURL)
 						if err != nil {
 							return nil, err
 						}
@@ -1344,24 +2091,78 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					payload.Template.Components = append(payload.Template.Components, header)
 				}
 
+				if msg.OrderDetailsMessage() != nil {
+					index := 0
+					button := &wacComponent{Type: "button", SubType: "order_details", Index: &index}
+
+					paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
+
+					mountedOrderDetails := mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount)
+					if mountedOrderDetails == nil {
+						return status, fmt.Errorf("failed to mount order details")
+					}
+
+					param := wacParam{
+						Type: "action",
+						Action: &wacMTAction{
+							OrderDetails: mountedOrderDetails,
+						},
+					}
+
+					button.Params = append(button.Params, &param)
+					payload.Template.Components = append(payload.Template.Components, button)
+				}
+
+				if len(msg.Buttons()) > 0 {
+					for i, button := range msg.Buttons() {
+						buttonComponent := &wacComponent{Type: "button", SubType: button.SubType, Index: &i}
+
+						for _, parameter := range button.Parameters {
+							buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: parameter.Type, Text: parameter.Text})
+						}
+
+						payload.Template.Components = append(payload.Template.Components, buttonComponent)
+					}
+				}
+
 			} else {
 				if i < (len(msgParts) + len(msg.Attachments()) - 1) {
-					// this is still a msg part
-					text := &wacText{}
 					payload.Type = "text"
 					if strings.Contains(msgParts[i-len(msg.Attachments())], "https://") || strings.Contains(msgParts[i-len(msg.Attachments())], "http://") {
+						text := wacText{}
 						text.PreviewURL = true
+						text.Body = msgParts[i-len(msg.Attachments())]
+						payload.Text = &text
+					} else {
+						payload.Text = &wacText{Body: msgParts[i-len(msg.Attachments())]}
 					}
-					text.Body = msgParts[i-len(msg.Attachments())]
-					payload.Text = text
 				} else {
-					if len(qrs) > 0 {
+					if len(qrs) > 0 || len(msg.ListMessage().ListItems) > 0 {
 						payload.Type = "interactive"
 						// We can use buttons
-						if len(qrs) <= 3 {
-							interactive := wacInteractive{Type: "button", Body: struct {
-								Text string "json:\"text\""
-							}{Text: msgParts[i-len(msg.Attachments())]}}
+						if len(qrs) > 0 && len(qrs) <= 3 {
+							interactive := wacInteractive[map[string]any]{
+								Type: "button",
+								Body: struct {
+									Text string "json:\"text\""
+								}{Text: msgParts[i-len(msg.Attachments())]},
+							}
+
+							if msg.Footer() != "" {
+								interactive.Footer = &struct {
+									Text string "json:\"text,omitempty\""
+								}{Text: parseBacklashes(msg.Footer())}
+							}
+
+							if msg.HeaderText() != "" {
+								interactive.Header = &struct {
+									Type     string      "json:\"type\""
+									Text     string      "json:\"text,omitempty\""
+									Video    *wacMTMedia "json:\"video,omitempty\""
+									Image    *wacMTMedia "json:\"image,omitempty\""
+									Document *wacMTMedia "json:\"document,omitempty\""
+								}{Type: "text", Text: parseBacklashes(msg.HeaderText())}
+							}
 
 							btns := make([]wacMTButton, len(qrs))
 							for i, qr := range qrs {
@@ -1369,40 +2170,244 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 									Type: "reply",
 								}
 								btns[i].Reply.ID = fmt.Sprint(i)
-								btns[i].Reply.Title = qr
+								var text string
+								if strings.Contains(qr, "\\/") {
+									text = strings.Replace(qr, "\\", "", -1)
+								} else if strings.Contains(qr, "\\\\") {
+									text = strings.Replace(qr, "\\\\", "\\", -1)
+								} else {
+									text = qr
+								}
+								btns[i].Reply.Title = text
 							}
 							interactive.Action = &struct {
-								Button   string         "json:\"button,omitempty\""
-								Sections []wacMTSection "json:\"sections,omitempty\""
-								Buttons  []wacMTButton  "json:\"buttons,omitempty\""
+								Button            string                 "json:\"button,omitempty\""
+								Sections          []wacMTSection         "json:\"sections,omitempty\""
+								Buttons           []wacMTButton          "json:\"buttons,omitempty\""
+								CatalogID         string                 "json:\"catalog_id,omitempty\""
+								ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
+								Name              string                 "json:\"name,omitempty\""
+								Parameters        map[string]interface{} "json:\"parameters,omitempty\""
 							}{Buttons: btns}
 							payload.Interactive = &interactive
-						} else if len(qrs) <= 10 {
-							interactive := wacInteractive{Type: "list", Body: struct {
-								Text string "json:\"text\""
-							}{Text: msgParts[i-len(msg.Attachments())]}}
-
-							section := wacMTSection{
-								Rows: make([]wacMTSectionRow, len(qrs)),
+						} else if len(qrs) <= 10 || len(msg.ListMessage().ListItems) > 0 {
+							interactive := wacInteractive[map[string]any]{
+								Type: "list",
+								Body: struct {
+									Text string "json:\"text\""
+								}{Text: msgParts[i-len(msg.Attachments())]},
 							}
-							for i, qr := range qrs {
-								section.Rows[i] = wacMTSectionRow{
-									ID:    fmt.Sprint(i),
-									Title: qr,
+
+							var section wacMTSection
+
+							if len(qrs) > 0 {
+								section = wacMTSection{
+									Rows: make([]wacMTSectionRow, len(qrs)),
+								}
+								for i, qr := range qrs {
+									text := parseBacklashes(qr)
+									section.Rows[i] = wacMTSectionRow{
+										ID:    fmt.Sprint(i),
+										Title: text,
+									}
+								}
+							} else if len(msg.ListMessage().ListItems) > 0 {
+								section = wacMTSection{
+									Rows: make([]wacMTSectionRow, len(msg.ListMessage().ListItems)),
+								}
+								for i, listItem := range msg.ListMessage().ListItems {
+									titleText := parseBacklashes(listItem.Title)
+									descriptionText := parseBacklashes(listItem.Description)
+									section.Rows[i] = wacMTSectionRow{
+										ID:          listItem.UUID,
+										Title:       titleText,
+										Description: descriptionText,
+									}
+								}
+								if msg.Footer() != "" {
+									interactive.Footer = &struct {
+										Text string "json:\"text,omitempty\""
+									}{Text: parseBacklashes(msg.Footer())}
+								}
+
+								if msg.HeaderText() != "" {
+									interactive.Header = &struct {
+										Type     string      "json:\"type\""
+										Text     string      "json:\"text,omitempty\""
+										Video    *wacMTMedia "json:\"video,omitempty\""
+										Image    *wacMTMedia "json:\"image,omitempty\""
+										Document *wacMTMedia "json:\"document,omitempty\""
+									}{Type: "text", Text: parseBacklashes(msg.HeaderText())}
 								}
 							}
 
 							interactive.Action = &struct {
-								Button   string         "json:\"button,omitempty\""
-								Sections []wacMTSection "json:\"sections,omitempty\""
-								Buttons  []wacMTButton  "json:\"buttons,omitempty\""
+								Button            string                 "json:\"button,omitempty\""
+								Sections          []wacMTSection         "json:\"sections,omitempty\""
+								Buttons           []wacMTButton          "json:\"buttons,omitempty\""
+								CatalogID         string                 "json:\"catalog_id,omitempty\""
+								ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
+								Name              string                 "json:\"name,omitempty\""
+								Parameters        map[string]interface{} "json:\"parameters,omitempty\""
 							}{Button: "Menu", Sections: []wacMTSection{
 								section,
 							}}
 
+							if msg.ListMessage().ButtonText != "" {
+								interactive.Action.Button = msg.ListMessage().ButtonText
+							} else if msg.TextLanguage() != "" {
+								interactive.Action.Button = languageMenuMap[msg.TextLanguage()]
+							}
+
 							payload.Interactive = &interactive
 						} else {
 							return nil, fmt.Errorf("too many quick replies WAC supports only up to 10 quick replies")
+						}
+					} else if msg.InteractionType() == "location" {
+						payload.Type = "interactive"
+						interactive := wacInteractive[map[string]any]{
+							Type: "location_request_message",
+							Body: struct {
+								Text string "json:\"text\""
+							}{Text: msgParts[i-len(msg.Attachments())]},
+							Action: &struct {
+								Button            string                 "json:\"button,omitempty\""
+								Sections          []wacMTSection         "json:\"sections,omitempty\""
+								Buttons           []wacMTButton          "json:\"buttons,omitempty\""
+								CatalogID         string                 "json:\"catalog_id,omitempty\""
+								ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
+								Name              string                 "json:\"name,omitempty\""
+								Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+							}{Name: "send_location"},
+						}
+
+						payload.Interactive = &interactive
+					} else if msg.InteractionType() == "cta_url" {
+						if ctaMessage := msg.CTAMessage(); ctaMessage != nil {
+							payload.Type = "interactive"
+							interactive := wacInteractive[map[string]any]{
+								Type: "cta_url",
+								Body: struct {
+									Text string "json:\"text\""
+								}{Text: msgParts[i-len(msg.Attachments())]},
+								Action: &struct {
+									Button            string                 "json:\"button,omitempty\""
+									Sections          []wacMTSection         "json:\"sections,omitempty\""
+									Buttons           []wacMTButton          "json:\"buttons,omitempty\""
+									CatalogID         string                 "json:\"catalog_id,omitempty\""
+									ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
+									Name              string                 "json:\"name,omitempty\""
+									Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+								}{
+									Name: "cta_url",
+									Parameters: map[string]interface{}{
+										"display_text": parseBacklashes(ctaMessage.DisplayText),
+										"url":          ctaMessage.URL,
+									},
+								},
+							}
+							if msg.Footer() != "" {
+								interactive.Footer = &struct {
+									Text string "json:\"text,omitempty\""
+								}{Text: parseBacklashes(msg.Footer())}
+							}
+
+							if msg.HeaderText() != "" {
+								interactive.Header = &struct {
+									Type     string      "json:\"type\""
+									Text     string      "json:\"text,omitempty\""
+									Video    *wacMTMedia "json:\"video,omitempty\""
+									Image    *wacMTMedia "json:\"image,omitempty\""
+									Document *wacMTMedia "json:\"document,omitempty\""
+								}{Type: "text", Text: parseBacklashes(msg.HeaderText())}
+							}
+							payload.Interactive = &interactive
+						}
+					} else if msg.InteractionType() == "flow_msg" {
+						if flowMessage := msg.FlowMessage(); flowMessage != nil {
+							payload.Type = "interactive"
+							interactive := wacInteractive[map[string]any]{
+								Type: "flow",
+								Body: struct {
+									Text string "json:\"text\""
+								}{Text: msgParts[i-len(msg.Attachments())]},
+								Action: &struct {
+									Button            string                 "json:\"button,omitempty\""
+									Sections          []wacMTSection         "json:\"sections,omitempty\""
+									Buttons           []wacMTButton          "json:\"buttons,omitempty\""
+									CatalogID         string                 "json:\"catalog_id,omitempty\""
+									ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
+									Name              string                 "json:\"name,omitempty\""
+									Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+								}{
+									Name: "flow",
+									Parameters: map[string]interface{}{
+										"mode":                 flowMessage.FlowMode,
+										"flow_message_version": "3",
+										"flow_token":           uuids.New(),
+										"flow_id":              flowMessage.FlowID,
+										"flow_cta":             flowMessage.FlowCTA,
+										"flow_action":          "navigate",
+										"flow_action_payload": wacFlowActionPayload{
+											Screen: flowMessage.FlowScreen,
+											Data:   flowMessage.FlowData,
+										},
+									},
+								},
+							}
+							if msg.Footer() != "" {
+								interactive.Footer = &struct {
+									Text string "json:\"text,omitempty\""
+								}{Text: parseBacklashes(msg.Footer())}
+							}
+
+							if msg.HeaderText() != "" {
+								interactive.Header = &struct {
+									Type     string      "json:\"type\""
+									Text     string      "json:\"text,omitempty\""
+									Video    *wacMTMedia "json:\"video,omitempty\""
+									Image    *wacMTMedia "json:\"image,omitempty\""
+									Document *wacMTMedia "json:\"document,omitempty\""
+								}{Type: "text", Text: parseBacklashes(msg.HeaderText())}
+							}
+							payload.Interactive = &interactive
+						}
+					} else if msg.InteractionType() == "order_details" {
+						if orderDetails := msg.OrderDetailsMessage(); orderDetails != nil {
+							payload.Type = "interactive"
+
+							paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
+
+							mountedOrderDetails := mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount)
+							if mountedOrderDetails == nil {
+								return status, fmt.Errorf("failed to mount order details")
+							}
+
+							interactive := wacInteractive[wacOrderDetails]{
+								Type: "order_details",
+								Body: struct {
+									Text string "json:\"text\""
+								}{Text: msgParts[i-len(msg.Attachments())]},
+								Action: &struct {
+									Button            string          "json:\"button,omitempty\""
+									Sections          []wacMTSection  "json:\"sections,omitempty\""
+									Buttons           []wacMTButton   "json:\"buttons,omitempty\""
+									CatalogID         string          "json:\"catalog_id,omitempty\""
+									ProductRetailerID string          "json:\"product_retailer_id,omitempty\""
+									Name              string          "json:\"name,omitempty\""
+									Parameters        wacOrderDetails "json:\"parameters,omitempty\""
+								}{
+									Name:       "review_and_pay",
+									Parameters: *mountedOrderDetails,
+								},
+							}
+							if msg.Footer() != "" {
+								interactive.Footer = &struct {
+									Text string "json:\"text,omitempty\""
+								}{Text: parseBacklashes(msg.Footer())}
+							}
+
+							payload.Interactive = castInteractive[wacOrderDetails, map[string]any](interactive)
 						}
 					} else {
 						// this is still a msg part
@@ -1417,9 +2422,28 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				}
 			}
 
-		} else if i < len(msg.Attachments()) && len(qrs) == 0 || len(qrs) > 3 && i < len(msg.Attachments()) {
+		} else if (i < len(msg.Attachments()) && len(qrs) == 0 && len(msg.ListMessage().ListItems) == 0 && msg.InteractionType() != "order_details") ||
+			len(qrs) > 3 && i < len(msg.Attachments()) ||
+			len(msg.ListMessage().ListItems) > 0 && i < len(msg.Attachments()) {
 			attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
-			attType = strings.Split(attType, "/")[0]
+			fileURL := attURL
+
+			splitedAttType := strings.Split(attType, "/")
+			attType = splitedAttType[0]
+			attFormat := ""
+			if len(splitedAttType) > 1 {
+				attFormat = splitedAttType[1]
+			}
+
+			mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
+			for _, log := range mediaLogs {
+				status.AddLog(log)
+			}
+			if err != nil {
+				status.AddLog(courier.NewChannelLogFromError("error on fetch media ID", msg.Channel(), msg.ID(), time.Since(start), err))
+			} else if mediaID != "" {
+				attURL = ""
+			}
 			parsedURL, err := url.Parse(attURL)
 			if err != nil {
 				return status, err
@@ -1429,87 +2453,104 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				attType = "document"
 			}
 			payload.Type = attType
-			media := wacMTMedia{Link: parsedURL.String()}
-			if len(msgParts) == 1 && attType != "audio" && len(msg.Attachments()) == 1 && len(msg.QuickReplies()) == 0 {
+			media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
+			if len(msgParts) == 1 && (attType != "audio" && attFormat != "webp") && len(msg.Attachments()) == 1 && len(msg.QuickReplies()) == 0 && len(msg.ListMessage().ListItems) == 0 {
 				media.Caption = msgParts[i]
 				hasCaption = true
 			}
 
-			if attType == "image" {
-				payload.Image = &media
-			} else if attType == "audio" {
+			switch attType {
+			case "image":
+				if attFormat == "webp" {
+					payload.Sticker = &media
+					payload.Type = "sticker"
+				} else {
+					payload.Image = &media
+				}
+			case "audio":
 				payload.Audio = &media
-			} else if attType == "video" {
+			case "video":
 				payload.Video = &media
-			} else if attType == "document" {
-				media.Filename, err = utils.BasePathForURL(attURL)
+			case "document":
+				media.Filename, err = utils.BasePathForURL(fileURL)
 				if err != nil {
 					return nil, err
 				}
 				payload.Document = &media
 			}
-		} else {
-			if len(qrs) > 0 {
+			//end
+		} else { // have attachment
+			if len(qrs) > 0 || len(msg.ListMessage().ListItems) > 0 {
 				payload.Type = "interactive"
 				// We can use buttons
-				if len(qrs) <= 3 {
+				if len(qrs) <= 3 && len(msg.ListMessage().ListItems) == 0 {
 					hasCaption = true
-					interactive := wacInteractive{Type: "button", Body: struct {
-						Text string "json:\"text\""
-					}{Text: msgParts[i]}}
+
+					if len(msgParts) == 0 {
+						return nil, fmt.Errorf("message body cannot be empty")
+					}
+
+					interactive := wacInteractive[map[string]any]{
+						Type: "button",
+						Body: struct {
+							Text string "json:\"text\""
+						}{Text: msgParts[i]},
+					}
 
 					if len(msg.Attachments()) > 0 {
 						attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
+						fileURL := attURL
+						mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
+						for _, log := range mediaLogs {
+							status.AddLog(log)
+						}
+						if err != nil {
+							status.AddLog(courier.NewChannelLogFromError("error on fetch media ID", msg.Channel(), msg.ID(), time.Since(start), err))
+						} else if mediaID != "" {
+							attURL = ""
+						}
 						attType = strings.Split(attType, "/")[0]
 
 						if attType == "application" {
 							attType = "document"
 						}
+						media := wacMTMedia{ID: mediaID, Link: attURL}
 						if attType == "image" {
-							image := wacMTMedia{
-								Link: attURL,
-							}
 							interactive.Header = &struct {
-								Type     string     "json:\"type\""
-								Text     string     "json:\"text,omitempty\""
-								Video    wacMTMedia "json:\"video,omitempty\""
-								Image    wacMTMedia "json:\"image,omitempty\""
-								Document wacMTMedia "json:\"document,omitempty\""
-							}{Type: "image", Image: image}
+								Type     string      "json:\"type\""
+								Text     string      "json:\"text,omitempty\""
+								Video    *wacMTMedia "json:\"video,omitempty\""
+								Image    *wacMTMedia "json:\"image,omitempty\""
+								Document *wacMTMedia "json:\"document,omitempty\""
+							}{Type: "image", Image: &media}
 						} else if attType == "video" {
-							video := wacMTMedia{
-								Link: attURL,
-							}
 							interactive.Header = &struct {
-								Type     string     "json:\"type\""
-								Text     string     "json:\"text,omitempty\""
-								Video    wacMTMedia "json:\"video,omitempty\""
-								Image    wacMTMedia "json:\"image,omitempty\""
-								Document wacMTMedia "json:\"document,omitempty\""
-							}{Type: "video", Video: video}
+								Type     string      "json:\"type\""
+								Text     string      "json:\"text,omitempty\""
+								Video    *wacMTMedia "json:\"video,omitempty\""
+								Image    *wacMTMedia "json:\"image,omitempty\""
+								Document *wacMTMedia "json:\"document,omitempty\""
+							}{Type: "video", Video: &media}
 						} else if attType == "document" {
-							filename, err := utils.BasePathForURL(attURL)
+							filename, err := utils.BasePathForURL(fileURL)
 							if err != nil {
 								return nil, err
 							}
-							document := wacMTMedia{
-								Link:     attURL,
-								Filename: filename,
-							}
+							media.Filename = filename
 							interactive.Header = &struct {
-								Type     string     "json:\"type\""
-								Text     string     "json:\"text,omitempty\""
-								Video    wacMTMedia "json:\"video,omitempty\""
-								Image    wacMTMedia "json:\"image,omitempty\""
-								Document wacMTMedia "json:\"document,omitempty\""
-							}{Type: "document", Document: document}
+								Type     string      "json:\"type\""
+								Text     string      "json:\"text,omitempty\""
+								Video    *wacMTMedia "json:\"video,omitempty\""
+								Image    *wacMTMedia "json:\"image,omitempty\""
+								Document *wacMTMedia "json:\"document,omitempty\""
+							}{Type: "document", Document: &media}
 						} else if attType == "audio" {
 							var zeroIndex bool
 							if i == 0 {
 								zeroIndex = true
 							}
-							payloadAudio = wacMTPayload{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path(), Type: "audio", Audio: &wacMTMedia{Link: attURL}}
-							status, _, err := requestWAC(payloadAudio, accessToken, msg, status, wacPhoneURL, zeroIndex)
+							payloadAudio = wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path(), Type: "audio", Audio: &wacMTMedia{ID: mediaID, Link: attURL}}
+							status, _, err := requestWAC(payloadAudio, token, msg, status, wacPhoneURL, zeroIndex, useMarketingMessages)
 							if err != nil {
 								return status, nil
 							}
@@ -1525,41 +2566,246 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							Type: "reply",
 						}
 						btns[i].Reply.ID = fmt.Sprint(i)
-						btns[i].Reply.Title = qr
+						text := parseBacklashes(qr)
+						btns[i].Reply.Title = text
 					}
 					interactive.Action = &struct {
-						Button   string         "json:\"button,omitempty\""
-						Sections []wacMTSection "json:\"sections,omitempty\""
-						Buttons  []wacMTButton  "json:\"buttons,omitempty\""
+						Button            string                 "json:\"button,omitempty\""
+						Sections          []wacMTSection         "json:\"sections,omitempty\""
+						Buttons           []wacMTButton          "json:\"buttons,omitempty\""
+						CatalogID         string                 "json:\"catalog_id,omitempty\""
+						ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
+						Name              string                 "json:\"name,omitempty\""
+						Parameters        map[string]interface{} "json:\"parameters,omitempty\""
 					}{Buttons: btns}
 					payload.Interactive = &interactive
-
-				} else if len(qrs) <= 10 {
-					interactive := wacInteractive{Type: "list", Body: struct {
-						Text string "json:\"text\""
-					}{Text: msgParts[i-len(msg.Attachments())]}}
-
-					section := wacMTSection{
-						Rows: make([]wacMTSectionRow, len(qrs)),
+					if msg.Footer() != "" {
+						payload.Interactive.Footer = &struct {
+							Text string "json:\"text,omitempty\""
+						}{Text: parseBacklashes(msg.Footer())}
 					}
-					for i, qr := range qrs {
-						section.Rows[i] = wacMTSectionRow{
-							ID:    fmt.Sprint(i),
-							Title: qr,
+				} else if len(qrs) <= 10 || len(msg.ListMessage().ListItems) > 0 {
+					interactive := wacInteractive[map[string]any]{
+						Type: "list",
+						Body: struct {
+							Text string "json:\"text\""
+						}{Text: msgParts[i-len(msg.Attachments())]},
+					}
+
+					var section wacMTSection
+
+					if len(qrs) > 0 {
+						section = wacMTSection{
+							Rows: make([]wacMTSectionRow, len(qrs)),
+						}
+						for i, qr := range qrs {
+							text := parseBacklashes(qr)
+							section.Rows[i] = wacMTSectionRow{
+								ID:    fmt.Sprint(i),
+								Title: text,
+							}
+						}
+					} else {
+						section = wacMTSection{
+							Rows: make([]wacMTSectionRow, len(msg.ListMessage().ListItems)),
+						}
+						for i, listItem := range msg.ListMessage().ListItems {
+							titleText := parseBacklashes(listItem.Title)
+							descriptionText := parseBacklashes(listItem.Description)
+							section.Rows[i] = wacMTSectionRow{
+								ID:          listItem.UUID,
+								Title:       titleText,
+								Description: descriptionText,
+							}
+						}
+						if msg.Footer() != "" {
+							interactive.Footer = &struct {
+								Text string "json:\"text,omitempty\""
+							}{Text: parseBacklashes(msg.Footer())}
 						}
 					}
 
 					interactive.Action = &struct {
-						Button   string         "json:\"button,omitempty\""
-						Sections []wacMTSection "json:\"sections,omitempty\""
-						Buttons  []wacMTButton  "json:\"buttons,omitempty\""
+						Button            string                 "json:\"button,omitempty\""
+						Sections          []wacMTSection         "json:\"sections,omitempty\""
+						Buttons           []wacMTButton          "json:\"buttons,omitempty\""
+						CatalogID         string                 "json:\"catalog_id,omitempty\""
+						ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
+						Name              string                 "json:\"name,omitempty\""
+						Parameters        map[string]interface{} "json:\"parameters,omitempty\""
 					}{Button: "Menu", Sections: []wacMTSection{
 						section,
 					}}
 
+					if msg.ListMessage().ButtonText != "" {
+						interactive.Action.Button = msg.ListMessage().ButtonText
+					} else if msg.TextLanguage() != "" {
+						interactive.Action.Button = languageMenuMap[msg.TextLanguage()]
+					}
+
 					payload.Interactive = &interactive
 				} else {
 					return nil, fmt.Errorf("too many quick replies WAC supports only up to 10 quick replies")
+				}
+			} else if msg.InteractionType() == "location" { // Unreachable due to else if sending only the attachment
+				interactive := wacInteractive[map[string]any]{Type: "location_request_message", Body: struct {
+					Text string "json:\"text\""
+				}{Text: msgParts[i-len(msg.Attachments())]}, Action: &struct {
+					Button            string                 "json:\"button,omitempty\""
+					Sections          []wacMTSection         "json:\"sections,omitempty\""
+					Buttons           []wacMTButton          "json:\"buttons,omitempty\""
+					CatalogID         string                 "json:\"catalog_id,omitempty\""
+					ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
+					Name              string                 "json:\"name,omitempty\""
+					Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+				}{Name: "send_location"}}
+
+				payload.Interactive = &interactive
+			} else if msg.InteractionType() == "cta_url" { // Unreachable due to else if sending only the attachment
+				if ctaMessage := msg.CTAMessage(); ctaMessage != nil {
+					interactive := wacInteractive[map[string]any]{
+						Type: "cta_url",
+						Body: struct {
+							Text string "json:\"text\""
+						}{Text: msgParts[i-len(msg.Attachments())]},
+						Action: &struct {
+							Button            string                 "json:\"button,omitempty\""
+							Sections          []wacMTSection         "json:\"sections,omitempty\""
+							Buttons           []wacMTButton          "json:\"buttons,omitempty\""
+							CatalogID         string                 "json:\"catalog_id,omitempty\""
+							ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
+							Name              string                 "json:\"name,omitempty\""
+							Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+						}{
+							Name: "cta_url",
+							Parameters: map[string]interface{}{
+								"display_text": parseBacklashes(ctaMessage.DisplayText),
+								"url":          ctaMessage.URL,
+							},
+						},
+					}
+
+					if msg.Footer() != "" {
+						interactive.Footer = &struct {
+							Text string "json:\"text,omitempty\""
+						}{Text: parseBacklashes(msg.Footer())}
+					}
+
+					if msg.HeaderText() != "" {
+						interactive.Header = &struct {
+							Type     string      "json:\"type\""
+							Text     string      "json:\"text,omitempty\""
+							Video    *wacMTMedia "json:\"video,omitempty\""
+							Image    *wacMTMedia "json:\"image,omitempty\""
+							Document *wacMTMedia "json:\"document,omitempty\""
+						}{Type: "text", Text: parseBacklashes(msg.HeaderText())}
+					}
+					payload.Interactive = &interactive
+				}
+			} else if msg.InteractionType() == "flow_msg" { // Unreachable due to else if sending only the attachment
+				if flowMessage := msg.FlowMessage(); flowMessage != nil {
+					interactive := wacInteractive[map[string]any]{
+						Type: "flow",
+						Body: struct {
+							Text string "json:\"text\""
+						}{Text: msgParts[i-len(msg.Attachments())]},
+						Action: &struct {
+							Button            string                 "json:\"button,omitempty\""
+							Sections          []wacMTSection         "json:\"sections,omitempty\""
+							Buttons           []wacMTButton          "json:\"buttons,omitempty\""
+							CatalogID         string                 "json:\"catalog_id,omitempty\""
+							ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
+							Name              string                 "json:\"name,omitempty\""
+							Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+						}{
+							Name: "flow",
+							Parameters: map[string]interface{}{
+								"mode":                 flowMessage.FlowMode,
+								"flow_message_version": "3",
+								"flow_token":           uuids.New(),
+								"flow_id":              flowMessage.FlowID,
+								"flow_cta":             flowMessage.FlowCTA,
+								"flow_action":          "navigate",
+								"flow_action_payload": wacFlowActionPayload{
+									Screen: flowMessage.FlowScreen,
+									Data:   flowMessage.FlowData,
+								},
+							},
+						},
+					}
+
+					if msg.Footer() != "" {
+						interactive.Footer = &struct {
+							Text string "json:\"text,omitempty\""
+						}{Text: parseBacklashes(msg.Footer())}
+					}
+
+					if msg.HeaderText() != "" {
+						interactive.Header = &struct {
+							Type     string      "json:\"type\""
+							Text     string      "json:\"text,omitempty\""
+							Video    *wacMTMedia "json:\"video,omitempty\""
+							Image    *wacMTMedia "json:\"image,omitempty\""
+							Document *wacMTMedia "json:\"document,omitempty\""
+						}{Type: "text", Text: parseBacklashes(msg.HeaderText())}
+					}
+					payload.Interactive = &interactive
+				}
+			} else if msg.InteractionType() == "order_details" {
+				if orderDetails := msg.OrderDetailsMessage(); orderDetails != nil {
+					hasCaption = true
+					payload.Type = "interactive"
+
+					paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
+
+					mountedOrderDetails := mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount)
+					if mountedOrderDetails == nil {
+						return status, fmt.Errorf("failed to mount order details")
+					}
+
+					interactive := wacInteractive[wacOrderDetails]{
+						Type: "order_details",
+						Body: struct {
+							Text string "json:\"text\""
+						}{Text: msgParts[i]},
+						Action: &struct {
+							Button            string          "json:\"button,omitempty\""
+							Sections          []wacMTSection  "json:\"sections,omitempty\""
+							Buttons           []wacMTButton   "json:\"buttons,omitempty\""
+							CatalogID         string          "json:\"catalog_id,omitempty\""
+							ProductRetailerID string          "json:\"product_retailer_id,omitempty\""
+							Name              string          "json:\"name,omitempty\""
+							Parameters        wacOrderDetails "json:\"parameters,omitempty\""
+						}{
+							Name:       "review_and_pay",
+							Parameters: *mountedOrderDetails,
+						},
+					}
+					if msg.Footer() != "" {
+						interactive.Footer = &struct {
+							Text string "json:\"text,omitempty\""
+						}{Text: parseBacklashes(msg.Footer())}
+					}
+
+					if len(msg.Attachments()) > 0 {
+						attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
+						attType = strings.Split(attType, "/")[0]
+						media := wacMTMedia{Link: attURL}
+
+						if attType == "image" {
+							interactive.Header = &struct {
+								Type     string      "json:\"type\""
+								Text     string      "json:\"text,omitempty\""
+								Video    *wacMTMedia "json:\"video,omitempty\""
+								Image    *wacMTMedia "json:\"image,omitempty\""
+								Document *wacMTMedia "json:\"document,omitempty\""
+							}{Type: "image", Image: &media}
+						} else {
+							return nil, fmt.Errorf("interactive order details message does not support attachments other than images")
+						}
+					}
+
+					payload.Interactive = castInteractive[wacOrderDetails, map[string]any](interactive)
 				}
 			} else {
 				// this is still a msg part
@@ -1577,7 +2823,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			zeroIndex = true
 		}
 
-		status, respPayload, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, zeroIndex)
+		status, respPayload, err := requestWAC(payload, token, msg, status, wacPhoneURL, zeroIndex, useMarketingMessages)
 		if err != nil {
 			return status, err
 		}
@@ -1589,12 +2835,19 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				if err != nil {
 					return status, nil
 				}
-				err = status.SetUpdatedURN(msg.URN(), toUpdateURN)
+				// Instead of updating the existing URN, add a new URN to the contact
+				contact, err := h.Backend().GetContact(ctx, msg.Channel(), msg.URN(), "", "")
 				if err != nil {
-					log := courier.NewChannelLogFromError("unable to update contact URN for a new based on  wa_id", msg.Channel(), msg.ID(), time.Since(start), err)
+					log := courier.NewChannelLogFromError("unable to get contact for new URN", msg.Channel(), msg.ID(), time.Since(start), err)
 					status.AddLog(log)
+				} else {
+					_, err = h.Backend().AddURNtoContact(ctx, msg.Channel(), contact, toUpdateURN)
+					if err != nil {
+						log := courier.NewChannelLogFromError("unable to add new URN to contact", msg.Channel(), msg.ID(), time.Since(start), err)
+						status.AddLog(log)
+					}
+					hasNewURN = true
 				}
-				hasNewURN = true
 			}
 		}
 		if templating != nil && len(msg.Attachments()) > 0 || hasCaption {
@@ -1602,47 +2855,424 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		}
 
 	}
+
+	if len(msg.Products()) > 0 || msg.SendCatalog() {
+
+		catalogID := msg.Channel().StringConfigForKey("catalog_id", "")
+		if catalogID == "" {
+			return status, errors.New("Catalog ID not found in channel config")
+		}
+
+		payload := wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path()}
+
+		payload.Type = "interactive"
+
+		products := msg.Products()
+
+		isUnitaryProduct := true
+		var unitaryProduct string
+		for _, product := range products {
+			retailerIDs := toStringSlice(product["product_retailer_ids"])
+			if len(products) > 1 || len(retailerIDs) > 1 {
+				isUnitaryProduct = false
+			} else {
+				unitaryProduct = retailerIDs[0]
+			}
+		}
+
+		var interactiveType string
+		if msg.SendCatalog() {
+			interactiveType = InteractiveProductCatalogMessageType
+		} else if !isUnitaryProduct {
+			interactiveType = InteractiveProductListType
+		} else {
+			interactiveType = InteractiveProductSingleType
+		}
+
+		interactive := wacInteractive[map[string]any]{
+			Type: interactiveType,
+		}
+
+		interactive.Body = struct {
+			Text string `json:"text"`
+		}{
+			Text: msg.Body(),
+		}
+
+		if msg.Header() != "" && !isUnitaryProduct && !msg.SendCatalog() {
+			interactive.Header = &struct {
+				Type     string      `json:"type"`
+				Text     string      `json:"text,omitempty"`
+				Video    *wacMTMedia `json:"video,omitempty"`
+				Image    *wacMTMedia `json:"image,omitempty"`
+				Document *wacMTMedia `json:"document,omitempty"`
+			}{
+				Type: "text",
+				Text: msg.Header(),
+			}
+		}
+
+		if msg.Footer() != "" {
+			interactive.Footer = &struct {
+				Text string "json:\"text,omitempty\""
+			}{
+				Text: parseBacklashes(msg.Footer()),
+			}
+		}
+
+		if msg.SendCatalog() {
+			interactive.Action = &struct {
+				Button            string                 `json:"button,omitempty"`
+				Sections          []wacMTSection         `json:"sections,omitempty"`
+				Buttons           []wacMTButton          `json:"buttons,omitempty"`
+				CatalogID         string                 `json:"catalog_id,omitempty"`
+				ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
+				Name              string                 `json:"name,omitempty"`
+				Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+			}{
+				Name: "catalog_message",
+			}
+			payload.Interactive = &interactive
+			status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true, useMarketingMessages)
+			if err != nil {
+				return status, err
+			}
+		} else if len(products) > 0 {
+			if !isUnitaryProduct {
+				actions := [][]wacMTSection{}
+				sections := []wacMTSection{}
+				totalProductsPerMsg := 0
+
+				for _, product := range products {
+					retailerIDs := toStringSlice(product["product_retailer_ids"])
+
+					title := product["product"].(string)
+					if title == "product_retailer_id" {
+						title = "items"
+					}
+					if len(title) > 24 {
+						title = title[:24]
+					}
+
+					var sproducts []wacMTProductItem
+
+					for _, p := range retailerIDs {
+						// If there is still room for the product in the current message
+						if totalProductsPerMsg < 30 {
+							sproducts = append(sproducts, wacMTProductItem{
+								ProductRetailerID: p,
+							})
+							totalProductsPerMsg++
+							continue
+						}
+
+						// When reaching 30 products, close current section and start new one
+						if len(sproducts) > 0 {
+							sections = append(sections, wacMTSection{Title: title, ProductItems: sproducts})
+							sproducts = []wacMTProductItem{}
+						}
+
+						// Save current section to actions and restart for new message
+						if len(sections) > 0 {
+							actions = append(actions, sections)
+							sections = []wacMTSection{}
+							totalProductsPerMsg = 0
+						}
+
+						// Start new section with current product
+						sproducts = append(sproducts, wacMTProductItem{ProductRetailerID: p})
+						totalProductsPerMsg++
+					}
+
+					// After the inner loop, add the current section with the product
+					if len(sproducts) > 0 {
+						sections = append(sections, wacMTSection{Title: title, ProductItems: sproducts})
+					}
+				}
+
+				if len(sections) > 0 {
+					actions = append(actions, sections)
+
+				}
+
+				for _, sections := range actions {
+					interactive.Action = &struct {
+						Button            string                 `json:"button,omitempty"`
+						Sections          []wacMTSection         `json:"sections,omitempty"`
+						Buttons           []wacMTButton          `json:"buttons,omitempty"`
+						CatalogID         string                 `json:"catalog_id,omitempty"`
+						ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
+						Name              string                 `json:"name,omitempty"`
+						Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+					}{
+						CatalogID: catalogID,
+						Sections:  sections,
+						Name:      msg.Action(),
+					}
+
+					payload.Interactive = &interactive
+					status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true, useMarketingMessages)
+					if err != nil {
+						return status, err
+					}
+				}
+
+			} else {
+				interactive.Action = &struct {
+					Button            string                 `json:"button,omitempty"`
+					Sections          []wacMTSection         `json:"sections,omitempty"`
+					Buttons           []wacMTButton          `json:"buttons,omitempty"`
+					CatalogID         string                 `json:"catalog_id,omitempty"`
+					ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
+					Name              string                 `json:"name,omitempty"`
+					Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+				}{
+					CatalogID:         catalogID,
+					Name:              msg.Action(),
+					ProductRetailerID: unitaryProduct,
+				}
+				payload.Interactive = &interactive
+				status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true, useMarketingMessages)
+				if err != nil {
+					return status, err
+				}
+			}
+		}
+	}
+
 	return status, nil
 }
 
-func requestWAC(payload wacMTPayload, accessToken string, msg courier.Msg, status courier.MsgStatus, wacPhoneURL *url.URL, zeroIndex bool) (courier.MsgStatus, *wacMTResponse, error) {
+func parseBacklashes(baseText string) string {
+	var text string
+	if strings.Contains(baseText, "\\/") {
+		text = strings.Replace(baseText, "\\", "", -1)
+	} else if strings.Contains(baseText, "\\\\") {
+		text = strings.Replace(baseText, "\\\\", "\\", -1)
+	} else {
+		text = baseText
+	}
+	return text
+}
 
-	jsonBody, err := json.Marshal(payload)
+func castInteractive[I, O wacInteractiveActionParams](interactive wacInteractive[I]) *wacInteractive[O] {
+	interactiveJSON, _ := json.Marshal(interactive)
+	interactiveMap := wacInteractive[O]{}
+	json.Unmarshal(interactiveJSON, &interactiveMap)
+	return &interactiveMap
+}
+
+func mountOrderDetails(msg courier.Msg, paymentSettings []wacOrderDetailsPaymentSetting, catalogID *string, orderTax wacAmountWithOffset, orderShipping *wacAmountWithOffset, orderDiscount *wacAmountWithOffset) *wacOrderDetails {
+	orderDetails := msg.OrderDetailsMessage()
+	if orderDetails == nil {
+		return nil
+	}
+
+	var paymentType string
+	if orderDetails.PaymentSettings.OffsiteCardPay.CredentialID != "" {
+		paymentType = "digital-goods"
+	} else {
+		paymentType = orderDetails.PaymentSettings.Type
+	}
+	return &wacOrderDetails{
+		ReferenceID:     orderDetails.ReferenceID,
+		Type:            paymentType,
+		PaymentType:     "br",
+		PaymentSettings: paymentSettings,
+		Currency:        "BRL",
+		TotalAmount: wacAmountWithOffset{
+			Value:  orderDetails.TotalAmount,
+			Offset: 100,
+		},
+		Order: wacOrder{
+			Status:    "pending",
+			CatalogID: *catalogID,
+			Items:     orderDetails.Order.Items,
+			Subtotal: wacAmountWithOffset{
+				Value:  orderDetails.Order.Subtotal,
+				Offset: 100,
+			},
+			Tax:      orderTax,
+			Shipping: orderShipping,
+			Discount: orderDiscount,
+		},
+	}
+}
+
+func mountOrderPaymentSettings(orderDetails *courier.OrderDetailsMessage) []wacOrderDetailsPaymentSetting {
+	paymentSettings := make([]wacOrderDetailsPaymentSetting, 0)
+
+	if orderDetails.PaymentSettings.PaymentLink != "" {
+		paymentSettings = append(paymentSettings, wacOrderDetailsPaymentSetting{
+			Type: "payment_link",
+			PaymentLink: &wacOrderDetailsPaymentLink{
+				URI: orderDetails.PaymentSettings.PaymentLink,
+			},
+		})
+	}
+
+	if orderDetails.PaymentSettings.PixConfig.Code != "" {
+		paymentSettings = append(paymentSettings, wacOrderDetailsPaymentSetting{
+			Type: "pix_dynamic_code",
+			PixDynamicCode: &wacOrderDetailsPixDynamicCode{
+				Code:         orderDetails.PaymentSettings.PixConfig.Code,
+				MerchantName: orderDetails.PaymentSettings.PixConfig.MerchantName,
+				Key:          orderDetails.PaymentSettings.PixConfig.Key,
+				KeyType:      orderDetails.PaymentSettings.PixConfig.KeyType,
+			},
+		})
+	}
+
+	if orderDetails.PaymentSettings.OffsiteCardPay.CredentialID != "" {
+		paymentSettings = append(paymentSettings, wacOrderDetailsPaymentSetting{
+			Type: "offsite_card_pay",
+			OffsiteCardPay: &wacOrderDetailsOffsiteCardPay{
+				LastFourDigits: orderDetails.PaymentSettings.OffsiteCardPay.LastFourDigits,
+				CredentialID:   orderDetails.PaymentSettings.OffsiteCardPay.CredentialID,
+			},
+		})
+	}
+
+	return paymentSettings
+}
+
+func mountOrderInfo(msg courier.Msg) ([]wacOrderDetailsPaymentSetting, *string, wacAmountWithOffset, *wacAmountWithOffset, *wacAmountWithOffset) {
+
+	paymentSettings := mountOrderPaymentSettings(msg.OrderDetailsMessage())
+
+	strCatalogID := msg.Channel().StringConfigForKey("catalog_id", "")
+	var catalogID *string
+	if strCatalogID != "" {
+		catalogID = &strCatalogID
+	}
+
+	orderTax, orderShipping, orderDiscount := mountOrderTaxShippingDiscount(msg.OrderDetailsMessage())
+
+	return paymentSettings, catalogID, orderTax, orderShipping, orderDiscount
+}
+
+func mountOrderTaxShippingDiscount(orderDetails *courier.OrderDetailsMessage) (wacAmountWithOffset, *wacAmountWithOffset, *wacAmountWithOffset) {
+	orderTax := wacAmountWithOffset{
+		Value:       0,
+		Offset:      100,
+		Description: orderDetails.Order.Tax.Description,
+	}
+	if orderDetails.Order.Tax.Value > 0 {
+		orderTax.Value = orderDetails.Order.Tax.Value
+	}
+
+	var orderShipping *wacAmountWithOffset
+	var orderDiscount *wacAmountWithOffset
+	if orderDetails.Order.Shipping.Value > 0 {
+		orderShipping = &wacAmountWithOffset{
+			Value:       orderDetails.Order.Shipping.Value,
+			Offset:      100,
+			Description: orderDetails.Order.Shipping.Description,
+		}
+	}
+
+	if orderDetails.Order.Discount.Value > 0 {
+		orderDiscount = &wacAmountWithOffset{
+			Value:               orderDetails.Order.Discount.Value,
+			Offset:              100,
+			Description:         orderDetails.Order.Discount.Description,
+			DiscountProgramName: orderDetails.Order.Discount.ProgramName,
+		}
+	}
+
+	return orderTax, orderShipping, orderDiscount
+}
+
+func requestWAC[P wacInteractiveActionParams](payload wacMTPayload[P], accessToken string, msg courier.Msg, status courier.MsgStatus, wacPhoneURL *url.URL, zeroIndex bool, useMarketingMessages bool) (courier.MsgStatus, *wacMTResponse, error) {
+	var jsonBody []byte
+	var err error
+
+	if useMarketingMessages {
+		// Add message_activity_sharing to the original payload
+		jsonBody, err = prepareMarketingMessagePayload(payload)
+	} else {
+		// Serialize the payload directly
+		jsonBody, err = json.Marshal(payload)
+	}
+
 	if err != nil {
 		return status, &wacMTResponse{}, err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, wacPhoneURL.String(), bytes.NewReader(jsonBody))
+	// Prepare and send HTTP request
+	req, err := prepareHTTPRequest(wacPhoneURL.String(), accessToken, jsonBody)
 	if err != nil {
 		return status, &wacMTResponse{}, err
 	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
 
 	rr, err := utils.MakeHTTPRequest(req)
 
-	// record our status and log
-	log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
+	// Register status log based on message type
+	logTitle := "Message Sent"
+	if useMarketingMessages {
+		logTitle = "Marketing Message Sent"
+	}
+	log := courier.NewChannelLogFromRR(logTitle, msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
 	status.AddLog(log)
+
 	if err != nil {
 		return status, &wacMTResponse{}, nil
 	}
 
-	respPayload := &wacMTResponse{}
-	err = json.Unmarshal(rr.Body, respPayload)
+	// Process the response
+	respPayload, err := processResponse(rr.Body)
 	if err != nil {
 		log.WithError("Message Send Error", errors.Errorf("unable to unmarshal response body"))
 		return status, respPayload, nil
 	}
-	externalID := respPayload.Messages[0].ID
-	if zeroIndex && externalID != "" {
-		status.SetExternalID(externalID)
+
+	// Update message status if there is an external ID
+	if len(respPayload.Messages) > 0 {
+		externalID := respPayload.Messages[0].ID
+		if zeroIndex && externalID != "" {
+			status.SetExternalID(externalID)
+		}
+		status.SetStatus(courier.MsgWired)
 	}
-	// this was wired successfully
-	status.SetStatus(courier.MsgWired)
 
 	return status, respPayload, nil
+}
+
+// Prepares the marketing message payload by adding message_activity_sharing
+func prepareMarketingMessagePayload[P wacInteractiveActionParams](payload wacMTPayload[P]) ([]byte, error) {
+	payloadMap := make(map[string]interface{})
+	jsonBody, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	err = json.Unmarshal(jsonBody, &payloadMap)
+	if err != nil {
+		return nil, err
+	}
+
+	payloadMap["message_activity_sharing"] = true
+
+	return json.Marshal(payloadMap)
+}
+
+// Prepares the HTTP request
+func prepareHTTPRequest(url string, accessToken string, jsonBody []byte) (*http.Request, error) {
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	return req, nil
+}
+
+// Process the response from the API
+func processResponse(body []byte) (*wacMTResponse, error) {
+	respPayload := &wacMTResponse{}
+	err := json.Unmarshal(body, respPayload)
+	return respPayload, err
 }
 
 // DescribeURN looks up URN metadata for new contacts
@@ -1784,8 +3414,9 @@ type TemplateMetadata struct {
 
 type MsgTemplating struct {
 	Template struct {
-		Name string `json:"name" validate:"required"`
-		UUID string `json:"uuid" validate:"required"`
+		Name     string `json:"name" validate:"required"`
+		UUID     string `json:"uuid" validate:"required"`
+		Category string `json:"category"`
 	} `json:"template" validate:"required,dive"`
 	Language  string   `json:"language" validate:"required"`
 	Country   string   `json:"country"`
@@ -1868,4 +3499,228 @@ var languageMap = map[string]string{
 	"uzb":    "uz",    // Uzbek
 	"vie":    "vi",    // Vietnamese
 	"zul":    "zu",    // Zulu
+}
+
+// iso language code mapping to respective "Menu" word translation
+var languageMenuMap = map[string]string{
+	"da-DK": "Menu",
+	"de-DE": "Speisekarte",
+	"en-AU": "Menu",
+	"en-CA": "Menu",
+	"en-GB": "Menu",
+	"en-IN": "Menu",
+	"en-US": "Menu",
+	"ca-ES": "Menú",
+	"es-ES": "Menú",
+	"es-MX": "Menú",
+	"fi-FI": "Valikko",
+	"fr-CA": "Menu",
+	"fr-FR": "Menu",
+	"it-IT": "Menù",
+	"ja-JP": "メニュー",
+	"ko-KR": "메뉴",
+	"nb-NO": "Meny",
+	"nl-NL": "Menu",
+	"pl-PL": "Menu",
+	"pt-BR": "Menu",
+	"ru-RU": "Меню",
+	"sv-SE": "Meny",
+	"zh-CN": "菜单",
+	"zh-HK": "菜單",
+	"zh-TW": "菜單",
+	"ar-JO": "قائمة",
+}
+
+func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, accessToken string) (string, []*courier.ChannelLog, error) {
+	var logs []*courier.ChannelLog
+
+	rc := h.Backend().RedisPool().Get()
+	defer rc.Close()
+
+	cacheKey := fmt.Sprintf(mediaCacheKeyPatternWhatsapp, msg.Channel().UUID().String())
+	mediaID, err := rcache.Get(rc, cacheKey, mediaURL)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, mediaURL)
+	} else if mediaID != "" {
+		return mediaID, logs, nil
+	}
+
+	failKey := fmt.Sprintf("%s-%s", msg.Channel().UUID().String(), mediaURL)
+	found, _ := failedMediaCache.Get(failKey)
+
+	if found != nil {
+		return "", logs, nil
+	}
+
+	// request to download media
+	req, err := http.NewRequest("GET", mediaURL, nil)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "error builing media request")
+	}
+	rr, err := utils.MakeHTTPRequest(req)
+	log := courier.NewChannelLogFromRR("Fetching media", msg.Channel(), msg.ID(), rr).WithError("error fetching media", err)
+	logs = append(logs, log)
+	if err != nil {
+		failedMediaCache.Set(failKey, true, cache.DefaultExpiration)
+		return "", logs, nil
+	}
+
+	// upload media to WhatsAppCloud
+	base, _ := url.Parse(graphURL)
+	path, _ := url.Parse(fmt.Sprintf("/%s/media", msg.Channel().Address()))
+	wacPhoneURLMedia := base.ResolveReference(path)
+	mediaID, logs, err = requestWACMediaUpload(rr.Body, mediaURL, wacPhoneURLMedia.String(), mimeType, msg, accessToken)
+	if err != nil {
+		return "", logs, err
+	}
+
+	// put in cache
+	err = rcache.Set(rc, cacheKey, mediaURL, mediaID)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "error setting media id in cache")
+	}
+
+	return mediaID, logs, nil
+}
+
+func requestWACMediaUpload(file []byte, mediaURL string, requestUrl string, mimeType string, msg courier.Msg, accessToken string) (string, []*courier.ChannelLog, error) {
+	var logs []*courier.ChannelLog
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	fileType := http.DetectContentType(file)
+	fileName := filepath.Base(mediaURL)
+
+	if fileType != mimeType || fileType == "application/octet-stream" || fileType == "application/zip" {
+		fileType = mimetype.Detect(file).String()
+	}
+
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition",
+		fmt.Sprintf(`form-data; name="%s"; filename="%s"`,
+			"file", fileName))
+	h.Set("Content-Type", fileType)
+	fileField, err := writer.CreatePart(h)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "failed to create form field:")
+	}
+
+	fileReader := bytes.NewReader(file)
+	_, err = io.Copy(fileField, fileReader)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "failed to copy file to form field")
+	}
+
+	err = writer.WriteField("messaging_product", "whatsapp")
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "failed to add field")
+	}
+
+	err = writer.Close()
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "failed to close multipart writer")
+	}
+
+	req, err := http.NewRequest("POST", requestUrl, body)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "failed to create request")
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
+
+	resp, err := utils.MakeHTTPRequest(req)
+	log := courier.NewChannelLogFromRR("Uploading media to WhatsApp Cloud", msg.Channel(), msg.ID(), resp).WithError("Error uploading media to WhatsApp Cloud", err)
+	logs = append(logs, log)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "request failed")
+	}
+
+	id, err := jsonparser.GetString(resp.Body, "id")
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "error parsing media id")
+	}
+	return id, logs, nil
+}
+
+func toStringSlice(v interface{}) []string {
+	if list, ok := v.([]interface{}); ok {
+		result := make([]string, len(list))
+		for i, item := range list {
+			if str, ok := item.(string); ok {
+				result[i] = str
+			}
+		}
+		return result
+	}
+	return nil
+}
+
+var _ courier.ActionSender = (*handler)(nil)
+
+// SendWhatsAppMessageAction sends a specific action to the WhatsApp API.
+// This method is specific to the WhatsApp handler.
+func (h *handler) SendAction(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
+	channel := msg.Channel()
+	targetMessageID := msg.ActionExternalID()
+
+	// Ensure this action is only executed for WAC (WhatsApp Cloud) channel types
+	if channel.ChannelType() != courier.ChannelType("WAC") {
+		return nil, fmt.Errorf("WhatsApp actions are only supported for WAC channels, not for %s", channel.ChannelType())
+	}
+
+	accessToken := h.Server().Config().WhatsappAdminSystemUserToken
+	userAccessToken := channel.StringConfigForKey(courier.ConfigUserToken, "")
+	tokenToUse := accessToken
+	if userAccessToken != "" {
+		tokenToUse = userAccessToken
+	}
+
+	if tokenToUse == "" {
+		return nil, errors.New("missing access token for WhatsApp action")
+	}
+
+	apiURLString := fmt.Sprintf("%s%s/messages", graphURL, channel.Address())
+
+	if targetMessageID == "" {
+		return nil, errors.New("targetMessageID (ExternalID) is required for combined action")
+	}
+
+	payloadMap := map[string]interface{}{
+		"messaging_product": "whatsapp",
+		"status":            "read",
+		"message_id":        targetMessageID,
+		"typing_indicator": map[string]interface{}{
+			"type": "text",
+		},
+	}
+
+	jsonBody, err := json.Marshal(payloadMap)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to marshal WhatsApp action payload")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURLString, bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create HTTP request")
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", tokenToUse))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	rr, err := utils.MakeHTTPRequest(req)
+	if err != nil {
+		// Include response body in error if available (WhatsApp API error details)
+		if rr != nil && len(rr.Body) > 0 {
+			return nil, fmt.Errorf("HTTP request failed (%d): %s - Response: %s", rr.StatusCode, err.Error(), string(rr.Body))
+		}
+		return nil, errors.Wrap(err, "HTTP request failed")
+	}
+
+	if rr.StatusCode < 200 || rr.StatusCode >= 300 {
+		return nil, fmt.Errorf("WhatsApp API error (%d): %s", rr.StatusCode, string(rr.Body))
+	}
+
+	return nil, nil
 }

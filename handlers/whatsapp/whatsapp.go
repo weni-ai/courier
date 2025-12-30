@@ -41,6 +41,13 @@ const (
 	interactiveMsgMinSupVersion = "v2.35.2"
 )
 
+const (
+	InteractiveProductSingleType         = "product"
+	InteractiveProductListType           = "product_list"
+	InteractiveProductCatalogType        = "catalog_product"
+	InteractiveProductCatalogMessageType = "catalog_message"
+)
+
 var (
 	retryParam = ""
 )
@@ -130,6 +137,12 @@ type eventPayload struct {
 			Sha256   string `json:"sha256"    validate:"required"`
 			Caption  string `json:"caption"`
 		} `json:"image"`
+		Sticker *struct {
+			Animated bool   `json:"animated"`
+			ID       string `json:"id"`
+			Mimetype string `json:"mime_type"`
+			SHA256   string `json:"sha256"`
+		}
 		Interactive *struct {
 			ButtonReply *struct {
 				ID    string `json:"id"`
@@ -168,6 +181,37 @@ type eventPayload struct {
 				Phone string `json:"phone"`
 			} `json:"phones"`
 		} `json:"contacts"`
+		Referral struct {
+			Headline   string `json:"headline"`
+			Body       string `json:"body"`
+			SourceType string `json:"source_type"`
+			SourceID   string `json:"source_id"`
+			SourceURL  string `json:"source_url"`
+			Image      *struct {
+				File     string `json:"file"      validate:"required"`
+				ID       string `json:"id"        validate:"required"`
+				Link     string `json:"link"`
+				MimeType string `json:"mime_type" validate:"required"`
+				Sha256   string `json:"sha256"    validate:"required"`
+			} `json:"image"`
+			Video *struct {
+				File     string `json:"file"      validate:"required"`
+				ID       string `json:"id"        validate:"required"`
+				Link     string `json:"link"`
+				MimeType string `json:"mime_type" validate:"required"`
+				Sha256   string `json:"sha256"    validate:"required"`
+			} `json:"video"`
+		} `json:"referral"`
+		Order struct {
+			CatalogID    string `json:"catalog_id"`
+			Text         string `json:"text"`
+			ProductItems []struct {
+				ProductRetailerID string  `json:"product_retailer_id"`
+				Quantity          int     `json:"quantity"`
+				ItemPrice         float64 `json:"item_price"`
+				Currency          string  `json:"currency"`
+			} `json:"product_items"`
+		} `json:"order"`
 	} `json:"messages"`
 	Statuses []struct {
 		ID          string `json:"id"           validate:"required"`
@@ -256,6 +300,8 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		} else if msg.Type == "image" && msg.Image != nil {
 			text = msg.Image.Caption
 			mediaURL, err = resolveMediaURL(channel, msg.Image.ID)
+		} else if msg.Type == "sticker" && msg.Sticker != nil {
+			mediaURL, err = resolveMediaURL(channel, msg.Sticker.ID)
 		} else if msg.Type == "interactive" {
 			if msg.Interactive.Type == "button_reply" {
 				text = msg.Interactive.ButtonReply.Title
@@ -268,6 +314,8 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 			mediaURL, err = resolveMediaURL(channel, msg.Video.ID)
 		} else if msg.Type == "voice" && msg.Voice != nil {
 			mediaURL, err = resolveMediaURL(channel, msg.Voice.ID)
+		} else if msg.Type == "order" {
+			text = msg.Order.Text
 		} else if msg.Type == "contacts" {
 			if len(msg.Contacts) == 0 {
 				return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("no shared contact"))
@@ -291,6 +339,26 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		// we had an error downloading media
 		if err != nil {
 			courier.LogRequestError(r, channel, err)
+		}
+
+		if msg.Type == "order" {
+			orderM := map[string]interface{}{"order": msg.Order}
+			orderJSON, err := json.Marshal(orderM)
+			if err != nil {
+				courier.LogRequestError(r, channel, err)
+			}
+			metadata := json.RawMessage(orderJSON)
+			event.WithMetadata(metadata)
+		}
+
+		if msg.Referral.Headline != "" {
+
+			referral, err := json.Marshal(msg.Referral)
+			if err != nil {
+				courier.LogRequestError(r, channel, err)
+			}
+			metadata := json.RawMessage(referral)
+			event.WithMetadata(metadata)
 		}
 
 		if mediaURL != "" {
@@ -339,7 +407,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 
 	webhook := channel.ConfigForKey("webhook", nil)
 	if webhook != nil {
-		er := handlers.SendWebhooks(channel, r, webhook)
+		er := handlers.SendWebhooksExternal(r, webhook)
 		if er != nil {
 			courier.LogRequestError(r, channel, fmt.Errorf("could not send webhook: %s", er))
 		}
@@ -381,7 +449,7 @@ var waStatusMapping = map[string]courier.MsgStatusValue{
 	"sending":   courier.MsgWired,
 	"sent":      courier.MsgSent,
 	"delivered": courier.MsgDelivered,
-	"read":      courier.MsgDelivered,
+	"read":      courier.MsgRead,
 	"failed":    courier.MsgFailed,
 }
 
@@ -417,8 +485,8 @@ type mtTextPayload struct {
 	Type       string `json:"type"  validate:"required"`
 	PreviewURL bool   `json:"preview_url,omitempty"`
 	Text       struct {
-		Body string `json:"body" validate:"required"`
-	} `json:"text"`
+		Body string `json:"body,omitempty"`
+	} `json:"text,omitempty"`
 }
 
 type mtInteractivePayload struct {
@@ -427,11 +495,11 @@ type mtInteractivePayload struct {
 	Interactive struct {
 		Type   string `json:"type" validate:"required"` //"text" | "image" | "video" | "document"
 		Header *struct {
-			Type     string `json:"type"`
-			Text     string `json:"text,omitempty"`
-			Video    string `json:"video,omitempty"`
-			Image    string `json:"image,omitempty"`
-			Document string `json:"document,omitempty"`
+			Type     string      `json:"type"`
+			Text     string      `json:"text,omitempty"`
+			Video    mediaObject `json:"video,omitempty"`
+			Image    mediaObject `json:"image,omitempty"`
+			Document mediaObject `json:"document,omitempty"`
 		} `json:"header,omitempty"`
 		Body struct {
 			Text string `json:"text"`
@@ -439,17 +507,26 @@ type mtInteractivePayload struct {
 		Footer *struct {
 			Text string `json:"text"`
 		} `json:"footer,omitempty"`
-		Action struct {
-			Button   string      `json:"button,omitempty"`
-			Sections []mtSection `json:"sections,omitempty"`
-			Buttons  []mtButton  `json:"buttons,omitempty"`
+		Action *struct {
+			Button            string            `json:"button,omitempty"`
+			Sections          []mtSection       `json:"sections,omitempty"`
+			Buttons           []mtButton        `json:"buttons,omitempty"`
+			CatalogID         string            `json:"catalog_id,omitempty"`
+			ProductRetailerID string            `json:"product_retailer_id,omitempty"`
+			Name              string            `json:"name,omitempty"`
+			Parameters        map[string]string `json:"parameters,omitempty"`
 		} `json:"action" validate:"required"`
 	} `json:"interactive"`
 }
 
 type mtSection struct {
-	Title string         `json:"title,omitempty"`
-	Rows  []mtSectionRow `json:"rows" validate:"required"`
+	Title        string          `json:"title,omitempty"`
+	Rows         []mtSectionRow  `json:"rows,omitempty"`
+	ProductItems []mtProductItem `json:"product_items,omitempty"`
+}
+
+type mtProductItem struct {
+	ProductRetailerID string `json:"product_retailer_id" validate:"required"`
 }
 
 type mtSectionRow struct {
@@ -547,6 +624,12 @@ type mtImagePayload struct {
 	To    string       `json:"to"    validate:"required"`
 	Type  string       `json:"type"  validate:"required"`
 	Image *mediaObject `json:"image"`
+}
+
+type mtStickerPayload struct {
+	To      string       `json:"to"    validate:"required"`
+	Type    string       `json:"type"  validate:"required"`
+	Sticker *mediaObject `json:"sticker"`
 }
 
 type mtVideoPayload struct {
@@ -653,7 +736,9 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 
 	// do we have a template?
 	templating, err := h.getTemplate(msg)
-	if templating != nil || len(msg.Attachments()) == 0 {
+	qrs := msg.QuickReplies()
+
+	if templating != nil || len(msg.Attachments()) == 0 && !(len(msg.Products()) > 0 || msg.SendCatalog()) {
 
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())
@@ -752,6 +837,10 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 				payloads = append(payloads, payload)
 			}
 		} else {
+			parts := handlers.SplitMsgByChannel(msg.Channel(), msg.Text(), maxMsgLength)
+			wppVersion := msg.Channel().ConfigForKey("version", "0").(string)
+			isInteractiveMsgCompatible := semver.Compare(wppVersion, interactiveMsgMinSupVersion)
+			isInteractiveMsg := (isInteractiveMsgCompatible >= 0) && (len(qrs) > 0) || (isInteractiveMsgCompatible >= 0) && len(msg.ListMessage().ListItems) > 0 || msg.InteractionType() == "cta_url"
 
 			if isInteractiveMsg {
 				for i, part := range parts {
@@ -767,39 +856,172 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 						payload := mtInteractivePayload{
 							To:   msg.URN().Path(),
 							Type: "interactive",
+							Interactive: struct {
+								Type   string "json:\"type\" validate:\"required\""
+								Header *struct {
+									Type     string      "json:\"type\""
+									Text     string      "json:\"text,omitempty\""
+									Video    mediaObject "json:\"video,omitempty\""
+									Image    mediaObject "json:\"image,omitempty\""
+									Document mediaObject "json:\"document,omitempty\""
+								} "json:\"header,omitempty\""
+								Body struct {
+									Text string "json:\"text\""
+								} "json:\"body\" validate:\"required\""
+								Footer *struct {
+									Text string "json:\"text\""
+								} "json:\"footer,omitempty\""
+								Action *struct {
+									Button            string            "json:\"button,omitempty\""
+									Sections          []mtSection       "json:\"sections,omitempty\""
+									Buttons           []mtButton        "json:\"buttons,omitempty\""
+									CatalogID         string            "json:\"catalog_id,omitempty\""
+									ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+									Name              string            "json:\"name,omitempty\""
+									Parameters        map[string]string "json:\"parameters,omitempty\""
+								} "json:\"action\" validate:\"required\""
+							}{},
 						}
 
 						// up to 3 qrs the interactive message will be button type, otherwise it will be list
-						if len(qrs) <= 3 {
+						if (len(qrs) <= 3 && len(msg.ListMessage().ListItems) == 0) && msg.InteractionType() != "cta_url" {
 							payload.Interactive.Type = "button"
 							payload.Interactive.Body.Text = part
+
+							if msg.Footer() != "" {
+								payload.Interactive.Footer = &struct {
+									Text string "json:\"text\""
+								}{Text: parseBacklashes(msg.Footer())}
+							}
+
+							if msg.HeaderText() != "" {
+								payload.Interactive.Header = &struct {
+									Type     string      "json:\"type\""
+									Text     string      "json:\"text,omitempty\""
+									Video    mediaObject "json:\"video,omitempty\""
+									Image    mediaObject "json:\"image,omitempty\""
+									Document mediaObject "json:\"document,omitempty\""
+								}{Type: "text", Text: parseBacklashes(msg.HeaderText())}
+							}
+
 							btns := make([]mtButton, len(qrs))
 							for i, qr := range qrs {
 								btns[i] = mtButton{
 									Type: "reply",
 								}
 								btns[i].Reply.ID = fmt.Sprint(i)
-								btns[i].Reply.Title = qr
+								text := parseBacklashes(qr)
+								btns[i].Reply.Title = text
 							}
-							payload.Interactive.Action.Buttons = btns
+							payload.Interactive.Action = &struct {
+								Button            string            "json:\"button,omitempty\""
+								Sections          []mtSection       "json:\"sections,omitempty\""
+								Buttons           []mtButton        "json:\"buttons,omitempty\""
+								CatalogID         string            "json:\"catalog_id,omitempty\""
+								ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+								Name              string            "json:\"name,omitempty\""
+								Parameters        map[string]string "json:\"parameters,omitempty\""
+							}{Buttons: btns}
 							payloads = append(payloads, payload)
-						} else {
+						} else if (len(qrs) <= 10 || len(msg.ListMessage().ListItems) > 0) && msg.InteractionType() != "cta_url" {
 							payload.Interactive.Type = "list"
 							payload.Interactive.Body.Text = part
-							payload.Interactive.Action.Button = "Menu"
-							section := mtSection{
-								Rows: make([]mtSectionRow, len(qrs)),
+
+							buttonName := "Menu"
+							if len(msg.TextLanguage()) > 0 {
+								buttonName = languageMenuMap[msg.TextLanguage()]
 							}
-							for i, qr := range qrs {
-								section.Rows[i] = mtSectionRow{
-									ID:    fmt.Sprint(i),
-									Title: qr,
+							payload.Interactive.Action = &struct {
+								Button            string            "json:\"button,omitempty\""
+								Sections          []mtSection       "json:\"sections,omitempty\""
+								Buttons           []mtButton        "json:\"buttons,omitempty\""
+								CatalogID         string            "json:\"catalog_id,omitempty\""
+								ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+								Name              string            "json:\"name,omitempty\""
+								Parameters        map[string]string "json:\"parameters,omitempty\""
+							}{Button: buttonName}
+
+							var section mtSection
+							if len(qrs) > 0 && len(msg.ListMessage().ListItems) == 0 {
+								section = mtSection{
+									Rows: make([]mtSectionRow, len(qrs)),
+								}
+								for i, qr := range qrs {
+									text := parseBacklashes(qr)
+									section.Rows[i] = mtSectionRow{
+										ID:    fmt.Sprint(i),
+										Title: text,
+									}
+								}
+							} else if len(msg.ListMessage().ListItems) > 0 {
+								section = mtSection{
+									Rows: make([]mtSectionRow, len(msg.ListMessage().ListItems)),
+								}
+								for i, listItem := range msg.ListMessage().ListItems {
+									titleText := parseBacklashes(listItem.Title)
+									descriptionText := parseBacklashes(listItem.Description)
+									section.Rows[i] = mtSectionRow{
+										ID:          listItem.UUID,
+										Title:       titleText,
+										Description: descriptionText,
+									}
+								}
+								if msg.Footer() != "" {
+									payload.Interactive.Footer = &struct {
+										Text string "json:\"text\""
+									}{Text: parseBacklashes(msg.Footer())}
 								}
 							}
-							payload.Interactive.Action.Sections = []mtSection{
-								section,
+							payload.Interactive.Action.Sections = []mtSection{section}
+							if len(msg.ListMessage().ButtonText) > 0 {
+								payload.Interactive.Action.Button = msg.ListMessage().ButtonText
+							} else if len(msg.TextLanguage()) > 0 {
+								payload.Interactive.Action.Button = languageMenuMap[msg.TextLanguage()]
 							}
+
 							payloads = append(payloads, payload)
+						} else if msg.InteractionType() == "cta_url" {
+							if ctaMessage := msg.CTAMessage(); ctaMessage != nil {
+								payload.Interactive.Type = "cta_url"
+								payload.Interactive.Body = struct {
+									Text string "json:\"text\""
+								}{msg.Text()}
+								payload.Interactive.Action = &struct {
+									Button            string            "json:\"button,omitempty\""
+									Sections          []mtSection       "json:\"sections,omitempty\""
+									Buttons           []mtButton        "json:\"buttons,omitempty\""
+									CatalogID         string            "json:\"catalog_id,omitempty\""
+									ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+									Name              string            "json:\"name,omitempty\""
+									Parameters        map[string]string "json:\"parameters,omitempty\""
+								}{
+									Name: "cta_url",
+									Parameters: map[string]string{
+										"display_text": parseBacklashes(ctaMessage.DisplayText),
+										"url":          ctaMessage.URL,
+									},
+								}
+								if msg.Footer() != "" {
+									payload.Interactive.Footer = &struct {
+										Text string "json:\"text\""
+									}{Text: parseBacklashes(msg.Footer())}
+								}
+
+								if msg.HeaderText() != "" {
+									payload.Interactive.Header = &struct {
+										Type     string      "json:\"type\""
+										Text     string      "json:\"text,omitempty\""
+										Video    mediaObject "json:\"video,omitempty\""
+										Image    mediaObject "json:\"image,omitempty\""
+										Document mediaObject "json:\"document,omitempty\""
+									}{
+										Type: "text",
+										Text: parseBacklashes(msg.HeaderText()),
+									}
+								}
+								payloads = append(payloads, payload)
+							}
+
 						}
 					}
 				}
@@ -826,11 +1048,16 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 			}
 		}
 	} else {
-
-		if len(msg.Attachments()) > 0 {
+		if (len(msg.Attachments()) > 0 && len(qrs) == 0 && len(msg.ListMessage().ListItems) == 0) || len(qrs) > 3 && len(msg.Attachments()) > 0 ||
+			len(msg.ListMessage().ListItems) > 0 && len(msg.Attachments()) > 0 {
 			for attachmentCount, attachment := range msg.Attachments() {
-
 				mimeType, mediaURL := handlers.SplitAttachment(attachment)
+				splitedAttType := strings.Split(mimeType, "/")
+				mimeType = splitedAttType[0]
+				attFormat := ""
+				if len(splitedAttType) > 1 {
+					attFormat = splitedAttType[1]
+				}
 				mediaID, mediaLogs, err := h.fetchMediaID(msg, mimeType, mediaURL)
 				if len(mediaLogs) > 0 {
 					logs = append(logs, mediaLogs...)
@@ -850,6 +1077,14 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					}
 					payload.Audio = mediaPayload
 					payloads = append(payloads, payload)
+					if attachmentCount == 0 && len(msg.Text()) > 0 {
+						payloadText := mtTextPayload{
+							To:   msg.URN().Path(),
+							Type: "text",
+						}
+						payloadText.Text.Body = msg.Text()
+						payloads = append(payloads, payloadText)
+					}
 				} else if strings.HasPrefix(mimeType, "application") {
 					payload := mtDocumentPayload{
 						To:   msg.URN().Path(),
@@ -867,15 +1102,31 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					payload.Document = mediaPayload
 					payloads = append(payloads, payload)
 				} else if strings.HasPrefix(mimeType, "image") {
-					payload := mtImagePayload{
-						To:   msg.URN().Path(),
-						Type: "image",
+					var payload interface{}
+					if attFormat == "webp" {
+						payload = mtStickerPayload{
+							To:      msg.URN().Path(),
+							Type:    "sticker",
+							Sticker: mediaPayload,
+						}
+						if attachmentCount == 0 && len(msg.Text()) > 0 {
+							payloadText := mtTextPayload{
+								To:   msg.URN().Path(),
+								Type: "text",
+							}
+							payloadText.Text.Body = msg.Text()
+							payloads = append(payloads, payloadText)
+						}
+					} else {
+						if attachmentCount == 0 {
+							mediaPayload.Caption = msg.Text()
+						}
+						payload = mtImagePayload{
+							To:    msg.URN().Path(),
+							Type:  "image",
+							Image: mediaPayload,
+						}
 					}
-					if attachmentCount == 0 && !isInteractiveMsg {
-						mediaPayload.Caption = msg.Text()
-						textAsCaption = true
-					}
-					payload.Image = mediaPayload
 					payloads = append(payloads, payload)
 				} else if strings.HasPrefix(mimeType, "video") {
 					payload := mtVideoPayload{
@@ -896,82 +1147,387 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					break
 				}
 			}
-
-			if !textAsCaption && !isInteractiveMsg {
-				for _, part := range parts {
-
-					//check if you have a link
-					var payload mtTextPayload
-					if strings.Contains(part, "https://") || strings.Contains(part, "http://") {
-						payload = mtTextPayload{
-							To:         msg.URN().Path(),
-							Type:       "text",
-							PreviewURL: true,
-						}
-					} else {
-						payload = mtTextPayload{
-							To:   msg.URN().Path(),
-							Type: "text",
-						}
-					}
-					payload.Text.Body = part
-					payloads = append(payloads, payload)
-				}
+		} else {
+			payload := mtInteractivePayload{
+				To:   msg.URN().Path(),
+				Type: "interactive",
+				Interactive: struct {
+					Type   string "json:\"type\" validate:\"required\""
+					Header *struct {
+						Type     string      "json:\"type\""
+						Text     string      "json:\"text,omitempty\""
+						Video    mediaObject "json:\"video,omitempty\""
+						Image    mediaObject "json:\"image,omitempty\""
+						Document mediaObject "json:\"document,omitempty\""
+					} "json:\"header,omitempty\""
+					Body struct {
+						Text string "json:\"text\""
+					} "json:\"body\" validate:\"required\""
+					Footer *struct {
+						Text string "json:\"text\""
+					} "json:\"footer,omitempty\""
+					Action *struct {
+						Button            string            "json:\"button,omitempty\""
+						Sections          []mtSection       "json:\"sections,omitempty\""
+						Buttons           []mtButton        "json:\"buttons,omitempty\""
+						CatalogID         string            "json:\"catalog_id,omitempty\""
+						ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+						Name              string            "json:\"name,omitempty\""
+						Parameters        map[string]string "json:\"parameters,omitempty\""
+					} "json:\"action\" validate:\"required\""
+				}{},
 			}
 
-			if isInteractiveMsg {
-				for i, part := range parts {
-					if i < (len(parts) - 1) { //if split into more than one message, the first parts will be text and the last interactive
-						payload := mtTextPayload{
-							To:   msg.URN().Path(),
-							Type: "text",
-						}
-						payload.Text.Body = part
-						payloads = append(payloads, payload)
+			if (len(qrs) > 0 || len(msg.ListMessage().ListItems) > 0) && msg.InteractionType() != "cta_url" {
+				// We can use buttons
+				if len(qrs) <= 3 && len(msg.ListMessage().ListItems) == 0 {
+					payload.Interactive.Type = "button"
+					payload.Interactive.Body.Text = msg.Text()
+					mimeType, mediaURL := handlers.SplitAttachment(msg.Attachments()[0])
+					splitedAttType := strings.Split(mimeType, "/")
+					mimeType = splitedAttType[0]
 
+					mediaID, mediaLogs, err := h.fetchMediaID(msg, mimeType, mediaURL)
+					filename, _ := utils.BasePathForURL(mediaURL)
+					if len(mediaLogs) > 0 {
+						logs = append(logs, mediaLogs...)
+					}
+					if err != nil {
+						logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("error while uploading media to whatsapp")
+					}
+					if err == nil && mediaID != "" {
+						mediaURL = ""
+					}
+					mediaPayload := &mediaObject{ID: mediaID, Link: mediaURL}
+					if strings.HasPrefix(mimeType, "application") {
+						mediaPayload.Filename = filename
+						payload.Interactive.Header = &struct {
+							Type     string      "json:\"type\""
+							Text     string      "json:\"text,omitempty\""
+							Video    mediaObject "json:\"video,omitempty\""
+							Image    mediaObject "json:\"image,omitempty\""
+							Document mediaObject "json:\"document,omitempty\""
+						}{Type: "document", Document: *mediaPayload}
+					} else if strings.HasPrefix(mimeType, "image") {
+						payload.Interactive.Header = &struct {
+							Type     string      "json:\"type\""
+							Text     string      "json:\"text,omitempty\""
+							Video    mediaObject "json:\"video,omitempty\""
+							Image    mediaObject "json:\"image,omitempty\""
+							Document mediaObject "json:\"document,omitempty\""
+						}{Type: "image", Image: *mediaPayload}
+					} else if strings.HasPrefix(mimeType, "video") {
+						payload.Interactive.Header = &struct {
+							Type     string      "json:\"type\""
+							Text     string      "json:\"text,omitempty\""
+							Video    mediaObject "json:\"video,omitempty\""
+							Image    mediaObject "json:\"image,omitempty\""
+							Document mediaObject "json:\"document,omitempty\""
+						}{Type: "video", Video: *mediaPayload}
+					} else if strings.HasPrefix(mimeType, "audio") {
+						payloadAudio := mtAudioPayload{
+							To:   msg.URN().Path(),
+							Type: "audio",
+						}
+						payloadAudio.Audio = mediaPayload
+						payloads = append(payloads, payloadAudio)
 					} else {
-						payload := mtInteractivePayload{
-							To:   msg.URN().Path(),
-							Type: "interactive",
-						}
+						duration := time.Since(start)
+						err = fmt.Errorf("unknown attachment mime type: %s", mimeType)
+						attachmentLogs := []*courier.ChannelLog{courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), duration, err)}
+						logs = append(logs, attachmentLogs...)
+					}
 
-						// up to 3 qrs the interactive message will be button type, otherwise it will be list
-						if len(qrs) <= 3 {
-							payload.Interactive.Type = "button"
-							payload.Interactive.Body.Text = part
-							btns := make([]mtButton, len(qrs))
-							for i, qr := range qrs {
-								btns[i] = mtButton{
-									Type: "reply",
-								}
-								btns[i].Reply.ID = fmt.Sprint(i)
-								btns[i].Reply.Title = qr
+					btns := make([]mtButton, len(qrs))
+					for i, qr := range qrs {
+						btns[i] = mtButton{
+							Type: "reply",
+						}
+						btns[i].Reply.ID = fmt.Sprint(i)
+						text := parseBacklashes(qr)
+						btns[i].Reply.Title = text
+					}
+					payload.Interactive.Action = &struct {
+						Button            string            "json:\"button,omitempty\""
+						Sections          []mtSection       "json:\"sections,omitempty\""
+						Buttons           []mtButton        "json:\"buttons,omitempty\""
+						CatalogID         string            "json:\"catalog_id,omitempty\""
+						ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+						Name              string            "json:\"name,omitempty\""
+						Parameters        map[string]string "json:\"parameters,omitempty\""
+					}{Buttons: btns}
+					if msg.Footer() != "" {
+						payload.Interactive.Footer = &struct {
+							Text string "json:\"text\""
+						}{Text: parseBacklashes(msg.Footer())}
+					}
+					payloads = append(payloads, payload)
+
+				} else if len(qrs) <= 10 || len(msg.ListMessage().ListItems) > 0 {
+					payload.Interactive.Type = "list"
+					payload.Interactive.Body.Text = msg.Text()
+
+					var section mtSection
+
+					if len(qrs) > 0 {
+						section = mtSection{
+							Rows: make([]mtSectionRow, len(qrs)),
+						}
+						for i, qr := range qrs {
+							text := parseBacklashes(qr)
+							section.Rows[i] = mtSectionRow{
+								ID:    fmt.Sprint(i),
+								Title: text,
 							}
-							payload.Interactive.Action.Buttons = btns
-							payloads = append(payloads, payload)
-						} else {
-							payload.Interactive.Type = "list"
-							payload.Interactive.Body.Text = part
-							payload.Interactive.Action.Button = "Menu"
-							section := mtSection{
-								Rows: make([]mtSectionRow, len(qrs)),
+						}
+					} else {
+						section = mtSection{
+							Rows: make([]mtSectionRow, len(msg.ListMessage().ListItems)),
+						}
+						for i, listItem := range msg.ListMessage().ListItems {
+							titleText := parseBacklashes(listItem.Title)
+							descriptionText := parseBacklashes(listItem.Description)
+							section.Rows[i] = mtSectionRow{
+								ID:          listItem.UUID,
+								Title:       titleText,
+								Description: descriptionText,
 							}
-							for i, qr := range qrs {
-								section.Rows[i] = mtSectionRow{
-									ID:    fmt.Sprint(i),
-									Title: qr,
-								}
-							}
-							payload.Interactive.Action.Sections = []mtSection{
-								section,
-							}
-							payloads = append(payloads, payload)
+						}
+						if msg.Footer() != "" {
+							payload.Interactive.Footer = &struct {
+								Text string "json:\"text\""
+							}{Text: parseBacklashes(msg.Footer())}
 						}
 					}
+
+					payload.Interactive.Action = &struct {
+						Button            string            "json:\"button,omitempty\""
+						Sections          []mtSection       "json:\"sections,omitempty\""
+						Buttons           []mtButton        "json:\"buttons,omitempty\""
+						CatalogID         string            "json:\"catalog_id,omitempty\""
+						ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+						Name              string            "json:\"name,omitempty\""
+						Parameters        map[string]string "json:\"parameters,omitempty\""
+					}{Button: "Menu", Sections: []mtSection{section}}
+
+					if len(msg.ListMessage().ButtonText) > 0 {
+						payload.Interactive.Action.Button = msg.ListMessage().ButtonText
+					} else if len(msg.TextLanguage()) > 0 {
+						payload.Interactive.Action.Button = languageMenuMap[msg.TextLanguage()]
+					}
+					payloads = append(payloads, payload)
 				}
+			} else {
+				if ctaMessage := msg.CTAMessage(); ctaMessage != nil {
+					payload.Interactive.Type = "cta_url"
+					payload.Interactive.Body = struct {
+						Text string "json:\"text\""
+					}{parseBacklashes(msg.Text())}
+					payload.Interactive.Action = &struct {
+						Button            string            "json:\"button,omitempty\""
+						Sections          []mtSection       "json:\"sections,omitempty\""
+						Buttons           []mtButton        "json:\"buttons,omitempty\""
+						CatalogID         string            "json:\"catalog_id,omitempty\""
+						ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+						Name              string            "json:\"name,omitempty\""
+						Parameters        map[string]string "json:\"parameters,omitempty\""
+					}{
+						Name: "cta_url",
+						Parameters: map[string]string{
+							"display_text": parseBacklashes(ctaMessage.DisplayText),
+							"url":          ctaMessage.URL,
+						},
+					}
+
+					if msg.Footer() != "" {
+						payload.Interactive.Footer = &struct {
+							Text string "json:\"text\""
+						}{Text: parseBacklashes(msg.Footer())}
+					}
+
+					if msg.HeaderText() != "" {
+						payload.Interactive.Header = &struct {
+							Type     string      "json:\"type\""
+							Text     string      "json:\"text,omitempty\""
+							Video    mediaObject "json:\"video,omitempty\""
+							Image    mediaObject "json:\"image,omitempty\""
+							Document mediaObject "json:\"document,omitempty\""
+						}{
+							Type: "text",
+							Text: parseBacklashes(msg.HeaderText()),
+						}
+					}
+					payloads = append(payloads, payload)
+				}
+
 			}
 		}
 	}
+
+	if len(msg.Products()) > 0 || msg.SendCatalog() {
+
+		catalogID := msg.Channel().StringConfigForKey("catalog_id", "")
+		if catalogID == "" {
+			return payloads, logs, errors.New("Catalog ID not found in channel config")
+		}
+
+		payload := mtInteractivePayload{Type: "interactive", To: msg.URN().Path(), Interactive: struct {
+			Type   string "json:\"type\" validate:\"required\""
+			Header *struct {
+				Type     string      "json:\"type\""
+				Text     string      "json:\"text,omitempty\""
+				Video    mediaObject "json:\"video,omitempty\""
+				Image    mediaObject "json:\"image,omitempty\""
+				Document mediaObject "json:\"document,omitempty\""
+			} "json:\"header,omitempty\""
+			Body struct {
+				Text string "json:\"text\""
+			} "json:\"body\" validate:\"required\""
+			Footer *struct {
+				Text string "json:\"text\""
+			} "json:\"footer,omitempty\""
+			Action *struct {
+				Button            string            "json:\"button,omitempty\""
+				Sections          []mtSection       "json:\"sections,omitempty\""
+				Buttons           []mtButton        "json:\"buttons,omitempty\""
+				CatalogID         string            "json:\"catalog_id,omitempty\""
+				ProductRetailerID string            "json:\"product_retailer_id,omitempty\""
+				Name              string            "json:\"name,omitempty\""
+				Parameters        map[string]string "json:\"parameters,omitempty\""
+			} "json:\"action\" validate:\"required\""
+		}{}}
+
+		products := msg.Products()
+
+		isUnitaryProduct := true
+		var unitaryProduct string
+		for _, product := range products {
+			retailerIDs := toStringSlice(product["ProductRetailerIDs"])
+			if len(products) > 1 || len(retailerIDs) > 1 {
+				isUnitaryProduct = false
+			} else {
+				unitaryProduct = retailerIDs[0]
+			}
+		}
+
+		var interactiveType string
+		if msg.SendCatalog() {
+			interactiveType = InteractiveProductCatalogMessageType
+		} else if !isUnitaryProduct {
+			interactiveType = InteractiveProductListType
+		} else {
+			interactiveType = InteractiveProductSingleType
+		}
+
+		payload.Interactive.Type = interactiveType
+
+		payload.Interactive.Body = struct {
+			Text string `json:"text"`
+		}{
+			Text: msg.Body(),
+		}
+
+		if msg.Header() != "" && !isUnitaryProduct && !msg.SendCatalog() {
+			payload.Interactive.Header = &struct {
+				Type     string      `json:"type"`
+				Text     string      `json:"text,omitempty"`
+				Video    mediaObject `json:"video,omitempty"`
+				Image    mediaObject `json:"image,omitempty"`
+				Document mediaObject `json:"document,omitempty"`
+			}{
+				Type: "text",
+				Text: msg.Header(),
+			}
+		}
+
+		if msg.Footer() != "" {
+			payload.Interactive.Footer = &struct {
+				Text string "json:\"text\""
+			}{
+				Text: parseBacklashes(msg.Footer()),
+			}
+		}
+
+		if msg.SendCatalog() {
+			payload.Interactive.Action = &struct {
+				Button            string            `json:"button,omitempty"`
+				Sections          []mtSection       `json:"sections,omitempty"`
+				Buttons           []mtButton        `json:"buttons,omitempty"`
+				CatalogID         string            `json:"catalog_id,omitempty"`
+				ProductRetailerID string            `json:"product_retailer_id,omitempty"`
+				Name              string            `json:"name,omitempty"`
+				Parameters        map[string]string "json:\"parameters,omitempty\""
+			}{
+				Name: "catalog_message",
+			}
+			payloads = append(payloads, payload)
+		} else if len(products) > 0 {
+			if !isUnitaryProduct {
+				actions := [][]mtSection{}
+				sections := []mtSection{}
+				i := 0
+
+				for _, product := range products {
+					i++
+					retailerIDs := toStringSlice(product["ProductRetailerIDs"])
+					sproducts := []mtProductItem{}
+
+					for _, p := range retailerIDs {
+						sproducts = append(sproducts, mtProductItem{
+							ProductRetailerID: p,
+						})
+					}
+
+					title := product["Product"].(string)
+					if title == "product_retailer_id" {
+						title = "items"
+					}
+
+					sections = append(sections, mtSection{Title: title, ProductItems: sproducts})
+
+					if len(sections) == 6 || i == len(products) {
+						actions = append(actions, sections)
+						sections = []mtSection{}
+					}
+				}
+
+				for _, sections := range actions {
+					payload.Interactive.Action = &struct {
+						Button            string            `json:"button,omitempty"`
+						Sections          []mtSection       `json:"sections,omitempty"`
+						Buttons           []mtButton        `json:"buttons,omitempty"`
+						CatalogID         string            `json:"catalog_id,omitempty"`
+						ProductRetailerID string            `json:"product_retailer_id,omitempty"`
+						Name              string            `json:"name,omitempty"`
+						Parameters        map[string]string "json:\"parameters,omitempty\""
+					}{
+						CatalogID: catalogID,
+						Sections:  sections,
+						Name:      msg.Action(),
+					}
+
+					payloads = append(payloads, payload)
+				}
+
+			} else {
+				payload.Interactive.Action = &struct {
+					Button            string            `json:"button,omitempty"`
+					Sections          []mtSection       `json:"sections,omitempty"`
+					Buttons           []mtButton        `json:"buttons,omitempty"`
+					CatalogID         string            `json:"catalog_id,omitempty"`
+					ProductRetailerID string            `json:"product_retailer_id,omitempty"`
+					Name              string            `json:"name,omitempty"`
+					Parameters        map[string]string "json:\"parameters,omitempty\""
+				}{
+					CatalogID:         catalogID,
+					Name:              msg.Action(),
+					ProductRetailerID: unitaryProduct,
+				}
+				payloads = append(payloads, payload)
+			}
+		}
+	}
+
 	return payloads, logs, err
 }
 
@@ -1312,6 +1868,18 @@ func (h *handler) getTemplate(msg courier.Msg) (*MsgTemplating, error) {
 	return templating, err
 }
 
+func parseBacklashes(baseText string) string {
+	var text string
+	if strings.Contains(baseText, "\\/") {
+		text = strings.Replace(baseText, "\\", "", -1)
+	} else if strings.Contains(baseText, "\\\\") {
+		text = strings.Replace(baseText, "\\\\", "\\", -1)
+	} else {
+		text = baseText
+	}
+	return text
+}
+
 type TemplateMetadata struct {
 	Templating *MsgTemplating `json:"templating"`
 }
@@ -1402,4 +1970,47 @@ var languageMap = map[string]string{
 	"uzb":    "uz",    // Uzbek
 	"vie":    "vi",    // Vietnamese
 	"zul":    "zu",    // Zulu
+}
+
+// iso language code mapping to respective "Menu" word translation
+var languageMenuMap = map[string]string{
+	"da-DK": "Menu",
+	"de-DE": "Speisekarte",
+	"en-AU": "Menu",
+	"en-CA": "Menu",
+	"en-GB": "Menu",
+	"en-IN": "Menu",
+	"en-US": "Menu",
+	"ca-ES": "Menú",
+	"es-ES": "Menú",
+	"es-MX": "Menú",
+	"fi-FI": "Valikko",
+	"fr-CA": "Menu",
+	"fr-FR": "Menu",
+	"it-IT": "Menù",
+	"ja-JP": "メニュー",
+	"ko-KR": "메뉴",
+	"nb-NO": "Meny",
+	"nl-NL": "Menu",
+	"pl-PL": "Menu",
+	"pt-BR": "Menu",
+	"ru-RU": "Меню",
+	"sv-SE": "Meny",
+	"zh-CN": "菜单",
+	"zh-HK": "菜單",
+	"zh-TW": "菜單",
+	"ar-JO": "قائمة",
+}
+
+func toStringSlice(v interface{}) []string {
+	if list, ok := v.([]interface{}); ok {
+		result := make([]string, len(list))
+		for i, item := range list {
+			if str, ok := item.(string); ok {
+				result[i] = str
+			}
+		}
+		return result
+	}
+	return nil
 }

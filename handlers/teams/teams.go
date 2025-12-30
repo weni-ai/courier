@@ -189,20 +189,50 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		attachmentURLs := make([]string, 0, 2)
 
 		for _, att := range payload.Attachments {
-			if att.ContentType != "" && att.ContentUrl != "" {
-				attachmentURLs = append(attachmentURLs, att.ContentUrl)
+			switch content := att.Content.(type) {
+			case string:
+				if strings.Contains(content, "Reply") {
+					substrings := strings.Split(text, "\r\n\r\n")
+					if len(substrings) > 1 {
+						text = substrings[len(substrings)-1]
+						text = strings.TrimRight(text, "\r\n")
+					}
+				}
+			case map[string]interface{}:
+				downloadURL, ok := content["downloadUrl"].(string)
+				if ok && downloadURL != "" {
+					attachmentURLs = append(attachmentURLs, downloadURL)
+				}
+			default:
 			}
 		}
 
 		ev := h.Backend().NewIncomingMsg(channel, urn, text).WithExternalID(payload.Id).WithReceivedOn(date)
 		event := h.Backend().CheckExternalIDSeen(ev)
 
+		email, err := getContactEmail(channel, urn)
+		if err != nil {
+			logrus.WithField("channel_uuid", event.Channel().UUID().String()).WithError(err).Error("Error getting contact email")
+		} else {
+			ctEmail := struct {
+				Email string `json:"email"`
+			}{Email: email}
+
+			md, err := json.Marshal(ctEmail)
+			if err != nil {
+				courier.LogRequestError(r, channel, err)
+			}
+
+			metadata := json.RawMessage(md)
+			event.WithMetadata(metadata)
+		}
+
 		// add any attachment URL found
 		for _, attURL := range attachmentURLs {
 			event.WithAttachment(attURL)
 		}
 
-		err := h.Backend().WriteMsg(ctx, event)
+		err = h.Backend().WriteMsg(ctx, event)
 		if err != nil {
 			return nil, err
 		}
@@ -319,24 +349,37 @@ type ConversationAccount struct {
 }
 
 type Attachment struct {
-	ContentType string `json:"contentType"`
-	ContentUrl  string `json:"contentUrl"`
-	Name        string `json:"name,omitempty"`
+	ContentType string      `json:"contentType"`
+	ContentUrl  string      `json:"contentUrl"`
+	Name        string      `json:"name,omitempty"`
+	Content     interface{} `json:"content,omitempty"`
+}
+
+type CardAction struct {
+	Title string `json:"title"`
+	Type  string `json:"type"`
+	Value string `json:"value"`
+}
+
+type SuggestedActions struct {
+	Actions []CardAction `json:"actions"`
+	To      []string     `json:"to"`
 }
 
 type Activity struct {
-	Action       string              `json:"action,omitempty"`
-	Attachments  []Attachment        `json:"attachments,omitempty"`
-	ChannelId    string              `json:"channelId,omitempty"`
-	Conversation ConversationAccount `json:"conversation,omitempty"`
-	Id           string              `json:"id,omitempty"`
-	MembersAdded []ChannelAccount    `json:"membersAdded,omitempty"`
-	Name         string              `json:"name,omitempty"`
-	Recipient    ChannelAccount      `json:"recipient,omitempty"`
-	ServiceUrl   string              `json:"serviceUrl,omitempty"`
-	Text         string              `json:"text"`
-	Type         string              `json:"type"`
-	Timestamp    string              `json:"timestamp,omitempty"`
+	Action           string              `json:"action,omitempty"`
+	Attachments      []Attachment        `json:"attachments,omitempty"`
+	ChannelId        string              `json:"channelId,omitempty"`
+	Conversation     ConversationAccount `json:"conversation,omitempty"`
+	Id               string              `json:"id,omitempty"`
+	MembersAdded     []ChannelAccount    `json:"membersAdded,omitempty"`
+	Name             string              `json:"name,omitempty"`
+	Recipient        ChannelAccount      `json:"recipient,omitempty"`
+	ServiceUrl       string              `json:"serviceUrl,omitempty"`
+	Text             string              `json:"text,omitempty"`
+	Type             string              `json:"type"`
+	Timestamp        string              `json:"timestamp,omitempty"`
+	SuggestedActions SuggestedActions    `json:"suggestedActions,omitempty"`
 }
 
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
@@ -348,7 +391,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
 
-	payload := Activity{}
+	payloadArray := []Activity{}
 
 	path := strings.Split(msg.URN().Path(), ":")
 	conversationID := path[1]
@@ -356,47 +399,85 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	msgURL := msg.URN().TeamsServiceURL() + "v3/conversations/a:" + conversationID + "/activities"
 
 	for _, attachment := range msg.Attachments() {
-		attType, attURL := handlers.SplitAttachment(attachment)
-		filename, err := utils.BasePathForURL(attURL)
-		if err != nil {
-			logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("Error while parsing the media URL")
+		// Process each attachment separately
+		mimeType, attURL := handlers.SplitAttachment(attachment)
+		attType := strings.Split(mimeType, "/")[0]
+		//filename, err := utils.BasePathForURL(attURL)
+		// if err != nil {
+		// 	logrus.WithField("channel_uuid", msg.Channel().UUID().String()).WithError(err).Error("Error while parsing the media URL")
+		// }
+
+		if attType == "application" {
+			attType = "document"
 		}
-		payload.Attachments = append(payload.Attachments, Attachment{attType, attURL, filename})
+
+		// Create a new payload for each attachment
+		attPayload := Activity{Type: "message"}
+		if attType == "video" || attType == "document" || attType == "audio" || attType == "image" {
+			attPayload.Text = attURL
+		}
+		// make code snippet unusable while image upload is not working
+		/*else {
+			attPayload.Attachments = append(attPayload.Attachments, Attachment{mimeType, attURL, filename, struct {
+				DownloadUrl string "json:\"downloadUrl,omitempty\""
+				UniqueId    string "json:\"uniqueId,omitempty\""
+				FileType    string "json:\"fileType,omitempty\""
+			}{}})
+		}*/
+
+		payloadArray = append(payloadArray, attPayload)
 	}
 
+	textPayload := Activity{Type: "message"}
 	if msg.Text() != "" {
-		payload.Type = "message"
-		payload.Text = msg.Text()
+		textPayload.Text = msg.Text()
 	}
 
-	jsonBody, err := json.Marshal(payload)
-	if err != nil {
-		return status, err
+	for _, qr := range msg.QuickReplies() {
+
+		ca := CardAction{
+			Title: qr,
+			Type:  "imBack",
+			Value: qr,
+		}
+
+		textPayload.SuggestedActions.Actions = append(textPayload.SuggestedActions.Actions, ca)
+		textPayload.SuggestedActions.To = append(textPayload.SuggestedActions.To, conversationID)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, msgURL, bytes.NewReader(jsonBody))
+	payloadArray = append(payloadArray, textPayload)
 
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
+	for _, payload := range payloadArray {
+		jsonBody, err := json.Marshal(payload)
+		if err != nil {
+			return status, err
+		}
 
-	rr, err := utils.MakeHTTPRequest(req)
+		req, err := http.NewRequest(http.MethodPost, msgURL, bytes.NewReader(jsonBody))
 
-	// record our status and log
-	log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
-	status.AddLog(log)
-	if err != nil {
-		return status, err
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		rr, err := utils.MakeHTTPRequest(req)
+
+		// record our status and log
+		log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
+		status.AddLog(log)
+		if err != nil {
+			return status, err
+		}
+		status.SetStatus(courier.MsgWired)
+		externalID, err := jsonparser.GetString(rr.Body, "id")
+		if err != nil {
+			log.WithError("Message Send Error", errors.Errorf("unable to get message_id from body"))
+			return status, nil
+		}
+		status.SetExternalID(externalID)
 	}
-	status.SetStatus(courier.MsgWired)
-	externalID, err := jsonparser.GetString(rr.Body, "id")
-	if err != nil {
-		log.WithError("Message Send Error", errors.Errorf("unable to get message_id from body"))
-		return status, nil
-	}
-	status.SetExternalID(externalID)
+
 	return status, nil
 }
 
@@ -424,4 +505,29 @@ func (h *handler) DescribeURN(ctx context.Context, channel courier.Channel, urn 
 	surname, _ := jsonparser.GetString(rr.Body, "[0]", "surname")
 
 	return map[string]string{"name": utils.JoinNonEmpty(" ", givenName, surname)}, nil
+}
+
+func getContactEmail(channel courier.Channel, urn urns.URN) (string, error) {
+	accessToken := channel.StringConfigForKey(courier.ConfigAuthToken, "")
+	if accessToken == "" {
+		return "", fmt.Errorf("missing access token")
+	}
+
+	// build a request to lookup the stats for this contact
+	pathSplit := strings.Split(urn.Path(), ":")
+	conversationID := pathSplit[1]
+	url := urn.TeamsServiceURL() + "/v3/conversations/a:" + conversationID + "/members"
+
+	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	rr, err := utils.MakeHTTPRequest(req)
+	if err != nil {
+		return "", fmt.Errorf("unable to look up contact data:%s\n%s", err, rr.Response)
+	}
+
+	//read our contact email
+	contactEmail, _ := jsonparser.GetString(rr.Body, "[0]", "email")
+
+	return contactEmail, nil
+
 }

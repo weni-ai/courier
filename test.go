@@ -1208,3 +1208,9 @@ func (mb *MockBackend) UpdateChannelConfigByWabaID(ctx context.Context, wabaID s
 	// For mock implementation, we'll just return nil since we don't have a real database
 	return nil
 }
+
+// UpdateMsgAttachments updates the attachments of an outgoing message with presigned URLs
+func (mb *MockBackend) UpdateMsgAttachments(ctx context.Context, msgID MsgID, attachments []string) error {
+	// For mock implementation, we just return nil as this is primarily for testing
+	return nil
+}

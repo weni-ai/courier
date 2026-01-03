@@ -225,6 +225,11 @@ func (w *Sender) sendMessage(msg Msg) {
 			attachments = append(attachments, attType+":"+attURL)
 		}
 		msg = msg.WithPresignedURL(attachments)
+
+		// save the presigned URLs to the database
+		if err := backend.UpdateMsgAttachments(sendCTX, msg.ID(), attachments); err != nil {
+			log.WithError(err).Error("error saving presigned attachments to database")
+		}
 	}
 	if len(msg.QuickReplies()) > 0 {
 		log = log.WithField("quick_replies", msg.QuickReplies())

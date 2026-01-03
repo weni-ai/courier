@@ -126,6 +126,9 @@ type Backend interface {
 	UpdateChannelConfigByWabaID(context.Context, string, map[string]interface{}) error
 
 	GetProjectUUIDFromChannelUUID(context.Context, ChannelUUID) (string, error)
+
+	// UpdateMsgAttachments updates the attachments of an outgoing message with presigned URLs
+	UpdateMsgAttachments(context.Context, MsgID, []string) error
 }
 
 // NewBackend creates the type of backend passed in

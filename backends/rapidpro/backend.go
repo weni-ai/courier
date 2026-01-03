@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/gomodule/redigo/redis"
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/batch"
 	"github.com/nyaruka/courier/metrics"
@@ -932,4 +933,25 @@ func (b *backend) GetMessage(ctx context.Context, msgUUID string) (courier.Msg, 
 
 func (b *backend) GetProjectUUIDFromChannelUUID(ctx context.Context, channelUUID courier.ChannelUUID) (string, error) {
 	return getProjectUUIDFromChannelUUID(ctx, b.db, channelUUID.String())
+}
+
+const updateMsgAttachmentsSQL = `
+UPDATE
+	msgs_msg
+SET
+	attachments = $2
+WHERE
+	id = $1
+`
+
+// UpdateMsgAttachments updates the attachments of an outgoing message with presigned URLs
+func (b *backend) UpdateMsgAttachments(ctx context.Context, msgID courier.MsgID, attachments []string) error {
+	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
+	defer cancel()
+
+	_, err := b.db.ExecContext(timeout, updateMsgAttachmentsSQL, msgID, pq.Array(attachments))
+	if err != nil {
+		return errors.Wrap(err, "error updating message attachments")
+	}
+	return nil
 }

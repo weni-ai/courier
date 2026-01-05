@@ -64,10 +64,8 @@ func writeMsg(ctx context.Context, b *backend, msg courier.Msg) error {
 
 	// if we have media, go download it to S3
 	for i, attachment := range m.Attachments_ {
-		// extract the URL from the attachment (handles both "http://..." and "mimeType:http://..." formats)
-		_, attURL := courier.SplitAttachment(attachment)
-		if strings.HasPrefix(attURL, "http") {
-			url, err := downloadMediaToS3(ctx, b, channel, m.OrgID_, m.UUID_, attURL)
+		if strings.HasPrefix(attachment, "http") {
+			url, err := downloadMediaToS3(ctx, b, channel, m.OrgID_, m.UUID_, attachment)
 			if err != nil {
 				return err
 			}

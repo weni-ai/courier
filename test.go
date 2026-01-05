@@ -682,7 +682,11 @@ func (m *mockMsg) WithAttachment(url string) Msg {
 	return m
 }
 func (m *mockMsg) WithMetadata(metadata json.RawMessage) Msg { m.metadata = metadata; return m }
-func (m *mockMsg) Status() MsgStatusValue                    { return "" }
+func (m *mockMsg) WithPresignedURL(urls []string) Msg {
+	m.attachments = urls
+	return m
+}
+func (m *mockMsg) Status() MsgStatusValue { return "" }
 
 func (m *mockMsg) Header() string {
 	if m.metadata == nil {
@@ -1202,5 +1206,11 @@ func (mb *MockBackend) UpdateChannelConfig(ctx context.Context, channel Channel,
 // UpdateChannelConfigByWabaID updates the channel configuration for all channels with matching waba_id
 func (mb *MockBackend) UpdateChannelConfigByWabaID(ctx context.Context, wabaID string, configUpdates map[string]interface{}) error {
 	// For mock implementation, we'll just return nil since we don't have a real database
+	return nil
+}
+
+// UpdateMsgAttachments updates the attachments of an outgoing message with presigned URLs
+func (mb *MockBackend) UpdateMsgAttachments(ctx context.Context, msgID MsgID, attachments []string) error {
+	// For mock implementation, we just return nil as this is primarily for testing
 	return nil
 }

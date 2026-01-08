@@ -1589,9 +1589,7 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 			return status, err
 		}
 		status.AddLog(log)
-		if err != nil {
-			return status, nil
-		}
+
 		externalID, err := jsonparser.GetString(rr.Body, "id")
 		if err != nil {
 			// ID doesn't exist, let's try message_id
@@ -3259,8 +3257,9 @@ func (h *handler) buildTemplateComponents(msg courier.Msg, templating *MsgTempla
 		components = append(components, bodyComponent)
 	}
 
-	// Handle carousel templates - media comes from msg.Attachments()
-	if len(templating.CarouselCards) > 0 && len(msg.Attachments()) > 0 {
+	// Handle carousel templates - identified by IsCarousel flag
+	// Media, body, and buttons are all optional per card
+	if templating.IsCarousel {
 		carouselComponent, err := h.buildCarouselComponent(msg, templating, accessToken, status, start)
 		if err != nil {
 			return nil, err
@@ -3367,80 +3366,80 @@ func buildOrderDetailsComponent(msg courier.Msg) (*wacComponent, error) {
 }
 
 // buildCarouselComponent builds the carousel component for WhatsApp template messages
-// Media for each card comes from msg.Attachments() in order
+// Card count is based on max(attachments, carousel_cards) - all fields are optional per card
+// Media (header), body variables, and buttons are matched by index
 func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplating, accessToken string, status courier.MsgStatus, start time.Time) (*wacComponent, error) {
 	carouselComponent := &wacComponent{Type: "carousel"}
 
-	for cardIdx, cardData := range templating.CarouselCards {
-		// Skip if no attachment for this card
-		if cardIdx >= len(msg.Attachments()) {
-			break
-		}
+	// Calculate number of cards as max of attachments and carousel_cards
+	numCards := len(msg.Attachments())
+	if len(templating.CarouselCards) > numCards {
+		numCards = len(templating.CarouselCards)
+	}
 
+	for cardIdx := 0; cardIdx < numCards; cardIdx++ {
 		card := &wacCarouselCard{CardIndex: cardIdx}
 
-		// Build header component with media from attachments
-		headerComponent := &wacComponent{Type: "header"}
-		attType, attURL := handlers.SplitAttachment(msg.Attachments()[cardIdx])
-		fileURL := attURL
+		// Build header component with media if attachment exists for this index
+		if cardIdx < len(msg.Attachments()) {
+			headerComponent := &wacComponent{Type: "header"}
+			attType, attURL := handlers.SplitAttachment(msg.Attachments()[cardIdx])
 
-		mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
-		for _, log := range mediaLogs {
-			status.AddLog(log)
-		}
-		if err != nil {
-			status.AddLog(courier.NewChannelLogFromError("error on fetch media ID for carousel card", msg.Channel(), msg.ID(), time.Since(start), err))
-		} else if mediaID != "" {
-			attURL = ""
-		}
-		attType = strings.Split(attType, "/")[0]
+			mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
+			for _, log := range mediaLogs {
+				status.AddLog(log)
+			}
+			if err != nil {
+				status.AddLog(courier.NewChannelLogFromError("error on fetch media ID for carousel card", msg.Channel(), msg.ID(), time.Since(start), err))
+			} else if mediaID != "" {
+				attURL = ""
+			}
+			attType = strings.Split(attType, "/")[0]
 
-		parsedURL, err := url.Parse(attURL)
-		if err != nil {
-			return nil, err
-		}
-		if attType == "application" {
-			attType = "document"
-		}
-
-		media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
-		switch attType {
-		case "image":
-			headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "image", Image: &media})
-		case "video":
-			headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "video", Video: &media})
-		case "document":
-			media.Filename, err = utils.BasePathForURL(fileURL)
+			parsedURL, err := url.Parse(attURL)
 			if err != nil {
 				return nil, err
 			}
-			headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "document", Document: &media})
-		default:
-			return nil, fmt.Errorf("unknown attachment mime type for carousel card: %s", attType)
-		}
-		card.Components = append(card.Components, headerComponent)
 
-		// Build body component with text variables if present
-		if len(cardData.Body) > 0 {
-			bodyComponent := &wacComponent{Type: "body"}
-			for _, textVar := range cardData.Body {
-				bodyComponent.Params = append(bodyComponent.Params, &wacParam{Type: "text", Text: textVar})
+			media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
+			switch attType {
+			case "image":
+				headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "image", Image: &media})
+			case "video":
+				headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "video", Video: &media})
+			default:
+				return nil, fmt.Errorf("unsupported attachment type for carousel card header: %s (only image and video are supported)", attType)
 			}
-			card.Components = append(card.Components, bodyComponent)
+			card.Components = append(card.Components, headerComponent)
 		}
 
-		// Build button components if present
-		for btnIdx, btnData := range cardData.Buttons {
-			buttonComponent := &wacComponent{Type: "button", SubType: btnData.SubType, Index: &btnIdx}
-			switch btnData.SubType {
-			case "quick_reply":
-				buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: "payload", Payload: btnData.Parameter})
-			case "url":
-				buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: "url", Text: btnData.Text, URL: btnData.Parameter})
-			case "phone_number":
-				buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: "phone_number", Text: btnData.Text, PhoneNumber: btnData.Parameter})
+		// Get card data if available (body variables and buttons are optional)
+		if cardIdx < len(templating.CarouselCards) {
+			cardData := templating.CarouselCards[cardIdx]
+
+			// Build body component with text variable if present
+			if cardData.Body != "" {
+				bodyComponent := &wacComponent{Type: "body"}
+				bodyComponent.Params = append(bodyComponent.Params, &wacParam{Type: "text", Text: cardData.Body})
+				card.Components = append(card.Components, bodyComponent)
 			}
-			card.Components = append(card.Components, buttonComponent)
+
+			// Build button components if present
+			for btnArrayIdx, btnData := range cardData.Buttons {
+				// Use provided index or fall back to array position
+				btnIdx := btnArrayIdx
+				if btnData.Index != nil {
+					btnIdx = *btnData.Index
+				}
+				buttonComponent := &wacComponent{Type: "button", SubType: btnData.SubType, Index: &btnIdx}
+				switch btnData.SubType {
+				case "quick_reply":
+					buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: "payload", Payload: btnData.Parameter})
+				case "url":
+					buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: "text", Text: btnData.Parameter})
+				}
+				card.Components = append(card.Components, buttonComponent)
+			}
 		}
 
 		carouselComponent.Cards = append(carouselComponent.Cards, card)
@@ -3498,20 +3497,22 @@ type MsgTemplating struct {
 	Country       string         `json:"country"`
 	Namespace     string         `json:"namespace"`
 	Variables     []string       `json:"variables"`
+	IsCarousel    bool           `json:"is_carousel,omitempty"`
 	CarouselCards []CarouselCard `json:"carousel_cards,omitempty"`
 }
 
 // CarouselCard represents a single card in a carousel template
+// All fields are optional - cards are created based on attachments count
 type CarouselCard struct {
-	Body    []string             `json:"body,omitempty"`
+	Body    string               `json:"body,omitempty"`
 	Buttons []CarouselCardButton `json:"buttons,omitempty"`
 }
 
 // CarouselCardButton represents a button in a carousel card
 type CarouselCardButton struct {
-	SubType   string `json:"sub_type"`  // quick_reply, url, phone_number
-	Text      string `json:"text"`      // button label text
-	Parameter string `json:"parameter"` // payload for quick_reply, url variable for url, phone number for phone_number
+	SubType   string `json:"sub_type"`            // quick_reply, url
+	Index     *int   `json:"index,omitempty"`     // button index (optional, uses array position if not set)
+	Parameter string `json:"parameter,omitempty"` // payload for quick_reply, url suffix for url
 }
 
 // mapping from iso639-3_iso3166-2 to WA language code

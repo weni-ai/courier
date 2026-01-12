@@ -3534,11 +3534,17 @@ func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplat
 		if cardIdx < len(templating.CarouselCards) {
 			cardData := templating.CarouselCards[cardIdx]
 
-			// Build body component with text variable if present
-			if cardData.Body != "" {
+			// Build body component with text variables if present
+			if len(cardData.Body) > 0 {
 				bodyComponent := &wacComponent{Type: "body"}
-				bodyComponent.Params = append(bodyComponent.Params, &wacParam{Type: "text", Text: cardData.Body})
-				card.Components = append(card.Components, bodyComponent)
+				for _, bodyText := range cardData.Body {
+					if bodyText != "" {
+						bodyComponent.Params = append(bodyComponent.Params, &wacParam{Type: "text", Text: bodyText})
+					}
+				}
+				if len(bodyComponent.Params) > 0 {
+					card.Components = append(card.Components, bodyComponent)
+				}
 			}
 
 			// Build button components if present
@@ -3621,7 +3627,7 @@ type MsgTemplating struct {
 // CarouselCard represents a single card in a carousel template
 // All fields are optional - cards are created based on attachments count
 type CarouselCard struct {
-	Body    string               `json:"body,omitempty"`
+	Body    []string             `json:"body,omitempty"`
 	Buttons []CarouselCardButton `json:"buttons,omitempty"`
 }
 

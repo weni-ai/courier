@@ -1,3 +1,7 @@
+1.43.0
+----------
+ * feat: Add support for sending carousel templates on WhatsApp
+
 1.42.0
 ----------
  * Feat: wwc handle new contact fields

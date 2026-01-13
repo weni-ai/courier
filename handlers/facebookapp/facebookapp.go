@@ -3375,7 +3375,7 @@ func (h *handler) buildTemplateComponents(msg courier.Msg, templating *MsgTempla
 	}
 
 	// Handle carousel templates - identified by IsCarousel flag
-	// Media, body, and buttons are all optional per card
+	// 2-10 cards required, media is mandatory per card, body and buttons are optional (max 2 buttons per card)
 	if templating.IsCarousel {
 		carouselComponent, err := h.buildCarouselComponent(msg, templating, accessToken, status, start)
 		if err != nil {
@@ -3483,52 +3483,53 @@ func buildOrderDetailsComponent(msg courier.Msg) (*wacComponent, error) {
 }
 
 // buildCarouselComponent builds the carousel component for WhatsApp template messages
-// Card count is based on max(attachments, carousel_cards) - all fields are optional per card
+// Card count is based on attachments count - media is mandatory per card (min 2, max 10 cards), body and buttons are optional (max 2 buttons per card)
 // Media (header), body variables, and buttons are matched by index
 func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplating, accessToken string, status courier.MsgStatus, start time.Time) (*wacComponent, error) {
-	carouselComponent := &wacComponent{Type: "carousel"}
-
-	// Calculate number of cards as max of attachments and carousel_cards
+	// Carousel requires 2-10 cards, each with mandatory media
 	numCards := len(msg.Attachments())
-	if len(templating.CarouselCards) > numCards {
-		numCards = len(templating.CarouselCards)
+	if numCards < 2 {
+		return nil, fmt.Errorf("carousel templates require at least 2 media attachments, got %d", numCards)
 	}
+	if numCards > 10 {
+		return nil, fmt.Errorf("carousel templates allow at most 10 media attachments, got %d", numCards)
+	}
+
+	carouselComponent := &wacComponent{Type: "carousel"}
 
 	for cardIdx := 0; cardIdx < numCards; cardIdx++ {
 		card := &wacCarouselCard{CardIndex: cardIdx}
 
-		// Build header component with media if attachment exists for this index
-		if cardIdx < len(msg.Attachments()) {
-			headerComponent := &wacComponent{Type: "header"}
-			attType, attURL := handlers.SplitAttachment(msg.Attachments()[cardIdx])
+		// Build header component with media (mandatory for each card)
+		headerComponent := &wacComponent{Type: "header"}
+		attType, attURL := handlers.SplitAttachment(msg.Attachments()[cardIdx])
 
-			mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
-			for _, log := range mediaLogs {
-				status.AddLog(log)
-			}
-			if err != nil {
-				status.AddLog(courier.NewChannelLogFromError("error on fetch media ID for carousel card", msg.Channel(), msg.ID(), time.Since(start), err))
-			} else if mediaID != "" {
-				attURL = ""
-			}
-			attType = strings.Split(attType, "/")[0]
-
-			parsedURL, err := url.Parse(attURL)
-			if err != nil {
-				return nil, err
-			}
-
-			media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
-			switch attType {
-			case "image":
-				headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "image", Image: &media})
-			case "video":
-				headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "video", Video: &media})
-			default:
-				return nil, fmt.Errorf("unsupported attachment type for carousel card header: %s (only image and video are supported)", attType)
-			}
-			card.Components = append(card.Components, headerComponent)
+		mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
+		for _, log := range mediaLogs {
+			status.AddLog(log)
 		}
+		if err != nil {
+			status.AddLog(courier.NewChannelLogFromError("error on fetch media ID for carousel card", msg.Channel(), msg.ID(), time.Since(start), err))
+		} else if mediaID != "" {
+			attURL = ""
+		}
+		attType = strings.Split(attType, "/")[0]
+
+		parsedURL, err := url.Parse(attURL)
+		if err != nil {
+			return nil, err
+		}
+
+		media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
+		switch attType {
+		case "image":
+			headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "image", Image: &media})
+		case "video":
+			headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "video", Video: &media})
+		default:
+			return nil, fmt.Errorf("unsupported attachment type for carousel card header: %s (only image and video are supported)", attType)
+		}
+		card.Components = append(card.Components, headerComponent)
 
 		// Get card data if available (body variables and buttons are optional)
 		if cardIdx < len(templating.CarouselCards) {
@@ -3547,7 +3548,10 @@ func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplat
 				}
 			}
 
-			// Build button components if present
+			// Build button components if present (max 2 buttons per card)
+			if len(cardData.Buttons) > 2 {
+				return nil, fmt.Errorf("carousel card %d has %d buttons, maximum allowed is 2", cardIdx, len(cardData.Buttons))
+			}
 			for btnArrayIdx, btnData := range cardData.Buttons {
 				// Use provided index or fall back to array position
 				btnIdx := btnArrayIdx
@@ -3625,7 +3629,7 @@ type MsgTemplating struct {
 }
 
 // CarouselCard represents a single card in a carousel template
-// All fields are optional - cards are created based on attachments count
+// Body and buttons are optional (max 2 buttons) - cards are created based on attachments count (media is mandatory, 2-10 cards)
 type CarouselCard struct {
 	Body    []string             `json:"body,omitempty"`
 	Buttons []CarouselCardButton `json:"buttons,omitempty"`

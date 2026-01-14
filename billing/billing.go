@@ -179,3 +179,31 @@ func (c *rabbitmqRetryClient) SendAsync(msg Message, routingKey string, pre func
 		}
 	}()
 }
+
+// MultiBillingClient sends messages to multiple billing backends simultaneously
+// Used for transitioning between message queue systems (e.g., RabbitMQ to AmazonMQ)
+type MultiBillingClient struct {
+	clients []Client
+}
+
+// NewMultiBillingClient creates a new client that sends to multiple backends
+func NewMultiBillingClient(clients ...Client) Client {
+	return &MultiBillingClient{clients: clients}
+}
+
+func (m *MultiBillingClient) Send(msg Message, routingKey string) error {
+	var lastErr error
+	for _, client := range m.clients {
+		if err := client.Send(msg, routingKey); err != nil {
+			logrus.WithError(err).WithField("routing_key", routingKey).Error("failed to send to billing client")
+			lastErr = err
+		}
+	}
+	return lastErr
+}
+
+func (m *MultiBillingClient) SendAsync(msg Message, routingKey string, pre func(), post func()) {
+	for _, client := range m.clients {
+		client.SendAsync(msg, routingKey, pre, post)
+	}
+}

@@ -60,6 +60,14 @@ type Config struct {
 	RabbitmqRetryPubDelay    int    `help:"rabbitmq retry delay"`
 	BillingExchangeName      string `help:"billing exchange name"`
 
+	// AmazonMQ RabbitMQ configuration
+	AmazonMQURL             string `help:"amazonmq rabbitmq url"`
+	AmazonMQBillingExchange string `help:"amazonmq billing exchange name"`
+
+	// Feature flags for billing transition
+	EnableRabbitMQBilling bool `help:"enable sending to rabbitmq billing (default true)"`
+	EnableAmazonMQBilling bool `help:"enable sending to amazonmq billing (default false)"`
+
 	EmailProxyURL       string `help:"email proxy url"`
 	EmailProxyAuthToken string `help:"email proxy auth token"`
 
@@ -104,6 +112,9 @@ func NewConfig() *Config {
 		RabbitmqRetryPubAttempts:     3,
 		RabbitmqRetryPubDelay:        1000,
 		BillingExchangeName:          "msgs.topic",
+		AmazonMQBillingExchange:      "msgs.topic",
+		EnableRabbitMQBilling:        true,
+		EnableAmazonMQBilling:        false,
 		EmailProxyURL:                "http://localhost:9090",
 		EmailProxyAuthToken:          "",
 		TemplatesExchangeName:        "templates",

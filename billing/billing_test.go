@@ -218,6 +218,157 @@ func TestBillingResilientClientSendAsync(t *testing.T) {
 	assert.Equal(t, cmsg.MessageID, msg.MessageID)
 }
 
+// mockBillingClient is a mock implementation of Client for testing
+type mockBillingClient struct {
+	sendCalled      int
+	sendAsyncCalled int
+	shouldError     bool
+	lastMsg         Message
+	lastRoutingKey  string
+}
+
+func (m *mockBillingClient) Send(msg Message, routingKey string) error {
+	m.sendCalled++
+	m.lastMsg = msg
+	m.lastRoutingKey = routingKey
+	if m.shouldError {
+		return errors.New("mock error")
+	}
+	return nil
+}
+
+func (m *mockBillingClient) SendAsync(msg Message, routingKey string, pre func(), post func()) {
+	m.sendAsyncCalled++
+	m.lastMsg = msg
+	m.lastRoutingKey = routingKey
+	if pre != nil {
+		pre()
+	}
+	if post != nil {
+		post()
+	}
+}
+
+func TestMultiBillingClientSend(t *testing.T) {
+	client1 := &mockBillingClient{}
+	client2 := &mockBillingClient{}
+
+	multiClient := NewMultiBillingClient(client1, client2)
+
+	msg := NewMessage(
+		"telegram:123456789",
+		"uuid",
+		"John",
+		"channel-uuid",
+		"msg-id",
+		"2024-01-01",
+		"O",
+		"TG",
+		"hello",
+		nil,
+		nil,
+		false,
+		"",
+		"sent",
+	)
+
+	err := multiClient.Send(msg, RoutingKeyCreate)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, client1.sendCalled)
+	assert.Equal(t, 1, client2.sendCalled)
+	assert.Equal(t, RoutingKeyCreate, client1.lastRoutingKey)
+	assert.Equal(t, RoutingKeyCreate, client2.lastRoutingKey)
+}
+
+func TestMultiBillingClientSendWithError(t *testing.T) {
+	client1 := &mockBillingClient{shouldError: true}
+	client2 := &mockBillingClient{}
+
+	multiClient := NewMultiBillingClient(client1, client2)
+
+	msg := NewMessage(
+		"telegram:123456789",
+		"uuid",
+		"John",
+		"channel-uuid",
+		"msg-id",
+		"2024-01-01",
+		"O",
+		"TG",
+		"hello",
+		nil,
+		nil,
+		false,
+		"",
+		"sent",
+	)
+
+	err := multiClient.Send(msg, RoutingKeyCreate)
+	// Should return last error but still call all clients
+	assert.Error(t, err)
+	assert.Equal(t, 1, client1.sendCalled)
+	assert.Equal(t, 1, client2.sendCalled)
+}
+
+func TestMultiBillingClientSendAsync(t *testing.T) {
+	client1 := &mockBillingClient{}
+	client2 := &mockBillingClient{}
+
+	multiClient := NewMultiBillingClient(client1, client2)
+
+	msg := NewMessage(
+		"telegram:123456789",
+		"uuid",
+		"John",
+		"channel-uuid",
+		"msg-id",
+		"2024-01-01",
+		"O",
+		"TG",
+		"hello",
+		nil,
+		nil,
+		false,
+		"",
+		"sent",
+	)
+
+	preCalled := 0
+	postCalled := 0
+
+	multiClient.SendAsync(msg, RoutingKeyUpdate, func() { preCalled++ }, func() { postCalled++ })
+
+	assert.Equal(t, 1, client1.sendAsyncCalled)
+	assert.Equal(t, 1, client2.sendAsyncCalled)
+	assert.Equal(t, 2, preCalled)  // Called once per client
+	assert.Equal(t, 2, postCalled) // Called once per client
+}
+
+func TestMultiBillingClientEmpty(t *testing.T) {
+	multiClient := NewMultiBillingClient()
+
+	msg := NewMessage(
+		"telegram:123456789",
+		"uuid",
+		"John",
+		"channel-uuid",
+		"msg-id",
+		"2024-01-01",
+		"O",
+		"TG",
+		"hello",
+		nil,
+		nil,
+		false,
+		"",
+		"sent",
+	)
+
+	// Should not panic with no clients
+	err := multiClient.Send(msg, RoutingKeyCreate)
+	assert.NoError(t, err)
+}
+
 func TestBillingResilientClientSendAsyncWithPanic(t *testing.T) {
 	connURL := "amqp://localhost:5672/"
 	conn, err := amqp.Dial(connURL)

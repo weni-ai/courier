@@ -1,3 +1,7 @@
+1.42.0
+----------
+ * Feat: wwc handle new contact fields
+
 1.41.1
 ----------
  * Implement metadata handling for WhatsApp Cloud API messages with overwrite support

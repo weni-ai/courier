@@ -143,12 +143,12 @@ func main() {
 	}
 
 	// AmazonMQ billing client (new)
-	if config.EnableAmazonMQBilling && config.AmazonMQURL != "" {
+	if config.EnableAmazonmqBilling && config.AmazonmqURL != "" {
 		client, err := billing.NewRMQBillingResilientClient(
-			config.AmazonMQURL,
+			config.AmazonmqURL,
 			config.RabbitmqRetryPubAttempts,
 			config.RabbitmqRetryPubDelay,
-			config.AmazonMQBillingExchange,
+			config.AmazonmqBillingExchange,
 		)
 		if err != nil {
 			logrus.WithError(err).Error("Error creating AmazonMQ billing client")

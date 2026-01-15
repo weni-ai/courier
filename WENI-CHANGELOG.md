@@ -1,3 +1,15 @@
+1.43.0
+----------
+ * feat: Add support for sending carousel templates on WhatsApp
+
+1.42.0
+----------
+ * Feat: wwc handle new contact fields
+
+1.41.1
+----------
+ * Implement metadata handling for WhatsApp Cloud API messages with overwrite support
+
 1.41.0
 ----------
  * Add support for CTA Message on Weni Webchat

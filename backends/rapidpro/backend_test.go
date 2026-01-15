@@ -143,6 +143,9 @@ func (ts *BackendTestSuite) TestMsgUnmarshal() {
 	ts.True(msg.HighPriority())
 	ts.True(msg.IsResend())
 
+	// Test NewContactFields is nil when not set
+	ts.Nil(msg.NewContactFields())
+
 	msgJSONNoQR := `{
 		"status": "P",
 		"direction": "O",
@@ -177,6 +180,138 @@ func (ts *BackendTestSuite) TestMsgUnmarshal() {
 	ts.Equal(courier.NilMsgID, msg.ResponseToID())
 	ts.Equal("", msg.ResponseToExternalID())
 	ts.False(msg.IsResend())
+
+	// Test NewContactFields when present in JSON
+	msgJSONWithContactFields := `{
+		"status": "P",
+		"direction": "O",
+		"attachments": null,
+		"queued_on": null,
+		"text": "Test message with contact fields",
+		"contact_id": 30,
+		"contact_urn_id": 14,
+		"error_count": 0,
+		"modified_on": "2017-07-21T19:22:23.254133Z",
+		"id": 204,
+		"channel_uuid": "f3ad3eb6-d00d-4dc3-92e9-9f34f32940ba",
+		"uuid": "54c893b9-b026-44fc-a490-50aed0361c3f",
+		"next_attempt": "2017-07-21T19:22:23.254182Z",
+		"urn": "telegram:3527065",
+		"org_id": 1,
+		"created_on": "2017-07-21T19:22:23.242757Z",
+		"sent_on": null,
+		"high_priority": false,
+		"channel_id": 11,
+		"response_to_id": null,
+		"response_to_external_id": "",
+		"external_id": null,
+		"metadata": null,
+		"new_contact_fields": {"name": "John Doe", "email": "john@example.com"}
+	}`
+
+	msg = DBMsg{}
+	err = json.Unmarshal([]byte(msgJSONWithContactFields), &msg)
+	ts.NoError(err)
+	ts.NotNil(msg.NewContactFields())
+	ts.Equal("John Doe", msg.NewContactFields()["name"])
+	ts.Equal("john@example.com", msg.NewContactFields()["email"])
+
+	// Test NewContactFields when null in JSON
+	msgJSONWithNullContactFields := `{
+		"status": "P",
+		"direction": "O",
+		"attachments": null,
+		"queued_on": null,
+		"text": "Test message with null contact fields",
+		"contact_id": 30,
+		"contact_urn_id": 14,
+		"error_count": 0,
+		"modified_on": "2017-07-21T19:22:23.254133Z",
+		"id": 204,
+		"channel_uuid": "f3ad3eb6-d00d-4dc3-92e9-9f34f32940ba",
+		"uuid": "54c893b9-b026-44fc-a490-50aed0361c3f",
+		"next_attempt": "2017-07-21T19:22:23.254182Z",
+		"urn": "telegram:3527065",
+		"org_id": 1,
+		"created_on": "2017-07-21T19:22:23.242757Z",
+		"sent_on": null,
+		"high_priority": false,
+		"channel_id": 11,
+		"response_to_id": null,
+		"response_to_external_id": "",
+		"external_id": null,
+		"metadata": null,
+		"new_contact_fields": null
+	}`
+
+	msg = DBMsg{}
+	err = json.Unmarshal([]byte(msgJSONWithNullContactFields), &msg)
+	ts.NoError(err)
+	ts.Nil(msg.NewContactFields())
+
+	// Test NewContactFields when empty object in JSON
+	msgJSONWithEmptyContactFields := `{
+		"status": "P",
+		"direction": "O",
+		"attachments": null,
+		"queued_on": null,
+		"text": "Test message with empty contact fields",
+		"contact_id": 30,
+		"contact_urn_id": 14,
+		"error_count": 0,
+		"modified_on": "2017-07-21T19:22:23.254133Z",
+		"id": 204,
+		"channel_uuid": "f3ad3eb6-d00d-4dc3-92e9-9f34f32940ba",
+		"uuid": "54c893b9-b026-44fc-a490-50aed0361c3f",
+		"next_attempt": "2017-07-21T19:22:23.254182Z",
+		"urn": "telegram:3527065",
+		"org_id": 1,
+		"created_on": "2017-07-21T19:22:23.242757Z",
+		"sent_on": null,
+		"high_priority": false,
+		"channel_id": 11,
+		"response_to_id": null,
+		"response_to_external_id": "",
+		"external_id": null,
+		"metadata": null,
+		"new_contact_fields": {}
+	}`
+
+	msg = DBMsg{}
+	err = json.Unmarshal([]byte(msgJSONWithEmptyContactFields), &msg)
+	ts.NoError(err)
+	ts.NotNil(msg.NewContactFields())
+	ts.Equal(0, len(msg.NewContactFields()))
+}
+
+func (ts *BackendTestSuite) TestWithNewContactFields() {
+	knChannel := ts.getChannel("KN", "dbc126ed-66bc-4e28-b67b-81dc3327c95d")
+	urn, _ := urns.NewTelURNForCountry("12065551212", knChannel.Country())
+
+	// Test WithNewContactFields method
+	msg := ts.b.NewIncomingMsg(knChannel, urn, "test message").(*DBMsg)
+	ts.Nil(msg.NewContactFields())
+
+	// Add contact fields
+	fields := map[string]string{
+		"name":  "Jane Doe",
+		"phone": "+1234567890",
+	}
+	msg.WithNewContactFields(fields)
+	ts.NotNil(msg.NewContactFields())
+	ts.Equal("Jane Doe", msg.NewContactFields()["name"])
+	ts.Equal("+1234567890", msg.NewContactFields()["phone"])
+
+	// Test with nil fields
+	msg2 := ts.b.NewIncomingMsg(knChannel, urn, "test message 2").(*DBMsg)
+	msg2.WithNewContactFields(nil)
+	ts.Nil(msg2.NewContactFields())
+
+	// Test with empty fields
+	msg3 := ts.b.NewIncomingMsg(knChannel, urn, "test message 3").(*DBMsg)
+	msg3.WithNewContactFields(map[string]string{})
+	ts.NotNil(msg3.NewContactFields())
+	ts.Equal(0, len(msg3.NewContactFields()))
 }
 
 func (ts *BackendTestSuite) TestCheckMsgExists() {
@@ -1234,20 +1369,66 @@ func (ts *BackendTestSuite) TestWriteMsg() {
 	ts.NoError(err)
 	ts.Equal("msg_event", body["type"])
 	ts.Equal(map[string]interface{}{
-		"contact_id":      float64(contact.ID_),
-		"org_id":          float64(1),
-		"channel_id":      float64(10),
-		"msg_id":          float64(msg.ID_),
-		"msg_uuid":        msg.UUID_.String(),
-		"msg_external_id": msg.ExternalID(),
-		"urn":             msg.URN().String(),
-		"urn_id":          float64(msg.ContactURNID_),
-		"text":            msg.Text(),
-		"attachments":     nil,
-		"new_contact":     contact.IsNew_,
-		"created_on":      msg.CreatedOn_.Format(time.RFC3339Nano),
-		"metadata":        nil,
+		"contact_id":         float64(contact.ID_),
+		"org_id":             float64(1),
+		"channel_id":         float64(10),
+		"msg_id":             float64(msg.ID_),
+		"msg_uuid":           msg.UUID_.String(),
+		"msg_external_id":    msg.ExternalID(),
+		"urn":                msg.URN().String(),
+		"urn_id":             float64(msg.ContactURNID_),
+		"text":               msg.Text(),
+		"attachments":        nil,
+		"new_contact":        contact.IsNew_,
+		"created_on":         msg.CreatedOn_.Format(time.RFC3339Nano),
+		"metadata":           nil,
+		"new_contact_fields": nil,
 	}, body["task"])
+}
+
+func (ts *BackendTestSuite) TestWriteMsgWithNewContactFields() {
+	ctx := context.Background()
+	knChannel := ts.getChannel("KN", "dbc126ed-66bc-4e28-b67b-81dc3327c95d")
+
+	// check that our mailroom queue has an item with new_contact_fields
+	rc := ts.b.redisPool.Get()
+	defer rc.Close()
+
+	urn, _ := urns.NewTelURNForCountry("12065551717", knChannel.Country())
+
+	// Clear any existing data
+	contact, err := contactForURN(ctx, ts.b, knChannel.OrgID(), knChannel, urn, "", "")
+	ts.NoError(err)
+	rc.Do("DEL", "handler:1", "handler:active", fmt.Sprintf("c:1:%d", contact.ID_))
+
+	// Create a message with new contact fields
+	contactFields := map[string]string{
+		"name":  "Test User",
+		"email": "test@example.com",
+	}
+	msg := ts.b.NewIncomingMsg(knChannel, urn, "hello with contact fields").WithNewContactFields(contactFields).(*DBMsg)
+	err = writeMsgToDB(ctx, ts.b, msg)
+	ts.NoError(err)
+
+	// Verify the message was queued with new_contact_fields
+	count, err := redis.Int(rc.Do("LLEN", fmt.Sprintf("c:1:%d", msg.ContactID_)))
+	ts.NoError(err)
+	ts.Equal(1, count)
+
+	data, err := redis.Bytes(rc.Do("LPOP", fmt.Sprintf("c:1:%d", msg.ContactID_)))
+	ts.NoError(err)
+
+	var body map[string]interface{}
+	err = json.Unmarshal(data, &body)
+	ts.NoError(err)
+	ts.Equal("msg_event", body["type"])
+
+	task := body["task"].(map[string]interface{})
+	ts.NotNil(task["new_contact_fields"])
+
+	newContactFields := task["new_contact_fields"].(map[string]interface{})
+	ts.Equal("Test User", newContactFields["name"])
+	ts.Equal("test@example.com", newContactFields["email"])
 }
 
 func (ts *BackendTestSuite) TestPreferredChannelCheckRole() {

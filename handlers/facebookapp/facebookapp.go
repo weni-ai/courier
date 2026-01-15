@@ -2920,6 +2920,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			}
 		} else if len(products) > 0 {
 			if !isUnitaryProduct {
+				const maxSectionsPerMsg = 10
+				const maxProductsPerMsg = 30
+
 				actions := [][]wacMTSection{}
 				sections := []wacMTSection{}
 				totalProductsPerMsg := 0
@@ -2938,42 +2941,53 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					var sproducts []wacMTProductItem
 
 					for _, p := range retailerIDs {
-						// If there is still room for the product in the current message
-						if totalProductsPerMsg < 30 {
-							sproducts = append(sproducts, wacMTProductItem{
-								ProductRetailerID: p,
-							})
-							totalProductsPerMsg++
-							continue
+						// Check if adding this product would exceed the limit
+						if totalProductsPerMsg >= maxProductsPerMsg {
+							// Save current products to section before starting new message
+							if len(sproducts) > 0 {
+								sections = append(sections, wacMTSection{Title: title, ProductItems: sproducts})
+								sproducts = []wacMTProductItem{}
+							}
+
+							// Save current sections to actions and restart for new message
+							if len(sections) > 0 {
+								actions = append(actions, sections)
+								sections = []wacMTSection{}
+								totalProductsPerMsg = 0
+							}
 						}
 
-						// When reaching 30 products, close current section and start new one
-						if len(sproducts) > 0 {
-							sections = append(sections, wacMTSection{Title: title, ProductItems: sproducts})
-							sproducts = []wacMTProductItem{}
+						// Check if adding this section would exceed the sections limit
+						// We need to check before adding a new section
+						if len(sproducts) == 0 && len(sections) >= maxSectionsPerMsg {
+							// Save current sections to actions and restart for new message
+							if len(sections) > 0 {
+								actions = append(actions, sections)
+								sections = []wacMTSection{}
+								totalProductsPerMsg = 0
+							}
 						}
 
-						// Save current section to actions and restart for new message
-						if len(sections) > 0 {
-							actions = append(actions, sections)
-							sections = []wacMTSection{}
-							totalProductsPerMsg = 0
-						}
-
-						// Start new section with current product
-						sproducts = append(sproducts, wacMTProductItem{ProductRetailerID: p})
+						sproducts = append(sproducts, wacMTProductItem{
+							ProductRetailerID: p,
+						})
 						totalProductsPerMsg++
 					}
 
 					// After the inner loop, add the current section with the product
 					if len(sproducts) > 0 {
+						// Check if adding this section would exceed the sections limit
+						if len(sections) >= maxSectionsPerMsg {
+							actions = append(actions, sections)
+							sections = []wacMTSection{}
+							totalProductsPerMsg = len(sproducts)
+						}
 						sections = append(sections, wacMTSection{Title: title, ProductItems: sproducts})
 					}
 				}
 
 				if len(sections) > 0 {
 					actions = append(actions, sections)
-
 				}
 
 				for _, sections := range actions {

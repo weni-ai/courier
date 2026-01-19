@@ -1621,3 +1621,22 @@ var ActionTestCasesWAC = []ChannelSendTestCase{
 		},
 	},
 }
+
+// Test cases for WCD (WhatsApp Cloud Demo) channel - offsite_card_pay without catalog_id
+var SendTestCasesWCD = []ChannelSendTestCase{
+	{Label: "Send Order Details Message - Offsite Card Pay without Catalog ID",
+		Metadata: json.RawMessage(`{"order_details_message":{"reference_id":"220788123125","total_amount":18200,"order":{"items":[{"retailer_id":"789236789","name":"item 1","amount":{"offset":100,"value":200},"quantity":2},{"retailer_id":"59016733","name":"item 2","amount":{"offset":100,"value":4000},"quantity":9,"sale_amount":{"offset":100,"value":2000}}],"subtotal":36400,"tax":{"value":500,"description":"tax description"},"shipping":{"value":900,"description":"shipping description"},"discount":{"value":1000,"description":"discount description","program_name":"discount program name"}},"payment_settings":{"type":"digital-goods","offsite_card_pay":{"credential_id":"cred123","last_four_digits":"1234"}}},"footer":"footer text","interaction_type":"order_details","text":"msg text"}`),
+		Text:     "msg text", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"order_details","body":{"text":"msg text"},"footer":{"text":"footer text"},"action":{"name":"review_and_pay","parameters":{"currency":"BRL","order":{"discount":{"description":"discount description","discount_program_name":"discount program name","offset":100,"value":1000},"items":[{"amount":{"offset":100,"value":200},"name":"item 1","quantity":2,"retailer_id":"789236789"},{"amount":{"offset":100,"value":4000},"name":"item 2","quantity":9,"retailer_id":"59016733","sale_amount":{"offset":100,"value":2000}}],"shipping":{"description":"shipping description","offset":100,"value":900},"status":"pending","subtotal":{"offset":100,"value":36400},"tax":{"description":"tax description","offset":100,"value":500}},"payment_settings":[{"offsite_card_pay":{"credential_id":"cred123","last_four_digits":"1234"},"type":"offsite_card_pay"}],"payment_type":"br","reference_id":"220788123125","total_amount":{"offset":100,"value":18200},"type":"digital-goods"}}}}`,
+		SendPrep:    setSendURL},
+}
+
+func TestSendingWCD(t *testing.T) {
+	// WCD channel without catalog_id - for testing offsite_card_pay
+	// Note: setSendURL sets graphURL to the test server URL, so we don't need demo_url here
+	var ChannelWCD = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WCD", "12345_ID", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
+
+	RunChannelSendTestCases(t, ChannelWCD, newWACDemoHandler("WCD", "WhatsApp Cloud Demo"), SendTestCasesWCD, nil)
+}

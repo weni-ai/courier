@@ -26,6 +26,10 @@ var testChannelsWithoutCatalog = []courier.Channel{
 
 var receiveURL = fmt.Sprintf("/c/wwc/%s/receive", channelUUID)
 
+// Order metadata for tests
+var orderMetadata1 = json.RawMessage(`{"order":{"catalog_id":"test-catalog-123","text":"Order placed","product_items":[{"product_retailer_id":"product-001","quantity":2,"item_price":29.99,"currency":"BRL"},{"product_retailer_id":"product-002","quantity":1,"item_price":49.99,"currency":"BRL"}]}}`)
+var orderMetadata2 = json.RawMessage(`{"order":{"catalog_id":"test-catalog-456","text":"I want to buy these items","product_items":[{"product_retailer_id":"product-abc","quantity":3,"item_price":19.99,"currency":"USD"}]}}`)
+
 const (
 	textMsgTemplate = `
 	{
@@ -61,6 +65,58 @@ const (
 			"timestamp":%q,
 			"latitude":%q,
 			"longitude":%q
+		}
+	}
+	`
+
+	orderMsgTemplate = `
+	{
+		"type":"message",
+		"from":%q,
+		"message":{
+			"type":"order",
+			"timestamp":%q,
+			"order":{
+				"catalog_id":"test-catalog-123",
+				"text":"Order placed",
+				"product_items":[
+					{
+						"product_retailer_id":"product-001",
+						"quantity":2,
+						"item_price":29.99,
+						"currency":"BRL"
+					},
+					{
+						"product_retailer_id":"product-002",
+						"quantity":1,
+						"item_price":49.99,
+						"currency":"BRL"
+					}
+				]
+			}
+		}
+	}
+	`
+
+	orderMsgWithTextTemplate = `
+	{
+		"type":"message",
+		"from":%q,
+		"message":{
+			"type":"order",
+			"timestamp":%q,
+			"order":{
+				"catalog_id":"test-catalog-456",
+				"text":%q,
+				"product_items":[
+					{
+						"product_retailer_id":"product-abc",
+						"quantity":3,
+						"item_price":19.99,
+						"currency":"USD"
+					}
+				]
+			}
 		}
 	}
 	`
@@ -111,6 +167,28 @@ var testCases = []ChannelHandleTestCase{
 		Response:   "Accepted",
 	},
 	{
+		Label:    "Receive Valid Order",
+		URL:      receiveURL,
+		Data:     fmt.Sprintf(orderMsgTemplate, "2345678", "1616586927"),
+		Name:     Sp("2345678"),
+		URN:      Sp("ext:2345678"),
+		Text:     Sp("Order placed"),
+		Metadata: &orderMetadata1,
+		Status:   200,
+		Response: "Accepted",
+	},
+	{
+		Label:    "Receive Order With Custom Text",
+		URL:      receiveURL,
+		Data:     fmt.Sprintf(orderMsgWithTextTemplate, "2345678", "1616586927", "I want to buy these items"),
+		Name:     Sp("2345678"),
+		URN:      Sp("ext:2345678"),
+		Text:     Sp("I want to buy these items"),
+		Metadata: &orderMetadata2,
+		Status:   200,
+		Response: "Accepted",
+	},
+	{
 		Label:  "Receive Invalid JSON",
 		URL:    receiveURL,
 		Data:   "{}",
@@ -121,7 +199,7 @@ var testCases = []ChannelHandleTestCase{
 		URL:      receiveURL,
 		Data:     fmt.Sprintf(textMsgTemplate, "2345678", "1616586927", ""),
 		Status:   400,
-		Response: "blank message, media or location",
+		Response: "blank message, media, location or order",
 	},
 	{
 		Label:    "Receive Invalid Timestamp",

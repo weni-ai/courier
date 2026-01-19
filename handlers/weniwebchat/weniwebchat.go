@@ -58,6 +58,16 @@ type miMessage struct {
 	Caption   string `json:"caption,omitempty"`
 	Latitude  string `json:"latitude,omitempty"`
 	Longitude string `json:"longitude,omitempty"`
+	Order     struct {
+		CatalogID    string `json:"catalog_id"`
+		Text         string `json:"text"`
+		ProductItems []struct {
+			ProductRetailerID string  `json:"product_retailer_id"`
+			Quantity          int     `json:"quantity"`
+			ItemPrice         float64 `json:"item_price"`
+			Currency          string  `json:"currency"`
+		} `json:"product_items"`
+	} `json:"order,omitempty"`
 }
 
 func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
@@ -68,13 +78,14 @@ func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w htt
 	}
 
 	// check message type
-	if payload.Type != "message" || (payload.Message.Type != "text" && payload.Message.Type != "image" && payload.Message.Type != "video" && payload.Message.Type != "audio" && payload.Message.Type != "file" && payload.Message.Type != "location") {
+	if payload.Type != "message" || (payload.Message.Type != "text" && payload.Message.Type != "image" && payload.Message.Type != "video" && payload.Message.Type != "audio" && payload.Message.Type != "file" && payload.Message.Type != "location" && payload.Message.Type != "order") {
 		return nil, handlers.WriteAndLogRequestIgnored(ctx, h, channel, w, r, "ignoring request, unknown message type")
 	}
 
 	// check empty content
-	if payload.Message.Text == "" && payload.Message.MediaURL == "" && (payload.Message.Latitude == "" || payload.Message.Longitude == "") {
-		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("blank message, media or location"))
+	hasOrder := payload.Message.Type == "order" && len(payload.Message.Order.ProductItems) > 0
+	if payload.Message.Text == "" && payload.Message.MediaURL == "" && (payload.Message.Latitude == "" || payload.Message.Longitude == "") && !hasOrder {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("blank message, media, location or order"))
 	}
 
 	// build urn
@@ -98,15 +109,33 @@ func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w htt
 		payload.Message.Text = payload.Message.Caption
 	}
 
+	// handle order messages
+	var text string
+	if payload.Message.Type == "order" && len(payload.Message.Order.ProductItems) > 0 {
+		text = payload.Message.Order.Text
+	} else {
+		text = payload.Message.Text
+	}
+
 	// build message
 	date := time.Unix(ts, 0).UTC()
-	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Message.Text).WithReceivedOn(date).WithContactName(payload.From)
+	msg := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithContactName(payload.From)
 
 	// write the contact last seen
 	h.Backend().WriteContactLastSeen(ctx, msg, date)
 
 	if mediaURL != "" {
 		msg.WithAttachment(mediaURL)
+	}
+
+	// add order metadata if present
+	if payload.Message.Type == "order" && len(payload.Message.Order.ProductItems) > 0 {
+		orderM := map[string]interface{}{"order": payload.Message.Order}
+		orderJSON, err := json.Marshal(orderM)
+		if err == nil {
+			metadata := json.RawMessage(orderJSON)
+			msg.WithMetadata(metadata)
+		}
 	}
 
 	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)

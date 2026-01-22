@@ -30,6 +30,7 @@ import (
 	"github.com/nyaruka/gocommon/uuids"
 	"github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 // Endpoints we hit
@@ -257,6 +258,13 @@ type moPayload struct {
 							Name         string `json:"name,omitempty"`
 							ResponseJSON string `json:"response_json"`
 						} `json:"nfm_reply"`
+						PaymentMethod struct {
+							PaymentMethod    string `json:"payment_method"`
+							PaymentTimestamp int64  `json:"payment_timestamp"`
+							ReferenceID      string `json:"reference_id"`
+							LastFourDigits   string `json:"last_four_digits"`
+							CredentialID     string `json:"credential_id"`
+						} `json:"payment_method,omitempty"`
 					} `json:"interactive,omitempty"`
 					Contacts []struct {
 						Name struct {
@@ -344,9 +352,20 @@ type moPayload struct {
 				MessageTemplateLanguage string `json:"message_template_language"`
 				WabaInfo                *struct {
 					WabaID          string `json:"waba_id"`
-					AdAccountID     string `json:"ad_account_id"`
 					OwnerBusinessID string `json:"owner_business_id"`
 				} `json:"waba_info"`
+				Calls []struct {
+					ID        string `json:"id"`
+					To        string `json:"to"`
+					From      string `json:"from"`
+					Event     string `json:"event"`
+					Timestamp string `json:"timestamp"`
+					Direction string `json:"direction"`
+					Session   struct {
+						SdpType string `json:"sdp_type"`
+						Sdp     string `json:"sdp"`
+					} `json:"session"`
+				} `json:"calls"`
 			} `json:"value"`
 		} `json:"changes"`
 		Messaging []struct {
@@ -420,6 +439,83 @@ type NFMReply struct {
 	ResponseJSON map[string]interface{} `json:"response_json"`
 }
 
+// wacMessageMetadata holds the metadata extracted from a WhatsApp Cloud API message
+type wacMessageMetadata struct {
+	Key   string
+	Value interface{}
+}
+
+// processWACOrderMetadata extracts order metadata from a WAC message
+func processWACOrderMetadata(order interface{}) *wacMessageMetadata {
+	return &wacMessageMetadata{
+		Key:   "order",
+		Value: order,
+	}
+}
+
+// processWACNFMReplyMetadata extracts nfm_reply metadata from a WAC message
+func processWACNFMReplyMetadata(name string, responseJSONStr string) (*wacMessageMetadata, error) {
+	var responseJSON map[string]interface{}
+	if err := json.Unmarshal([]byte(responseJSONStr), &responseJSON); err != nil {
+		return nil, err
+	}
+
+	nfmReply := NFMReply{
+		Name:         name,
+		ResponseJSON: responseJSON,
+	}
+
+	return &wacMessageMetadata{
+		Key:   "nfm_reply",
+		Value: nfmReply,
+	}, nil
+}
+
+// processWACPaymentMethodMetadata extracts payment_method metadata from a WAC message
+func processWACPaymentMethodMetadata(paymentMethod interface{}) *wacMessageMetadata {
+	return &wacMessageMetadata{
+		Key:   "payment_method",
+		Value: paymentMethod,
+	}
+}
+
+// buildWACMetadataWithOverwrite builds metadata JSON with both the original field and overwrite_message
+func buildWACMetadataWithOverwrite(event courier.Msg, meta *wacMessageMetadata) (json.RawMessage, error) {
+	// Build the original metadata
+	var originalJSON []byte
+	var err error
+
+	// For nfm_reply, use Flow struct directly (it already has "nfm_reply" as json tag)
+	if meta.Key == "nfm_reply" {
+		originalJSON, err = json.Marshal(Flow{NFMReply: meta.Value.(NFMReply)})
+	} else {
+		originalJSON, err = json.Marshal(map[string]interface{}{meta.Key: meta.Value})
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	event.WithMetadata(json.RawMessage(originalJSON))
+
+	// Build overwrite_message
+	existingMetadata := event.Metadata()
+	newMetadata := make(map[string]interface{})
+	if existingMetadata != nil {
+		if err := json.Unmarshal(existingMetadata, &newMetadata); err != nil {
+			return nil, err
+		}
+	}
+
+	overwriteMessage := make(map[string]interface{})
+	if existing, ok := newMetadata["overwrite_message"].(map[string]interface{}); ok {
+		overwriteMessage = existing
+	}
+	overwriteMessage[meta.Key] = meta.Value
+	newMetadata["overwrite_message"] = overwriteMessage
+
+	return json.Marshal(newMetadata)
+}
+
 type IGComment struct {
 	Text string `json:"text,omitempty"`
 	From struct {
@@ -481,25 +577,28 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 			return nil, fmt.Errorf("no changes found")
 		}
 		if integrationWebhookFields[payload.Entry[0].Changes[0].Field] {
+			logrus.WithField("field", payload.Entry[0].Changes[0].Field).Info("[integration_webhook] receiving integration webhook")
 			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, "", true)
 			if er != nil {
 				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
 			}
 
 			if payload.Entry[0].Changes[0].Field == "account_update" {
+				logrus.WithField("event", payload.Entry[0].Changes[0].Value.Event).WithField("waba_info", payload.Entry[0].Changes[0].Value.WabaInfo).Info("[account_update] receiving account_update webhook")
 				// Handle account_update webhook type
-				if payload.Entry[0].Changes[0].Value.Event == "AD_ACCOUNT_LINKED" && payload.Entry[0].Changes[0].Value.WabaInfo != nil {
+				if payload.Entry[0].Changes[0].Value.Event == "MM_LITE_TERMS_SIGNED" && payload.Entry[0].Changes[0].Value.WabaInfo != nil {
+					logrus.WithField("waba_id", payload.Entry[0].Changes[0].Value.WabaInfo.WabaID).Info("[mmlite] MM_LITE_TERMS_SIGNED event detected for waba_id")
 					wabaID := payload.Entry[0].Changes[0].Value.WabaInfo.WabaID
-					adAccountID := payload.Entry[0].Changes[0].Value.WabaInfo.AdAccountID
 
 					// Update channel config with ad_account_id and mmlite for all channels with matching waba_id
 					err := h.Backend().UpdateChannelConfigByWabaID(ctx, wabaID, map[string]interface{}{
-						"ad_account_id": adAccountID,
-						"mmlite":        true,
+						"mmlite": true,
 					})
 					if err != nil {
+						logrus.WithError(err).WithField("waba_id", wabaID).Error("[mmlite] error updating channel config with waba_id")
 						return nil, fmt.Errorf("error updating channel config with waba_id %s: %v", wabaID, err)
 					}
+					logrus.WithField("waba_id", wabaID).Info("[mmlite] channel config updated with waba_id")
 				}
 			}
 
@@ -743,6 +842,11 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 						phones = append(phones, phone.Phone)
 					}
 					text = strings.Join(phones, ", ")
+				} else if msg.Type == "interactive" && msg.Interactive.Type == "payment_method" {
+					text = ""
+				} else if msg.Type == "reaction" {
+					data = append(data, courier.NewInfoData("ignoring echo reaction message"))
+					continue
 				} else {
 					// we received a message type we do not support.
 					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
@@ -760,14 +864,27 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					courier.LogRequestError(r, channel, err)
 				}
 
+				// Process WhatsApp metadata (order, nfm_reply, payment_method) with overwrite_message
+				var wacMeta *wacMessageMetadata
+
 				if msg.Type == "order" {
-					orderM := map[string]interface{}{"order": msg.Order}
-					orderJSON, err := json.Marshal(orderM)
+					wacMeta = processWACOrderMetadata(msg.Order)
+				} else if msg.Interactive.Type == "nfm_reply" {
+					var err error
+					wacMeta, err = processWACNFMReplyMetadata(msg.Interactive.NFMReply.Name, msg.Interactive.NFMReply.ResponseJSON)
 					if err != nil {
 						courier.LogRequestError(r, channel, err)
 					}
-					metadata := json.RawMessage(orderJSON)
-					event.WithMetadata(metadata)
+				} else if msg.Interactive.Type == "payment_method" {
+					wacMeta = processWACPaymentMethodMetadata(msg.Interactive.PaymentMethod)
+				}
+
+				if wacMeta != nil {
+					metadataJSON, err := buildWACMetadataWithOverwrite(event, wacMeta)
+					if err != nil {
+						courier.LogRequestError(r, channel, err)
+					}
+					event.WithMetadata(metadataJSON)
 				}
 
 				if msg.Referral.Headline != "" {
@@ -786,29 +903,6 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 							courier.LogRequestError(r, channel, fmt.Errorf("error writing ctwa data: %v", err))
 						}
 					}
-				}
-
-				if msg.Interactive.Type == "nfm_reply" {
-
-					var responseJSON map[string]interface{}
-					err := json.Unmarshal([]byte(msg.Interactive.NFMReply.ResponseJSON), &responseJSON)
-					if err != nil {
-						courier.LogRequestError(r, channel, err)
-					}
-
-					nfmReply := Flow{
-						NFMReply: NFMReply{
-							Name:         msg.Interactive.NFMReply.Name,
-							ResponseJSON: responseJSON,
-						},
-					}
-
-					nfmReplyJSON, err := json.Marshal(nfmReply)
-					if err != nil {
-						courier.LogRequestError(r, channel, err)
-					}
-					metadata := json.RawMessage(nfmReplyJSON)
-					event.WithMetadata(metadata)
 				}
 
 				if mediaURL != "" {
@@ -934,6 +1028,53 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 			}
 
+			for _, call := range change.Value.Calls {
+				callsWebhookURL := h.Server().Config().CallsWebhookURL
+				callsWebhookToken := h.Server().Config().CallsWebhookToken
+				if callsWebhookURL == "" {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("calls webhook url is not set"))
+				}
+
+				projectUUID, err := h.Backend().GetProjectUUIDFromChannelUUID(ctx, channel.UUID())
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+
+				contactName := ""
+				if len(change.Value.Contacts) > 0 {
+					contactName = change.Value.Contacts[0].Profile.Name
+				}
+
+				callData := map[string]interface{}{
+					"call":            call,
+					"project_uuid":    projectUUID,
+					"channel_uuid":    channel.UUID().String(),
+					"phone_number_id": change.Value.Metadata.PhoneNumberID,
+					"name":            contactName,
+				}
+
+				callJSON, err := json.Marshal(callData)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+				req, err := http.NewRequest("POST", callsWebhookURL, bytes.NewBuffer(callJSON))
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+				if callsWebhookToken != "" {
+					req.Header.Set("Authorization", "Bearer "+callsWebhookToken)
+				}
+				req.Header.Set("Content-Type", "application/json")
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("failed to send calls webhook"))
+				}
+				data = append(data, courier.NewInfoData(fmt.Sprintf("New whatsapp call received: %s", call.ID)))
+			}
 		}
 
 	}
@@ -1505,9 +1646,7 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 			return status, err
 		}
 		status.AddLog(log)
-		if err != nil {
-			return status, nil
-		}
+
 		externalID, err := jsonparser.GetString(rr.Body, "id")
 		if err != nil {
 			// ID doesn't exist, let's try message_id
@@ -1673,19 +1812,29 @@ type wacMTAction struct {
 }
 
 type wacParam struct {
-	Type     string       `json:"type"`
-	Text     string       `json:"text,omitempty"`
-	Image    *wacMTMedia  `json:"image,omitempty"`
-	Document *wacMTMedia  `json:"document,omitempty"`
-	Video    *wacMTMedia  `json:"video,omitempty"`
-	Action   *wacMTAction `json:"action,omitempty"`
+	Type        string       `json:"type"`
+	Text        string       `json:"text,omitempty"`
+	Payload     string       `json:"payload,omitempty"`
+	PhoneNumber string       `json:"phone_number,omitempty"`
+	URL         string       `json:"url,omitempty"`
+	Image       *wacMTMedia  `json:"image,omitempty"`
+	Document    *wacMTMedia  `json:"document,omitempty"`
+	Video       *wacMTMedia  `json:"video,omitempty"`
+	Action      *wacMTAction `json:"action,omitempty"`
 }
 
 type wacComponent struct {
-	Type    string      `json:"type"`
-	SubType string      `json:"sub_type,omitempty"`
-	Index   *int        `json:"index,omitempty"`
-	Params  []*wacParam `json:"parameters"`
+	Type    string             `json:"type"`
+	SubType string             `json:"sub_type,omitempty"`
+	Index   *int               `json:"index,omitempty"`
+	Params  []*wacParam        `json:"parameters,omitempty"`
+	Cards   []*wacCarouselCard `json:"cards,omitempty"`
+}
+
+// wacCarouselCard represents a card in a carousel template
+type wacCarouselCard struct {
+	CardIndex  int             `json:"card_index"`
+	Components []*wacComponent `json:"components"`
 }
 
 type wacText struct {
@@ -1762,11 +1911,6 @@ type wacMTResponse struct {
 		WaID  string `json:"wa_id,omitempty"`
 	} `json:"contacts,omitempty"`
 }
-
-type wacMTSectionProduct struct {
-	Title string `json:"title,omitempty"`
-}
-
 type wacMTProductItem struct {
 	ProductRetailerID string `json:"product_retailer_id" validate:"required"`
 }
@@ -1782,10 +1926,16 @@ type wacOrderDetailsPaymentLink struct {
 	URI string `json:"uri" validate:"required"`
 }
 
+type wacOrderDetailsOffsiteCardPay struct {
+	LastFourDigits string `json:"last_four_digits" validate:"required"`
+	CredentialID   string `json:"credential_id" validate:"required"`
+}
+
 type wacOrderDetailsPaymentSetting struct {
 	Type           string                         `json:"type" validate:"required"`
 	PaymentLink    *wacOrderDetailsPaymentLink    `json:"payment_link,omitempty"`
 	PixDynamicCode *wacOrderDetailsPixDynamicCode `json:"pix_dynamic_code,omitempty"`
+	OffsiteCardPay *wacOrderDetailsOffsiteCardPay `json:"offsite_card_pay,omitempty"`
 }
 
 type wacOrderDetails struct {
@@ -1893,84 +2043,12 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				template := wacTemplate{Name: templating.Template.Name, Language: &wacLanguage{Policy: "deterministic", Code: templating.Language}}
 				payload.Template = &template
 
-				if len(templating.Variables) > 0 {
-					component := &wacComponent{Type: "body"}
-					for _, v := range templating.Variables {
-						component.Params = append(component.Params, &wacParam{Type: "text", Text: v})
-					}
-					template.Components = append(payload.Template.Components, component)
+				// Build all template components
+				components, err := h.buildTemplateComponents(msg, templating, accessToken, status, start)
+				if err != nil {
+					return status, err
 				}
-
-				if len(msg.Attachments()) > 0 {
-
-					header := &wacComponent{Type: "header"}
-
-					attType, attURL := handlers.SplitAttachment(msg.Attachments()[0])
-					fileURL := attURL
-					mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
-					for _, log := range mediaLogs {
-						status.AddLog(log)
-					}
-					if err != nil {
-						status.AddLog(courier.NewChannelLogFromError("error on fetch media ID", msg.Channel(), msg.ID(), time.Since(start), err))
-					} else if mediaID != "" {
-						attURL = ""
-					}
-					attType = strings.Split(attType, "/")[0]
-
-					parsedURL, err := url.Parse(attURL)
-					if err != nil {
-						return status, err
-					}
-					if attType == "application" {
-						attType = "document"
-					}
-
-					media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
-					if attType == "image" {
-						header.Params = append(header.Params, &wacParam{Type: "image", Image: &media})
-					} else if attType == "video" {
-						header.Params = append(header.Params, &wacParam{Type: "video", Video: &media})
-					} else if attType == "document" {
-						media.Filename, err = utils.BasePathForURL(fileURL)
-						if err != nil {
-							return nil, err
-						}
-						header.Params = append(header.Params, &wacParam{Type: "document", Document: &media})
-					} else {
-						return nil, fmt.Errorf("unknown attachment mime type: %s", attType)
-					}
-					payload.Template.Components = append(payload.Template.Components, header)
-				}
-
-				if msg.OrderDetailsMessage() != nil {
-					index := 0
-					button := &wacComponent{Type: "button", SubType: "order_details", Index: &index}
-
-					paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
-
-					param := wacParam{
-						Type: "action",
-						Action: &wacMTAction{
-							OrderDetails: mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount),
-						},
-					}
-
-					button.Params = append(button.Params, &param)
-					payload.Template.Components = append(payload.Template.Components, button)
-				}
-
-				if len(msg.Buttons()) > 0 {
-					for i, button := range msg.Buttons() {
-						buttonComponent := &wacComponent{Type: "button", SubType: button.SubType, Index: &i}
-
-						for _, parameter := range button.Parameters {
-							buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: parameter.Type, Text: parameter.Text})
-						}
-
-						payload.Template.Components = append(payload.Template.Components, buttonComponent)
-					}
-				}
+				template.Components = components
 
 			} else {
 				if i < (len(msgParts) + len(msg.Attachments()) - 1) {
@@ -2225,6 +2303,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 							paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
 
+							mountedOrderDetails := mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount)
+							if mountedOrderDetails == nil {
+								return status, fmt.Errorf("failed to mount order details")
+							}
+
 							interactive := wacInteractive[wacOrderDetails]{
 								Type: "order_details",
 								Body: struct {
@@ -2240,7 +2323,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 									Parameters        wacOrderDetails "json:\"parameters,omitempty\""
 								}{
 									Name:       "review_and_pay",
-									Parameters: *mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount),
+									Parameters: *mountedOrderDetails,
 								},
 							}
 							if msg.Footer() != "" {
@@ -2356,7 +2439,8 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							attType = "document"
 						}
 						media := wacMTMedia{ID: mediaID, Link: attURL}
-						if attType == "image" {
+						switch attType {
+						case "image":
 							interactive.Header = &struct {
 								Type     string      "json:\"type\""
 								Text     string      "json:\"text,omitempty\""
@@ -2364,7 +2448,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								Image    *wacMTMedia "json:\"image,omitempty\""
 								Document *wacMTMedia "json:\"document,omitempty\""
 							}{Type: "image", Image: &media}
-						} else if attType == "video" {
+						case "video":
 							interactive.Header = &struct {
 								Type     string      "json:\"type\""
 								Text     string      "json:\"text,omitempty\""
@@ -2372,7 +2456,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								Image    *wacMTMedia "json:\"image,omitempty\""
 								Document *wacMTMedia "json:\"document,omitempty\""
 							}{Type: "video", Video: &media}
-						} else if attType == "document" {
+						case "document":
 							filename, err := utils.BasePathForURL(fileURL)
 							if err != nil {
 								return nil, err
@@ -2385,7 +2469,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								Image    *wacMTMedia "json:\"image,omitempty\""
 								Document *wacMTMedia "json:\"document,omitempty\""
 							}{Type: "document", Document: &media}
-						} else if attType == "audio" {
+						case "audio":
 							var zeroIndex bool
 							if i == 0 {
 								zeroIndex = true
@@ -2395,7 +2479,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							if err != nil {
 								return status, nil
 							}
-						} else {
+						default:
 							interactive.Type = "button"
 							interactive.Body.Text = msgParts[i]
 						}
@@ -2599,6 +2683,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 					paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
 
+					mountedOrderDetails := mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount)
+					if mountedOrderDetails == nil {
+						return status, fmt.Errorf("failed to mount order details")
+					}
+
 					interactive := wacInteractive[wacOrderDetails]{
 						Type: "order_details",
 						Body: struct {
@@ -2614,7 +2703,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							Parameters        wacOrderDetails "json:\"parameters,omitempty\""
 						}{
 							Name:       "review_and_pay",
-							Parameters: *mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount),
+							Parameters: *mountedOrderDetails,
 						},
 					}
 					if msg.Footer() != "" {
@@ -2775,6 +2864,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			}
 		} else if len(products) > 0 {
 			if !isUnitaryProduct {
+				const maxSectionsPerMsg = 10
+				const maxProductsPerMsg = 30
+
 				actions := [][]wacMTSection{}
 				sections := []wacMTSection{}
 				totalProductsPerMsg := 0
@@ -2793,42 +2885,53 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					var sproducts []wacMTProductItem
 
 					for _, p := range retailerIDs {
-						// If there is still room for the product in the current message
-						if totalProductsPerMsg < 30 {
-							sproducts = append(sproducts, wacMTProductItem{
-								ProductRetailerID: p,
-							})
-							totalProductsPerMsg++
-							continue
+						// Check if adding this product would exceed the limit
+						if totalProductsPerMsg >= maxProductsPerMsg {
+							// Save current products to section before starting new message
+							if len(sproducts) > 0 {
+								sections = append(sections, wacMTSection{Title: title, ProductItems: sproducts})
+								sproducts = []wacMTProductItem{}
+							}
+
+							// Save current sections to actions and restart for new message
+							if len(sections) > 0 {
+								actions = append(actions, sections)
+								sections = []wacMTSection{}
+								totalProductsPerMsg = 0
+							}
 						}
 
-						// When reaching 30 products, close current section and start new one
-						if len(sproducts) > 0 {
-							sections = append(sections, wacMTSection{Title: title, ProductItems: sproducts})
-							sproducts = []wacMTProductItem{}
+						// Check if adding this section would exceed the sections limit
+						// We need to check before adding a new section
+						if len(sproducts) == 0 && len(sections) >= maxSectionsPerMsg {
+							// Save current sections to actions and restart for new message
+							if len(sections) > 0 {
+								actions = append(actions, sections)
+								sections = []wacMTSection{}
+								totalProductsPerMsg = 0
+							}
 						}
 
-						// Save current section to actions and restart for new message
-						if len(sections) > 0 {
-							actions = append(actions, sections)
-							sections = []wacMTSection{}
-							totalProductsPerMsg = 0
-						}
-
-						// Start new section with current product
-						sproducts = append(sproducts, wacMTProductItem{ProductRetailerID: p})
+						sproducts = append(sproducts, wacMTProductItem{
+							ProductRetailerID: p,
+						})
 						totalProductsPerMsg++
 					}
 
 					// After the inner loop, add the current section with the product
 					if len(sproducts) > 0 {
+						// Check if adding this section would exceed the sections limit
+						if len(sections) >= maxSectionsPerMsg {
+							actions = append(actions, sections)
+							sections = []wacMTSection{}
+							totalProductsPerMsg = len(sproducts)
+						}
 						sections = append(sections, wacMTSection{Title: title, ProductItems: sproducts})
 					}
 				}
 
 				if len(sections) > 0 {
 					actions = append(actions, sections)
-
 				}
 
 				for _, sections := range actions {
@@ -2899,22 +3002,40 @@ func castInteractive[I, O wacInteractiveActionParams](interactive wacInteractive
 }
 
 func mountOrderDetails(msg courier.Msg, paymentSettings []wacOrderDetailsPaymentSetting, catalogID *string, orderTax wacAmountWithOffset, orderShipping *wacAmountWithOffset, orderDiscount *wacAmountWithOffset) *wacOrderDetails {
+	orderDetails := msg.OrderDetailsMessage()
+	if orderDetails == nil {
+		return nil
+	}
+
+	var paymentType string
+	if orderDetails.PaymentSettings.OffsiteCardPay.CredentialID != "" {
+		paymentType = "digital-goods"
+	} else {
+		paymentType = orderDetails.PaymentSettings.Type
+	}
+
+	// catalog_id is optional for offsite_card_pay messages
+	var catalogIDValue string
+	if catalogID != nil {
+		catalogIDValue = *catalogID
+	}
+
 	return &wacOrderDetails{
-		ReferenceID:     msg.OrderDetailsMessage().ReferenceID,
-		Type:            msg.OrderDetailsMessage().PaymentSettings.Type,
+		ReferenceID:     orderDetails.ReferenceID,
+		Type:            paymentType,
 		PaymentType:     "br",
 		PaymentSettings: paymentSettings,
 		Currency:        "BRL",
 		TotalAmount: wacAmountWithOffset{
-			Value:  msg.OrderDetailsMessage().TotalAmount,
+			Value:  orderDetails.TotalAmount,
 			Offset: 100,
 		},
 		Order: wacOrder{
 			Status:    "pending",
-			CatalogID: *catalogID,
-			Items:     msg.OrderDetailsMessage().Order.Items,
+			CatalogID: catalogIDValue,
+			Items:     orderDetails.Order.Items,
 			Subtotal: wacAmountWithOffset{
-				Value:  msg.OrderDetailsMessage().Order.Subtotal,
+				Value:  orderDetails.Order.Subtotal,
 				Offset: 100,
 			},
 			Tax:      orderTax,
@@ -2944,6 +3065,16 @@ func mountOrderPaymentSettings(orderDetails *courier.OrderDetailsMessage) []wacO
 				MerchantName: orderDetails.PaymentSettings.PixConfig.MerchantName,
 				Key:          orderDetails.PaymentSettings.PixConfig.Key,
 				KeyType:      orderDetails.PaymentSettings.PixConfig.KeyType,
+			},
+		})
+	}
+
+	if orderDetails.PaymentSettings.OffsiteCardPay.CredentialID != "" {
+		paymentSettings = append(paymentSettings, wacOrderDetailsPaymentSetting{
+			Type: "offsite_card_pay",
+			OffsiteCardPay: &wacOrderDetailsOffsiteCardPay{
+				LastFourDigits: orderDetails.PaymentSettings.OffsiteCardPay.LastFourDigits,
+				CredentialID:   orderDetails.PaymentSettings.OffsiteCardPay.CredentialID,
 			},
 		})
 	}
@@ -3190,6 +3321,221 @@ func fbCalculateSignature(appSecret string, body []byte) (string, error) {
 	return hex.EncodeToString(mac.Sum(nil)), nil
 }
 
+// buildTemplateComponents builds all components for a WhatsApp template message
+// This includes: body variables, carousel/header, order details, and buttons
+func (h *handler) buildTemplateComponents(msg courier.Msg, templating *MsgTemplating, accessToken string, status courier.MsgStatus, start time.Time) ([]*wacComponent, error) {
+	var components []*wacComponent
+
+	// Build body component with variables
+	if len(templating.Variables) > 0 {
+		bodyComponent := &wacComponent{Type: "body"}
+		for _, v := range templating.Variables {
+			bodyComponent.Params = append(bodyComponent.Params, &wacParam{Type: "text", Text: v})
+		}
+		components = append(components, bodyComponent)
+	}
+
+	// Handle carousel templates - identified by IsCarousel flag
+	// 2-10 cards required, media is mandatory per card, body and buttons are optional (max 2 buttons per card)
+	if templating.IsCarousel {
+		carouselComponent, err := h.buildCarouselComponent(msg, templating, accessToken, status, start)
+		if err != nil {
+			return nil, err
+		}
+		components = append(components, carouselComponent)
+	} else if len(msg.Attachments()) > 0 {
+		// Handle single header attachment (non-carousel)
+		headerComponent, err := h.buildHeaderComponent(msg, accessToken, status, start)
+		if err != nil {
+			return nil, err
+		}
+		components = append(components, headerComponent)
+	}
+
+	// Handle order details button
+	if msg.OrderDetailsMessage() != nil {
+		orderDetailsComponent, err := buildOrderDetailsComponent(msg)
+		if err != nil {
+			return nil, err
+		}
+		components = append(components, orderDetailsComponent)
+	}
+
+	// Handle dynamic buttons
+	if len(msg.Buttons()) > 0 {
+		for i, button := range msg.Buttons() {
+			buttonComponent := &wacComponent{Type: "button", SubType: button.SubType, Index: &i}
+			for _, parameter := range button.Parameters {
+				buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: parameter.Type, Text: parameter.Text})
+			}
+			components = append(components, buttonComponent)
+		}
+	}
+
+	return components, nil
+}
+
+// buildHeaderComponent builds a single header component with media attachment
+func (h *handler) buildHeaderComponent(msg courier.Msg, accessToken string, status courier.MsgStatus, start time.Time) (*wacComponent, error) {
+	header := &wacComponent{Type: "header"}
+
+	attType, attURL := handlers.SplitAttachment(msg.Attachments()[0])
+	fileURL := attURL
+
+	mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
+	for _, log := range mediaLogs {
+		status.AddLog(log)
+	}
+	if err != nil {
+		status.AddLog(courier.NewChannelLogFromError("error on fetch media ID", msg.Channel(), msg.ID(), time.Since(start), err))
+	} else if mediaID != "" {
+		attURL = ""
+	}
+	attType = strings.Split(attType, "/")[0]
+
+	parsedURL, err := url.Parse(attURL)
+	if err != nil {
+		return nil, err
+	}
+	if attType == "application" {
+		attType = "document"
+	}
+
+	media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
+	switch attType {
+	case "image":
+		header.Params = append(header.Params, &wacParam{Type: "image", Image: &media})
+	case "video":
+		header.Params = append(header.Params, &wacParam{Type: "video", Video: &media})
+	case "document":
+		media.Filename, err = utils.BasePathForURL(fileURL)
+		if err != nil {
+			return nil, err
+		}
+		header.Params = append(header.Params, &wacParam{Type: "document", Document: &media})
+	default:
+		return nil, fmt.Errorf("unknown attachment mime type: %s", attType)
+	}
+
+	return header, nil
+}
+
+// buildOrderDetailsComponent builds the order details button component
+func buildOrderDetailsComponent(msg courier.Msg) (*wacComponent, error) {
+	index := 0
+	button := &wacComponent{Type: "button", SubType: "order_details", Index: &index}
+
+	paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
+
+	mountedOrderDetails := mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount)
+	if mountedOrderDetails == nil {
+		return nil, fmt.Errorf("failed to mount order details")
+	}
+
+	param := wacParam{
+		Type: "action",
+		Action: &wacMTAction{
+			OrderDetails: mountedOrderDetails,
+		},
+	}
+
+	button.Params = append(button.Params, &param)
+	return button, nil
+}
+
+// buildCarouselComponent builds the carousel component for WhatsApp template messages
+// Card count is based on attachments count - media is mandatory per card (min 2, max 10 cards), body and buttons are optional (max 2 buttons per card)
+// Media (header), body variables, and buttons are matched by index
+func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplating, accessToken string, status courier.MsgStatus, start time.Time) (*wacComponent, error) {
+	// Carousel requires 2-10 cards, each with mandatory media
+	numCards := len(msg.Attachments())
+	if numCards < 2 {
+		return nil, fmt.Errorf("carousel templates require at least 2 media attachments, got %d", numCards)
+	}
+	if numCards > 10 {
+		return nil, fmt.Errorf("carousel templates allow at most 10 media attachments, got %d", numCards)
+	}
+
+	carouselComponent := &wacComponent{Type: "carousel"}
+
+	for cardIdx := 0; cardIdx < numCards; cardIdx++ {
+		card := &wacCarouselCard{CardIndex: cardIdx}
+
+		// Build header component with media (mandatory for each card)
+		headerComponent := &wacComponent{Type: "header"}
+		attType, attURL := handlers.SplitAttachment(msg.Attachments()[cardIdx])
+
+		mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
+		for _, log := range mediaLogs {
+			status.AddLog(log)
+		}
+		if err != nil {
+			status.AddLog(courier.NewChannelLogFromError("error on fetch media ID for carousel card", msg.Channel(), msg.ID(), time.Since(start), err))
+		} else if mediaID != "" {
+			attURL = ""
+		}
+		attType = strings.Split(attType, "/")[0]
+
+		parsedURL, err := url.Parse(attURL)
+		if err != nil {
+			return nil, err
+		}
+
+		media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
+		switch attType {
+		case "image":
+			headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "image", Image: &media})
+		case "video":
+			headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "video", Video: &media})
+		default:
+			return nil, fmt.Errorf("unsupported attachment type for carousel card header: %s (only image and video are supported)", attType)
+		}
+		card.Components = append(card.Components, headerComponent)
+
+		// Get card data if available (body variables and buttons are optional)
+		if cardIdx < len(templating.CarouselCards) {
+			cardData := templating.CarouselCards[cardIdx]
+
+			// Build body component with text variables if present
+			if len(cardData.Body) > 0 {
+				bodyComponent := &wacComponent{Type: "body"}
+				for _, bodyText := range cardData.Body {
+					if bodyText != "" {
+						bodyComponent.Params = append(bodyComponent.Params, &wacParam{Type: "text", Text: bodyText})
+					}
+				}
+				if len(bodyComponent.Params) > 0 {
+					card.Components = append(card.Components, bodyComponent)
+				}
+			}
+
+			// Build button components if present (max 2 buttons per card)
+			if len(cardData.Buttons) > 2 {
+				return nil, fmt.Errorf("carousel card %d has %d buttons, maximum allowed is 2", cardIdx, len(cardData.Buttons))
+			}
+			for btnArrayIdx, btnData := range cardData.Buttons {
+				// Use provided index or fall back to array position
+				btnIdx := btnArrayIdx
+				if btnData.Index != nil {
+					btnIdx = *btnData.Index
+				}
+				buttonComponent := &wacComponent{Type: "button", SubType: btnData.SubType, Index: &btnIdx}
+				switch btnData.SubType {
+				case "quick_reply":
+					buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: "payload", Payload: btnData.Parameter})
+				case "url":
+					buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: "text", Text: btnData.Parameter})
+				}
+				card.Components = append(card.Components, buttonComponent)
+			}
+		}
+
+		carouselComponent.Cards = append(carouselComponent.Cards, card)
+	}
+
+	return carouselComponent, nil
+}
+
 func (h *handler) getTemplate(msg courier.Msg) (*MsgTemplating, error) {
 	mdJSON := msg.Metadata()
 	if len(mdJSON) == 0 {
@@ -3235,10 +3581,26 @@ type MsgTemplating struct {
 		UUID     string `json:"uuid" validate:"required"`
 		Category string `json:"category"`
 	} `json:"template" validate:"required,dive"`
-	Language  string   `json:"language" validate:"required"`
-	Country   string   `json:"country"`
-	Namespace string   `json:"namespace"`
-	Variables []string `json:"variables"`
+	Language      string         `json:"language" validate:"required"`
+	Country       string         `json:"country"`
+	Namespace     string         `json:"namespace"`
+	Variables     []string       `json:"variables"`
+	IsCarousel    bool           `json:"is_carousel,omitempty"`
+	CarouselCards []CarouselCard `json:"carousel_cards,omitempty"`
+}
+
+// CarouselCard represents a single card in a carousel template
+// Body and buttons are optional (max 2 buttons) - cards are created based on attachments count (media is mandatory, 2-10 cards)
+type CarouselCard struct {
+	Body    []string             `json:"body,omitempty"`
+	Buttons []CarouselCardButton `json:"buttons,omitempty"`
+}
+
+// CarouselCardButton represents a button in a carousel card
+type CarouselCardButton struct {
+	SubType   string `json:"sub_type"`            // quick_reply, url
+	Index     *int   `json:"index,omitempty"`     // button index (optional, uses array position if not set)
+	Parameter string `json:"parameter,omitempty"` // payload for quick_reply, url suffix for url
 }
 
 // mapping from iso639-3_iso3166-2 to WA language code
@@ -3528,6 +3890,10 @@ func (h *handler) SendAction(ctx context.Context, msg courier.Msg) (courier.MsgS
 
 	rr, err := utils.MakeHTTPRequest(req)
 	if err != nil {
+		// Include response body in error if available (WhatsApp API error details)
+		if rr != nil && len(rr.Body) > 0 {
+			return nil, fmt.Errorf("HTTP request failed (%d): %s - Response: %s", rr.StatusCode, err.Error(), string(rr.Body))
+		}
 		return nil, errors.Wrap(err, "HTTP request failed")
 	}
 

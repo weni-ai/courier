@@ -422,6 +422,10 @@ func (b *MockBackend) GetMessage(ctx context.Context, msgUUID string) (Msg, erro
 	return nil, nil
 }
 
+func (b *MockBackend) GetProjectUUIDFromChannelUUID(ctx context.Context, channelUUID ChannelUUID) (string, error) {
+	return "9bab7353-561c-42f7-860e-e24c86cfb8e6", nil
+}
+
 func buildMockBackend(config *Config) Backend {
 	return NewMockBackend()
 }
@@ -624,6 +628,7 @@ type mockMsg struct {
 	responseToID         MsgID
 	responseToExternalID string
 	metadata             json.RawMessage
+	newContactFields     map[string]string
 	alreadyWritten       bool
 	isResend             bool
 	textLanguage         string
@@ -638,30 +643,35 @@ type mockMsg struct {
 
 func (m *mockMsg) SessionStatus() string { return "" }
 
-func (m *mockMsg) Channel() Channel             { return m.channel }
-func (m *mockMsg) ID() MsgID                    { return m.id }
-func (m *mockMsg) EventID() int64               { return int64(m.id) }
-func (m *mockMsg) UUID() MsgUUID                { return m.uuid }
-func (m *mockMsg) Text() string                 { return m.text }
-func (m *mockMsg) Attachments() []string        { return m.attachments }
-func (m *mockMsg) ExternalID() string           { return m.externalID }
-func (m *mockMsg) URN() urns.URN                { return m.urn }
-func (m *mockMsg) URNAuth() string              { return m.urnAuth }
-func (m *mockMsg) ContactName() string          { return m.contactName }
-func (m *mockMsg) HighPriority() bool           { return m.highPriority }
-func (m *mockMsg) QuickReplies() []string       { return m.quickReplies }
-func (m *mockMsg) Topic() string                { return m.topic }
-func (m *mockMsg) ResponseToID() MsgID          { return m.responseToID }
-func (m *mockMsg) ResponseToExternalID() string { return m.responseToExternalID }
-func (m *mockMsg) Metadata() json.RawMessage    { return m.metadata }
-func (m *mockMsg) IsResend() bool               { return m.isResend }
-func (m *mockMsg) TextLanguage() string         { return m.textLanguage }
+func (m *mockMsg) Channel() Channel                    { return m.channel }
+func (m *mockMsg) ID() MsgID                           { return m.id }
+func (m *mockMsg) EventID() int64                      { return int64(m.id) }
+func (m *mockMsg) UUID() MsgUUID                       { return m.uuid }
+func (m *mockMsg) Text() string                        { return m.text }
+func (m *mockMsg) Attachments() []string               { return m.attachments }
+func (m *mockMsg) ExternalID() string                  { return m.externalID }
+func (m *mockMsg) URN() urns.URN                       { return m.urn }
+func (m *mockMsg) URNAuth() string                     { return m.urnAuth }
+func (m *mockMsg) ContactName() string                 { return m.contactName }
+func (m *mockMsg) HighPriority() bool                  { return m.highPriority }
+func (m *mockMsg) QuickReplies() []string              { return m.quickReplies }
+func (m *mockMsg) Topic() string                       { return m.topic }
+func (m *mockMsg) ResponseToID() MsgID                 { return m.responseToID }
+func (m *mockMsg) ResponseToExternalID() string        { return m.responseToExternalID }
+func (m *mockMsg) Metadata() json.RawMessage           { return m.metadata }
+func (m *mockMsg) NewContactFields() map[string]string { return m.newContactFields }
+func (m *mockMsg) IsResend() bool                      { return m.isResend }
+func (m *mockMsg) TextLanguage() string                { return m.textLanguage }
 
 func (m *mockMsg) ReceivedOn() *time.Time { return m.receivedOn }
 func (m *mockMsg) SentOn() *time.Time     { return m.sentOn }
 func (m *mockMsg) WiredOn() *time.Time    { return m.wiredOn }
 
-func (m *mockMsg) WithContactName(name string) Msg   { m.contactName = name; return m }
+func (m *mockMsg) WithContactName(name string) Msg { m.contactName = name; return m }
+func (m *mockMsg) WithNewContactFields(fields map[string]string) Msg {
+	m.newContactFields = fields
+	return m
+}
 func (m *mockMsg) WithURNAuth(auth string) Msg       { m.urnAuth = auth; return m }
 func (m *mockMsg) WithReceivedOn(date time.Time) Msg { m.receivedOn = &date; return m }
 func (m *mockMsg) WithExternalID(id string) Msg      { m.externalID = id; return m }
@@ -933,6 +943,15 @@ func (m *mockMsg) OrderDetailsMessage() *OrderDetailsMessage {
 				}
 				if pix_config_code, ok := pix_config["code"].(string); ok {
 					orderDetailsMessage.PaymentSettings.PixConfig.Code = pix_config_code
+				}
+			}
+			if offsite_card_pay, ok := paymentSettings["offsite_card_pay"].(map[string]interface{}); ok {
+				orderDetailsMessage.PaymentSettings.OffsiteCardPay = OffsiteCardPay{}
+				if offsite_card_pay_last_four_digits, ok := offsite_card_pay["last_four_digits"].(string); ok {
+					orderDetailsMessage.PaymentSettings.OffsiteCardPay.LastFourDigits = offsite_card_pay_last_four_digits
+				}
+				if offsite_card_pay_credential_id, ok := offsite_card_pay["credential_id"].(string); ok {
+					orderDetailsMessage.PaymentSettings.OffsiteCardPay.CredentialID = offsite_card_pay_credential_id
 				}
 			}
 		}

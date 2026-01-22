@@ -105,6 +105,7 @@ type Msg interface {
 	QuickReplies() []string
 	Topic() string
 	Metadata() json.RawMessage
+	NewContactFields() map[string]string
 	ResponseToID() MsgID
 	ResponseToExternalID() string
 	IsResend() bool
@@ -117,6 +118,7 @@ type Msg interface {
 	HighPriority() bool
 
 	WithContactName(name string) Msg
+	WithNewContactFields(fields map[string]string) Msg
 	WithReceivedOn(date time.Time) Msg
 	WithExternalID(id string) Msg
 	WithID(id MsgID) Msg
@@ -242,10 +244,16 @@ type OrderPixConfig struct {
 	Code         string `json:"code"`
 }
 
+type OffsiteCardPay struct {
+	LastFourDigits string `json:"last_four_digits,omitempty"`
+	CredentialID   string `json:"credential_id,omitempty"`
+}
+
 type OrderPaymentSettings struct {
-	Type        string         `json:"type"`
-	PaymentLink string         `json:"payment_link,omitempty"`
-	PixConfig   OrderPixConfig `json:"pix_config,omitempty"`
+	Type           string         `json:"type"`
+	PaymentLink    string         `json:"payment_link,omitempty"`
+	PixConfig      OrderPixConfig `json:"pix_config,omitempty"`
+	OffsiteCardPay OffsiteCardPay `json:"offsite_card_pay,omitempty"`
 }
 
 type OrderDetailsMessage struct {

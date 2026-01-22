@@ -1,3 +1,56 @@
+1.44.1
+----------
+ * fix: Update order details handling to make catalog_id optional
+
+1.44.0
+----------
+ * fix: Correct session limit error in product list
+
+1.43.0
+----------
+ * feat: Add support for sending carousel templates on WhatsApp
+
+1.42.0
+----------
+ * Feat: wwc handle new contact fields
+
+1.41.1
+----------
+ * Implement metadata handling for WhatsApp Cloud API messages with overwrite support
+
+1.41.0
+----------
+ * Add support for CTA Message on Weni Webchat
+
+1.40.1
+----------
+ * Add mmlite debug logs
+
+1.40.0
+----------
+ * Update MMLite event handler
+ * Add support for handling WhatsApp reaction messages
+
+1.39.2
+----------
+ * Fix handling contact name on whatsapp calls
+
+1.39.1
+----------
+ * Add support for List Message on Weni Webchat
+
+1.39.0
+----------
+ * Add support for WhatsApp One Click Payment
+
+1.38.0
+----------
+ * whatsapp calls with phone number id and name on callData
+
+1.38.0
+----------
+ * Handle whatsapp calls
+
 1.37.0
 ----------
  * Separate product messages without limitation for WhatsApp

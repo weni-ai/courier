@@ -42,9 +42,10 @@ func (h *handler) Initialize(s courier.Server) error {
 }
 
 type miPayload struct {
-	Type    string    `json:"type"           validate:"required"`
-	From    string    `json:"from,omitempty" validate:"required"`
-	Message miMessage `json:"message"`
+	Type          string            `json:"type"           validate:"required"`
+	From          string            `json:"from,omitempty" validate:"required"`
+	Message       miMessage         `json:"message"`
+	ContactFields map[string]string `json:"contact_fields,omitempty"`
 }
 
 type miMessage struct {
@@ -106,17 +107,21 @@ func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w htt
 		payload.Message.Text = payload.Message.Caption
 	}
 
-	// handle order messages
-	var text string
-	if payload.Message.Type == "order" && len(payload.Message.Order.ProductItems) > 0 {
-		text = payload.Message.Order.Text
-	} else {
-		text = payload.Message.Text
-	}
+	// // handle order messages
+	// var text string
+	// if payload.Message.Type == "order" && len(payload.Message.Order.ProductItems) > 0 {
+	// 	text = payload.Message.Order.Text
+	// } else {
+	// 	text = payload.Message.Text
+	// }
 
 	// build message
 	date := time.Unix(ts, 0).UTC()
-	msg := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithContactName(payload.From)
+	msg := h.Backend().
+		NewIncomingMsg(channel, urn, payload.Message.Text).
+		WithReceivedOn(date).
+		WithContactName(payload.From).
+		WithNewContactFields(payload.ContactFields)
 
 	// write the contact last seen
 	h.Backend().WriteContactLastSeen(ctx, msg, date)
@@ -149,15 +154,17 @@ type moPayload struct {
 }
 
 type moMessage struct {
-	Type         string          `json:"type"      validate:"required"`
-	TimeStamp    string          `json:"timestamp" validate:"required"`
-	Text         string          `json:"text,omitempty"`
-	MediaURL     string          `json:"media_url,omitempty"`
-	Caption      string          `json:"caption,omitempty"`
-	Latitude     string          `json:"latitude,omitempty"`
-	Longitude    string          `json:"longitude,omitempty"`
-	QuickReplies []string        `json:"quick_replies,omitempty"`
-	Interactive  *wwcInteractive `json:"interactive,omitempty"`
+	Type         string               `json:"type"      validate:"required"`
+	TimeStamp    string               `json:"timestamp" validate:"required"`
+	Text         string               `json:"text,omitempty"`
+	MediaURL     string               `json:"media_url,omitempty"`
+	Caption      string               `json:"caption,omitempty"`
+	Latitude     string               `json:"latitude,omitempty"`
+	Longitude    string               `json:"longitude,omitempty"`
+	QuickReplies []string             `json:"quick_replies,omitempty"`
+	ListMessage  *courier.ListMessage `json:"list_message,omitempty"`
+	CTAMessage   *courier.CTAMessage  `json:"cta_message,omitempty"`
+	Interactive  *wwcInteractive 	  `json:"interactive,omitempty"`
 }
 
 // Interactive message structures
@@ -209,7 +216,6 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 
 	sendURL := fmt.Sprintf("%s/send", baseURL)
-
 	var logs []*courier.ChannelLog
 
 	// Check for product messages first
@@ -218,105 +224,82 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 
 	payload := newOutgoingMessage("message", msg.URN().Path(), msg.Channel().Address(), msg.QuickReplies(), msg.Channel().UUID().String())
+
+	// sendPayload marshals and sends the payload, collecting logs
+	sendPayload := func() error {
+		body, err := json.Marshal(&payload)
+		if err != nil {
+			elapsed := time.Since(start)
+			logs = append(logs, courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, err))
+			return err
+		}
+		req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		idempotencyKey := fmt.Sprintf("%s-%d", msg.UUID().String(), time.Now().UnixNano())
+		res, err := utils.MakeHTTPRequestWithRetry(ctx, req, 3, 500*time.Millisecond, idempotencyKey)
+		if res != nil {
+			logs = append(logs, courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), res).WithError("Message Send Error", err))
+		}
+		return err
+	}
+
+	// addInteractiveElements adds quick replies, list message, and CTA to the payload
+	addInteractiveElements := func() {
+		payload.Message.QuickReplies = normalizeQuickReplies(msg.QuickReplies())
+		if len(msg.ListMessage().ListItems) > 0 {
+			listMessage := msg.ListMessage()
+			payload.Message.ListMessage = &listMessage
+		}
+		if msg.CTAMessage() != nil {
+			payload.Message.CTAMessage = msg.CTAMessage()
+		}
+	}
+
 	lenAttachments := len(msg.Attachments())
 	if lenAttachments > 0 {
-
-	attachmentsLoop:
 		for i, attachment := range msg.Attachments() {
 			mimeType, attachmentURL := handlers.SplitAttachment(attachment)
-			payload.Message.TimeStamp = getTimestamp()
-			// parse attachment type
-			if strings.HasPrefix(mimeType, "audio") {
-				payload.Message = moMessage{
-					Type:     "audio",
-					MediaURL: attachmentURL,
-				}
-			} else if strings.HasPrefix(mimeType, "application") {
-				payload.Message = moMessage{
-					Type:     "file",
-					MediaURL: attachmentURL,
-				}
-			} else if strings.HasPrefix(mimeType, "image") {
-				payload.Message = moMessage{
-					Type:     "image",
-					MediaURL: attachmentURL,
-				}
-			} else if strings.HasPrefix(mimeType, "video") {
-				payload.Message = moMessage{
-					Type:     "video",
-					MediaURL: attachmentURL,
-				}
-			} else {
+
+			msgType, ok := mimeTypeToMessageType(mimeType)
+			if !ok {
 				elapsed := time.Since(start)
-				log := courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, fmt.Errorf("unknown attachment mime type: %s", mimeType))
-				logs = append(logs, log)
+				logs = append(logs, courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, fmt.Errorf("unknown attachment mime type: %s", mimeType)))
 				status.SetStatus(courier.MsgFailed)
-				break attachmentsLoop
+				break
 			}
 
-			// add a caption to the first attachment
+			payload.Message = moMessage{
+				Type:      msgType,
+				TimeStamp: getTimestamp(),
+				MediaURL:  attachmentURL,
+			}
+
+			// add caption to first attachment
 			if i == 0 {
 				payload.Message.Caption = msg.Text()
 			}
 
-			// add quickreplies on last message
+			// add interactive elements on last message
 			if i == lenAttachments-1 {
-				qrs := normalizeQuickReplies(msg.QuickReplies())
-				payload.Message.QuickReplies = qrs
+				addInteractiveElements()
 			}
 
-			// build request
-			var body []byte
-			body, err := json.Marshal(&payload)
-			if err != nil {
-				elapsed := time.Since(start)
-				log := courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, err)
-				logs = append(logs, log)
+			if err := sendPayload(); err != nil {
 				status.SetStatus(courier.MsgFailed)
-				break attachmentsLoop
-			}
-			req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
-			req.Header.Set("Content-Type", "application/json")
-			idempotencyKey := fmt.Sprintf("%s-%d", msg.UUID().String(), time.Now().UnixNano())
-			res, err := utils.MakeHTTPRequestWithRetry(ctx, req, 3, 500*time.Millisecond, idempotencyKey)
-			if res != nil {
-				log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), res).WithError("Message Send Error", err)
-				logs = append(logs, log)
-			}
-			if err != nil {
-				status.SetStatus(courier.MsgFailed)
-				break attachmentsLoop
+				break
 			}
 		}
 	} else {
-		qrs := normalizeQuickReplies(msg.QuickReplies())
 		payload.Message = moMessage{
-			Type:         "text",
-			TimeStamp:    getTimestamp(),
-			Text:         msg.Text(),
-			QuickReplies: qrs,
+			Type:      "text",
+			TimeStamp: getTimestamp(),
+			Text:      msg.Text(),
 		}
-		// build request
-		body, err := json.Marshal(&payload)
-		if err != nil {
-			elapsed := time.Since(start)
-			log := courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, err)
-			logs = append(logs, log)
-			status.SetStatus(courier.MsgFailed)
-		} else {
-			req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
-			req.Header.Set("Content-Type", "application/json")
-			idempotencyKey := fmt.Sprintf("%s-%d", msg.UUID().String(), time.Now().UnixNano())
-			res, err := utils.MakeHTTPRequestWithRetry(ctx, req, 3, 500*time.Millisecond, idempotencyKey)
-			if res != nil {
-				log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), res).WithError("Message Send Error", err)
-				logs = append(logs, log)
-			}
-			if err != nil {
-				status.SetStatus(courier.MsgFailed)
-			}
-		}
+		addInteractiveElements()
 
+		if err := sendPayload(); err != nil {
+			status.SetStatus(courier.MsgFailed)
+		}
 	}
 
 	for _, log := range logs {
@@ -324,6 +307,22 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 
 	return status, nil
+}
+
+// mimeTypeToMessageType maps MIME type prefixes to message types
+func mimeTypeToMessageType(mimeType string) (string, bool) {
+	prefixMap := map[string]string{
+		"audio":       "audio",
+		"application": "file",
+		"image":       "image",
+		"video":       "video",
+	}
+	for prefix, msgType := range prefixMap {
+		if strings.HasPrefix(mimeType, prefix) {
+			return msgType, true
+		}
+	}
+	return "", false
 }
 
 var _ courier.ActionSender = (*handler)(nil)
@@ -355,8 +354,11 @@ func (h *handler) SendAction(ctx context.Context, msg courier.Msg) (courier.MsgS
 	req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	res, err := utils.MakeHTTPRequest(req)
+	if err != nil {
+		return nil, er.Wrap(err, "HTTP request failed")
+	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, fmt.Errorf("Weni Webchat API error (%d): %s", res.StatusCode, string(res.Body))
+		return nil, fmt.Errorf("weni webchat API error (%d): %s", res.StatusCode, string(res.Body))
 	}
 
 	return nil, nil

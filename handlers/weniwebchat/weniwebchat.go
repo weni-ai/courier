@@ -19,10 +19,7 @@ import (
 )
 
 const (
-	InteractiveProductSingleType         = "product"
-	InteractiveProductListType           = "product_list"
-	InteractiveProductCatalogType        = "catalog_product"
-	InteractiveProductCatalogMessageType = "catalog_message"
+	InteractiveProductListType = "product_list"
 )
 
 func init() {
@@ -173,14 +170,12 @@ type wwcInteractive struct {
 	Footer *struct {
 		Text string `json:"text,omitempty"`
 	} `json:"footer,omitempty"`
-	Action *struct {
-		Button            string                 `json:"button,omitempty"`
-		Sections          []wwcSection           `json:"sections,omitempty"`
-		Buttons           []wwcButton            `json:"buttons,omitempty"`
-		ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
-		Name              string                 `json:"name,omitempty"`
-		Parameters        map[string]interface{} `json:"parameters,omitempty"`
-	} `json:"action,omitempty"`
+	Action *wwcAction `json:"action,omitempty"`
+}
+
+type wwcAction struct {
+	Sections []wwcSection `json:"sections,omitempty"`
+	Name     string       `json:"name,omitempty"`
 }
 
 type wwcSection struct {
@@ -193,14 +188,6 @@ type wwcSectionRow struct {
 	ID          string `json:"id" validate:"required"`
 	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
-}
-
-type wwcButton struct {
-	Type  string `json:"type" validate:"required"`
-	Reply struct {
-		ID    string `json:"id" validate:"required"`
-		Title string `json:"title" validate:"required"`
-	} `json:"reply" validate:"required"`
 }
 
 type wwcProductItem struct {
@@ -412,6 +399,7 @@ func normalizeQuickReplies(quickReplies []string) []string {
 }
 
 // sendProductMessage handles sending product messages
+// All products are sent as product_list with sections containing product_items
 func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, status courier.MsgStatus, sendURL string, start time.Time) (courier.MsgStatus, error) {
 	products := msg.Products()
 
@@ -424,17 +412,8 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 		totalProducts += len(section.ProductItems)
 	}
 
-	isUnitaryProduct := totalProducts == 1
-	var unitaryProduct *wwcProductItem
-	if isUnitaryProduct && len(sections) > 0 && len(sections[0].ProductItems) > 0 {
-		unitaryProduct = &sections[0].ProductItems[0]
-	}
-
-	var interactiveType string
-	if !isUnitaryProduct {
-		interactiveType = InteractiveProductListType
-	} else {
-		interactiveType = InteractiveProductSingleType
+	if totalProducts == 0 {
+		return status, nil
 	}
 
 	// Build base payload
@@ -453,56 +432,55 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 		basePayload.Message.Text = msg.Text()
 	}
 
-	if totalProducts > 0 {
-		if !isUnitaryProduct {
-			// Build message batches respecting limits (30 products, 10 sections per message)
-			allBatches := buildProductBatches(sections)
-
-			// Send each batch as a separate message
-			for _, batch := range allBatches {
-				interactive := wwcInteractive{
-					Type: interactiveType,
-					Action: &struct {
-						Button            string                 `json:"button,omitempty"`
-						Sections          []wwcSection           `json:"sections,omitempty"`
-						Buttons           []wwcButton            `json:"buttons,omitempty"`
-						ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
-						Name              string                 `json:"name,omitempty"`
-						Parameters        map[string]interface{} `json:"parameters,omitempty"`
-					}{
-						Sections: batch,
-						Name:     msg.Action(),
-					},
-				}
-
-				payload := basePayload
-				payload.Message.Interactive = &interactive
-
-				status, err := h.sendPayload(ctx, payload, status, sendURL, start, msg.Channel(), msg.ID())
-				if err != nil {
-					return status, err
-				}
-			}
-			return status, nil
+	// Build header if present
+	var header *struct {
+		Type string `json:"type"`
+		Text string `json:"text,omitempty"`
+	}
+	if msg.Header() != "" {
+		header = &struct {
+			Type string `json:"type"`
+			Text string `json:"text,omitempty"`
+		}{
+			Type: "text",
+			Text: msg.Header(),
 		}
+	}
 
-		// Single product
+	// Build footer if present
+	var footer *struct {
+		Text string `json:"text,omitempty"`
+	}
+	if msg.Footer() != "" {
+		footer = &struct {
+			Text string `json:"text,omitempty"`
+		}{
+			Text: msg.Footer(),
+		}
+	}
+
+	// Build message batches respecting limits (30 products, 10 sections per message)
+	allBatches := buildProductBatches(sections)
+
+	// Send each batch as a separate message
+	for _, batch := range allBatches {
 		interactive := wwcInteractive{
-			Type: interactiveType,
-			Action: &struct {
-				Button            string                 `json:"button,omitempty"`
-				Sections          []wwcSection           `json:"sections,omitempty"`
-				Buttons           []wwcButton            `json:"buttons,omitempty"`
-				ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
-				Name              string                 `json:"name,omitempty"`
-				Parameters        map[string]interface{} `json:"parameters,omitempty"`
-			}{
-				Name:              msg.Action(),
-				ProductRetailerID: unitaryProduct.ProductRetailerID,
+			Type:   InteractiveProductListType,
+			Header: header,
+			Footer: footer,
+			Action: &wwcAction{
+				Sections: batch,
+				Name:     msg.Action(),
 			},
 		}
-		basePayload.Message.Interactive = &interactive
-		return h.sendPayload(ctx, basePayload, status, sendURL, start, msg.Channel(), msg.ID())
+
+		payload := basePayload
+		payload.Message.Interactive = &interactive
+
+		status, err := h.sendPayload(ctx, payload, status, sendURL, start, msg.Channel(), msg.ID())
+		if err != nil {
+			return status, err
+		}
 	}
 
 	return status, nil

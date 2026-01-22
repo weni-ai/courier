@@ -1,3 +1,11 @@
+1.44.1
+----------
+ * fix: Update order details handling to make catalog_id optional
+
+1.44.0
+----------
+ * fix: Correct session limit error in product list
+
 1.43.0
 ----------
  * feat: Add support for sending carousel templates on WhatsApp

@@ -3069,6 +3069,13 @@ func mountOrderDetails(msg courier.Msg, paymentSettings []wacOrderDetailsPayment
 	} else {
 		paymentType = orderDetails.PaymentSettings.Type
 	}
+
+	// catalog_id is optional for offsite_card_pay messages
+	var catalogIDValue string
+	if catalogID != nil {
+		catalogIDValue = *catalogID
+	}
+
 	return &wacOrderDetails{
 		ReferenceID:     orderDetails.ReferenceID,
 		Type:            paymentType,
@@ -3081,7 +3088,7 @@ func mountOrderDetails(msg courier.Msg, paymentSettings []wacOrderDetailsPayment
 		},
 		Order: wacOrder{
 			Status:    "pending",
-			CatalogID: *catalogID,
+			CatalogID: catalogIDValue,
 			Items:     orderDetails.Order.Items,
 			Subtotal: wacAmountWithOffset{
 				Value:  orderDetails.Order.Subtotal,

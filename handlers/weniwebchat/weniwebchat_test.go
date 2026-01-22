@@ -23,8 +23,8 @@ var testChannels = []courier.Channel{
 var receiveURL = fmt.Sprintf("/c/wwc/%s/receive", channelUUID)
 
 // Order metadata for tests
-var orderMetadata1 = json.RawMessage(`{"order":{"catalog_id":"test-catalog-123","text":"Order placed","product_items":[{"product_retailer_id":"product-001","quantity":2,"item_price":29.99,"currency":"BRL"},{"product_retailer_id":"product-002","quantity":1,"item_price":49.99,"currency":"BRL"}]}}`)
-var orderMetadata2 = json.RawMessage(`{"order":{"catalog_id":"test-catalog-456","text":"I want to buy these items","product_items":[{"product_retailer_id":"product-abc","quantity":3,"item_price":19.99,"currency":"USD"}]}}`)
+var orderMetadata1 = json.RawMessage(`{"order":{"text":"Order placed","product_items":[{"product_retailer_id":"product-001","name":"Smart TV 50\"","price":"2999.90","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001","quantity":2,"item_price":29.99,"currency":"BRL"},{"product_retailer_id":"product-002","name":"Smartphone","price":"1999.90","image":"https://example.com/phone.jpg","description":"Latest smartphone model","seller_id":"seller-002","quantity":1,"item_price":49.99,"currency":"BRL"}]}}`)
+var orderMetadata2 = json.RawMessage(`{"order":{"text":"I want to buy these items","product_items":[{"product_retailer_id":"product-abc","name":"Headphones","price":"299.90","image":"https://example.com/headphones.jpg","description":"Wireless headphones","seller_id":"audio-seller","quantity":3,"item_price":19.99,"currency":"USD"}]}}`)
 
 const (
 	textMsgTemplate = `
@@ -98,17 +98,26 @@ const (
 			"type":"order",
 			"timestamp":%q,
 			"order":{
-				"catalog_id":"test-catalog-123",
 				"text":"Order placed",
 				"product_items":[
 					{
 						"product_retailer_id":"product-001",
+						"name":"Smart TV 50\"",
+						"price":"2999.90",
+						"image":"https://example.com/tv.jpg",
+						"description":"Smart TV 4K 50 inches",
+						"seller_id":"seller-001",
 						"quantity":2,
 						"item_price":29.99,
 						"currency":"BRL"
 					},
 					{
 						"product_retailer_id":"product-002",
+						"name":"Smartphone",
+						"price":"1999.90",
+						"image":"https://example.com/phone.jpg",
+						"description":"Latest smartphone model",
+						"seller_id":"seller-002",
 						"quantity":1,
 						"item_price":49.99,
 						"currency":"BRL"
@@ -127,11 +136,15 @@ const (
 			"type":"order",
 			"timestamp":%q,
 			"order":{
-				"catalog_id":"test-catalog-456",
 				"text":%q,
 				"product_items":[
 					{
 						"product_retailer_id":"product-abc",
+						"name":"Headphones",
+						"price":"299.90",
+						"image":"https://example.com/headphones.jpg",
+						"description":"Wireless headphones",
+						"seller_id":"audio-seller",
 						"quantity":3,
 						"item_price":19.99,
 						"currency":"USD"

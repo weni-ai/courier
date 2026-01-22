@@ -57,15 +57,21 @@ type miMessage struct {
 	Latitude  string `json:"latitude,omitempty"`
 	Longitude string `json:"longitude,omitempty"`
 	Order     struct {
-		CatalogID    string `json:"catalog_id"`
-		Text         string `json:"text"`
-		ProductItems []struct {
-			ProductRetailerID string  `json:"product_retailer_id"`
-			Quantity          int     `json:"quantity"`
-			ItemPrice         float64 `json:"item_price"`
-			Currency          string  `json:"currency"`
-		} `json:"product_items"`
+		Text         string          `json:"text"`
+		ProductItems []miProductItem `json:"product_items"`
 	} `json:"order,omitempty"`
+}
+
+type miProductItem struct {
+	ProductRetailerID string  `json:"product_retailer_id"`
+	Name              string  `json:"name"`
+	Price             string  `json:"price"`
+	Image             string  `json:"image"`
+	Description       string  `json:"description"`
+	SellerID          string  `json:"seller_id"`
+	Quantity          int     `json:"quantity"`
+	ItemPrice         float64 `json:"item_price"`
+	Currency          string  `json:"currency"`
 }
 
 func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
@@ -107,18 +113,16 @@ func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w htt
 		payload.Message.Text = payload.Message.Caption
 	}
 
-	// // handle order messages
-	// var text string
-	// if payload.Message.Type == "order" && len(payload.Message.Order.ProductItems) > 0 {
-	// 	text = payload.Message.Order.Text
-	// } else {
-	// 	text = payload.Message.Text
-	// }
+	// handle order messages
+	text := payload.Message.Text
+	if payload.Message.Type == "order" && len(payload.Message.Order.ProductItems) > 0 {
+		text = payload.Message.Order.Text
+	}
 
 	// build message
 	date := time.Unix(ts, 0).UTC()
 	msg := h.Backend().
-		NewIncomingMsg(channel, urn, payload.Message.Text).
+		NewIncomingMsg(channel, urn, text).
 		WithReceivedOn(date).
 		WithContactName(payload.From).
 		WithNewContactFields(payload.ContactFields)
@@ -164,7 +168,7 @@ type moMessage struct {
 	QuickReplies []string             `json:"quick_replies,omitempty"`
 	ListMessage  *courier.ListMessage `json:"list_message,omitempty"`
 	CTAMessage   *courier.CTAMessage  `json:"cta_message,omitempty"`
-	Interactive  *wwcInteractive 	  `json:"interactive,omitempty"`
+	Interactive  *wwcInteractive      `json:"interactive,omitempty"`
 }
 
 // Interactive message structures

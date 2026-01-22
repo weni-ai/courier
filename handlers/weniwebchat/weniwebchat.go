@@ -175,7 +175,6 @@ type wwcInteractive struct {
 	} `json:"footer,omitempty"`
 	Action *struct {
 		Button            string                 `json:"button,omitempty"`
-		CatalogID         string                 `json:"catalog_id,omitempty"`
 		Sections          []wwcSection           `json:"sections,omitempty"`
 		Buttons           []wwcButton            `json:"buttons,omitempty"`
 		ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
@@ -205,7 +204,12 @@ type wwcButton struct {
 }
 
 type wwcProductItem struct {
-	ProductRetailerID string `json:"product_retailer_id" validate:"required"`
+	ProductRetailerID string `json:"product_retailer_id"`
+	Name              string `json:"name"`
+	Price             string `json:"price"`
+	Image             string `json:"image"`
+	Description       string `json:"description"`
+	SellerID          string `json:"seller_id"`
 }
 
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
@@ -409,39 +413,32 @@ func normalizeQuickReplies(quickReplies []string) []string {
 
 // sendProductMessage handles sending product messages
 func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, status courier.MsgStatus, sendURL string, start time.Time) (courier.MsgStatus, error) {
-	catalogID := msg.Channel().StringConfigForKey("catalog_id", "")
-	if catalogID == "" {
-		status.SetStatus(courier.MsgFailed)
-		return status, errors.New("Catalog ID not found in channel config")
-	}
-
 	products := msg.Products()
 
-	isUnitaryProduct := true
-	var unitaryProduct string
-	for _, product := range products {
-		retailerIDs := toStringSlice(product["product_retailer_ids"])
-		if len(products) > 1 || len(retailerIDs) > 1 {
-			isUnitaryProduct = false
-		} else {
-			unitaryProduct = retailerIDs[0]
-		}
+	// Extract sections with their products
+	sections := extractProductSections(products)
+
+	// Count total products
+	totalProducts := 0
+	for _, section := range sections {
+		totalProducts += len(section.ProductItems)
+	}
+
+	isUnitaryProduct := totalProducts == 1
+	var unitaryProduct *wwcProductItem
+	if isUnitaryProduct && len(sections) > 0 && len(sections[0].ProductItems) > 0 {
+		unitaryProduct = &sections[0].ProductItems[0]
 	}
 
 	var interactiveType string
-	if msg.SendCatalog() {
-		interactiveType = InteractiveProductCatalogMessageType
-	} else if !isUnitaryProduct {
+	if !isUnitaryProduct {
 		interactiveType = InteractiveProductListType
 	} else {
 		interactiveType = InteractiveProductSingleType
 	}
 
-	interactive := wwcInteractive{
-		Type: interactiveType,
-	}
-
-	payload := moPayload{
+	// Build base payload
+	basePayload := moPayload{
 		Type:        "interactive",
 		To:          msg.URN().Path(),
 		From:        msg.Channel().Address(),
@@ -453,135 +450,171 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 	}
 
 	if msg.Text() != "" {
-		payload.Message.Text = msg.Text()
+		basePayload.Message.Text = msg.Text()
 	}
 
-	if msg.Header() != "" && !isUnitaryProduct && !msg.SendCatalog() {
-		interactive.Header = &struct {
-			Type string `json:"type"`
-			Text string `json:"text,omitempty"`
-		}{
-			Type: "text",
-			Text: msg.Header(),
-		}
-	}
-
-	if msg.Footer() != "" {
-		interactive.Footer = &struct {
-			Text string `json:"text,omitempty"`
-		}{
-			Text: parseBackslashes(msg.Footer()),
-		}
-	}
-
-	if msg.SendCatalog() {
-		interactive.Action = &struct {
-			Button            string                 `json:"button,omitempty"`
-			CatalogID         string                 `json:"catalog_id,omitempty"`
-			Sections          []wwcSection           `json:"sections,omitempty"`
-			Buttons           []wwcButton            `json:"buttons,omitempty"`
-			ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
-			Name              string                 `json:"name,omitempty"`
-			Parameters        map[string]interface{} `json:"parameters,omitempty"`
-		}{
-			Name: "catalog_message",
-		}
-	} else if len(products) > 0 {
+	if totalProducts > 0 {
 		if !isUnitaryProduct {
-			actions := [][]wwcSection{}
-			sections := []wwcSection{}
-			totalProductsPerMsg := 0
+			// Build message batches respecting limits (30 products, 10 sections per message)
+			allBatches := buildProductBatches(sections)
 
-			for _, product := range products {
-				retailerIDs := toStringSlice(product["product_retailer_ids"])
-
-				title := product["product"].(string)
-				if title == "product_retailer_id" {
-					title = "items"
-				}
-				if len(title) > 24 {
-					title = title[:24]
-				}
-
-				var sproducts []wwcProductItem
-
-				for _, p := range retailerIDs {
-					// If there is still room for the product in the current message
-					if totalProductsPerMsg < 30 {
-						sproducts = append(sproducts, wwcProductItem{
-							ProductRetailerID: p,
-						})
-						totalProductsPerMsg++
-						continue
-					}
-
-					// When reaching 30 products, close current section and start new one
-					if len(sproducts) > 0 {
-						sections = append(sections, wwcSection{Title: title, ProductItems: sproducts})
-						sproducts = []wwcProductItem{}
-					}
-
-					// Save current section to actions and restart for new message
-					if len(sections) > 0 {
-						actions = append(actions, sections)
-						sections = []wwcSection{}
-						totalProductsPerMsg = 0
-					}
-
-					// Start new section with current product
-					sproducts = append(sproducts, wwcProductItem{ProductRetailerID: p})
-					totalProductsPerMsg++
+			// Send each batch as a separate message
+			for _, batch := range allBatches {
+				interactive := wwcInteractive{
+					Type: interactiveType,
+					Action: &struct {
+						Button            string                 `json:"button,omitempty"`
+						Sections          []wwcSection           `json:"sections,omitempty"`
+						Buttons           []wwcButton            `json:"buttons,omitempty"`
+						ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
+						Name              string                 `json:"name,omitempty"`
+						Parameters        map[string]interface{} `json:"parameters,omitempty"`
+					}{
+						Sections: batch,
+						Name:     msg.Action(),
+					},
 				}
 
-				// After the inner loop, add the current section with the product
-				if len(sproducts) > 0 {
-					sections = append(sections, wwcSection{Title: title, ProductItems: sproducts})
+				payload := basePayload
+				payload.Message.Interactive = &interactive
+
+				status, err := h.sendPayload(ctx, payload, status, sendURL, start, msg.Channel(), msg.ID())
+				if err != nil {
+					return status, err
 				}
 			}
+			return status, nil
+		}
 
-			if len(sections) > 0 {
-				actions = append(actions, sections)
-			}
-
-			for _, sections := range actions {
-				interactive.Action = &struct {
-					Button            string                 `json:"button,omitempty"`
-					CatalogID         string                 `json:"catalog_id,omitempty"`
-					Sections          []wwcSection           `json:"sections,omitempty"`
-					Buttons           []wwcButton            `json:"buttons,omitempty"`
-					ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
-					Name              string                 `json:"name,omitempty"`
-					Parameters        map[string]interface{} `json:"parameters,omitempty"`
-				}{
-					CatalogID: catalogID,
-					Sections:  sections,
-					Name:      msg.Action(),
-				}
-			}
-		} else {
-			interactive.Action = &struct {
+		// Single product
+		interactive := wwcInteractive{
+			Type: interactiveType,
+			Action: &struct {
 				Button            string                 `json:"button,omitempty"`
-				CatalogID         string                 `json:"catalog_id,omitempty"`
 				Sections          []wwcSection           `json:"sections,omitempty"`
 				Buttons           []wwcButton            `json:"buttons,omitempty"`
 				ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
 				Name              string                 `json:"name,omitempty"`
 				Parameters        map[string]interface{} `json:"parameters,omitempty"`
 			}{
-				CatalogID:         catalogID,
 				Name:              msg.Action(),
-				ProductRetailerID: unitaryProduct,
-			}
+				ProductRetailerID: unitaryProduct.ProductRetailerID,
+			},
 		}
-	}
-
-	payload.Message.Interactive = &interactive
-	status, err := h.sendPayload(ctx, payload, status, sendURL, start, msg.Channel(), msg.ID())
-	if err != nil {
-		return status, err
+		basePayload.Message.Interactive = &interactive
+		return h.sendPayload(ctx, basePayload, status, sendURL, start, msg.Channel(), msg.ID())
 	}
 
 	return status, nil
+}
+
+// extractProductSections extracts sections with their products from the products map
+func extractProductSections(products []map[string]interface{}) []wwcSection {
+	var sections []wwcSection
+
+	for _, product := range products {
+		section := wwcSection{}
+
+		// Get section title from "product" field
+		if title, ok := product["product"].(string); ok {
+			section.Title = title
+		}
+
+		// Extract product_retailer_info as products for this section
+		if priData, ok := product["product_retailer_info"]; ok {
+			if priList, ok := priData.([]interface{}); ok {
+				for _, pri := range priList {
+					if priMap, ok := pri.(map[string]interface{}); ok {
+						item := wwcProductItem{}
+						if name, ok := priMap["name"].(string); ok {
+							item.Name = name
+						}
+						if retailerID, ok := priMap["retailer_id"].(string); ok {
+							item.ProductRetailerID = retailerID
+						}
+						if price, ok := priMap["price"].(string); ok {
+							item.Price = price
+						}
+						if image, ok := priMap["image"].(string); ok {
+							item.Image = image
+						}
+						if description, ok := priMap["description"].(string); ok {
+							item.Description = description
+						}
+						if sellerID, ok := priMap["seller_id"].(string); ok {
+							item.SellerID = sellerID
+						}
+						section.ProductItems = append(section.ProductItems, item)
+					}
+				}
+			}
+		}
+
+		if len(section.ProductItems) > 0 {
+			sections = append(sections, section)
+		}
+	}
+
+	return sections
+}
+
+// buildProductBatches builds message batches respecting limits: max 30 products and 10 sections per message
+func buildProductBatches(sections []wwcSection) [][]wwcSection {
+	const maxProductsPerMsg = 30
+	const maxSectionsPerMsg = 10
+
+	var allBatches [][]wwcSection
+	var currentBatch []wwcSection
+	var currentProductCount int
+
+	for _, section := range sections {
+		sectionProductCount := len(section.ProductItems)
+
+		// Check if adding this section would exceed limits
+		wouldExceedProducts := currentProductCount+sectionProductCount > maxProductsPerMsg
+		wouldExceedSections := len(currentBatch) >= maxSectionsPerMsg
+
+		// If adding this section exceeds limits, save current batch and start new one
+		if len(currentBatch) > 0 && (wouldExceedProducts || wouldExceedSections) {
+			allBatches = append(allBatches, currentBatch)
+			currentBatch = []wwcSection{}
+			currentProductCount = 0
+		}
+
+		// If this single section has more products than limit, split it
+		if sectionProductCount > maxProductsPerMsg {
+			// Split the section into multiple parts
+			for i := 0; i < len(section.ProductItems); i += maxProductsPerMsg {
+				end := i + maxProductsPerMsg
+				if end > len(section.ProductItems) {
+					end = len(section.ProductItems)
+				}
+
+				splitSection := wwcSection{
+					Title:        section.Title,
+					ProductItems: section.ProductItems[i:end],
+				}
+
+				// Save as individual batch since it's at max capacity
+				if len(splitSection.ProductItems) == maxProductsPerMsg {
+					allBatches = append(allBatches, []wwcSection{splitSection})
+				} else {
+					currentBatch = append(currentBatch, splitSection)
+					currentProductCount = len(splitSection.ProductItems)
+				}
+			}
+		} else {
+			currentBatch = append(currentBatch, section)
+			currentProductCount += sectionProductCount
+		}
+	}
+
+	// Add remaining batch
+	if len(currentBatch) > 0 {
+		allBatches = append(allBatches, currentBatch)
+	}
+
+	return allBatches
 }
 
 // sendPayload sends a payload to the Weni Webchat API
@@ -608,38 +641,4 @@ func (h *handler) sendPayload(ctx context.Context, payload moPayload, status cou
 	}
 
 	return status, err
-}
-
-// toStringSlice converts interface{} to []string
-func toStringSlice(v interface{}) []string {
-	if v == nil {
-		return []string{}
-	}
-	switch val := v.(type) {
-	case []string:
-		return val
-	case []interface{}:
-		result := make([]string, len(val))
-		for i, item := range val {
-			if str, ok := item.(string); ok {
-				result[i] = str
-			}
-		}
-		return result
-	default:
-		return []string{}
-	}
-}
-
-// parseBackslashes handles backslash parsing similar to facebookapp
-func parseBackslashes(baseText string) string {
-	var text string
-	if strings.Contains(baseText, "\\/") {
-		text = strings.Replace(baseText, "\\", "", -1)
-	} else if strings.Contains(baseText, "\\\\") {
-		text = strings.Replace(baseText, "\\\\", "\\", -1)
-	} else {
-		text = baseText
-	}
-	return text
 }

@@ -15,10 +15,6 @@ import (
 const channelUUID = "8eb23e93-5ecb-45ba-b726-3b064e0c568c"
 
 var testChannels = []courier.Channel{
-	courier.NewMockChannel(channelUUID, "WWC", "250788383383", "", map[string]interface{}{"catalog_id": "test-catalog-123"}),
-}
-
-var testChannelsWithoutCatalog = []courier.Channel{
 	courier.NewMockChannel(channelUUID, "WWC", "250788383383", "", map[string]interface{}{}),
 }
 
@@ -379,52 +375,37 @@ var productSendTestCases = []ChannelSendTestCase{
 		Status:         string(courier.MsgSent),
 		Path:           "/send",
 		Headers:        map[string]string{"Content-type": "application/json"},
-		RequestBody:    `{"type":"interactive","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Check out this product!","interactive":{"type":"product","action":{"catalog_id":"test-catalog-123","product_retailer_id":"product-123","name":"View Product"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		RequestBody:    `{"type":"interactive","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Check out this product!","interactive":{"type":"product","action":{"product_retailer_id":"product-123","name":"View Product"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
 		ResponseStatus: 200,
 		SendPrep:       prepareSendMsg,
-		Metadata:       json.RawMessage(`{"products":[{"product":"Product Name","product_retailer_ids":["product-123"]}],"action":"View Product"}`),
+		Metadata:       json.RawMessage(`{"products":[{"product":"Product Name","product_retailer_info":[{"retailer_id":"product-123","name":"Smart TV 50\"","price":"2999.90","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001"}]}],"action":"View Product"}`),
 	},
 	{
-		Label:          "Catalog Message Send",
-		Text:           "Browse our catalog!",
-		URN:            "ext:371298371241",
-		Status:         string(courier.MsgSent),
-		Path:           "/send",
-		Headers:        map[string]string{"Content-type": "application/json"},
-		RequestBody:    `{"type":"interactive","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Browse our catalog!","interactive":{"type":"catalog_message","action":{"name":"catalog_message"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
-		ResponseStatus: 200,
-		SendPrep:       prepareSendMsg,
-		Metadata:       json.RawMessage(`{"send_catalog":true,"action":"Browse Catalog"}`),
-	},
-	{
-		Label:          "Multiple Products Send",
+		Label:          "Multiple Products Send (product_list)",
 		Text:           "Here are some products!",
 		URN:            "ext:371298371241",
 		Status:         string(courier.MsgSent),
 		Path:           "/send",
 		Headers:        map[string]string{"Content-type": "application/json"},
-		RequestBody:    `{"type":"interactive","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Here are some products!","interactive":{"type":"product_list","action":{"catalog_id":"test-catalog-123","sections":[{"title":"Electronics","product_items":[{"product_retailer_id":"product-1"},{"product_retailer_id":"product-2"}]}],"name":"View Products"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		RequestBody:    `{"type":"interactive","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Here are some products!","interactive":{"type":"product_list","action":{"sections":[{"title":"Electronics","product_items":[{"product_retailer_id":"product-1","name":"TV 4K","price":"1999.00","image":"https://example.com/tv.jpg","description":"Smart TV 4K","seller_id":"seller-001"},{"product_retailer_id":"product-2","name":"Smartphone","price":"999.00","image":"https://example.com/phone.jpg","description":"Latest smartphone","seller_id":"seller-002"}]}],"name":"View Products"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
 		ResponseStatus: 200,
 		SendPrep:       prepareSendMsg,
-		Metadata:       json.RawMessage(`{"products":[{"product":"Electronics","product_retailer_ids":["product-1","product-2"]}],"action":"View Products"}`),
+		Metadata:       json.RawMessage(`{"products":[{"product":"Electronics","product_retailer_info":[{"retailer_id":"product-1","name":"TV 4K","price":"1999.00","image":"https://example.com/tv.jpg","description":"Smart TV 4K","seller_id":"seller-001"},{"retailer_id":"product-2","name":"Smartphone","price":"999.00","image":"https://example.com/phone.jpg","description":"Latest smartphone","seller_id":"seller-002"}]}],"action":"View Products"}`),
 	},
 	{
-		Label:    "Product Message Without Catalog ID",
-		Text:     "Product without catalog",
-		URN:      "ext:371298371241",
-		Status:   string(courier.MsgFailed),
-		Error:    "Catalog ID not found in channel config",
-		SendPrep: prepareSendMsg,
-		Metadata: json.RawMessage(`{"products":[{"product":"Product Name","product_retailer_ids":["product-123"]}],"action":"View Product"}`),
+		Label:          "Multiple Sections Send",
+		Text:           "Browse our products!",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"interactive","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Browse our products!","interactive":{"type":"product_list","action":{"sections":[{"title":"Electronics","product_items":[{"product_retailer_id":"tv-001","name":"Smart TV","price":"2500.00","image":"https://example.com/tv.jpg","description":"55 inch Smart TV","seller_id":"electronics-seller"}]},{"title":"Clothing","product_items":[{"product_retailer_id":"shirt-001","name":"T-Shirt","price":"49.90","image":"https://example.com/shirt.jpg","description":"Cotton T-Shirt","seller_id":"clothing-seller"}]}],"name":"Shop Now"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+		Metadata:       json.RawMessage(`{"products":[{"product":"Electronics","product_retailer_info":[{"retailer_id":"tv-001","name":"Smart TV","price":"2500.00","image":"https://example.com/tv.jpg","description":"55 inch Smart TV","seller_id":"electronics-seller"}]},{"product":"Clothing","product_retailer_info":[{"retailer_id":"shirt-001","name":"T-Shirt","price":"49.90","image":"https://example.com/shirt.jpg","description":"Cotton T-Shirt","seller_id":"clothing-seller"}]}],"action":"Shop Now"}`),
 	},
 }
 
 func TestProductSending(t *testing.T) {
-	// Test cases with catalog_id
-	casesWithCatalog := productSendTestCases[:3] // First 3 test cases
-	RunChannelSendTestCases(t, testChannels[0], newHandler(), casesWithCatalog, nil)
-
-	// Test case without catalog_id
-	casesWithoutCatalog := productSendTestCases[3:4] // Last test case
-	RunChannelSendTestCases(t, testChannelsWithoutCatalog[0], newHandler(), casesWithoutCatalog, nil)
+	RunChannelSendTestCases(t, testChannels[0], newHandler(), productSendTestCases, nil)
 }

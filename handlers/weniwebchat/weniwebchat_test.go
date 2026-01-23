@@ -23,8 +23,8 @@ var testChannels = []courier.Channel{
 var receiveURL = fmt.Sprintf("/c/wwc/%s/receive", channelUUID)
 
 // Order metadata for tests
-var orderMetadata1 = json.RawMessage(`{"order":{"text":"Order placed","product_items":[{"product_retailer_id":"product-001","name":"Smart TV 50\"","price":"2999.90","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001","quantity":2,"item_price":29.99,"currency":"BRL"},{"product_retailer_id":"product-002","name":"Smartphone","price":"1999.90","image":"https://example.com/phone.jpg","description":"Latest smartphone model","seller_id":"seller-002","quantity":1,"item_price":49.99,"currency":"BRL"}]}}`)
-var orderMetadata2 = json.RawMessage(`{"order":{"text":"I want to buy these items","product_items":[{"product_retailer_id":"product-abc","name":"Headphones","price":"299.90","image":"https://example.com/headphones.jpg","description":"Wireless headphones","seller_id":"audio-seller","quantity":3,"item_price":19.99,"currency":"USD"}]}}`)
+var orderMetadata1 = json.RawMessage(`{"order":{"product_items":[{"product_retailer_id":"product-001","name":"Smart TV 50\"","price":"2999.90","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001","quantity":2},{"product_retailer_id":"product-002","name":"Smartphone","price":"1999.90","image":"https://example.com/phone.jpg","description":"Latest smartphone model","seller_id":"seller-002","quantity":1}]}}`)
+var orderMetadata2 = json.RawMessage(`{"order":{"product_items":[{"product_retailer_id":"product-abc","name":"Headphones","price":"299.90","image":"https://example.com/headphones.jpg","description":"Wireless headphones","seller_id":"audio-seller","quantity":3}]}}`)
 
 const (
 	textMsgTemplate = `
@@ -98,7 +98,6 @@ const (
 			"type":"order",
 			"timestamp":%q,
 			"order":{
-				"text":"Order placed",
 				"product_items":[
 					{
 						"product_retailer_id":"product-001",
@@ -107,9 +106,7 @@ const (
 						"image":"https://example.com/tv.jpg",
 						"description":"Smart TV 4K 50 inches",
 						"seller_id":"seller-001",
-						"quantity":2,
-						"item_price":29.99,
-						"currency":"BRL"
+						"quantity":2
 					},
 					{
 						"product_retailer_id":"product-002",
@@ -118,9 +115,7 @@ const (
 						"image":"https://example.com/phone.jpg",
 						"description":"Latest smartphone model",
 						"seller_id":"seller-002",
-						"quantity":1,
-						"item_price":49.99,
-						"currency":"BRL"
+						"quantity":1
 					}
 				]
 			}
@@ -128,7 +123,7 @@ const (
 	}
 	`
 
-	orderMsgWithTextTemplate = `
+	orderMsgSingleItemTemplate = `
 	{
 		"type":"message",
 		"from":%q,
@@ -136,7 +131,6 @@ const (
 			"type":"order",
 			"timestamp":%q,
 			"order":{
-				"text":%q,
 				"product_items":[
 					{
 						"product_retailer_id":"product-abc",
@@ -145,9 +139,7 @@ const (
 						"image":"https://example.com/headphones.jpg",
 						"description":"Wireless headphones",
 						"seller_id":"audio-seller",
-						"quantity":3,
-						"item_price":19.99,
-						"currency":"USD"
+						"quantity":3
 					}
 				]
 			}
@@ -266,18 +258,16 @@ var testCases = []ChannelHandleTestCase{
 		Data:     fmt.Sprintf(orderMsgTemplate, "2345678", "1616586927"),
 		Name:     Sp("2345678"),
 		URN:      Sp("ext:2345678"),
-		Text:     Sp("Order placed"),
 		Metadata: &orderMetadata1,
 		Status:   200,
 		Response: "Accepted",
 	},
 	{
-		Label:    "Receive Order With Custom Text",
+		Label:    "Receive Order Single Item",
 		URL:      receiveURL,
-		Data:     fmt.Sprintf(orderMsgWithTextTemplate, "2345678", "1616586927", "I want to buy these items"),
+		Data:     fmt.Sprintf(orderMsgSingleItemTemplate, "2345678", "1616586927"),
 		Name:     Sp("2345678"),
 		URN:      Sp("ext:2345678"),
-		Text:     Sp("I want to buy these items"),
 		Metadata: &orderMetadata2,
 		Status:   200,
 		Response: "Accepted",
@@ -622,7 +612,7 @@ var productSendTestCases = []ChannelSendTestCase{
 		Status:         string(courier.MsgSent),
 		Path:           "/send",
 		Headers:        map[string]string{"Content-type": "application/json"},
-		RequestBody:    `{"type":"interactive","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Check out this product!","interactive":{"type":"product_list","action":{"sections":[{"title":"Product Name","product_items":[{"product_retailer_id":"product-123","name":"Smart TV 50\"","price":"2999.90","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001"}]}],"name":"View Product"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Check out this product!","interactive":{"type":"product_list","action":{"sections":[{"title":"Product Name","product_items":[{"product_retailer_id":"product-123","name":"Smart TV 50\"","price":"2999.90","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001"}]}],"name":"View Product"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
 		ResponseStatus: 200,
 		SendPrep:       prepareSendMsg,
 		Metadata:       json.RawMessage(`{"products":[{"product":"Product Name","product_retailer_info":[{"retailer_id":"product-123","name":"Smart TV 50\"","price":"2999.90","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001"}]}],"action":"View Product"}`),
@@ -634,7 +624,7 @@ var productSendTestCases = []ChannelSendTestCase{
 		Status:         string(courier.MsgSent),
 		Path:           "/send",
 		Headers:        map[string]string{"Content-type": "application/json"},
-		RequestBody:    `{"type":"interactive","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Here are some products!","interactive":{"type":"product_list","action":{"sections":[{"title":"Electronics","product_items":[{"product_retailer_id":"product-1","name":"TV 4K","price":"1999.00","image":"https://example.com/tv.jpg","description":"Smart TV 4K","seller_id":"seller-001"},{"product_retailer_id":"product-2","name":"Smartphone","price":"999.00","image":"https://example.com/phone.jpg","description":"Latest smartphone","seller_id":"seller-002"}]}],"name":"View Products"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Here are some products!","interactive":{"type":"product_list","action":{"sections":[{"title":"Electronics","product_items":[{"product_retailer_id":"product-1","name":"TV 4K","price":"1999.00","image":"https://example.com/tv.jpg","description":"Smart TV 4K","seller_id":"seller-001"},{"product_retailer_id":"product-2","name":"Smartphone","price":"999.00","image":"https://example.com/phone.jpg","description":"Latest smartphone","seller_id":"seller-002"}]}],"name":"View Products"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
 		ResponseStatus: 200,
 		SendPrep:       prepareSendMsg,
 		Metadata:       json.RawMessage(`{"products":[{"product":"Electronics","product_retailer_info":[{"retailer_id":"product-1","name":"TV 4K","price":"1999.00","image":"https://example.com/tv.jpg","description":"Smart TV 4K","seller_id":"seller-001"},{"retailer_id":"product-2","name":"Smartphone","price":"999.00","image":"https://example.com/phone.jpg","description":"Latest smartphone","seller_id":"seller-002"}]}],"action":"View Products"}`),
@@ -646,7 +636,7 @@ var productSendTestCases = []ChannelSendTestCase{
 		Status:         string(courier.MsgSent),
 		Path:           "/send",
 		Headers:        map[string]string{"Content-type": "application/json"},
-		RequestBody:    `{"type":"interactive","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Browse our products!","interactive":{"type":"product_list","action":{"sections":[{"title":"Electronics","product_items":[{"product_retailer_id":"tv-001","name":"Smart TV","price":"2500.00","image":"https://example.com/tv.jpg","description":"55 inch Smart TV","seller_id":"electronics-seller"}]},{"title":"Clothing","product_items":[{"product_retailer_id":"shirt-001","name":"T-Shirt","price":"49.90","image":"https://example.com/shirt.jpg","description":"Cotton T-Shirt","seller_id":"clothing-seller"}]}],"name":"Shop Now"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Browse our products!","interactive":{"type":"product_list","action":{"sections":[{"title":"Electronics","product_items":[{"product_retailer_id":"tv-001","name":"Smart TV","price":"2500.00","image":"https://example.com/tv.jpg","description":"55 inch Smart TV","seller_id":"electronics-seller"}]},{"title":"Clothing","product_items":[{"product_retailer_id":"shirt-001","name":"T-Shirt","price":"49.90","image":"https://example.com/shirt.jpg","description":"Cotton T-Shirt","seller_id":"clothing-seller"}]}],"name":"Shop Now"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
 		ResponseStatus: 200,
 		SendPrep:       prepareSendMsg,
 		Metadata:       json.RawMessage(`{"products":[{"product":"Electronics","product_retailer_info":[{"retailer_id":"tv-001","name":"Smart TV","price":"2500.00","image":"https://example.com/tv.jpg","description":"55 inch Smart TV","seller_id":"electronics-seller"}]},{"product":"Clothing","product_retailer_info":[{"retailer_id":"shirt-001","name":"T-Shirt","price":"49.90","image":"https://example.com/shirt.jpg","description":"Cotton T-Shirt","seller_id":"clothing-seller"}]}],"action":"Shop Now"}`),
@@ -658,7 +648,7 @@ var productSendTestCases = []ChannelSendTestCase{
 		Status:         string(courier.MsgSent),
 		Path:           "/send",
 		Headers:        map[string]string{"Content-type": "application/json"},
-		RequestBody:    `{"type":"interactive","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Check our catalog!","interactive":{"type":"product_list","header":{"type":"text","text":"Special Offers"},"footer":{"text":"Limited time only!"},"action":{"sections":[{"title":"Deals","product_items":[{"product_retailer_id":"deal-001","name":"Headphones","price":"199.90","image":"https://example.com/headphones.jpg","description":"Wireless Headphones","seller_id":"audio-seller"}]}],"name":"View Deals"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Check our catalog!","interactive":{"type":"product_list","header":{"type":"text","text":"Special Offers"},"footer":{"text":"Limited time only!"},"action":{"sections":[{"title":"Deals","product_items":[{"product_retailer_id":"deal-001","name":"Headphones","price":"199.90","image":"https://example.com/headphones.jpg","description":"Wireless Headphones","seller_id":"audio-seller"}]}],"name":"View Deals"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
 		ResponseStatus: 200,
 		SendPrep:       prepareSendMsg,
 		Metadata:       json.RawMessage(`{"products":[{"product":"Deals","product_retailer_info":[{"retailer_id":"deal-001","name":"Headphones","price":"199.90","image":"https://example.com/headphones.jpg","description":"Wireless Headphones","seller_id":"audio-seller"}]}],"action":"View Deals","header":"Special Offers","footer":"Limited time only!"}`),

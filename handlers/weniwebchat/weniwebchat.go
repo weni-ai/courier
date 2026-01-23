@@ -57,21 +57,18 @@ type miMessage struct {
 	Latitude  string `json:"latitude,omitempty"`
 	Longitude string `json:"longitude,omitempty"`
 	Order     struct {
-		Text         string          `json:"text"`
 		ProductItems []miProductItem `json:"product_items"`
 	} `json:"order,omitempty"`
 }
 
 type miProductItem struct {
-	ProductRetailerID string  `json:"product_retailer_id"`
-	Name              string  `json:"name"`
-	Price             string  `json:"price"`
-	Image             string  `json:"image"`
-	Description       string  `json:"description"`
-	SellerID          string  `json:"seller_id"`
-	Quantity          int     `json:"quantity"`
-	ItemPrice         float64 `json:"item_price"`
-	Currency          string  `json:"currency"`
+	ProductRetailerID string `json:"product_retailer_id"`
+	Name              string `json:"name"`
+	Price             string `json:"price"`
+	Image             string `json:"image"`
+	Description       string `json:"description"`
+	SellerID          string `json:"seller_id"`
+	Quantity          int    `json:"quantity"`
 }
 
 func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
@@ -113,16 +110,10 @@ func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w htt
 		payload.Message.Text = payload.Message.Caption
 	}
 
-	// handle order messages
-	text := payload.Message.Text
-	if payload.Message.Type == "order" && len(payload.Message.Order.ProductItems) > 0 {
-		text = payload.Message.Order.Text
-	}
-
 	// build message
 	date := time.Unix(ts, 0).UTC()
 	msg := h.Backend().
-		NewIncomingMsg(channel, urn, text).
+		NewIncomingMsg(channel, urn, payload.Message.Text).
 		WithReceivedOn(date).
 		WithContactName(payload.From).
 		WithNewContactFields(payload.ContactFields)
@@ -424,7 +415,7 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 
 	// Build base payload
 	basePayload := moPayload{
-		Type:        "interactive",
+		Type:        "message",
 		To:          msg.URN().Path(),
 		From:        msg.Channel().Address(),
 		ChannelUUID: msg.Channel().UUID().String(),

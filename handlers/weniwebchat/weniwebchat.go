@@ -127,7 +127,12 @@ func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w htt
 
 	// add order metadata if present
 	if payload.Message.Type == "order" && len(payload.Message.Order.ProductItems) > 0 {
-		orderM := map[string]interface{}{"order": payload.Message.Order}
+		orderM := map[string]interface{}{
+			"order": payload.Message.Order,
+			"overwrite_message": map[string]interface{}{
+				"order": payload.Message.Order,
+			},
+		}
 		orderJSON, err := json.Marshal(orderM)
 		if err == nil {
 			metadata := json.RawMessage(orderJSON)
@@ -196,6 +201,7 @@ type wwcProductItem struct {
 	ProductRetailerID string `json:"product_retailer_id"`
 	Name              string `json:"name"`
 	Price             string `json:"price"`
+	SalePrice         string `json:"sale_price,omitempty"`
 	Image             string `json:"image"`
 	Description       string `json:"description"`
 	SellerID          string `json:"seller_id"`
@@ -509,6 +515,9 @@ func extractProductSections(products []map[string]interface{}) []wwcSection {
 						}
 						if price, ok := priMap["price"].(string); ok {
 							item.Price = price
+						}
+						if salePrice, ok := priMap["sale_price"].(string); ok {
+							item.SalePrice = salePrice
 						}
 						if image, ok := priMap["image"].(string); ok {
 							item.Image = image

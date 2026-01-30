@@ -23,8 +23,8 @@ var testChannels = []courier.Channel{
 var receiveURL = fmt.Sprintf("/c/wwc/%s/receive", channelUUID)
 
 // Order metadata for tests
-var orderMetadata1 = json.RawMessage(`{"order":{"product_items":[{"product_retailer_id":"product-001","name":"Smart TV 50\"","price":"2999.90","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001","quantity":2},{"product_retailer_id":"product-002","name":"Smartphone","price":"1999.90","image":"https://example.com/phone.jpg","description":"Latest smartphone model","seller_id":"seller-002","quantity":1}]}}`)
-var orderMetadata2 = json.RawMessage(`{"order":{"product_items":[{"product_retailer_id":"product-abc","name":"Headphones","price":"299.90","image":"https://example.com/headphones.jpg","description":"Wireless headphones","seller_id":"audio-seller","quantity":3}]}}`)
+var orderMetadata1 = json.RawMessage(`{"order":{"product_items":[{"product_retailer_id":"product-001","name":"Smart TV 50\"","price":"2999.90","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001","quantity":2},{"product_retailer_id":"product-002","name":"Smartphone","price":"1999.90","image":"https://example.com/phone.jpg","description":"Latest smartphone model","seller_id":"seller-002","quantity":1}]},"overwrite_message":{"order":{"product_items":[{"product_retailer_id":"product-001","name":"Smart TV 50\"","price":"2999.90","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001","quantity":2},{"product_retailer_id":"product-002","name":"Smartphone","price":"1999.90","image":"https://example.com/phone.jpg","description":"Latest smartphone model","seller_id":"seller-002","quantity":1}]}}}`)
+var orderMetadata2 = json.RawMessage(`{"order":{"product_items":[{"product_retailer_id":"product-abc","name":"Headphones","price":"299.90","image":"https://example.com/headphones.jpg","description":"Wireless headphones","seller_id":"audio-seller","quantity":3}]},"overwrite_message":{"order":{"product_items":[{"product_retailer_id":"product-abc","name":"Headphones","price":"299.90","image":"https://example.com/headphones.jpg","description":"Wireless headphones","seller_id":"audio-seller","quantity":3}]}}}`)
 
 const (
 	textMsgTemplate = `
@@ -652,6 +652,18 @@ var productSendTestCases = []ChannelSendTestCase{
 		ResponseStatus: 200,
 		SendPrep:       prepareSendMsg,
 		Metadata:       json.RawMessage(`{"products":[{"product":"Deals","product_retailer_info":[{"retailer_id":"deal-001","name":"Headphones","price":"199.90","image":"https://example.com/headphones.jpg","description":"Wireless Headphones","seller_id":"audio-seller"}]}],"action":"View Deals","header":"Special Offers","footer":"Limited time only!"}`),
+	},
+	{
+		Label:          "Product with Sale Price",
+		Text:           "Special offer!",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Special offer!","interactive":{"type":"product_list","action":{"sections":[{"title":"On Sale","product_items":[{"product_retailer_id":"sale-001","name":"Laptop","price":"2999.90","sale_price":"1999.90","image":"https://example.com/laptop.jpg","description":"Gaming Laptop","seller_id":"tech-seller"}]}],"name":"View Sale"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+		Metadata:       json.RawMessage(`{"products":[{"product":"On Sale","product_retailer_info":[{"retailer_id":"sale-001","name":"Laptop","price":"2999.90","sale_price":"1999.90","image":"https://example.com/laptop.jpg","description":"Gaming Laptop","seller_id":"tech-seller"}]}],"action":"View Sale"}`),
 	},
 }
 

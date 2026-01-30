@@ -479,41 +479,54 @@ func processWACPaymentMethodMetadata(paymentMethod interface{}) *wacMessageMetad
 	}
 }
 
-// buildWACMetadataWithOverwrite builds metadata JSON with both the original field and overwrite_message
-func buildWACMetadataWithOverwrite(event courier.Msg, meta *wacMessageMetadata) (json.RawMessage, error) {
-	// Build the original metadata
-	var originalJSON []byte
-	var err error
-
-	// For nfm_reply, use Flow struct directly (it already has "nfm_reply" as json tag)
-	if meta.Key == "nfm_reply" {
-		originalJSON, err = json.Marshal(Flow{NFMReply: meta.Value.(NFMReply)})
-	} else {
-		originalJSON, err = json.Marshal(map[string]interface{}{meta.Key: meta.Value})
-	}
-
-	if err != nil {
-		return nil, err
-	}
-	event.WithMetadata(json.RawMessage(originalJSON))
-
-	// Build overwrite_message
+// addMetadataWithOverwrite adds metadata to both the root level and overwrite_message field
+// This function ensures all metadata for FBA, IG, and WAC channels are available in both places
+// Note: "context" is excluded from overwrite_message and only added to root level
+func addMetadataWithOverwrite(event courier.Msg, metadataToAdd map[string]interface{}) error {
+	// Get existing metadata
 	existingMetadata := event.Metadata()
 	newMetadata := make(map[string]interface{})
+
 	if existingMetadata != nil {
 		if err := json.Unmarshal(existingMetadata, &newMetadata); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
+	// Add metadata to root level
+	for key, value := range metadataToAdd {
+		newMetadata[key] = value
+	}
+
+	// Build or update overwrite_message
 	overwriteMessage := make(map[string]interface{})
 	if existing, ok := newMetadata["overwrite_message"].(map[string]interface{}); ok {
 		overwriteMessage = existing
 	}
-	overwriteMessage[meta.Key] = meta.Value
-	newMetadata["overwrite_message"] = overwriteMessage
 
-	return json.Marshal(newMetadata)
+	// Add all metadata to overwrite_message as well, except "context"
+	for key, value := range metadataToAdd {
+		if key != "context" {
+			overwriteMessage[key] = value
+		}
+	}
+
+	// Only add overwrite_message if it has at least one field
+	if len(overwriteMessage) > 0 {
+		newMetadata["overwrite_message"] = overwriteMessage
+	} else {
+		// Remove overwrite_message if it's empty
+		delete(newMetadata, "overwrite_message")
+	}
+
+	// Marshal and set the new metadata
+	metadataJSON, err := json.Marshal(newMetadata)
+	if err != nil {
+		return err
+	}
+
+	event.WithMetadata(json.RawMessage(metadataJSON))
+	return nil
 }
 
 type IGComment struct {
@@ -880,21 +893,22 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				}
 
 				if wacMeta != nil {
-					metadataJSON, err := buildWACMetadataWithOverwrite(event, wacMeta)
-					if err != nil {
+					metadataMap := map[string]interface{}{
+						wacMeta.Key: wacMeta.Value,
+					}
+					if err := addMetadataWithOverwrite(event, metadataMap); err != nil {
 						courier.LogRequestError(r, channel, err)
 					}
-					event.WithMetadata(metadataJSON)
 				}
 
 				if msg.Referral.Headline != "" {
-
-					referral, err := json.Marshal(msg.Referral)
-					if err != nil {
+					// Add referral metadata to both root and overwrite_message
+					referralMetadata := map[string]interface{}{
+						"referral": msg.Referral,
+					}
+					if err := addMetadataWithOverwrite(event, referralMetadata); err != nil {
 						courier.LogRequestError(r, channel, err)
 					}
-					metadata := json.RawMessage(referral)
-					event.WithMetadata(metadata)
 
 					if msg.Referral.CtwaClid != "" {
 						// Write ctwa data to database
@@ -911,31 +925,13 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 				// Add to the existing metadata, the message context
 				if msg.Context != nil {
-					metadata := event.Metadata()
-					if metadata == nil {
-						newMetadata := make(map[string]interface{})
-						newMetadata["context"] = msg.Context
-
-						metadata, err = json.Marshal(newMetadata)
-						if err != nil {
-							courier.LogRequestError(r, channel, err)
-						}
-					} else {
-						newMetadata := make(map[string]interface{})
-						err := json.Unmarshal(metadata, &newMetadata)
-						if err != nil {
-							courier.LogRequestError(r, channel, err)
-						}
-
-						newMetadata["context"] = msg.Context
-
-						metadata, err = json.Marshal(newMetadata)
-						if err != nil {
-							courier.LogRequestError(r, channel, err)
-						}
+					// Add context metadata to both root and overwrite_message
+					contextMetadata := map[string]interface{}{
+						"context": msg.Context,
 					}
-
-					event.WithMetadata(metadata)
+					if err := addMetadataWithOverwrite(event, contextMetadata); err != nil {
+						courier.LogRequestError(r, channel, err)
+					}
 				}
 
 				err = h.Backend().WriteMsg(ctx, event)
@@ -1132,13 +1128,6 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 					},
 				}
 
-				// Marshal IGComment to JSON for metadata
-				metadataJSON, err := json.Marshal(wrapper)
-				if err != nil {
-					courier.LogRequestError(r, channel, err)
-				}
-				metadata := json.RawMessage(metadataJSON)
-
 				// Create message from comment
 				text := entry.Changes[0].Value.Text
 				urn, err := urns.NewInstagramURN(entry.Changes[0].Value.From.ID)
@@ -1147,7 +1136,15 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 				}
 
 				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithExternalID(entry.Changes[0].Value.ID).WithReceivedOn(time.Unix(0, entry.Time*1000000).UTC())
-				event := h.Backend().CheckExternalIDSeen(ev).WithMetadata(metadata)
+				event := h.Backend().CheckExternalIDSeen(ev)
+
+				// Add IG comment metadata to both root and overwrite_message
+				igCommentMetadata := map[string]interface{}{
+					"ig_comment": wrapper.IGComment,
+				}
+				if err := addMetadataWithOverwrite(event, igCommentMetadata); err != nil {
+					courier.LogRequestError(r, channel, err)
+				}
 				err = h.Backend().WriteMsg(ctx, event)
 				if err != nil {
 					return nil, nil, err

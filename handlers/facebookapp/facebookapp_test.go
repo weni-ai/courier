@@ -281,28 +281,30 @@ var testCasesWAC = []ChannelHandleTestCase{
 		PrepRequest: addValidSignatureWAC},
 
 	{Label: "Receive Referral WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/referralWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
-		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(&struct {
-			Headline   string `json:"headline"`
-			Body       string `json:"body"`
-			SourceType string `json:"source_type"`
-			SourceID   string `json:"source_id"`
-			SourceURL  string `json:"source_url"`
-			CtwaClid   string `json:"ctwa_clid"`
-			Image      *struct {
-				Caption  string `json:"caption"`
-				Filename string `json:"filename"`
-				ID       string `json:"id"`
-				Mimetype string `json:"mime_type"`
-				SHA256   string `json:"sha256"`
-			} `json:"image"`
-			Video *struct {
-				Caption  string `json:"caption"`
-				Filename string `json:"filename"`
-				ID       string `json:"id"`
-				Mimetype string `json:"mime_type"`
-				SHA256   string `json:"sha256"`
-			} `json:"video"`
-		}{Headline: "Our new product", Body: "This is a great product", SourceType: "SOURCE_TYPE", SourceID: "SOURCE_ID", SourceURL: "SOURCE_URL", Image: nil, Video: nil, CtwaClid: ""}),
+		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{
+			"referral": map[string]interface{}{
+				"headline":    "Our new product",
+				"body":        "This is a great product",
+				"source_type": "SOURCE_TYPE",
+				"source_id":   "SOURCE_ID",
+				"source_url":  "SOURCE_URL",
+				"ctwa_clid":   "",
+				"image":       nil,
+				"video":       nil,
+			},
+			"overwrite_message": map[string]interface{}{
+				"referral": map[string]interface{}{
+					"headline":    "Our new product",
+					"body":        "This is a great product",
+					"source_type": "SOURCE_TYPE",
+					"source_id":   "SOURCE_ID",
+					"source_url":  "SOURCE_URL",
+					"ctwa_clid":   "",
+					"image":       nil,
+					"video":       nil,
+				},
+			},
+		}),
 		PrepRequest: addValidSignatureWAC},
 
 	{Label: "Receive Order WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/orderWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
@@ -410,12 +412,14 @@ var testCasesWAC = []ChannelHandleTestCase{
 	{Label: "Receive Empty Contacts", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/emptyContactsWAC.json")), Status: 400, Response: `"no shared contact"`, PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Unsupported Message Type", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/invalidTypeMsgWAC.json")), Status: 200, Response: `"Events Handled"`, PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Message WAC with Context", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloWithContextWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
-		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{"context": map[string]interface{}{
-			"forwarded":            false,
-			"frequently_forwarded": false,
-			"from":                 "5678",
-			"id":                   "9876",
-		}}),
+		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{
+			"context": map[string]interface{}{
+				"forwarded":            false,
+				"frequently_forwarded": false,
+				"from":                 "5678",
+				"id":                   "9876",
+			},
+		}),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive NFM Reply With Context WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/flowWithContextWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{

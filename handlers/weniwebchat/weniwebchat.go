@@ -454,15 +454,15 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 		Type string `json:"type"`
 		Text string `json:"text,omitempty"`
 	}
-	if msg.Header() != "" {
+	if msg.HeaderText() != "" {
 		header = &struct {
 			Type string `json:"type"`
 			Text string `json:"text,omitempty"`
 		}{
 			Type: "text",
-			Text: msg.Header(),
+			Text: msg.HeaderText(),
 		}
-		fmt.Printf("sendProductMessage() - Header: %s\n", msg.Header())
+		fmt.Printf("sendProductMessage() - Header: %s\n", msg.HeaderText())
 	}
 
 	// Build footer if present

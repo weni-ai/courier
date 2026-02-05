@@ -650,7 +650,7 @@ var productSendTestCases = []ChannelSendTestCase{
 		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Check our catalog!","interactive":{"type":"product_list","header":{"type":"text","text":"Special Offers"},"footer":{"text":"Limited time only!"},"action":{"sections":[{"title":"Deals","product_items":[{"product_retailer_id":"deal-001","name":"Headphones","price":"199.90","image":"https://example.com/headphones.jpg","description":"Wireless Headphones","seller_id":"audio-seller"}]}],"name":"View Deals"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
 		ResponseStatus: 200,
 		SendPrep:       prepareSendMsg,
-		Metadata:       json.RawMessage(`{"products":[{"product":"Deals","product_retailer_info":[{"retailer_id":"deal-001","name":"Headphones","price":"199.90","image":"https://example.com/headphones.jpg","description":"Wireless Headphones","seller_id":"audio-seller"}]}],"action":"View Deals","header":"Special Offers","footer":"Limited time only!"}`),
+		Metadata:       json.RawMessage(`{"products":[{"product":"Deals","product_retailer_info":[{"retailer_id":"deal-001","name":"Headphones","price":"199.90","image":"https://example.com/headphones.jpg","description":"Wireless Headphones","seller_id":"audio-seller"}]}],"action":"View Deals","header_text":"Special Offers","footer":"Limited time only!"}`),
 	},
 	{
 		Label:          "Product with Sale Price",

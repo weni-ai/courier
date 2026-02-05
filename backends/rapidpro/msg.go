@@ -774,20 +774,45 @@ func GetMsgByUUID(b *backend, uuid string) (*DBMsg, error) {
 func (m *DBMsg) Status() courier.MsgStatusValue { return m.Status_ }
 
 func (m *DBMsg) Products() []map[string]interface{} {
+	fmt.Println("DBMsg.Products() - Starting")
+
 	if m.products != nil {
+		fmt.Printf("DBMsg.Products() - Returning cached products: %d items\n", len(m.products))
 		return m.products
 	}
 
 	if m.Metadata_ == nil {
+		fmt.Println("DBMsg.Products() - Metadata_ is nil")
 		return nil
 	}
 
-	p, _, _, _ := jsonparser.Get(*m.Metadata_, "products")
-	err := json.Unmarshal(p, &m.products)
-	if err != nil {
-		return nil
+	fmt.Printf("DBMsg.Products() - Metadata_ exists, length: %d\n", len(*m.Metadata_))
+	fmt.Printf("DBMsg.Products() - Metadata_ content: %s\n", string(*m.Metadata_))
+
+	p, dataType, offset, err := jsonparser.Get(*m.Metadata_, "products")
+	fmt.Printf("DBMsg.Products() - jsonparser.Get result:\n")
+	fmt.Printf("  - p length: %d\n", len(p))
+	fmt.Printf("  - dataType: %v\n", dataType)
+	fmt.Printf("  - offset: %d\n", offset)
+	fmt.Printf("  - err: %v\n", err)
+	if len(p) > 0 {
+		fmt.Printf("  - p content: %s\n", string(p))
 	}
-	return m.products
+
+	// Check if we got a valid array (not empty and not null)
+	if len(p) > 0 && dataType == jsonparser.Array {
+		fmt.Println("DBMsg.Products() - Found array, attempting to unmarshal")
+		err := json.Unmarshal(p, &m.products)
+		if err != nil {
+			fmt.Printf("DBMsg.Products() - Error unmarshalling: %v\n", err)
+			return nil
+		}
+		fmt.Printf("DBMsg.Products() - Successfully unmarshalled %d products\n", len(m.products))
+		return m.products
+	}
+
+	fmt.Printf("DBMsg.Products() - No products found. len(p)=%d, dataType=%v\n", len(p), dataType)
+	return nil
 }
 
 func (m *DBMsg) Header() string {

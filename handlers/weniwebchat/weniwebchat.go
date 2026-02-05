@@ -220,7 +220,9 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	var logs []*courier.ChannelLog
 
 	// Check for product messages first
-	if len(msg.Products()) > 0 || msg.SendCatalog() {
+	if len(msg.Products()) > 0 {
+		fmt.Println("Sending product message")
+		fmt.Println(msg.Products())
 		return h.sendProductMessage(ctx, msg, status, sendURL, start)
 	}
 
@@ -404,18 +406,29 @@ func normalizeQuickReplies(quickReplies []string) []string {
 // sendProductMessage handles sending product messages
 // All products are sent as product_list with sections containing product_items
 func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, status courier.MsgStatus, sendURL string, start time.Time) (courier.MsgStatus, error) {
+	fmt.Println("sendProductMessage() - Starting")
+
 	products := msg.Products()
+	fmt.Printf("sendProductMessage() - Products from msg.Products(): %d items\n", len(products))
+	if len(products) > 0 {
+		fmt.Printf("sendProductMessage() - Products content: %+v\n", products)
+	}
 
 	// Extract sections with their products
 	sections := extractProductSections(products)
+	fmt.Printf("sendProductMessage() - Extracted sections: %d\n", len(sections))
 
 	// Count total products
 	totalProducts := 0
-	for _, section := range sections {
-		totalProducts += len(section.ProductItems)
+	for i, section := range sections {
+		productCount := len(section.ProductItems)
+		totalProducts += productCount
+		fmt.Printf("sendProductMessage() - Section %d: title='%s', products=%d\n", i, section.Title, productCount)
 	}
 
+	fmt.Printf("sendProductMessage() - Total products: %d\n", totalProducts)
 	if totalProducts == 0 {
+		fmt.Println("sendProductMessage() - No products found, returning early")
 		return status, nil
 	}
 
@@ -433,6 +446,7 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 
 	if msg.Text() != "" {
 		basePayload.Message.Text = msg.Text()
+		fmt.Printf("sendProductMessage() - Message text: %s\n", msg.Text())
 	}
 
 	// Build header if present
@@ -448,6 +462,7 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 			Type: "text",
 			Text: msg.Header(),
 		}
+		fmt.Printf("sendProductMessage() - Header: %s\n", msg.Header())
 	}
 
 	// Build footer if present
@@ -460,13 +475,18 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 		}{
 			Text: msg.Footer(),
 		}
+		fmt.Printf("sendProductMessage() - Footer: %s\n", msg.Footer())
 	}
+
+	fmt.Printf("sendProductMessage() - Action: %s\n", msg.Action())
 
 	// Build message batches respecting limits (30 products, 10 sections per message)
 	allBatches := buildProductBatches(sections)
+	fmt.Printf("sendProductMessage() - Built %d batches\n", len(allBatches))
 
 	// Send each batch as a separate message
-	for _, batch := range allBatches {
+	for i, batch := range allBatches {
+		fmt.Printf("sendProductMessage() - Sending batch %d with %d sections\n", i+1, len(batch))
 		interactive := wwcInteractive{
 			Type:   InteractiveProductListType,
 			Header: header,
@@ -480,65 +500,99 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 		payload := basePayload
 		payload.Message.Interactive = &interactive
 
+		payloadJSON, _ := json.Marshal(payload)
+		fmt.Printf("sendProductMessage() - Payload JSON: %s\n", string(payloadJSON))
+
 		status, err := h.sendPayload(ctx, payload, status, sendURL, start, msg.Channel(), msg.ID())
 		if err != nil {
+			fmt.Printf("sendProductMessage() - Error sending payload: %v\n", err)
 			return status, err
 		}
+		fmt.Printf("sendProductMessage() - Batch %d sent successfully\n", i+1)
 	}
 
+	fmt.Println("sendProductMessage() - Completed successfully")
 	return status, nil
 }
 
 // extractProductSections extracts sections with their products from the products map
 func extractProductSections(products []map[string]interface{}) []wwcSection {
+	fmt.Println("extractProductSections() - Starting")
+	fmt.Printf("extractProductSections() - Input products count: %d\n", len(products))
+
 	var sections []wwcSection
 
-	for _, product := range products {
+	for i, product := range products {
+		fmt.Printf("extractProductSections() - Processing product %d: %+v\n", i+1, product)
 		section := wwcSection{}
 
 		// Get section title from "product" field
 		if title, ok := product["product"].(string); ok {
 			section.Title = title
+			fmt.Printf("extractProductSections() - Product %d - Section title: %s\n", i+1, title)
+		} else {
+			fmt.Printf("extractProductSections() - Product %d - No 'product' field found or not a string\n", i+1)
 		}
 
 		// Extract product_retailer_info as products for this section
 		if priData, ok := product["product_retailer_info"]; ok {
+			fmt.Printf("extractProductSections() - Product %d - Found product_retailer_info\n", i+1)
 			if priList, ok := priData.([]interface{}); ok {
-				for _, pri := range priList {
+				fmt.Printf("extractProductSections() - Product %d - product_retailer_info is array with %d items\n", i+1, len(priList))
+				for j, pri := range priList {
 					if priMap, ok := pri.(map[string]interface{}); ok {
+						fmt.Printf("extractProductSections() - Product %d, Item %d - Processing: %+v\n", i+1, j+1, priMap)
 						item := wwcProductItem{}
 						if name, ok := priMap["name"].(string); ok {
 							item.Name = name
+							fmt.Printf("extractProductSections() - Product %d, Item %d - Name: %s\n", i+1, j+1, name)
 						}
 						if retailerID, ok := priMap["retailer_id"].(string); ok {
 							item.ProductRetailerID = retailerID
+							fmt.Printf("extractProductSections() - Product %d, Item %d - RetailerID: %s\n", i+1, j+1, retailerID)
 						}
 						if price, ok := priMap["price"].(string); ok {
 							item.Price = price
+							fmt.Printf("extractProductSections() - Product %d, Item %d - Price: %s\n", i+1, j+1, price)
 						}
 						if salePrice, ok := priMap["sale_price"].(string); ok {
 							item.SalePrice = salePrice
+							fmt.Printf("extractProductSections() - Product %d, Item %d - SalePrice: %s\n", i+1, j+1, salePrice)
 						}
 						if image, ok := priMap["image"].(string); ok {
 							item.Image = image
+							fmt.Printf("extractProductSections() - Product %d, Item %d - Image: %s\n", i+1, j+1, image)
 						}
 						if description, ok := priMap["description"].(string); ok {
 							item.Description = description
+							fmt.Printf("extractProductSections() - Product %d, Item %d - Description: %s\n", i+1, j+1, description)
 						}
 						if sellerID, ok := priMap["seller_id"].(string); ok {
 							item.SellerID = sellerID
+							fmt.Printf("extractProductSections() - Product %d, Item %d - SellerID: %s\n", i+1, j+1, sellerID)
 						}
 						section.ProductItems = append(section.ProductItems, item)
+						fmt.Printf("extractProductSections() - Product %d, Item %d - Added to section\n", i+1, j+1)
+					} else {
+						fmt.Printf("extractProductSections() - Product %d, Item %d - Not a map, skipping\n", i+1, j+1)
 					}
 				}
+			} else {
+				fmt.Printf("extractProductSections() - Product %d - product_retailer_info is not an array, type: %T\n", i+1, priData)
 			}
+		} else {
+			fmt.Printf("extractProductSections() - Product %d - No 'product_retailer_info' field found\n", i+1)
 		}
 
 		if len(section.ProductItems) > 0 {
 			sections = append(sections, section)
+			fmt.Printf("extractProductSections() - Product %d - Section added with %d items\n", i+1, len(section.ProductItems))
+		} else {
+			fmt.Printf("extractProductSections() - Product %d - Section not added (no items)\n", i+1)
 		}
 	}
 
+	fmt.Printf("extractProductSections() - Completed, returning %d sections\n", len(sections))
 	return sections
 }
 

@@ -431,8 +431,14 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 		},
 	}
 
-	if msg.Text() != "" {
-		basePayload.Message.Text = msg.Text()
+	// Prefer msg.Text(), fallback to msg.Body()
+	msgText := strings.TrimSpace(msg.Text())
+	if msgText == "" {
+		msgText = strings.TrimSpace(msg.Body())
+	}
+
+	if msgText != "" {
+		basePayload.Message.Text = msgText
 	}
 
 	// Build header if present

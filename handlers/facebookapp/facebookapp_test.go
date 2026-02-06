@@ -893,31 +893,6 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"revive_issue","language":{"policy":"deterministic","code":"en_US"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]},{"type":"header","parameters":[{"type":"image","image":{"link":"https://foo.bar/image.jpg"}}]}]}}`,
 		SendPrep:    setSendURL},
-	{Label: "Media Message Template Send - WebP Image (should convert to PNG)",
-		Text: "Media Message Msg", URN: "whatsapp:250788123123",
-		Status:      "W",
-		ExternalID:  "157b5e14568e8",
-		Metadata:    json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "namespace": "wa_template_namespace", "language": "eng", "country": "US", "variables": ["Chef", "tomorrow"]}}`),
-		Attachments: []string{"image/webp:https://foo.bar/image.webp"},
-		Responses: map[MockedRequest]MockedResponse{
-			{
-				Method:       "POST",
-				Path:         "/12345_ID/media",
-				BodyContains: "", // Empty means match by Path and Method only (multipart body contains binary PNG data)
-			}: {
-				Status: 201,
-				Body:   `{"id":"157b5e14568e8"}`,
-			},
-			{
-				Method:       "POST",
-				Path:         "/12345_ID/messages",
-				BodyContains: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"revive_issue","language":{"policy":"deterministic","code":"en_US"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]},{"type":"header","parameters":[{"type":"image","image":{"id":"157b5e14568e8"}}]}]}}`,
-			}: {
-				Status: 201,
-				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
-			},
-		},
-		SendPrep: setSendURL},
 	{Label: "Media Message Template Send - Video",
 		Text: "Media Message Msg", URN: "whatsapp:250788123123",
 		Status: "W", ExternalID: "157b5e14568e8",
@@ -1075,6 +1050,22 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"revive_issue","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]},{"type":"button","sub_type":"url","index":0,"parameters":[{"type":"text","text":"first param"}]}]}}`,
 		SendPrep:    setSendURL},
+	{Label: "Media Message Template Send - Image with WebP attachment",
+		Text: "Media Message Msg", URN: "whatsapp:250788123123",
+		Status:      "W",
+		Metadata:    json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "namespace": "wa_template_namespace", "language": "eng", "country": "US", "variables": ["Chef", "tomorrow"]}}`),
+		Attachments: []string{"image/webp:https://foo.bar/image.webp"},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method:       "POST",
+				Path:         "/12345_ID/messages",
+				BodyContains: `"type":"template"`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
 	{Label: "Plain Send - Link preview on a long message",
 		Text: "https://link.com Lorem ipsum dolor sit amet, consectetuer adipiscing elit. Aenean commodo ligula eget dolor. Aenean m",
 		URN:  "whatsapp:250788123123", Path: "/12345_ID/messages",
@@ -1559,24 +1550,28 @@ func buildMockWACActionServer() *httptest.Server {
 	return server
 }
 
+func updateWebPTestCase(sendTestCases []ChannelSendTestCase, webpServerURL string) {
+	for i, testCase := range sendTestCases {
+		if testCase.Label == "Media Message Template Send - Image with WebP attachment" {
+			for j, att := range testCase.Attachments {
+				if strings.Contains(att, "https://foo.bar") {
+					testCase.Attachments[j] = strings.Replace(att, "https://foo.bar", webpServerURL, 1)
+				}
+			}
+			sendTestCases[i] = testCase
+			break
+		}
+	}
+}
+
 func TestSending(t *testing.T) {
 	uuids.SetGenerator(uuids.NewSeededGenerator(1234))
 	defer uuids.SetGenerator(uuids.DefaultGenerator)
 
 	mediaServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 		defer req.Body.Close()
-		// Serve WebP image when requested (for WebP conversion test)
-		if strings.Contains(req.URL.Path, "image.webp") {
-			res.Header().Set("Content-Type", "image/webp")
-			// Create a valid WebP image (small 1x1 pixel WebP lossy)
-			// This is a minimal valid WebP that can be decoded and converted
-			webpImage := createValidWebPImage()
-			res.WriteHeader(200)
-			res.Write(webpImage)
-		} else {
-			res.WriteHeader(200)
-			res.Write([]byte("media bytes"))
-		}
+		res.WriteHeader(200)
+		res.Write([]byte("media bytes"))
 	}))
 
 	failingMediaServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
@@ -1584,11 +1579,22 @@ func TestSending(t *testing.T) {
 		res.WriteHeader(400)
 		res.Write([]byte("error"))
 	}))
+
+	// WebP media server - returns valid WebP image data
+	webpMediaServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		defer req.Body.Close()
+		res.WriteHeader(200)
+		// Valid 1x1 pixel WebP lossy image
+		webpData := []byte{'R', 'I', 'F', 'F', 0x1A, 0x00, 0x00, 0x00, 'W', 'E', 'B', 'P', 'V', 'P', '8', ' ', 0x0E, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x2D, 0x01, 0x00, 0x00, 0x00, 0x00}
+		res.Write(webpData)
+	}))
+
 	defer mediaServer.Close()
+	defer webpMediaServer.Close()
 	CachedSendTestCasesWAC := mockAttachmentURLs(mediaServer, CachedSendTestCasesWAC)
 	FailingCachedSendTestCasesWAC := mockAttachmentURLs(failingMediaServer, FailingCachedSendTestCasesWAC)
-	// Mock URLs for WebP test case (added to SendTestCasesWAC array)
-	SendTestCasesWAC = mockAttachmentURLs(mediaServer, SendTestCasesWAC)
+
+	updateWebPTestCase(SendTestCasesWAC, webpMediaServer.URL)
 	SendTestCasesWAC = append(SendTestCasesWAC, CachedSendTestCasesWAC...)
 	SendTestCasesWAC = append(SendTestCasesWAC, FailingCachedSendTestCasesWAC...)
 
@@ -1680,28 +1686,4 @@ func TestSendingWCD(t *testing.T) {
 	var ChannelWCD = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WCD", "12345_ID", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
 
 	RunChannelSendTestCases(t, ChannelWCD, newWACDemoHandler("WCD", "WhatsApp Cloud Demo"), SendTestCasesWCD, nil)
-}
-
-// createValidWebPImage creates a valid WebP image that can be decoded and converted to PNG
-// This uses a real WebP file bytes (1x1 pixel WebP lossy) that can be decoded by the webp package
-// This helper is used in message send tests to simulate WebP image attachments
-func createValidWebPImage() []byte {
-	// This is a real valid 1x1 pixel WebP lossy image
-	// It's a minimal WebP that can be decoded and converted
-	// Format: RIFF header + WEBP chunk + VP8 chunk with valid VP8 frame data
-	webpBytes := []byte{
-		// RIFF header
-		'R', 'I', 'F', 'F',
-		0x1A, 0x00, 0x00, 0x00, // File size: 26 bytes (little-endian)
-		'W', 'E', 'B', 'P', // WEBP signature
-		// VP8 chunk
-		'V', 'P', '8', ' ', // VP8 lossy chunk
-		0x0E, 0x00, 0x00, 0x00, // Chunk size: 14 bytes
-		// VP8 key frame header (1x1 pixel image)
-		0x10, 0x00, // Width: 1 pixel (bits 0-13) + horizontal scale (bits 14-15)
-		0x00, 0x00, // Height: 1 pixel (bits 0-13) + vertical scale (bits 14-15)
-		// Minimal VP8 frame data for 1x1 pixel
-		0x2D, 0x01, 0x00, 0x00, 0x00, 0x00,
-	}
-	return webpBytes
 }

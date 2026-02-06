@@ -1,3 +1,7 @@
+1.45.0
+----------
+ * feat: Add product message handling and testing for catalog interactions to weniwebchat
+
 1.44.1
 ----------
  * fix: Update order details handling to make catalog_id optional

@@ -2,6 +2,10 @@
 ----------
  * feat: Add product message handling and testing for catalog interactions to weniwebchat
 
+1.44.2
+----------
+ * refactor: Refactor the metadata handling of WAC, IG, and FBA to support adding metadata to root and overwrite message fields
+
 1.44.1
 ----------
  * fix: Update order details handling to make catalog_id optional

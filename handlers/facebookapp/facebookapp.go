@@ -2794,7 +2794,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		isUnitaryProduct := true
 		var unitaryProduct string
 		for _, product := range products {
-			retailerIDs := toStringSlice(product["product_retailer_ids"])
+			retailerIDs := extractRetailerIDs(product)
 			if len(products) > 1 || len(retailerIDs) > 1 {
 				isUnitaryProduct = false
 			} else {
@@ -2869,7 +2869,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				totalProductsPerMsg := 0
 
 				for _, product := range products {
-					retailerIDs := toStringSlice(product["product_retailer_ids"])
+					retailerIDs := extractRetailerIDs(product)
 
 					title := product["product"].(string)
 					if title == "product_retailer_id" {
@@ -3830,6 +3830,29 @@ func toStringSlice(v interface{}) []string {
 		return result
 	}
 	return nil
+}
+
+// extractRetailerIDs extracts retailer IDs from product map, checking both product_retailer_info (new format) and product_retailer_ids (old format)
+func extractRetailerIDs(product map[string]interface{}) []string {
+	// First check for new format: product_retailer_info
+	if priData, ok := product["product_retailer_info"]; ok {
+		if priList, ok := priData.([]interface{}); ok {
+			var retailerIDs []string
+			for _, pri := range priList {
+				if priMap, ok := pri.(map[string]interface{}); ok {
+					if retailerID, ok := priMap["retailer_id"].(string); ok {
+						retailerIDs = append(retailerIDs, retailerID)
+					}
+				}
+			}
+			if len(retailerIDs) > 0 {
+				return retailerIDs
+			}
+		}
+	}
+
+	// Fallback to old format: product_retailer_ids
+	return toStringSlice(product["product_retailer_ids"])
 }
 
 var _ courier.ActionSender = (*handler)(nil)

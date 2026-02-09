@@ -91,25 +91,54 @@ func ResizeImage(img image.Image, maxSizeBytes int) (image.Image, error) {
 	return resized, nil
 }
 
+// normalizeToRGBA converts any image format to RGBA with 8 bits per channel
+// This ensures compatibility with WhatsApp Cloud API requirements
+func normalizeToRGBA(img image.Image) *image.RGBA {
+	bounds := img.Bounds()
+	rgba := image.NewRGBA(bounds)
+
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			c := img.At(x, y)
+			rgba.Set(x, y, c)
+		}
+	}
+
+	return rgba
+}
+
 // ConvertWebPToPNG converts a WebP image to PNG format
 // This is needed because some platforms (like Meta/Facebook) don't accept WebP images in templates
-// We use PNG as it's lossless, preserves image quality, and supports transparency
-// The resulting PNG will be resized if necessary to ensure it doesn't exceed the size limit
+// The resulting PNG will be in RGBA format with 8 bits per channel (WhatsApp requirement)
+// and will be resized if necessary to ensure it doesn't exceed the size limit
 func ConvertWebPToPNG(webpData []byte, maxSizeBytes int) ([]byte, error) {
 	img, err := webp.Decode(bytes.NewReader(webpData))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to decode WebP image")
 	}
 
+	// Normalize to RGBA format with 8 bits per channel (WhatsApp requirement)
+	// This ensures the image is in RGB/RGBA format regardless of the original WebP format
+	rgbaImg := normalizeToRGBA(img)
+
 	// Resize if necessary to stay under size limit
-	resizedImg, err := ResizeImage(img, maxSizeBytes)
+	resizedImg, err := ResizeImage(rgbaImg, maxSizeBytes)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to resize image")
 	}
 
+	// Ensure the resized image is also RGBA (ResizeImage may return the original if no resize needed)
+	var finalImg *image.RGBA
+	if resizedRGBA, ok := resizedImg.(*image.RGBA); ok {
+		finalImg = resizedRGBA
+	} else {
+		// If ResizeImage returned a different format, normalize again
+		finalImg = normalizeToRGBA(resizedImg)
+	}
+
 	var buf bytes.Buffer
 	encoder := &png.Encoder{CompressionLevel: png.BestCompression}
-	err = encoder.Encode(&buf, resizedImg)
+	err = encoder.Encode(&buf, finalImg)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to encode PNG image")
 	}

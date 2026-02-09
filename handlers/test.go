@@ -258,8 +258,24 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 					require.Zero(testCase.ResponseStatus, "ResponseStatus should not be used when using testcase.Responses")
 					require.Zero(testCase.ResponseBody, "ResponseBody should not be used when using testcase.Responses")
 					for mockRequest, mockResponse := range testCase.Responses {
-						bodyStr := string(body)[:]
-						if mockRequest.Method == r.Method && mockRequest.Path == r.URL.Path && mockRequest.RawQuery == r.URL.RawQuery && (mockRequest.Body == bodyStr || (mockRequest.BodyContains != "" && strings.Contains(bodyStr, mockRequest.BodyContains))) {
+						bodyStr := string(body)
+						// Check method and path match
+						methodPathMatch := mockRequest.Method == r.Method && mockRequest.Path == r.URL.Path && mockRequest.RawQuery == r.URL.RawQuery
+						if !methodPathMatch {
+							continue
+						}
+						// For GET requests, no body comparison needed
+						if r.Method == "GET" {
+							w.WriteHeader(mockResponse.Status)
+							w.Write([]byte(mockResponse.Body))
+							mockRRCount++
+							break
+						}
+						// For POST/PUT/DELETE, check body match
+						bodyMatch := mockRequest.Body == bodyStr ||
+							(mockRequest.BodyContains != "" && strings.Contains(bodyStr, mockRequest.BodyContains)) ||
+							(mockRequest.Body == "" && mockRequest.BodyContains == "" && bodyStr == "")
+						if bodyMatch {
 							w.WriteHeader(mockResponse.Status)
 							w.Write([]byte(mockResponse.Body))
 							mockRRCount++

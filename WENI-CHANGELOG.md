@@ -1,3 +1,7 @@
+1.46.0
+----------
+ * feat: Convert webp images to png for template messages
+
 1.45.0
 ----------
  * feat: Add product message handling and testing for catalog interactions to weniwebchat

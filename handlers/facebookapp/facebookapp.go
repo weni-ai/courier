@@ -2357,7 +2357,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				attFormat = splitedAttType[1]
 			}
 
-			mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
+			mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, false)
 			for _, log := range mediaLogs {
 				status.AddLog(log)
 			}
@@ -2422,7 +2422,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					if len(msg.Attachments()) > 0 {
 						attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
 						fileURL := attURL
-						mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
+						mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, false)
 						for _, log := range mediaLogs {
 							status.AddLog(log)
 						}
@@ -3379,7 +3379,7 @@ func (h *handler) buildHeaderComponent(msg courier.Msg, accessToken string, stat
 	attType, attURL := handlers.SplitAttachment(msg.Attachments()[0])
 	fileURL := attURL
 
-	mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
+	mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, true)
 	for _, log := range mediaLogs {
 		status.AddLog(log)
 	}
@@ -3462,7 +3462,7 @@ func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplat
 		headerComponent := &wacComponent{Type: "header"}
 		attType, attURL := handlers.SplitAttachment(msg.Attachments()[cardIdx])
 
-		mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken)
+		mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, true)
 		for _, log := range mediaLogs {
 			status.AddLog(log)
 		}
@@ -3707,7 +3707,35 @@ var languageMenuMap = map[string]string{
 	"ar-JO": "قائمة",
 }
 
-func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, accessToken string) (string, []*courier.ChannelLog, error) {
+// convertWebPIfNeeded converts WebP images to PNG for WhatsApp template uploads
+// Returns the converted image data, new mime type, and new file extension if conversion occurred
+// Only converts for WhatsApp channels (WAC/WCD) and only for templates
+func convertWebPIfNeeded(data []byte, mimeType string, isTemplate bool, channelType courier.ChannelType) ([]byte, string, string, error) {
+	// Only convert for WhatsApp channels (WAC or WCD)
+	if channelType != "WAC" && channelType != "WCD" {
+		return data, mimeType, "", nil
+	}
+
+	// Only convert for templates
+	if !isTemplate {
+		return data, mimeType, "", nil
+	}
+
+	// Check if the image is actually WebP (regardless of mime type or extension)
+	if !handlers.IsWebPImage(data) {
+		return data, mimeType, "", nil
+	}
+
+	// Convert WebP to PNG (lossless format, better quality preservation)
+	convertedData, err := handlers.ConvertWebPToPNG(data, handlers.MaxImageSizeBytes)
+	if err != nil {
+		return nil, "", "", errors.Wrapf(err, "failed to convert WebP image to PNG")
+	}
+
+	return convertedData, "image/png", ".png", nil
+}
+
+func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, accessToken string, isTemplate bool) (string, []*courier.ChannelLog, error) {
 	var logs []*courier.ChannelLog
 
 	rc := h.Backend().RedisPool().Get()
@@ -3741,11 +3769,31 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 		return "", logs, nil
 	}
 
+	// Convert WebP to PNG if needed (only for WhatsApp templates)
+	convertedData, convertedMimeType, fileExt, err := convertWebPIfNeeded(rr.Body, mimeType, isTemplate, msg.Channel().ChannelType())
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "error converting WebP image")
+	}
+
+	// Update mime type and file URL if conversion occurred
+	finalMimeType := mimeType
+	finalMediaURL := mediaURL
+	if fileExt != "" {
+		finalMimeType = convertedMimeType
+		// Update file extension in URL for proper file naming
+		if strings.HasSuffix(mediaURL, ".webp") {
+			finalMediaURL = strings.TrimSuffix(mediaURL, ".webp") + fileExt
+		} else {
+			// If extension doesn't match, add the new extension
+			finalMediaURL = mediaURL + fileExt
+		}
+	}
+
 	// upload media to WhatsAppCloud
 	base, _ := url.Parse(graphURL)
 	path, _ := url.Parse(fmt.Sprintf("/%s/media", msg.Channel().Address()))
 	wacPhoneURLMedia := base.ResolveReference(path)
-	mediaID, logs, err = requestWACMediaUpload(rr.Body, mediaURL, wacPhoneURLMedia.String(), mimeType, msg, accessToken)
+	mediaID, logs, err = requestWACMediaUpload(convertedData, finalMediaURL, wacPhoneURLMedia.String(), finalMimeType, msg, accessToken)
 	if err != nil {
 		return "", logs, err
 	}

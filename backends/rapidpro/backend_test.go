@@ -27,6 +27,13 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 const storageDir = "_test_storage"
 
 type BackendTestSuite struct {
@@ -36,8 +43,8 @@ type BackendTestSuite struct {
 
 func testConfig() *courier.Config {
 	config := courier.NewConfig()
-	config.DB = "postgres://courier:courier@localhost:5432/courier_test?sslmode=disable"
-	config.Redis = "redis://localhost:6379/0"
+	config.DB = "postgres://courier:courier@" + envOr("POSTGRES_HOST", "localhost") + ":5432/courier_test?sslmode=disable"
+	config.Redis = "redis://" + envOr("REDIS_HOST", "localhost") + ":6379/0"
 	return config
 }
 
@@ -345,7 +352,7 @@ func (ts *BackendTestSuite) TestCheckMsgExists() {
 
 func (ts *BackendTestSuite) TestContactForURN() {
 
-	db := sqlx.MustConnect("postgres", "postgres://courier:courier@localhost:5432/courier_test?sslmode=disable")
+	db := sqlx.MustConnect("postgres", "postgres://courier:courier@"+envOr("POSTGRES_HOST", "localhost")+":5432/courier_test?sslmode=disable")
 	db.MustExec(`
 	INSERT INTO public.channels_channel
 (is_active, created_on, modified_on, "uuid", channel_type, "name", schemes, address, country, config, "role", org_id)

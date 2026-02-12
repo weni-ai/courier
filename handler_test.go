@@ -42,7 +42,7 @@ func (h *dummyHandler) GetChannel(ctx context.Context, r *http.Request) (Channel
 func (h *dummyHandler) Initialize(s Server) error {
 	// initialize billing
 	billingClient, err := billing.NewRMQBillingResilientClient(
-		"amqp://localhost:5672/",
+		"amqp://"+envOr("RABBITMQ_HOST", "localhost")+":5672/",
 		3,
 		100,
 		s.Config().BillingExchangeName,
@@ -54,7 +54,7 @@ func (h *dummyHandler) Initialize(s Server) error {
 
 	// initialize templates
 	templatesClient, err := templates.NewRMQTemplateClient(
-		"amqp://localhost:5672/",
+		"amqp://"+envOr("RABBITMQ_HOST", "localhost")+":5672/",
 		3,
 		100,
 		s.Config().TemplatesExchangeName,
@@ -93,8 +93,8 @@ func (h *dummyHandler) receiveMsg(ctx context.Context, channel Channel, w http.R
 
 func testConfig() *Config {
 	config := NewConfig()
-	config.DB = "postgres://courier:courier@localhost:5432/courier_test?sslmode=disable"
-	config.Redis = "redis://localhost:6379/0"
+	config.DB = "postgres://courier:courier@" + envOr("POSTGRES_HOST", "localhost") + ":5432/courier_test?sslmode=disable"
+	config.Redis = "redis://" + envOr("REDIS_HOST", "localhost") + ":6379/0"
 	return config
 }
 

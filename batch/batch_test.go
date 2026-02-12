@@ -2,6 +2,7 @@ package batch
 
 import (
 	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -10,6 +11,13 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 )
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
 
 type Label struct {
 	ID    int    `db:"id"`
@@ -24,7 +32,7 @@ func (l *Label) RowID() string {
 }
 
 func TestBatchInsert(t *testing.T) {
-	db := sqlx.MustConnect("postgres", "postgres://courier:courier@localhost:5432/courier_test?sslmode=disable")
+	db := sqlx.MustConnect("postgres", "postgres://courier:courier@"+envOr("POSTGRES_HOST", "localhost")+":5432/courier_test?sslmode=disable")
 	db.MustExec("DROP TABLE IF EXISTS labels;")
 	db.MustExec("CREATE TABLE labels(id serial primary key, label text not null unique);")
 
@@ -60,7 +68,7 @@ func TestBatchInsert(t *testing.T) {
 }
 
 func TestBatchUpdate(t *testing.T) {
-	db := sqlx.MustConnect("postgres", "postgres://courier:courier@localhost:5432/courier_test?sslmode=disable")
+	db := sqlx.MustConnect("postgres", "postgres://courier:courier@"+envOr("POSTGRES_HOST", "localhost")+":5432/courier_test?sslmode=disable")
 	db.MustExec("DROP TABLE IF EXISTS labels;")
 	db.MustExec("CREATE TABLE labels(id serial primary key, label text not null unique);")
 	db.MustExec("INSERT INTO labels(label) VALUES('label1'), ('label2'), ('label3');")

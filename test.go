@@ -20,6 +20,14 @@ import (
 	_ "github.com/lib/pq" // postgres driver
 )
 
+// envOr returns the value of the environment variable key, or fallback if not set.
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 //-----------------------------------------------------------------------------
 // Mock backend implementation
 //-----------------------------------------------------------------------------
@@ -54,7 +62,7 @@ func NewMockBackend() *MockBackend {
 		MaxIdle:     2,                 // only keep up to 2 idle
 		IdleTimeout: 240 * time.Second, // how long to wait before reaping a connection
 		Dial: func() (redis.Conn, error) {
-			conn, err := redis.Dial("tcp", "localhost:6379")
+			conn, err := redis.Dial("tcp", envOr("REDIS_HOST", "localhost")+":6379")
 			if err != nil {
 				return nil, err
 			}

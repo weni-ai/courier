@@ -27,8 +27,6 @@ jobs:
           POSTGRES_DB: courier_test
           POSTGRES_USER: courier
           POSTGRES_PASSWORD: courier
-        ports:
-          - 5432:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -36,14 +34,16 @@ jobs:
           --health-retries 5
       rabbitmq:
         image: rabbitmq:3.9-alpine
-        ports:
-          - 5672:5672
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v1
+      uses: actions/checkout@v4
 
     - name: Run tests
+      env:
+        POSTGRES_HOST: postgres
+        REDIS_HOST: redis
+        RABBITMQ_HOST: rabbitmq
       run: go test -p=1 -coverprofile=coverage.text -covermode=atomic ./...
 
     - name: Upload coverage

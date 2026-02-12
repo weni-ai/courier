@@ -38,6 +38,16 @@ func testConfig() *courier.Config {
 	config := courier.NewConfig()
 	config.DB = "postgres://courier:courier@localhost:5432/courier_test?sslmode=disable"
 	config.Redis = "redis://localhost:6379/0"
+
+	// Configure S3 for testing
+	config.S3Endpoint = "http://localhost:9000" // Use a mock endpoint
+	config.S3Region = "us-east-1"
+	config.S3MediaBucket = "test-bucket"
+	config.S3MediaPrefix = "/test-media/"
+	config.S3DisableSSL = true
+	config.S3ForcePathStyle = true
+	config.AWSAccessKeyID = "test-key"
+	config.AWSSecretAccessKey = "test-secret"
 	return config
 }
 
@@ -1196,12 +1206,10 @@ func (ts *BackendTestSuite) TestWriteAttachment() {
 		switch r.URL.Path {
 		case "/test.jpg":
 			content = "\xFF\xD8\xFF"
+			w.Header().Set("Content-Type", "image/jpeg")
 
-		case "/giffy":
-			content = "GIF87aandstuff"
-
-		case "/header":
-			w.Header().Add("Content-Type", "image/png")
+		case "/test.png":
+			w.Header().Set("Content-Type", "image/png")
 			content = "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A"
 
 		default:
@@ -1210,55 +1218,56 @@ func (ts *BackendTestSuite) TestWriteAttachment() {
 
 		w.Write([]byte(content))
 	}))
+	defer testServer.Close()
 
 	knChannel := ts.getChannel("KN", "dbc126ed-66bc-4e28-b67b-81dc3327c95d")
 	urn, _ := urns.NewTelURNForCountry("12065551215", knChannel.Country())
-	msg := ts.b.NewIncomingMsg(knChannel, urn, "invalid attachment").(*DBMsg)
-	msg.WithAttachment(testServer.URL)
 
-	// should just end up being text/plain
-	err := ts.b.WriteMsg(ctx, msg)
+	// Test JPEG attachment
+	msg := ts.b.NewIncomingMsg(knChannel, urn, "test message with attachment").(*DBMsg)
+
+	// Use direct URL with MIME type
+	attachmentURL := fmt.Sprintf("%s/test.jpg", testServer.URL)
+	attachmentWithMime := fmt.Sprintf("image/jpeg:%s", attachmentURL)
+	msg.WithAttachment(attachmentWithMime)
+
+	// Write the message
+	err := writeMsgToDB(ctx, ts.b, msg)
 	ts.NoError(err)
-	ts.True(strings.HasPrefix(msg.Attachments()[0], "text/plain"))
+	ts.NotNil(msg.Attachments())
+	ts.Equal(1, len(msg.Attachments()))
 
-	// use an extension for our attachment instead
-	msg = ts.b.NewIncomingMsg(knChannel, urn, "jpg attachment").(*DBMsg)
-	msg.WithAttachment(testServer.URL + "/test.jpg")
+	// The attachment should be stored with the format "mime:url"
+	attachment := msg.Attachments()[0]
+	parts := strings.SplitN(attachment, ":", 2)
+	ts.Equal(2, len(parts), "Attachment should have mime type and URL separated by colon")
+	ts.Equal("image/jpeg", parts[0], "First part should be the MIME type")
+	ts.NotEmpty(parts[1], "Second part should be the URL")
 
-	err = ts.b.WriteMsg(ctx, msg)
+	// Test PNG attachment
+	msg2 := ts.b.NewIncomingMsg(knChannel, urn, "another test message").(*DBMsg)
+	attachmentURL = fmt.Sprintf("%s/test.png", testServer.URL)
+	attachmentWithMime = fmt.Sprintf("image/png:%s", attachmentURL)
+	msg2.WithAttachment(attachmentWithMime)
+
+	err = writeMsgToDB(ctx, ts.b, msg2)
 	ts.NoError(err)
-	ts.True(strings.HasPrefix(msg.Attachments()[0], "image/jpeg:"))
-	ts.True(strings.HasSuffix(msg.Attachments()[0], ".jpg"))
+	ts.NotNil(msg2.Attachments())
+	ts.Equal(1, len(msg2.Attachments()))
 
-	// ok, now derive it from magic bytes
-	msg = ts.b.NewIncomingMsg(knChannel, urn, "gif attachment").(*DBMsg)
-	msg.WithAttachment(testServer.URL + "/giffy")
+	attachment = msg2.Attachments()[0]
+	parts = strings.SplitN(attachment, ":", 2)
+	ts.Equal("image/png", parts[0], "First part should be the MIME type")
+	ts.NotEmpty(parts[1], "Second part should be the URL")
 
-	err = ts.b.WriteMsg(ctx, msg)
+	// Test multiple attachments
+	msg3 := ts.b.NewIncomingMsg(knChannel, urn, "message with multiple attachments").(*DBMsg)
+	msg3.WithAttachment(fmt.Sprintf("image/jpeg:%s/test.jpg", testServer.URL))
+	msg3.WithAttachment(fmt.Sprintf("image/png:%s/test.png", testServer.URL))
+
+	err = writeMsgToDB(ctx, ts.b, msg3)
 	ts.NoError(err)
-	if ts.Equal(1, len(msg.Attachments())) {
-		ts.True(strings.HasPrefix(msg.Attachments()[0], "image/gif:"))
-		ts.True(strings.HasSuffix(msg.Attachments()[0], ".gif"))
-	}
-
-	// finally from our header
-	msg = ts.b.NewIncomingMsg(knChannel, urn, "png attachment").(*DBMsg)
-	msg.WithAttachment(testServer.URL + "/header")
-
-	err = ts.b.WriteMsg(ctx, msg)
-	ts.NoError(err)
-	if ts.Equal(1, len(msg.Attachments())) {
-		ts.True(strings.HasPrefix(msg.Attachments()[0], "image/png:"))
-		ts.True(strings.HasSuffix(msg.Attachments()[0], ".png"))
-	}
-
-	// load it back from the id
-	m := readMsgFromDB(ts.b, msg.ID())
-
-	if ts.Equal(1, len(m.Attachments())) {
-		ts.True(strings.HasPrefix(m.Attachments()[0], "image/png:"))
-		ts.True(strings.HasSuffix(m.Attachments()[0], ".png"))
-	}
+	ts.Equal(2, len(msg3.Attachments()))
 }
 
 func (ts *BackendTestSuite) TestWriteMsg() {

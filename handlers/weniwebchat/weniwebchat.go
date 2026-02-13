@@ -65,8 +65,7 @@ type miProductItem struct {
 	ProductRetailerID string `json:"product_retailer_id"`
 	Name              string `json:"name"`
 	Price             string `json:"price"`
-	Image             string `json:"image"`
-	Description       string `json:"description"`
+	Currency          string `json:"currency"`
 	SellerID          string `json:"seller_id"`
 	Quantity          int    `json:"quantity"`
 }
@@ -202,6 +201,7 @@ type wwcProductItem struct {
 	Name              string `json:"name"`
 	Price             string `json:"price"`
 	SalePrice         string `json:"sale_price,omitempty"`
+	Currency          string `json:"currency"`
 	Image             string `json:"image"`
 	Description       string `json:"description"`
 	SellerID          string `json:"seller_id"`
@@ -524,6 +524,9 @@ func extractProductSections(products []map[string]interface{}) []wwcSection {
 						}
 						if salePrice, ok := priMap["sale_price"].(string); ok {
 							item.SalePrice = salePrice
+						}
+						if currency, ok := priMap["currency"].(string); ok {
+							item.Currency = currency
 						}
 						if image, ok := priMap["image"].(string); ok {
 							item.Image = image

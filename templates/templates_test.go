@@ -3,6 +3,7 @@ package templates
 import (
 	"encoding/json"
 	"log"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +12,13 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
 )
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
 
 const (
 	templatesTestExchangeName = "test-templates-exchange"
@@ -56,7 +64,7 @@ func initializeRMQ(ch *amqp.Channel) {
 }
 
 func TestInitialization(t *testing.T) {
-	connURL := "amqp://localhost:5672/"
+	connURL := "amqp://" + envOr("RABBITMQ_HOST", "localhost") + ":5672/"
 	conn, err := amqp.Dial(connURL)
 	if err != nil {
 		log.Fatal(err)
@@ -75,7 +83,7 @@ func TestInitialization(t *testing.T) {
 }
 
 func TestTemplateResilientClient(t *testing.T) {
-	connURL := "amqp://localhost:5672/"
+	connURL := "amqp://" + envOr("RABBITMQ_HOST", "localhost") + ":5672/"
 	conn, err := amqp.Dial(connURL)
 	assert.NoError(t, err)
 	ch, err := conn.Channel()
@@ -149,7 +157,7 @@ func TestTemplateResilientClient(t *testing.T) {
 }
 
 func TestTemplateResilientClientSendStatus(t *testing.T) {
-	connURL := "amqp://localhost:5672/"
+	connURL := "amqp://" + envOr("RABBITMQ_HOST", "localhost") + ":5672/"
 	conn, err := amqp.Dial(connURL)
 	assert.NoError(t, err)
 	ch, err := conn.Channel()
@@ -212,7 +220,7 @@ func TestTemplateResilientClientSendStatus(t *testing.T) {
 }
 
 func TestTemplateResilientClientSendAsync(t *testing.T) {
-	connURL := "amqp://localhost:5672/"
+	connURL := "amqp://" + envOr("RABBITMQ_HOST", "localhost") + ":5672/"
 	conn, err := amqp.Dial(connURL)
 	assert.NoError(t, err)
 	ch, err := conn.Channel()
@@ -293,7 +301,7 @@ func TestTemplateResilientClientSendAsync(t *testing.T) {
 }
 
 func TestTemplateResilientClientSendAsyncWithPanic(t *testing.T) {
-	connURL := "amqp://localhost:5672/"
+	connURL := "amqp://" + envOr("RABBITMQ_HOST", "localhost") + ":5672/"
 	conn, err := amqp.Dial(connURL)
 	assert.NoError(t, err)
 	ch, err := conn.Channel()

@@ -3,6 +3,7 @@ package billing
 import (
 	"encoding/json"
 	"log"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +13,13 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
 )
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
 
 const (
 	billingTestExchangeName = "test-exchange"
@@ -57,7 +65,7 @@ func initalizeRMQ(ch *amqp.Channel) {
 }
 
 func TestInitialization(t *testing.T) {
-	connURL := "amqp://localhost:5672/"
+	connURL := "amqp://" + envOr("RABBITMQ_HOST", "localhost") + ":5672/"
 	conn, err := amqp.Dial(connURL)
 	if err != nil {
 		log.Fatal(err)
@@ -76,7 +84,7 @@ func TestInitialization(t *testing.T) {
 }
 
 func TestBillingResilientClient(t *testing.T) {
-	connURL := "amqp://localhost:5672/"
+	connURL := "amqp://" + envOr("RABBITMQ_HOST", "localhost") + ":5672/"
 	conn, err := amqp.Dial(connURL)
 	assert.NoError(t, err)
 	ch, err := conn.Channel()
@@ -147,7 +155,7 @@ func TestBillingResilientClient(t *testing.T) {
 }
 
 func TestBillingResilientClientSendAsync(t *testing.T) {
-	connURL := "amqp://localhost:5672/"
+	connURL := "amqp://" + envOr("RABBITMQ_HOST", "localhost") + ":5672/"
 	conn, err := amqp.Dial(connURL)
 	assert.NoError(t, err)
 	ch, err := conn.Channel()
@@ -370,7 +378,7 @@ func TestMultiBillingClientEmpty(t *testing.T) {
 }
 
 func TestBillingResilientClientSendAsyncWithPanic(t *testing.T) {
-	connURL := "amqp://localhost:5672/"
+	connURL := "amqp://" + envOr("RABBITMQ_HOST", "localhost") + ":5672/"
 	conn, err := amqp.Dial(connURL)
 	assert.NoError(t, err)
 	ch, err := conn.Channel()

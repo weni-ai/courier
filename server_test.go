@@ -23,7 +23,7 @@ func TestServer(t *testing.T) {
 	defer server.Stop()
 
 	billingClient, err := billing.NewRMQBillingResilientClient(
-		"amqp://localhost:5672/",
+		"amqp://"+envOr("RABBITMQ_HOST", "localhost")+":5672/",
 		config.RabbitmqRetryPubAttempts,
 		config.RabbitmqRetryPubDelay,
 		config.BillingExchangeName,
@@ -34,7 +34,7 @@ func TestServer(t *testing.T) {
 	server.SetBilling(billingClient)
 
 	templatesClient, err := templates.NewRMQTemplateClient(
-		"amqp://localhost:5672/",
+		"amqp://"+envOr("RABBITMQ_HOST", "localhost")+":5672/",
 		config.RabbitmqRetryPubAttempts,
 		config.RabbitmqRetryPubDelay,
 		config.TemplatesExchangeName,

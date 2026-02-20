@@ -230,7 +230,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		return err
 	}
 
-	// addInteractiveElements adds quick replies, list message, and CTA to the payload
+	// addInteractiveElements adds quick replies, list message, CTA and products to the payload
 	addInteractiveElements := func() {
 		payload.Message.QuickReplies = normalizeQuickReplies(msg.QuickReplies())
 		if len(msg.ListMessage().ListItems) > 0 {
@@ -240,35 +240,31 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		if msg.CTAMessage() != nil {
 			payload.Message.CTAMessage = msg.CTAMessage()
 		}
-	}
 
-	hasProducts := len(msg.Products()) > 0
-	lenAttachments := len(msg.Attachments())
-
-	if hasProducts {
-		interactives := buildProductInteractives(msg)
-		if len(interactives) > 0 {
-			msgText := strings.TrimSpace(msg.Text())
-			if msgText == "" {
-				msgText = strings.TrimSpace(msg.Body())
-			}
-
-			for _, interactive := range interactives {
-				payload.Message = moMessage{
-					Type:      "interactive",
-					TimeStamp: getTimestamp(),
-					Text:      msgText,
+		hasProducts := len(msg.Products()) > 0
+		if hasProducts {
+			interactives := buildProductInteractives(msg)
+			if len(interactives) > 0 {
+				msgText := strings.TrimSpace(msg.Text())
+				if msgText == "" {
+					msgText = strings.TrimSpace(msg.Body())
 				}
-				payload.Message.Interactive = interactive
-				addInteractiveElements()
 
-				if err := sendPayload(); err != nil {
-					status.SetStatus(courier.MsgFailed)
-					break
+				for _, interactive := range interactives {
+					payload.Message = moMessage{
+						Type:      "interactive",
+						TimeStamp: getTimestamp(),
+						Text:      msgText,
+					}
+					payload.Message.Interactive = interactive
 				}
 			}
 		}
-	} else if lenAttachments > 0 {
+	}
+
+	lenAttachments := len(msg.Attachments())
+
+	if lenAttachments > 0 {
 		for i, attachment := range msg.Attachments() {
 			mimeType, attachmentURL := handlers.SplitAttachment(attachment)
 

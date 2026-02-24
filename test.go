@@ -1039,6 +1039,55 @@ func (m *mockMsg) OrderDetailsMessage() *OrderDetailsMessage {
 	return nil
 }
 
+func (m *mockMsg) Carousel() *Carousel {
+	if m.metadata == nil {
+		return nil
+	}
+
+	var metadata map[string]interface{}
+	err := json.Unmarshal(m.metadata, &metadata)
+	if err != nil {
+		return nil
+	}
+
+	interactionType, _ := metadata["interaction_type"].(string)
+	if interactionType != "carousel" {
+		return nil
+	}
+
+	cardsData, ok := metadata["carousel"].([]interface{})
+	if !ok || len(cardsData) == 0 {
+		return nil
+	}
+
+	carousel := &Carousel{Cards: make([]CarouselCard, len(cardsData))}
+	for i, cardData := range cardsData {
+		if cardMap, ok := cardData.(map[string]interface{}); ok {
+			if body, ok := cardMap["body"].(string); ok {
+				carousel.Cards[i].Body = body
+			}
+			if buttonsData, ok := cardMap["buttons"].([]interface{}); ok {
+				carousel.Cards[i].Buttons = make([]CarouselCardButton, len(buttonsData))
+				for j, btnData := range buttonsData {
+					if btnMap, ok := btnData.(map[string]interface{}); ok {
+						btn := CarouselCardButton{}
+						if subType, ok := btnMap["sub_type"].(string); ok {
+							btn.SubType = subType
+						}
+						if paramsMap, ok := btnMap["parameters"].(map[string]interface{}); ok {
+							btn.Parameters = paramsMap
+						} else if param, ok := btnMap["parameter"].(string); ok {
+							btn.Parameters = map[string]interface{}{"id": param, "title": param}
+						}
+						carousel.Cards[i].Buttons[j] = btn
+					}
+				}
+			}
+		}
+	}
+	return carousel
+}
+
 func (m *mockMsg) Buttons() []ButtonComponent {
 	if m.metadata == nil {
 		return nil

@@ -1493,9 +1493,10 @@ type mtAttachment struct {
 }
 
 type mtQuickReply struct {
-	Title       string `json:"title"`
-	Payload     string `json:"payload"`
-	ContentType string `json:"content_type"`
+	ID          string `json:"id,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Payload     string `json:"payload,omitempty"`
+	ContentType string `json:"content_type,omitempty"`
 }
 
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
@@ -1746,7 +1747,7 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 		// include any quick replies on the last piece we send
 		if i == (len(msgParts)+len(msg.Attachments()))-1 {
 			for _, qr := range msg.QuickReplies() {
-				payload.Message.QuickReplies = append(payload.Message.QuickReplies, mtQuickReply{qr, qr, "text"})
+				payload.Message.QuickReplies = append(payload.Message.QuickReplies, mtQuickReply{"", qr, qr, "text"})
 			}
 		} else {
 			payload.Message.QuickReplies = nil
@@ -1849,11 +1850,9 @@ type wacMTSectionRow struct {
 }
 
 type wacMTButton struct {
-	Type  string `json:"type" validate:"required"`
-	Reply struct {
-		ID    string `json:"id" validate:"required"`
-		Title string `json:"title" validate:"required"`
-	} `json:"reply" validate:"required"`
+	Type       string        `json:"type" validate:"required"`
+	Reply      *mtQuickReply `json:"reply,omitempty"`       // standard field used for messages with quick replies in the list message
+	QuickReply *mtQuickReply `json:"quick_reply,omitempty"` // standard field used for messages with quick replies in the carousel
 }
 
 type wacMTAction struct {
@@ -1873,15 +1872,18 @@ type wacParam struct {
 }
 
 type wacComponent struct {
-	Type    string             `json:"type"`
-	SubType string             `json:"sub_type,omitempty"`
-	Index   *int               `json:"index,omitempty"`
-	Params  []*wacParam        `json:"parameters,omitempty"`
-	Cards   []*wacCarouselCard `json:"cards,omitempty"`
+	Type    string                     `json:"type"`
+	SubType string                     `json:"sub_type,omitempty"`
+	Index   *int                       `json:"index,omitempty"`
+	Params  []*wacParam                `json:"parameters,omitempty"`
+	Cards   []*wacCarouselCardTemplate `json:"cards,omitempty"`
 }
 
-// wacCarouselCard represents a card in a carousel template
-type wacCarouselCard struct {
+// wacCarouselCard is a type alias for interactive carousel cards (used in action.cards)
+type wacCarouselCard = wacInteractive[map[string]any]
+
+// wacCarouselCardTemplate represents a card in a carousel template
+type wacCarouselCardTemplate struct {
 	CardIndex  int             `json:"card_index"`
 	Components []*wacComponent `json:"components"`
 }
@@ -1907,8 +1909,9 @@ type wacInteractiveActionParams interface {
 }
 
 type wacInteractive[P wacInteractiveActionParams] struct {
-	Type   string `json:"type"`
-	Header *struct {
+	CardIndex *int   `json:"card_index,omitempty"`
+	Type      string `json:"type"`
+	Header    *struct {
 		Type     string      `json:"type"`
 		Text     string      `json:"text,omitempty"`
 		Video    *wacMTMedia `json:"video,omitempty"`
@@ -1922,13 +1925,14 @@ type wacInteractive[P wacInteractiveActionParams] struct {
 		Text string `json:"text,omitempty"`
 	} `json:"footer,omitempty"`
 	Action *struct {
-		Button            string         `json:"button,omitempty"`
-		Sections          []wacMTSection `json:"sections,omitempty"`
-		Buttons           []wacMTButton  `json:"buttons,omitempty"`
-		CatalogID         string         `json:"catalog_id,omitempty"`
-		ProductRetailerID string         `json:"product_retailer_id,omitempty"`
-		Name              string         `json:"name,omitempty"`
-		Parameters        P              `json:"parameters,omitempty"`
+		Button            string              `json:"button,omitempty"`
+		Sections          []wacMTSection      `json:"sections,omitempty"`
+		Buttons           []wacMTButton       `json:"buttons,omitempty"`
+		CatalogID         string              `json:"catalog_id,omitempty"`
+		ProductRetailerID string              `json:"product_retailer_id,omitempty"`
+		Name              string              `json:"name,omitempty"`
+		Parameters        P                   `json:"parameters,omitempty"`
+		Cards             []wacInteractive[P] `json:"cards,omitempty"`
 	} `json:"action,omitempty"`
 }
 
@@ -2140,10 +2144,6 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 							btns := make([]wacMTButton, len(qrs))
 							for i, qr := range qrs {
-								btns[i] = wacMTButton{
-									Type: "reply",
-								}
-								btns[i].Reply.ID = fmt.Sprint(i)
 								var text string
 								if strings.Contains(qr, "\\/") {
 									text = strings.Replace(qr, "\\", "", -1)
@@ -2152,7 +2152,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								} else {
 									text = qr
 								}
-								btns[i].Reply.Title = text
+								btns[i] = wacMTButton{
+									Type:  "reply",
+									Reply: &mtQuickReply{ID: fmt.Sprint(i), Title: text},
+								}
 							}
 							interactive.Action = &struct {
 								Button            string                 "json:\"button,omitempty\""
@@ -2162,6 +2165,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
 								Name              string                 "json:\"name,omitempty\""
 								Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+								Cards             []wacCarouselCard      "json:\"cards,omitempty\""
 							}{Buttons: btns}
 							payload.Interactive = &interactive
 						} else if len(qrs) <= 10 || len(msg.ListMessage().ListItems) > 0 {
@@ -2223,6 +2227,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
 								Name              string                 "json:\"name,omitempty\""
 								Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+								Cards             []wacCarouselCard      "json:\"cards,omitempty\""
 							}{Button: "Menu", Sections: []wacMTSection{
 								section,
 							}}
@@ -2252,6 +2257,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
 								Name              string                 "json:\"name,omitempty\""
 								Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+								Cards             []wacCarouselCard      "json:\"cards,omitempty\""
 							}{Name: "send_location"},
 						}
 
@@ -2272,6 +2278,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 									ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
 									Name              string                 "json:\"name,omitempty\""
 									Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+									Cards             []wacCarouselCard      "json:\"cards,omitempty\""
 								}{
 									Name: "cta_url",
 									Parameters: map[string]interface{}{
@@ -2313,6 +2320,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 									ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
 									Name              string                 "json:\"name,omitempty\""
 									Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+									Cards             []wacCarouselCard      "json:\"cards,omitempty\""
 								}{
 									Name: "flow",
 									Parameters: map[string]interface{}{
@@ -2365,13 +2373,14 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 									Text string "json:\"text\""
 								}{Text: msgParts[i-len(msg.Attachments())]},
 								Action: &struct {
-									Button            string          "json:\"button,omitempty\""
-									Sections          []wacMTSection  "json:\"sections,omitempty\""
-									Buttons           []wacMTButton   "json:\"buttons,omitempty\""
-									CatalogID         string          "json:\"catalog_id,omitempty\""
-									ProductRetailerID string          "json:\"product_retailer_id,omitempty\""
-									Name              string          "json:\"name,omitempty\""
-									Parameters        wacOrderDetails "json:\"parameters,omitempty\""
+									Button            string                            "json:\"button,omitempty\""
+									Sections          []wacMTSection                    "json:\"sections,omitempty\""
+									Buttons           []wacMTButton                     "json:\"buttons,omitempty\""
+									CatalogID         string                            "json:\"catalog_id,omitempty\""
+									ProductRetailerID string                            "json:\"product_retailer_id,omitempty\""
+									Name              string                            "json:\"name,omitempty\""
+									Parameters        wacOrderDetails                   "json:\"parameters,omitempty\""
+									Cards             []wacInteractive[wacOrderDetails] "json:\"cards,omitempty\""
 								}{
 									Name:       "review_and_pay",
 									Parameters: *mountedOrderDetails,
@@ -2398,7 +2407,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				}
 			}
 
-		} else if (i < len(msg.Attachments()) && len(qrs) == 0 && len(msg.ListMessage().ListItems) == 0 && msg.InteractionType() != "order_details") ||
+		} else if (i < len(msg.Attachments()) && len(qrs) == 0 && len(msg.ListMessage().ListItems) == 0 && msg.InteractionType() != "order_details") && msg.InteractionType() != "carousel" ||
 			len(qrs) > 3 && i < len(msg.Attachments()) ||
 			len(msg.ListMessage().ListItems) > 0 && i < len(msg.Attachments()) {
 			attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
@@ -2538,12 +2547,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 					btns := make([]wacMTButton, len(qrs))
 					for i, qr := range qrs {
-						btns[i] = wacMTButton{
-							Type: "reply",
-						}
-						btns[i].Reply.ID = fmt.Sprint(i)
 						text := parseBacklashes(qr)
-						btns[i].Reply.Title = text
+						btns[i] = wacMTButton{
+							Type:  "reply",
+							Reply: &mtQuickReply{ID: fmt.Sprint(i), Title: text},
+						}
 					}
 					interactive.Action = &struct {
 						Button            string                 "json:\"button,omitempty\""
@@ -2553,6 +2561,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
 						Name              string                 "json:\"name,omitempty\""
 						Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+						Cards             []wacCarouselCard      "json:\"cards,omitempty\""
 					}{Buttons: btns}
 					payload.Interactive = &interactive
 					if msg.Footer() != "" {
@@ -2609,6 +2618,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
 						Name              string                 "json:\"name,omitempty\""
 						Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+						Cards             []wacCarouselCard      "json:\"cards,omitempty\""
 					}{Button: "Menu", Sections: []wacMTSection{
 						section,
 					}}
@@ -2634,6 +2644,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
 					Name              string                 "json:\"name,omitempty\""
 					Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+					Cards             []wacCarouselCard      "json:\"cards,omitempty\""
 				}{Name: "send_location"}}
 
 				payload.Interactive = &interactive
@@ -2652,6 +2663,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
 							Name              string                 "json:\"name,omitempty\""
 							Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+							Cards             []wacCarouselCard      "json:\"cards,omitempty\""
 						}{
 							Name: "cta_url",
 							Parameters: map[string]interface{}{
@@ -2693,6 +2705,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
 							Name              string                 "json:\"name,omitempty\""
 							Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+							Cards             []wacCarouselCard      "json:\"cards,omitempty\""
 						}{
 							Name: "flow",
 							Parameters: map[string]interface{}{
@@ -2745,13 +2758,14 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							Text string "json:\"text\""
 						}{Text: msgParts[i]},
 						Action: &struct {
-							Button            string          "json:\"button,omitempty\""
-							Sections          []wacMTSection  "json:\"sections,omitempty\""
-							Buttons           []wacMTButton   "json:\"buttons,omitempty\""
-							CatalogID         string          "json:\"catalog_id,omitempty\""
-							ProductRetailerID string          "json:\"product_retailer_id,omitempty\""
-							Name              string          "json:\"name,omitempty\""
-							Parameters        wacOrderDetails "json:\"parameters,omitempty\""
+							Button            string                 "json:\"button,omitempty\""
+							Sections          []wacMTSection         "json:\"sections,omitempty\""
+							Buttons           []wacMTButton          "json:\"buttons,omitempty\""
+							CatalogID         string                 "json:\"catalog_id,omitempty\""
+							ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
+							Name              string                 "json:\"name,omitempty\""
+							Parameters        wacOrderDetails        "json:\"parameters,omitempty\""
+							Cards             []wacInteractive[wacOrderDetails] "json:\"cards,omitempty\""
 						}{
 							Name:       "review_and_pay",
 							Parameters: *mountedOrderDetails,
@@ -2782,6 +2796,16 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					}
 
 					payload.Interactive = castInteractive[wacOrderDetails, map[string]any](interactive)
+				}
+			} else if msg.InteractionType() == "carousel" {
+				if carousel := msg.Carousel(); carousel != nil {
+					payload.Type = "interactive"
+					payload.Interactive, err = h.buildInteractiveCarouselPayload(msg, accessToken, status, start)
+					if err != nil {
+						return status, err
+					}
+				} else {
+					return status, fmt.Errorf("carousel message is nil")
 				}
 			} else {
 				// this is still a msg part
@@ -2905,6 +2929,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
 				Name              string                 `json:"name,omitempty"`
 				Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+				Cards             []wacCarouselCard      "json:\"cards,omitempty\""
 			}{
 				Name: "catalog_message",
 			}
@@ -2994,6 +3019,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
 						Name              string                 `json:"name,omitempty"`
 						Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+						Cards             []wacCarouselCard      "json:\"cards,omitempty\""
 					}{
 						CatalogID: catalogID,
 						Sections:  sections,
@@ -3016,6 +3042,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
 					Name              string                 `json:"name,omitempty"`
 					Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+					Cards             []wacCarouselCard      "json:\"cards,omitempty\""
 				}{
 					CatalogID:         catalogID,
 					Name:              msg.Action(),
@@ -3498,6 +3525,189 @@ func buildOrderDetailsComponent(msg courier.Msg) (*wacComponent, error) {
 	return button, nil
 }
 
+// buildInteractiveCarouselPayload builds the interactive payload for WhatsApp interactive media carousel messages.
+// Uses msg.Attachments() for card media, msg.Text() for main body, msg.Carousel() for per-card body and buttons.
+func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg, accessToken string, status courier.MsgStatus, start time.Time) (*wacInteractive[map[string]any], error) {
+	carousel := msg.Carousel()
+	if carousel == nil {
+		return nil, nil
+	}
+
+	attachments := msg.Attachments()
+	if len(attachments) < 2 || len(attachments) > 10 {
+		return nil, fmt.Errorf("interactive carousel requires 2-10 media attachments, got %d", len(attachments))
+	}
+	if len(carousel.Cards) != len(attachments) {
+		return nil, fmt.Errorf("carousel cards count (%d) must match attachments count (%d)", len(carousel.Cards), len(attachments))
+	}
+	bodyText := msg.Text()
+	if bodyText == "" {
+		return nil, fmt.Errorf("interactive carousel requires main body text")
+	}
+
+	cards := make([]wacCarouselCard, 0, len(attachments))
+
+	for cardIdx := 0; cardIdx < len(attachments); cardIdx++ {
+		cardData := carousel.Cards[cardIdx]
+		if len(cardData.Buttons) == 0 {
+			return nil, fmt.Errorf("carousel card %d must have at least one button", cardIdx)
+		}
+		firstBtn := cardData.Buttons[0]
+		if firstBtn.SubType != "url" && firstBtn.SubType != "quick_reply" {
+			return nil, fmt.Errorf("carousel card %d has unsupported button sub_type: %s", cardIdx, firstBtn.SubType)
+		}
+		if cardIdx > 0 {
+			prevBtn := carousel.Cards[0].Buttons[0]
+			if firstBtn.SubType != prevBtn.SubType || len(cardData.Buttons) != len(carousel.Cards[0].Buttons) {
+				return nil, fmt.Errorf("all carousel cards must have the same button type and count")
+			}
+		}
+
+		attType, attURL := handlers.SplitAttachment(attachments[cardIdx])
+		mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, false)
+		for _, log := range mediaLogs {
+			status.AddLog(log)
+		}
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to fetch media for carousel card %d", cardIdx)
+		}
+		if mediaID != "" {
+			attURL = ""
+		}
+
+		parsedURL, err := url.Parse(attURL)
+		if err != nil {
+			return nil, errors.Wrapf(err, "invalid attachment URL for card %d", cardIdx)
+		}
+		media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
+
+		splitedAttType := strings.Split(attType, "/")
+		attType = splitedAttType[0]
+		if attType == "application" {
+			attType = "document"
+		}
+
+		if attType != "image" && attType != "video" {
+			return nil, fmt.Errorf("carousel card %d has unsupported header type: %s (only image and video are supported)", cardIdx, attType)
+		}
+
+		cardIdxPtr := cardIdx
+		card := wacCarouselCard{
+			Type:      "cta_url", // card type is always cta_url; button type (in action) can be cta_url or quick_reply
+			CardIndex: &cardIdxPtr,
+			Header: &struct {
+				Type     string      `json:"type"`
+				Text     string      `json:"text,omitempty"`
+				Video    *wacMTMedia `json:"video,omitempty"`
+				Image    *wacMTMedia `json:"image,omitempty"`
+				Document *wacMTMedia `json:"document,omitempty"`
+			}{
+				Type: attType,
+			},
+			Body: struct {
+				Text string `json:"text"`
+			}{Text: parseBacklashes(cardData.Body)},
+		}
+
+		if attType == "image" {
+			card.Header.Image = &media
+		} else {
+			card.Header.Video = &media
+		}
+
+		card.Action = &struct {
+			Button            string                           `json:"button,omitempty"`
+			Sections          []wacMTSection                   `json:"sections,omitempty"`
+			Buttons           []wacMTButton                    `json:"buttons,omitempty"`
+			CatalogID         string                           `json:"catalog_id,omitempty"`
+			ProductRetailerID string                           `json:"product_retailer_id,omitempty"`
+			Name              string                           `json:"name,omitempty"`
+			Parameters        map[string]interface{}           `json:"parameters,omitempty"`
+			Cards             []wacInteractive[map[string]any] `json:"cards,omitempty"`
+		}{}
+
+		if firstBtn.SubType == "url" {
+			displayText, urlVal := extractCarouselURLParams(firstBtn)
+			card.Action.Name = "cta_url"
+			card.Action.Parameters = map[string]interface{}{
+				"display_text": parseBacklashes(displayText),
+				"url":          urlVal,
+			}
+		} else {
+			btns := make([]wacMTButton, len(cardData.Buttons))
+			for i, btn := range cardData.Buttons {
+				id, title := extractCarouselQuickReplyParams(btn)
+				btns[i] = wacMTButton{
+					Type: "quick_reply",
+					QuickReply: &mtQuickReply{
+						ID:          id,
+						Title:       parseBacklashes(title),
+						Payload:     id,
+						ContentType: "text",
+					},
+				}
+			}
+			card.Action.Buttons = btns
+		}
+
+		cards = append(cards, card)
+	}
+
+	interactive := wacInteractive[map[string]any]{
+		Type: "carousel",
+		Body: struct {
+			Text string `json:"text"`
+		}{Text: parseBacklashes(bodyText)},
+		Action: &struct {
+			Button            string                 `json:"button,omitempty"`
+			Sections          []wacMTSection         `json:"sections,omitempty"`
+			Buttons           []wacMTButton          `json:"buttons,omitempty"`
+			CatalogID         string                 `json:"catalog_id,omitempty"`
+			ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
+			Name              string                 `json:"name,omitempty"`
+			Parameters        map[string]interface{} `json:"parameters,omitempty"`
+			Cards             []wacCarouselCard      `json:"cards,omitempty"`
+		}{Cards: cards},
+	}
+
+	return &interactive, nil
+}
+
+func extractCarouselURLParams(btn courier.CarouselCardButton) (displayText, url string) {
+	if btn.Parameters == nil {
+		return "", ""
+	}
+	if v, ok := btn.Parameters["display_text"].(string); ok {
+		displayText = v
+	}
+	if v, ok := btn.Parameters["url"].(string); ok {
+		url = v
+	}
+	if displayText == "" && url != "" {
+		displayText = url
+	}
+	return displayText, url
+}
+
+func extractCarouselQuickReplyParams(btn courier.CarouselCardButton) (id, title string) {
+	if btn.Parameters != nil {
+		if v, ok := btn.Parameters["id"].(string); ok {
+			id = v
+		}
+		if v, ok := btn.Parameters["title"].(string); ok {
+			title = v
+		}
+
+		if id == "" && title != "" {
+			id = title
+		}
+		if id != "" && title == "" {
+			title = id
+		}
+	}
+	return id, title
+}
+
 // buildCarouselComponent builds the carousel component for WhatsApp template messages
 // Card count is based on attachments count - media is mandatory per card (min 2, max 10 cards), body and buttons are optional (max 2 buttons per card)
 // Media (header), body variables, and buttons are matched by index
@@ -3514,7 +3724,7 @@ func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplat
 	carouselComponent := &wacComponent{Type: "carousel"}
 
 	for cardIdx := 0; cardIdx < numCards; cardIdx++ {
-		card := &wacCarouselCard{CardIndex: cardIdx}
+		card := &wacCarouselCardTemplate{CardIndex: cardIdx}
 
 		// Build header component with media (mandatory for each card)
 		headerComponent := &wacComponent{Type: "header"}

@@ -3574,10 +3574,8 @@ func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg, accessToken s
 				btns[i] = wacMTButton{
 					Type: "quick_reply",
 					QuickReply: &mtQuickReply{
-						ID:          id,
-						Title:       parseBacklashes(title),
-						Payload:     id,
-						ContentType: "text",
+						ID:    id,
+						Title: parseBacklashes(title),
 					},
 				}
 			}

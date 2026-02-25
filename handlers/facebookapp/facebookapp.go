@@ -2704,13 +2704,13 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							Text string "json:\"text\""
 						}{Text: msgParts[i]},
 						Action: &struct {
-							Button            string                 "json:\"button,omitempty\""
-							Sections          []wacMTSection         "json:\"sections,omitempty\""
-							Buttons           []wacMTButton          "json:\"buttons,omitempty\""
-							CatalogID         string                 "json:\"catalog_id,omitempty\""
-							ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
-							Name              string                 "json:\"name,omitempty\""
-							Parameters        wacOrderDetails        "json:\"parameters,omitempty\""
+							Button            string                            "json:\"button,omitempty\""
+							Sections          []wacMTSection                    "json:\"sections,omitempty\""
+							Buttons           []wacMTButton                     "json:\"buttons,omitempty\""
+							CatalogID         string                            "json:\"catalog_id,omitempty\""
+							ProductRetailerID string                            "json:\"product_retailer_id,omitempty\""
+							Name              string                            "json:\"name,omitempty\""
+							Parameters        wacOrderDetails                   "json:\"parameters,omitempty\""
 							Cards             []wacInteractive[wacOrderDetails] "json:\"cards,omitempty\""
 						}{
 							Name:       "review_and_pay",
@@ -2796,7 +2796,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				}
 			}
 		}
-		if templating != nil && len(msg.Attachments()) > 0 || hasCaption {
+		if templating != nil && len(msg.Attachments()) > 0 || hasCaption || msg.InteractionType() == "carousel" {
 			break
 		}
 

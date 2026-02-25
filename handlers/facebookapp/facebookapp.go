@@ -3506,29 +3506,15 @@ func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg, accessToken s
 		}
 
 		attType, attURL := handlers.SplitAttachment(attachments[cardIdx])
-		mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, false)
-		for _, log := range mediaLogs {
-			status.AddLog(log)
-		}
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to fetch media for carousel card %d", cardIdx)
-		}
-		if mediaID != "" {
-			attURL = ""
-		}
 
 		parsedURL, err := url.Parse(attURL)
 		if err != nil {
 			return nil, errors.Wrapf(err, "invalid attachment URL for card %d", cardIdx)
 		}
-		media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
+		media := wacMTMedia{Link: parsedURL.String()}
 
 		splitedAttType := strings.Split(attType, "/")
 		attType = splitedAttType[0]
-		if attType == "application" {
-			attType = "document"
-		}
-
 		if attType != "image" && attType != "video" {
 			return nil, fmt.Errorf("carousel card %d has unsupported header type: %s (only image and video are supported)", cardIdx, attType)
 		}

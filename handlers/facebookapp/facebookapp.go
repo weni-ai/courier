@@ -1971,6 +1971,190 @@ type wacFlowActionPayload struct {
 	Screen string                 `json:"screen"`
 }
 
+// fillWACPayloadByInteractionType fills payload for WAC interactive types: location, cta_url, flow_msg, order_details, carousel, or plain text.
+// Returns hasCaption true for order_details and carousel; callers use it for loop break logic.
+func (h *handler) fillWACPayloadByInteractionType(i int, msg courier.Msg, msgParts []string, payload *wacMTPayload[map[string]any], accessToken string, status courier.MsgStatus, start time.Time) (hasCaption bool, err error) {
+	switch msg.InteractionType() {
+	case "location":
+		interactive := wacInteractive[map[string]any]{Type: "location_request_message", Body: struct {
+			Text string "json:\"text\""
+		}{Text: msgParts[i-len(msg.Attachments())]}, Action: &struct {
+			Button            string                 "json:\"button,omitempty\""
+			Sections          []wacMTSection         "json:\"sections,omitempty\""
+			Buttons           []wacMTButton          "json:\"buttons,omitempty\""
+			CatalogID         string                 "json:\"catalog_id,omitempty\""
+			ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
+			Name              string                 "json:\"name,omitempty\""
+			Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+			Cards             []wacCarouselCard      "json:\"cards,omitempty\""
+		}{Name: "send_location"}}
+		payload.Type = "interactive"
+		payload.Interactive = &interactive
+	case "cta_url":
+		if ctaMessage := msg.CTAMessage(); ctaMessage != nil {
+			interactive := wacInteractive[map[string]any]{
+				Type: "cta_url",
+				Body: struct {
+					Text string "json:\"text\""
+				}{Text: msgParts[i-len(msg.Attachments())]},
+				Action: &struct {
+					Button            string                 "json:\"button,omitempty\""
+					Sections          []wacMTSection         "json:\"sections,omitempty\""
+					Buttons           []wacMTButton          "json:\"buttons,omitempty\""
+					CatalogID         string                 "json:\"catalog_id,omitempty\""
+					ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
+					Name              string                 "json:\"name,omitempty\""
+					Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+					Cards             []wacCarouselCard      "json:\"cards,omitempty\""
+				}{
+					Name: "cta_url",
+					Parameters: map[string]interface{}{
+						"display_text": parseBacklashes(ctaMessage.DisplayText),
+						"url":          ctaMessage.URL,
+					},
+				},
+			}
+			if msg.Footer() != "" {
+				interactive.Footer = &struct {
+					Text string "json:\"text,omitempty\""
+				}{Text: parseBacklashes(msg.Footer())}
+			}
+			if msg.HeaderText() != "" {
+				interactive.Header = &struct {
+					Type     string      "json:\"type\""
+					Text     string      "json:\"text,omitempty\""
+					Video    *wacMTMedia "json:\"video,omitempty\""
+					Image    *wacMTMedia "json:\"image,omitempty\""
+					Document *wacMTMedia "json:\"document,omitempty\""
+				}{Type: "text", Text: parseBacklashes(msg.HeaderText())}
+			}
+			payload.Type = "interactive"
+			payload.Interactive = &interactive
+		}
+	case "flow_msg":
+		if flowMessage := msg.FlowMessage(); flowMessage != nil {
+			interactive := wacInteractive[map[string]any]{
+				Type: "flow",
+				Body: struct {
+					Text string "json:\"text\""
+				}{Text: msgParts[i-len(msg.Attachments())]},
+				Action: &struct {
+					Button            string                 "json:\"button,omitempty\""
+					Sections          []wacMTSection         "json:\"sections,omitempty\""
+					Buttons           []wacMTButton          "json:\"buttons,omitempty\""
+					CatalogID         string                 "json:\"catalog_id,omitempty\""
+					ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
+					Name              string                 "json:\"name,omitempty\""
+					Parameters        map[string]interface{} "json:\"parameters,omitempty\""
+					Cards             []wacCarouselCard      "json:\"cards,omitempty\""
+				}{
+					Name: "flow",
+					Parameters: map[string]interface{}{
+						"mode":                 flowMessage.FlowMode,
+						"flow_message_version": "3",
+						"flow_token":           uuids.New(),
+						"flow_id":              flowMessage.FlowID,
+						"flow_cta":             flowMessage.FlowCTA,
+						"flow_action":          "navigate",
+						"flow_action_payload": wacFlowActionPayload{
+							Screen: flowMessage.FlowScreen,
+							Data:   flowMessage.FlowData,
+						},
+					},
+				},
+			}
+			if msg.Footer() != "" {
+				interactive.Footer = &struct {
+					Text string "json:\"text,omitempty\""
+				}{Text: parseBacklashes(msg.Footer())}
+			}
+			if msg.HeaderText() != "" {
+				interactive.Header = &struct {
+					Type     string      "json:\"type\""
+					Text     string      "json:\"text,omitempty\""
+					Video    *wacMTMedia "json:\"video,omitempty\""
+					Image    *wacMTMedia "json:\"image,omitempty\""
+					Document *wacMTMedia "json:\"document,omitempty\""
+				}{Type: "text", Text: parseBacklashes(msg.HeaderText())}
+			}
+			payload.Type = "interactive"
+			payload.Interactive = &interactive
+		}
+	case "order_details":
+		if orderDetails := msg.OrderDetailsMessage(); orderDetails != nil {
+			hasCaption = true
+			payload.Type = "interactive"
+			paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
+			mountedOrderDetails := mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount)
+			if mountedOrderDetails == nil {
+				return false, fmt.Errorf("failed to mount order details")
+			}
+			interactive := wacInteractive[wacOrderDetails]{
+				Type: "order_details",
+				Body: struct {
+					Text string "json:\"text\""
+				}{Text: msgParts[i]},
+				Action: &struct {
+					Button            string                            "json:\"button,omitempty\""
+					Sections          []wacMTSection                    "json:\"sections,omitempty\""
+					Buttons           []wacMTButton                     "json:\"buttons,omitempty\""
+					CatalogID         string                            "json:\"catalog_id,omitempty\""
+					ProductRetailerID string                            "json:\"product_retailer_id,omitempty\""
+					Name              string                            "json:\"name,omitempty\""
+					Parameters        wacOrderDetails                   "json:\"parameters,omitempty\""
+					Cards             []wacInteractive[wacOrderDetails] "json:\"cards,omitempty\""
+				}{
+					Name:       "review_and_pay",
+					Parameters: *mountedOrderDetails,
+				},
+			}
+			if msg.Footer() != "" {
+				interactive.Footer = &struct {
+					Text string "json:\"text,omitempty\""
+				}{Text: parseBacklashes(msg.Footer())}
+			}
+			if len(msg.Attachments()) > 0 {
+				attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
+				attType = strings.Split(attType, "/")[0]
+				media := wacMTMedia{Link: attURL}
+				if attType == "image" {
+					interactive.Header = &struct {
+						Type     string      "json:\"type\""
+						Text     string      "json:\"text,omitempty\""
+						Video    *wacMTMedia "json:\"video,omitempty\""
+						Image    *wacMTMedia "json:\"image,omitempty\""
+						Document *wacMTMedia "json:\"document,omitempty\""
+					}{Type: "image", Image: &media}
+				} else {
+					return false, fmt.Errorf("interactive order details message does not support attachments other than images")
+				}
+			}
+			payload.Interactive = castInteractive[wacOrderDetails, map[string]any](interactive)
+		}
+	case "carousel":
+		if carousel := msg.Carousel(); carousel != nil {
+			hasCaption = true
+			payload.Type = "interactive"
+			payload.Interactive, err = h.buildInteractiveCarouselPayload(msg, accessToken, status, start)
+			if err != nil {
+				return false, err
+			}
+		} else {
+			return false, fmt.Errorf("carousel message is nil")
+		}
+	default:
+		// plain text part
+		text := &wacText{}
+		payload.Type = "text"
+		if strings.Contains(msgParts[i-len(msg.Attachments())], "https://") || strings.Contains(msgParts[i-len(msg.Attachments())], "http://") {
+			text.PreviewURL = true
+		}
+		text.Body = msgParts[i-len(msg.Attachments())]
+		payload.Text = text
+	}
+	return hasCaption, nil
+}
+
 func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
 	// can't do anything without an access token
 	accessToken := h.Server().Config().WhatsappAdminSystemUserToken
@@ -2579,189 +2763,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				} else {
 					return nil, fmt.Errorf("too many quick replies WAC supports only up to 10 quick replies")
 				}
-			} else if msg.InteractionType() == "location" { // Unreachable due to else if sending only the attachment
-				interactive := wacInteractive[map[string]any]{Type: "location_request_message", Body: struct {
-					Text string "json:\"text\""
-				}{Text: msgParts[i-len(msg.Attachments())]}, Action: &struct {
-					Button            string                 "json:\"button,omitempty\""
-					Sections          []wacMTSection         "json:\"sections,omitempty\""
-					Buttons           []wacMTButton          "json:\"buttons,omitempty\""
-					CatalogID         string                 "json:\"catalog_id,omitempty\""
-					ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
-					Name              string                 "json:\"name,omitempty\""
-					Parameters        map[string]interface{} "json:\"parameters,omitempty\""
-					Cards             []wacCarouselCard      "json:\"cards,omitempty\""
-				}{Name: "send_location"}}
-
-				payload.Interactive = &interactive
-			} else if msg.InteractionType() == "cta_url" { // Unreachable due to else if sending only the attachment
-				if ctaMessage := msg.CTAMessage(); ctaMessage != nil {
-					interactive := wacInteractive[map[string]any]{
-						Type: "cta_url",
-						Body: struct {
-							Text string "json:\"text\""
-						}{Text: msgParts[i-len(msg.Attachments())]},
-						Action: &struct {
-							Button            string                 "json:\"button,omitempty\""
-							Sections          []wacMTSection         "json:\"sections,omitempty\""
-							Buttons           []wacMTButton          "json:\"buttons,omitempty\""
-							CatalogID         string                 "json:\"catalog_id,omitempty\""
-							ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
-							Name              string                 "json:\"name,omitempty\""
-							Parameters        map[string]interface{} "json:\"parameters,omitempty\""
-							Cards             []wacCarouselCard      "json:\"cards,omitempty\""
-						}{
-							Name: "cta_url",
-							Parameters: map[string]interface{}{
-								"display_text": parseBacklashes(ctaMessage.DisplayText),
-								"url":          ctaMessage.URL,
-							},
-						},
-					}
-
-					if msg.Footer() != "" {
-						interactive.Footer = &struct {
-							Text string "json:\"text,omitempty\""
-						}{Text: parseBacklashes(msg.Footer())}
-					}
-
-					if msg.HeaderText() != "" {
-						interactive.Header = &struct {
-							Type     string      "json:\"type\""
-							Text     string      "json:\"text,omitempty\""
-							Video    *wacMTMedia "json:\"video,omitempty\""
-							Image    *wacMTMedia "json:\"image,omitempty\""
-							Document *wacMTMedia "json:\"document,omitempty\""
-						}{Type: "text", Text: parseBacklashes(msg.HeaderText())}
-					}
-					payload.Interactive = &interactive
-				}
-			} else if msg.InteractionType() == "flow_msg" { // Unreachable due to else if sending only the attachment
-				if flowMessage := msg.FlowMessage(); flowMessage != nil {
-					interactive := wacInteractive[map[string]any]{
-						Type: "flow",
-						Body: struct {
-							Text string "json:\"text\""
-						}{Text: msgParts[i-len(msg.Attachments())]},
-						Action: &struct {
-							Button            string                 "json:\"button,omitempty\""
-							Sections          []wacMTSection         "json:\"sections,omitempty\""
-							Buttons           []wacMTButton          "json:\"buttons,omitempty\""
-							CatalogID         string                 "json:\"catalog_id,omitempty\""
-							ProductRetailerID string                 "json:\"product_retailer_id,omitempty\""
-							Name              string                 "json:\"name,omitempty\""
-							Parameters        map[string]interface{} "json:\"parameters,omitempty\""
-							Cards             []wacCarouselCard      "json:\"cards,omitempty\""
-						}{
-							Name: "flow",
-							Parameters: map[string]interface{}{
-								"mode":                 flowMessage.FlowMode,
-								"flow_message_version": "3",
-								"flow_token":           uuids.New(),
-								"flow_id":              flowMessage.FlowID,
-								"flow_cta":             flowMessage.FlowCTA,
-								"flow_action":          "navigate",
-								"flow_action_payload": wacFlowActionPayload{
-									Screen: flowMessage.FlowScreen,
-									Data:   flowMessage.FlowData,
-								},
-							},
-						},
-					}
-
-					if msg.Footer() != "" {
-						interactive.Footer = &struct {
-							Text string "json:\"text,omitempty\""
-						}{Text: parseBacklashes(msg.Footer())}
-					}
-
-					if msg.HeaderText() != "" {
-						interactive.Header = &struct {
-							Type     string      "json:\"type\""
-							Text     string      "json:\"text,omitempty\""
-							Video    *wacMTMedia "json:\"video,omitempty\""
-							Image    *wacMTMedia "json:\"image,omitempty\""
-							Document *wacMTMedia "json:\"document,omitempty\""
-						}{Type: "text", Text: parseBacklashes(msg.HeaderText())}
-					}
-					payload.Interactive = &interactive
-				}
-			} else if msg.InteractionType() == "order_details" {
-				if orderDetails := msg.OrderDetailsMessage(); orderDetails != nil {
-					hasCaption = true
-					payload.Type = "interactive"
-
-					paymentSettings, catalogID, orderTax, orderShipping, orderDiscount := mountOrderInfo(msg)
-
-					mountedOrderDetails := mountOrderDetails(msg, paymentSettings, catalogID, orderTax, orderShipping, orderDiscount)
-					if mountedOrderDetails == nil {
-						return status, fmt.Errorf("failed to mount order details")
-					}
-
-					interactive := wacInteractive[wacOrderDetails]{
-						Type: "order_details",
-						Body: struct {
-							Text string "json:\"text\""
-						}{Text: msgParts[i]},
-						Action: &struct {
-							Button            string                            "json:\"button,omitempty\""
-							Sections          []wacMTSection                    "json:\"sections,omitempty\""
-							Buttons           []wacMTButton                     "json:\"buttons,omitempty\""
-							CatalogID         string                            "json:\"catalog_id,omitempty\""
-							ProductRetailerID string                            "json:\"product_retailer_id,omitempty\""
-							Name              string                            "json:\"name,omitempty\""
-							Parameters        wacOrderDetails                   "json:\"parameters,omitempty\""
-							Cards             []wacInteractive[wacOrderDetails] "json:\"cards,omitempty\""
-						}{
-							Name:       "review_and_pay",
-							Parameters: *mountedOrderDetails,
-						},
-					}
-					if msg.Footer() != "" {
-						interactive.Footer = &struct {
-							Text string "json:\"text,omitempty\""
-						}{Text: parseBacklashes(msg.Footer())}
-					}
-
-					if len(msg.Attachments()) > 0 {
-						attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
-						attType = strings.Split(attType, "/")[0]
-						media := wacMTMedia{Link: attURL}
-
-						if attType == "image" {
-							interactive.Header = &struct {
-								Type     string      "json:\"type\""
-								Text     string      "json:\"text,omitempty\""
-								Video    *wacMTMedia "json:\"video,omitempty\""
-								Image    *wacMTMedia "json:\"image,omitempty\""
-								Document *wacMTMedia "json:\"document,omitempty\""
-							}{Type: "image", Image: &media}
-						} else {
-							return nil, fmt.Errorf("interactive order details message does not support attachments other than images")
-						}
-					}
-
-					payload.Interactive = castInteractive[wacOrderDetails, map[string]any](interactive)
-				}
-			} else if msg.InteractionType() == "carousel" {
-				if carousel := msg.Carousel(); carousel != nil {
-					payload.Type = "interactive"
-					payload.Interactive, err = h.buildInteractiveCarouselPayload(msg, accessToken, status, start)
-					if err != nil {
-						return status, err
-					}
-				} else {
-					return status, fmt.Errorf("carousel message is nil")
-				}
 			} else {
-				// this is still a msg part
-				text := &wacText{}
-				payload.Type = "text"
-				if strings.Contains(msgParts[i-len(msg.Attachments())], "https://") || strings.Contains(msgParts[i-len(msg.Attachments())], "http://") {
-					text.PreviewURL = true
+				hasCaption, err = h.fillWACPayloadByInteractionType(i, msg, msgParts, &payload, accessToken, status, start)
+				if err != nil {
+					return status, err
 				}
-				text.Body = msgParts[i-len(msg.Attachments())]
-				payload.Text = text
 			}
 		}
 		var zeroIndex bool
@@ -2796,7 +2802,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				}
 			}
 		}
-		if templating != nil && len(msg.Attachments()) > 0 || hasCaption || msg.InteractionType() == "carousel" {
+		if templating != nil && len(msg.Attachments()) > 0 || hasCaption {
 			break
 		}
 

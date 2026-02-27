@@ -1,3 +1,7 @@
+1.47.0
+----------
+ * feat: Support for sending interactive carousel messages to WAC
+
 1.46.1
 ----------
  * feat: add currency field to product items in WeniWebChat handler

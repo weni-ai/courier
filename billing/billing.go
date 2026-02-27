@@ -180,20 +180,30 @@ func (c *rabbitmqRetryClient) SendAsync(msg Message, routingKey string, pre func
 	}()
 }
 
-// MultiBillingClient sends messages to multiple billing backends simultaneously
-// Used for transitioning between message queue systems (e.g., RabbitMQ to AmazonMQ)
+// MultiBillingClient sends messages to multiple billing backends simultaneously.
+// rabbitMQ is always the first client; otherBackends (e.g. AmazonMQ) do not receive RoutingKeyWAC.
 type MultiBillingClient struct {
 	clients []Client
 }
 
-// NewMultiBillingClient creates a new client that sends to multiple backends
-func NewMultiBillingClient(clients ...Client) Client {
+// NewMultiBillingClient creates a new client that sends to multiple backends.
+// rabbitMQ is always the first backend (sempre RabbitMQ); otherBackends are only used for routing keys different from RoutingKeyWAC.
+// Garante que mensagens com RoutingKeyWAC só vão para o RabbitMQ.
+func NewMultiBillingClient(rabbitMQ Client, otherBackends ...Client) Client {
+	clients := make([]Client, 0, 1+len(otherBackends))
+	if rabbitMQ != nil {
+		clients = append(clients, rabbitMQ)
+	}
+	clients = append(clients, otherBackends...)
 	return &MultiBillingClient{clients: clients}
 }
 
 func (m *MultiBillingClient) Send(msg Message, routingKey string) error {
 	var lastErr error
-	for _, client := range m.clients {
+	for i, client := range m.clients {
+		if routingKey == RoutingKeyWAC && i > 0 {
+			continue // só publica no RabbitMQ (primeiro client), não no AmazonMQ
+		}
 		if err := client.Send(msg, routingKey); err != nil {
 			logrus.WithError(err).WithField("routing_key", routingKey).Error("failed to send to billing client")
 			lastErr = err
@@ -203,7 +213,10 @@ func (m *MultiBillingClient) Send(msg Message, routingKey string) error {
 }
 
 func (m *MultiBillingClient) SendAsync(msg Message, routingKey string, pre func(), post func()) {
-	for _, client := range m.clients {
+	for i, client := range m.clients {
+		if routingKey == RoutingKeyWAC && i > 0 {
+			continue
+		}
 		client.SendAsync(msg, routingKey, pre, post)
 	}
 }

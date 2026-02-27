@@ -142,7 +142,7 @@ func main() {
 		}
 	}
 
-	// AmazonMQ billing client (new)
+	// AmazonMQ billing client (não recebe RoutingKeyWAC; usa SkipRoutingKeys no client)
 	if config.EnableAmazonmqBilling && config.AmazonmqURL != "" {
 		client, err := billing.NewRMQBillingResilientClient(
 			config.AmazonmqURL,
@@ -153,12 +153,12 @@ func main() {
 		if err != nil {
 			logrus.WithError(err).Error("Error creating AmazonMQ billing client")
 		} else {
-			billingClients = append(billingClients, client)
+			billingClients = append(billingClients, billing.NewClientWithSkipRoutingKeys(client, billing.RoutingKeyWAC))
 			logrus.Info("AmazonMQ billing client initialized")
 		}
 	}
 
-	// Set billing client(s) on server
+	// Set billing client(s) on server (ordem não importa; skip é definido por client)
 	if len(billingClients) > 0 {
 		server.SetBilling(billing.NewMultiBillingClient(billingClients...))
 	} else {

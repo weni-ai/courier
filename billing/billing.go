@@ -70,6 +70,13 @@ type Client interface {
 	SendAsync(msg Message, routingKey string, pre func(), post func())
 }
 
+// SkipRoutingKeysClient is an optional interface: if a Client implements it,
+// MultiBillingClient will not send messages whose routing key is in SkipRoutingKeys() to that client.
+type SkipRoutingKeysClient interface {
+	Client
+	SkipRoutingKeys() []string
+}
+
 // rabbitmqRetryClient represents struct that implements billing service client interface
 type rabbitmqRetryClient struct {
 	publisher    rabbitroutine.Publisher
@@ -180,29 +187,69 @@ func (c *rabbitmqRetryClient) SendAsync(msg Message, routingKey string, pre func
 	}()
 }
 
+// clientWithSkipRoutingKeys wraps a Client and implements SkipRoutingKeysClient.
+// Used for backends that must not receive certain routing keys (e.g. AmazonMQ and RoutingKeyWAC).
+type clientWithSkipRoutingKeys struct {
+	client   Client
+	skipKeys map[string]struct{}
+}
+
+// NewClientWithSkipRoutingKeys returns a Client that implements SkipRoutingKeysClient.
+// When used inside MultiBillingClient, messages with routing key in skipKeys will not be sent to this client.
+func NewClientWithSkipRoutingKeys(client Client, skipKeys ...string) Client {
+	skip := make(map[string]struct{}, len(skipKeys))
+	for _, k := range skipKeys {
+		skip[k] = struct{}{}
+	}
+	return &clientWithSkipRoutingKeys{client: client, skipKeys: skip}
+}
+
+func (c *clientWithSkipRoutingKeys) Send(msg Message, routingKey string) error {
+	return c.client.Send(msg, routingKey)
+}
+
+func (c *clientWithSkipRoutingKeys) SendAsync(msg Message, routingKey string, pre func(), post func()) {
+	c.client.SendAsync(msg, routingKey, pre, post)
+}
+
+func (c *clientWithSkipRoutingKeys) SkipRoutingKeys() []string {
+	keys := make([]string, 0, len(c.skipKeys))
+	for k := range c.skipKeys {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func skipRoutingKey(client Client, routingKey string) bool {
+	skip, ok := client.(SkipRoutingKeysClient)
+	if !ok {
+		return false
+	}
+	for _, k := range skip.SkipRoutingKeys() {
+		if k == routingKey {
+			return true
+		}
+	}
+	return false
+}
+
 // MultiBillingClient sends messages to multiple billing backends simultaneously.
-// rabbitMQ is always the first client; otherBackends (e.g. AmazonMQ) do not receive RoutingKeyWAC.
+// Each client can optionally implement SkipRoutingKeysClient to not receive certain routing keys.
 type MultiBillingClient struct {
 	clients []Client
 }
 
 // NewMultiBillingClient creates a new client that sends to multiple backends.
-// rabbitMQ is always the first backend (sempre RabbitMQ); otherBackends are only used for routing keys different from RoutingKeyWAC.
-// Garante que mensagens com RoutingKeyWAC só vão para o RabbitMQ.
-func NewMultiBillingClient(rabbitMQ Client, otherBackends ...Client) Client {
-	clients := make([]Client, 0, 1+len(otherBackends))
-	if rabbitMQ != nil {
-		clients = append(clients, rabbitMQ)
-	}
-	clients = append(clients, otherBackends...)
+// Order does not matter: use NewClientWithSkipRoutingKeys for backends that must skip certain keys (e.g. AmazonMQ + RoutingKeyWAC).
+func NewMultiBillingClient(clients ...Client) Client {
 	return &MultiBillingClient{clients: clients}
 }
 
 func (m *MultiBillingClient) Send(msg Message, routingKey string) error {
 	var lastErr error
-	for i, client := range m.clients {
-		if routingKey == RoutingKeyWAC && i > 0 {
-			continue // só publica no RabbitMQ (primeiro client), não no AmazonMQ
+	for _, client := range m.clients {
+		if client == nil || skipRoutingKey(client, routingKey) {
+			continue
 		}
 		if err := client.Send(msg, routingKey); err != nil {
 			logrus.WithError(err).WithField("routing_key", routingKey).Error("failed to send to billing client")
@@ -213,8 +260,8 @@ func (m *MultiBillingClient) Send(msg Message, routingKey string) error {
 }
 
 func (m *MultiBillingClient) SendAsync(msg Message, routingKey string, pre func(), post func()) {
-	for i, client := range m.clients {
-		if routingKey == RoutingKeyWAC && i > 0 {
+	for _, client := range m.clients {
+		if client == nil || skipRoutingKey(client, routingKey) {
 			continue
 		}
 		client.SendAsync(msg, routingKey, pre, post)

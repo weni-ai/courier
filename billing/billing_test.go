@@ -352,17 +352,18 @@ func TestMultiBillingClientSendAsync(t *testing.T) {
 	assert.Equal(t, 2, postCalled) // Called once per client
 }
 
-func TestMultiBillingClientRoutingKeyWACOnlyFirstClient(t *testing.T) {
+func TestMultiBillingClientSkipRoutingKeys(t *testing.T) {
 	client1 := &mockBillingClient{}
 	client2 := &mockBillingClient{}
-	multiClient := NewMultiBillingClient(client1, client2)
+	// client2 não recebe RoutingKeyWAC (ex.: AmazonMQ)
+	multiClient := NewMultiBillingClient(client1, NewClientWithSkipRoutingKeys(client2, RoutingKeyWAC))
 
 	msg := NewMessage(
 		"telegram:123456789", "uuid", "John", "channel-uuid", "msg-id", "2024-01-01",
 		"O", "TG", "hello", nil, nil, false, "", "sent",
 	)
 
-	// RoutingKeyWAC: só o primeiro client (RabbitMQ) recebe; segundo (AmazonMQ) não
+	// RoutingKeyWAC: client1 recebe; client2 está com SkipRoutingKeys(WAC), então não recebe
 	err := multiClient.Send(msg, RoutingKeyWAC)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, client1.sendCalled)
@@ -375,7 +376,7 @@ func TestMultiBillingClientRoutingKeyWACOnlyFirstClient(t *testing.T) {
 }
 
 func TestMultiBillingClientEmpty(t *testing.T) {
-	multiClient := NewMultiBillingClient(nil)
+	multiClient := NewMultiBillingClient()
 
 	msg := NewMessage(
 		"telegram:123456789",

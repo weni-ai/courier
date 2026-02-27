@@ -1,6 +1,7 @@
 1.47.0
 ----------
  * feat: Support for sending interactive carousel messages to WAC
+ * feat: Enhance billing configuration and implement MultiBillingClient
 
 1.46.1
 ----------

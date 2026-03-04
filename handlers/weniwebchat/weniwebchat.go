@@ -42,10 +42,11 @@ func (h *handler) Initialize(s courier.Server) error {
 }
 
 type miPayload struct {
-	Type          string            `json:"type"           validate:"required"`
-	From          string            `json:"from,omitempty" validate:"required"`
-	Message       miMessage         `json:"message"`
-	ContactFields map[string]string `json:"contact_fields,omitempty"`
+	Type          string                 `json:"type"           validate:"required"`
+	From          string                 `json:"from,omitempty" validate:"required"`
+	Message       miMessage              `json:"message"`
+	ContactFields map[string]string      `json:"contact_fields,omitempty"`
+	Params        map[string]interface{} `json:"params,omitempty"`
 }
 
 type miMessage struct {
@@ -135,6 +136,14 @@ func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w htt
 		orderJSON, err := json.Marshal(orderM)
 		if err == nil {
 			metadata := json.RawMessage(orderJSON)
+			msg.WithMetadata(metadata)
+		}
+	}
+
+	if payload.Params != nil {
+		extraJSON, err := json.Marshal(payload.Params)
+		if err == nil {
+			metadata := json.RawMessage(extraJSON)
 			msg.WithMetadata(metadata)
 		}
 	}

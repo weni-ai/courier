@@ -205,6 +205,7 @@ type wwcProductItem struct {
 	Image             string `json:"image"`
 	Description       string `json:"description"`
 	SellerID          string `json:"seller_id"`
+	ProductURL        string `json:"product_url,omitempty"`
 }
 
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
@@ -536,6 +537,9 @@ func extractProductSections(products []map[string]interface{}) []wwcSection {
 						}
 						if sellerID, ok := priMap["seller_id"].(string); ok {
 							item.SellerID = sellerID
+						}
+						if productURL, ok := priMap["product_url"].(string); ok {
+							item.ProductURL = productURL
 						}
 						section.ProductItems = append(section.ProductItems, item)
 					}

@@ -661,6 +661,18 @@ var productSendTestCases = []ChannelSendTestCase{
 		SendPrep:       prepareSendMsg,
 		Metadata:       json.RawMessage(`{"products":[{"product":"On Sale","product_retailer_info":[{"retailer_id":"sale-001","name":"Laptop","price":"2999.90","sale_price":"1999.90","currency":"BRL","image":"https://example.com/laptop.jpg","description":"Gaming Laptop","seller_id":"tech-seller"}]}],"action":"View Sale"}`),
 	},
+	{
+		Label:          "Single Product Send with Product URL",
+		Text:           "Check out this product!",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Check out this product!","interactive":{"type":"product_list","action":{"sections":[{"title":"Product Name","product_items":[{"product_retailer_id":"product-123","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001","product_url":"https://store.example.com/tv-50"}]}],"name":"View Product"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+		Metadata:       json.RawMessage(`{"products":[{"product":"Product Name","product_retailer_info":[{"retailer_id":"product-123","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001","product_url":"https://store.example.com/tv-50"}]}],"action":"View Product"}`),
+	},
 }
 
 func TestProductSending(t *testing.T) {

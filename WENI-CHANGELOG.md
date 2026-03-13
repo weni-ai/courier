@@ -1,3 +1,7 @@
+1.47.1
+----------
+ * feat: Add support for product URLs in WeniWebChat handler
+
 1.47.0
 ----------
  * feat: Support for sending interactive carousel messages to WAC

@@ -160,7 +160,7 @@ func main() {
 
 	// Set billing client(s) on server
 	if len(billingClients) > 0 {
-		server.SetBilling(billing.NewMultiBillingClient(billingClients...))
+		server.SetBilling(billing.NewMultiBillingClient(billingClients[0], billingClients[1:]...))
 	} else {
 		logrus.Warn("No billing clients configured")
 	}

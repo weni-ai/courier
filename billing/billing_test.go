@@ -363,7 +363,7 @@ func TestMultiBillingClientSkipRoutingKeys(t *testing.T) {
 		"O", "TG", "hello", nil, nil, false, "", "sent",
 	)
 
-	// RoutingKeyWAC: client1 recebe; client2 está com SkipRoutingKeys(WAC), então não recebe
+	// RoutingKeyWAC: only the first client (RabbitMQ) receives; second (AmazonMQ) does not
 	err := multiClient.Send(msg, RoutingKeyWAC)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, client1.sendCalled)
@@ -376,7 +376,7 @@ func TestMultiBillingClientSkipRoutingKeys(t *testing.T) {
 }
 
 func TestMultiBillingClientEmpty(t *testing.T) {
-	multiClient := NewMultiBillingClient()
+	multiClient := NewMultiBillingClient(nil)
 
 	msg := NewMessage(
 		"telegram:123456789",

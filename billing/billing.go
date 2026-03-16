@@ -172,29 +172,44 @@ func (c *rabbitmqRetryClient) SendAsync(msg Message, routingKey string, pre func
 }
 
 // MultiBillingClient sends messages to multiple billing backends simultaneously.
-// rabbitMQ is always the first client; otherBackends (e.g. AmazonMQ) do not receive RoutingKeyWAC.
+// rabbitMQ (if non-nil) is the only one that receives RoutingKeyWAC; otherBackends (e.g. AmazonMQ) do not receive WAC.
 type MultiBillingClient struct {
-	clients []Client
+	rabbitMQ Client
+	others   []Client
 }
 
 // NewMultiBillingClient creates a new client that sends to multiple backends.
-// rabbitMQ is always the first backend (sempre RabbitMQ); otherBackends are only used for routing keys different from RoutingKeyWAC.
-// Garante que mensagens com RoutingKeyWAC só vão para o RabbitMQ.
+// rabbitMQ (may be nil) is the backend that receives RoutingKeyWAC; otherBackends only receive other routing keys.
+// If rabbitMQ is nil, WAC messages are not sent to any backend.
 func NewMultiBillingClient(rabbitMQ Client, otherBackends ...Client) Client {
-	clients := make([]Client, 0, 1+len(otherBackends))
-	if rabbitMQ != nil {
-		clients = append(clients, rabbitMQ)
+	others := make([]Client, 0, len(otherBackends))
+	for _, c := range otherBackends {
+		if c != nil {
+			others = append(others, c)
+		}
 	}
-	clients = append(clients, otherBackends...)
-	return &MultiBillingClient{clients: clients}
+	return &MultiBillingClient{rabbitMQ: rabbitMQ, others: others}
 }
 
 func (m *MultiBillingClient) Send(msg Message, routingKey string) error {
 	var lastErr error
-	for i, client := range m.clients {
-		if routingKey == RoutingKeyWAC && i > 0 {
-			continue // só publica no RabbitMQ (primeiro client), não no AmazonMQ
+	if routingKey == RoutingKeyWAC {
+		if m.rabbitMQ != nil {
+			if err := m.rabbitMQ.Send(msg, routingKey); err != nil {
+				logrus.WithError(err).WithField("routing_key", routingKey).Error("failed to send to billing client")
+				lastErr = err
+			}
 		}
+		return lastErr
+	}
+	// Other routing keys: send to RabbitMQ (if present) and to the other backends
+	if m.rabbitMQ != nil {
+		if err := m.rabbitMQ.Send(msg, routingKey); err != nil {
+			logrus.WithError(err).WithField("routing_key", routingKey).Error("failed to send to billing client")
+			lastErr = err
+		}
+	}
+	for _, client := range m.others {
 		if err := client.Send(msg, routingKey); err != nil {
 			logrus.WithError(err).WithField("routing_key", routingKey).Error("failed to send to billing client")
 			lastErr = err
@@ -204,10 +219,16 @@ func (m *MultiBillingClient) Send(msg Message, routingKey string) error {
 }
 
 func (m *MultiBillingClient) SendAsync(msg Message, routingKey string, pre func(), post func()) {
-	for i, client := range m.clients {
-		if routingKey == RoutingKeyWAC && i > 0 {
-			continue
+	if routingKey == RoutingKeyWAC {
+		if m.rabbitMQ != nil {
+			m.rabbitMQ.SendAsync(msg, routingKey, pre, post)
 		}
+		return
+	}
+	if m.rabbitMQ != nil {
+		m.rabbitMQ.SendAsync(msg, routingKey, pre, post)
+	}
+	for _, client := range m.others {
 		client.SendAsync(msg, routingKey, pre, post)
 	}
 }

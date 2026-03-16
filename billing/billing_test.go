@@ -362,7 +362,7 @@ func TestMultiBillingClientRoutingKeyWACOnlyFirstClient(t *testing.T) {
 		"O", "TG", "hello", nil, nil, false, "", "sent",
 	)
 
-	// RoutingKeyWAC: só o primeiro client (RabbitMQ) recebe; segundo (AmazonMQ) não
+	// RoutingKeyWAC: only the first client (RabbitMQ) receives; second (AmazonMQ) does not
 	err := multiClient.Send(msg, RoutingKeyWAC)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, client1.sendCalled)

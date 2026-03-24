@@ -145,6 +145,8 @@ type Msg interface {
 	HeaderText() string
 	ListMessage() ListMessage
 	InteractionType() string
+	DirectSend() bool
+	TTLSeconds() int
 	CTAMessage() *CTAMessage
 	FlowMessage() *FlowMessage
 	OrderDetailsMessage() *OrderDetailsMessage

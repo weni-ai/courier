@@ -172,23 +172,23 @@ func (c *rabbitmqRetryClient) SendAsync(msg Message, routingKey string, pre func
 }
 
 // MultiBillingClient sends messages to multiple billing backends simultaneously.
-// rabbitMQ (if non-nil) is the only one that receives RoutingKeyWAC; otherBackends (e.g. AmazonMQ) do not receive WAC.
+// rabbitMQ (if non-nil) is the only one that receives RoutingKeyWAC; defaultBackends (e.g. AmazonMQ) do not receive WAC.
 type MultiBillingClient struct {
-	rabbitMQ Client
-	others   []Client
+	rabbitMQ        Client
+	defaultBackends []Client
 }
 
 // NewMultiBillingClient creates a new client that sends to multiple backends.
-// rabbitMQ (may be nil) is the backend that receives RoutingKeyWAC; otherBackends only receive other routing keys.
+// rabbitMQ (may be nil) is the backend that receives RoutingKeyWAC; defaultBackends only receive other routing keys.
 // If rabbitMQ is nil, WAC messages are not sent to any backend.
-func NewMultiBillingClient(rabbitMQ Client, otherBackends ...Client) Client {
-	others := make([]Client, 0, len(otherBackends))
-	for _, c := range otherBackends {
+func NewMultiBillingClient(rabbitMQ Client, defaultBackends ...Client) Client {
+	defaults := make([]Client, 0, len(defaultBackends))
+	for _, c := range defaultBackends {
 		if c != nil {
-			others = append(others, c)
+			defaults = append(defaults, c)
 		}
 	}
-	return &MultiBillingClient{rabbitMQ: rabbitMQ, others: others}
+	return &MultiBillingClient{rabbitMQ: rabbitMQ, defaultBackends: defaults}
 }
 
 func (m *MultiBillingClient) Send(msg Message, routingKey string) error {
@@ -209,7 +209,7 @@ func (m *MultiBillingClient) Send(msg Message, routingKey string) error {
 			lastErr = err
 		}
 	}
-	for _, client := range m.others {
+	for _, client := range m.defaultBackends {
 		if err := client.Send(msg, routingKey); err != nil {
 			logrus.WithError(err).WithField("routing_key", routingKey).Error("failed to send to billing client")
 			lastErr = err
@@ -228,7 +228,7 @@ func (m *MultiBillingClient) SendAsync(msg Message, routingKey string, pre func(
 	if m.rabbitMQ != nil {
 		m.rabbitMQ.SendAsync(msg, routingKey, pre, post)
 	}
-	for _, client := range m.others {
+	for _, client := range m.defaultBackends {
 		client.SendAsync(msg, routingKey, pre, post)
 	}
 }

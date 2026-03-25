@@ -1901,6 +1901,9 @@ type wacMTPayload[P wacInteractiveActionParams] struct {
 	Interactive *wacInteractive[P] `json:"interactive,omitempty"`
 
 	Template *wacTemplate `json:"template,omitempty"`
+
+	Category   string `json:"category,omitempty"`
+	TTLSeconds int    `json:"ttl_seconds,omitempty"` // default 30 days; min: 30 seconds and max: 43200 seconds (12 hours)
 }
 
 type wacMTResponse struct {
@@ -2215,6 +2218,8 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		}
 	}
 	qrs := msg.QuickReplies()
+
+	msgCategory, msgTTLSeconds := getWACDirectSend(msg)
 
 	var payloadAudio wacMTPayload[map[string]any]
 
@@ -2664,7 +2669,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							if i == 0 {
 								zeroIndex = true
 							}
-							payloadAudio = wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path(), Type: "audio", Audio: &wacMTMedia{ID: mediaID, Link: attURL}}
+							payloadAudio = wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path(), Type: "audio", Audio: &wacMTMedia{ID: mediaID, Link: attURL}, Category: msgCategory, TTLSeconds: msgTTLSeconds}
 							status, _, err := requestWAC(payloadAudio, token, msg, status, wacPhoneURL, zeroIndex, useMarketingMessages)
 							if err != nil {
 								return status, nil
@@ -2770,6 +2775,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				}
 			}
 		}
+		if templating == nil {
+			payload.Category = msgCategory
+			payload.TTLSeconds = msgTTLSeconds
+		}
+
 		var zeroIndex bool
 		if i == 0 {
 			zeroIndex = true
@@ -3766,6 +3776,13 @@ func (h *handler) getTemplate(msg courier.Msg) (*MsgTemplating, error) {
 	templating.Language = language
 
 	return templating, err
+}
+
+func getWACDirectSend(msg courier.Msg) (string, int) {
+	if msg.DirectSend() {
+		return "utility", msg.TTLSeconds()
+	}
+	return "", 0
 }
 
 type TemplateMetadata struct {

@@ -837,6 +837,30 @@ func (m *mockMsg) InteractionType() string {
 	return string(byteValue)
 }
 
+func (m *mockMsg) DirectSend() bool {
+	if m.metadata == nil {
+		return false
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "direct_send")
+	directSend, err := strconv.ParseBool(string(byteValue))
+	if err != nil {
+		return false
+	}
+	return directSend
+}
+
+func (m *mockMsg) TTLSeconds() int {
+	if m.metadata == nil {
+		return 0
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "ttl_seconds")
+	ttlSeconds, err := strconv.Atoi(string(byteValue))
+	if err != nil {
+		return 0
+	}
+	return ttlSeconds
+}
+
 func (m *mockMsg) CTAMessage() *CTAMessage {
 	if m.metadata == nil {
 		return nil

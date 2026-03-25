@@ -845,6 +845,30 @@ func (m *DBMsg) InteractionType() string {
 	return string(byteValue)
 }
 
+func (m *DBMsg) DirectSend() bool {
+	if m.Metadata_ == nil {
+		return false
+	}
+	byteValue, _, _, _ := jsonparser.Get(*m.Metadata_, "direct_send")
+	directSend, err := strconv.ParseBool(string(byteValue))
+	if err != nil {
+		return false
+	}
+	return directSend
+}
+
+func (m *DBMsg) TTLSeconds() int {
+	if m.Metadata_ == nil {
+		return 0
+	}
+	byteValue, _, _, _ := jsonparser.Get(*m.Metadata_, "ttl_seconds")
+	ttlSeconds, err := strconv.Atoi(string(byteValue))
+	if err != nil {
+		return 0
+	}
+	return ttlSeconds
+}
+
 func (m *DBMsg) ListMessage() courier.ListMessage {
 	if m.Metadata_ == nil {
 		return courier.ListMessage{}

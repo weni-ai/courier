@@ -1,3 +1,8 @@
+1.48.0
+----------
+ * feat: Add DirectSend and TTLSeconds methods to Msg interface and implement in mockMsg and DBMsg types
+ * fix: Enhance MultiBillingClient to route messages correctly based on RoutingKeyWAC
+
 1.47.1
 ----------
  * feat: Add support for product URLs in WeniWebChat handler

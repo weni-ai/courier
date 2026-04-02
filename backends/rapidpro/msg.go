@@ -1018,6 +1018,9 @@ func (m *DBMsg) FlowMessage() *courier.FlowMessage {
 			if flowMode, ok := flowMessageData["flow_mode"].(string); ok {
 				flowMessage.FlowMode = strings.ToLower(flowMode)
 			}
+			if flowToken, ok := flowMessageData["flow_token"].(string); ok {
+				flowMessage.FlowToken = flowToken
+			}
 			return flowMessage
 		}
 	}

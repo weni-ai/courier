@@ -123,9 +123,9 @@ func main() {
 		logrus.Fatalf("Error starting server: %s", err)
 	}
 
-	// Initialize billing clients: RabbitMQ (only it receives WAC) and other backends (e.g. AmazonMQ)
+	// Initialize billing clients: RabbitMQ (only it receives WAC) and default backends (e.g. AmazonMQ)
 	var rabbitMQBilling billing.Client
-	var otherBillingClients []billing.Client
+	var defaultBillingClients []billing.Client
 
 	// RabbitMQ billing client (current)
 	if config.EnableRabbitMQBilling && config.RabbitmqURL != "" {
@@ -154,14 +154,14 @@ func main() {
 		if err != nil {
 			logrus.WithError(err).Error("Error creating AmazonMQ billing client")
 		} else {
-			otherBillingClients = append(otherBillingClients, client)
+			defaultBillingClients = append(defaultBillingClients, client)
 			logrus.Info("AmazonMQ billing client initialized")
 		}
 	}
 
 	// Set billing client(s) on server
-	if rabbitMQBilling != nil || len(otherBillingClients) > 0 {
-		server.SetBilling(billing.NewMultiBillingClient(rabbitMQBilling, otherBillingClients...))
+	if rabbitMQBilling != nil || len(defaultBillingClients) > 0 {
+		server.SetBilling(billing.NewMultiBillingClient(rabbitMQBilling, defaultBillingClients...))
 	} else {
 		logrus.Warn("No billing clients configured")
 	}

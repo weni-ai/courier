@@ -113,6 +113,7 @@ func TestBillingResilientClient(t *testing.T) {
 		false,
 		"",
 		"",
+		0,
 	)
 
 	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000, billingTestExchangeName)
@@ -154,6 +155,110 @@ func TestBillingResilientClient(t *testing.T) {
 	assert.Equal(t, cmsg.MessageID, msg.MessageID)
 }
 
+func TestBillingResilientClientWithBroadcastID(t *testing.T) {
+	connURL := "amqp://" + envOr("RABBITMQ_HOST", "localhost") + ":5672/"
+	conn, err := amqp.Dial(connURL)
+	assert.NoError(t, err)
+	ch, err := conn.Channel()
+	if err != nil {
+		t.Fatal(errors.Wrap(err, "failed to declare a channel for consumer"))
+	}
+	initalizeRMQ(ch)
+	defer ch.QueueDelete(billingTestQueueName, false, false, false)
+	defer ch.ExchangeDelete(billingTestExchangeName, false, false)
+	defer ch.Close()
+	defer conn.Close()
+
+	msgUUID, _ := uuid.NewV4()
+	msg := NewMessage(
+		"telegram:123456789",
+		"02a6abf4-2145-4a2d-bf71-62d4039a2586",
+		"John Doe",
+		"64a75af3-7e8d-41a5-8ef8-c273056c4fca",
+		time.Now().Format(time.RFC3339),
+		msgUUID.String(),
+		"O",
+		"TG",
+		"hello",
+		nil,
+		nil,
+		false,
+		"",
+		"sent",
+		42,
+	)
+
+	assert.Equal(t, int64(42), msg.BroadcastID)
+
+	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000, billingTestExchangeName)
+	time.Sleep(1 * time.Second)
+	assert.NoError(t, err)
+	err = billingClient.Send(msg, RoutingKeyCreate)
+	assert.NoError(t, err)
+
+	msgs, err := ch.Consume(
+		billingTestQueueName,
+		"",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(errors.Wrap(err, "failed to declare consumer"))
+	}
+
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+
+	var cmsg Message
+
+	go func() {
+		for d := range msgs {
+			err := json.Unmarshal(d.Body, &cmsg)
+			if err != nil {
+				t.Error(errors.Wrap(err, "failed to unmarshal"))
+			}
+			wg.Done()
+		}
+	}()
+
+	wg.Wait()
+	assert.Equal(t, msg.MessageID, cmsg.MessageID)
+	assert.Equal(t, int64(42), cmsg.BroadcastID)
+}
+
+func TestBillingResilientClientWithoutBroadcastID(t *testing.T) {
+	msg := NewMessage(
+		"telegram:123456789",
+		"uuid",
+		"John",
+		"channel-uuid",
+		"msg-id",
+		"2024-01-01",
+		"O",
+		"TG",
+		"hello",
+		nil,
+		nil,
+		false,
+		"",
+		"sent",
+		0,
+	)
+
+	data, err := json.Marshal(msg)
+	assert.NoError(t, err)
+
+	var raw map[string]interface{}
+	err = json.Unmarshal(data, &raw)
+	assert.NoError(t, err)
+
+	_, exists := raw["broadcast_id"]
+	assert.False(t, exists, "broadcast_id should be omitted from JSON when zero")
+}
+
 func TestBillingResilientClientSendAsync(t *testing.T) {
 	connURL := "amqp://" + envOr("RABBITMQ_HOST", "localhost") + ":5672/"
 	conn, err := amqp.Dial(connURL)
@@ -184,6 +289,7 @@ func TestBillingResilientClientSendAsync(t *testing.T) {
 		false,
 		"",
 		"",
+		0,
 	)
 
 	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000, billingTestExchangeName)
@@ -278,6 +384,7 @@ func TestMultiBillingClientSend(t *testing.T) {
 		false,
 		"",
 		"sent",
+		0,
 	)
 
 	err := multiClient.Send(msg, RoutingKeyCreate)
@@ -309,6 +416,7 @@ func TestMultiBillingClientSendWithError(t *testing.T) {
 		false,
 		"",
 		"sent",
+		0,
 	)
 
 	err := multiClient.Send(msg, RoutingKeyCreate)
@@ -339,6 +447,7 @@ func TestMultiBillingClientSendAsync(t *testing.T) {
 		false,
 		"",
 		"sent",
+		0,
 	)
 
 	preCalled := 0
@@ -359,7 +468,7 @@ func TestMultiBillingClientRoutingKeyWACOnlyFirstClient(t *testing.T) {
 
 	msg := NewMessage(
 		"telegram:123456789", "uuid", "John", "channel-uuid", "msg-id", "2024-01-01",
-		"O", "TG", "hello", nil, nil, false, "", "sent",
+		"O", "TG", "hello", nil, nil, false, "", "sent", 0,
 	)
 
 	// RoutingKeyWAC: only the first client (RabbitMQ) receives; second (AmazonMQ) does not
@@ -392,6 +501,7 @@ func TestMultiBillingClientEmpty(t *testing.T) {
 		false,
 		"",
 		"sent",
+		0,
 	)
 
 	// Should not panic with no clients
@@ -429,6 +539,7 @@ func TestBillingResilientClientSendAsyncWithPanic(t *testing.T) {
 		false,
 		"",
 		"",
+		0,
 	)
 
 	billingClient, err := NewRMQBillingResilientClient(connURL, 3, 1000, billingTestExchangeName)

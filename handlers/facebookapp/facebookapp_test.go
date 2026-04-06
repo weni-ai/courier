@@ -464,6 +464,24 @@ var testCasesWAC = []ChannelHandleTestCase{
 			},
 		}),
 		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Payment Notification WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/paymentNotificationWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{
+			"payment_notification": map[string]interface{}{
+				"reference_id":    "ref_123456",
+				"transaction_id":  "txn_abc789",
+				"payment_status":  "captured",
+				"payer_name":      "Kerry Fisher",
+			},
+			"overwrite_message": map[string]interface{}{
+				"payment_notification": map[string]interface{}{
+					"reference_id":    "ref_123456",
+					"transaction_id":  "txn_abc789",
+					"payment_status":  "captured",
+					"payer_name":      "Kerry Fisher",
+				},
+			},
+		}),
+		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Reaction Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/reactionWAC.json")), Status: 200, Response: `"ignoring echo reaction message"`, PrepRequest: addValidSignatureWAC},
 }
 

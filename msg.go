@@ -158,6 +158,8 @@ type Msg interface {
 
 	ActionType() MsgActionType
 	ActionExternalID() string
+
+	BroadcastID() int64
 }
 
 type ButtonComponent struct {

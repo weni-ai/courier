@@ -363,6 +363,7 @@ func (w *Sender) sendMessage(msg Msg) {
 					fromTicketer,
 					chatsUUID,
 					string(msg.Status()),
+					msg.BroadcastID(),
 				)
 
 				if isTemplateMessage {

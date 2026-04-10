@@ -281,8 +281,9 @@ func (w *Sender) sendMessage(msg Msg) {
 		}
 
 		sentOk := status.Status() != MsgErrored && status.Status() != MsgFailed
-		isMultiAgents := msg.Channel().OrgConfigForKey("is_multi_agents", "false") // if true project is ab2, publish only if is ab1
-		billingPublishOk := sentOk && isMultiAgents == "false"
+		isMultiAgentsConf := msg.Channel().OrgConfigForKey("is_multi_agents", false)
+		isMultiAgents, _ := isMultiAgentsConf.(bool)
+		billingPublishOk := sentOk && !isMultiAgents
 		isTemplateMessage, metadata := isTemplateMessage(msg)
 
 		if billingPublishOk {

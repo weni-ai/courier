@@ -1,3 +1,10 @@
+1.49.0
+----------
+ * feat: Add payment request templates for PIX, Boleto, and multiple payment options in WhatsApp handler
+ * feat: Implement payment notification handling for WhatsApp Cloud API
+ * feat: Add BroadcastID field to Msg interface and related implementations
+ * feat: Add FlowToken field to FlowMessage and update related handling in message processing
+
 1.48.0
 ----------
  * feat: Add DirectSend and TTLSeconds methods to Msg interface and implement in mockMsg and DBMsg types

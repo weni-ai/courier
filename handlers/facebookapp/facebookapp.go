@@ -1816,8 +1816,32 @@ type wacMTButton struct {
 	QuickReply *mtQuickReply `json:"quick_reply,omitempty"` // standard field used for messages with quick replies in the carousel
 }
 
+type wacPaymentRequestPixDynamicCode struct {
+	Code string `json:"code"`
+}
+
+type wacPaymentRequestBoleto struct {
+	DigitableLine string `json:"digitable_line"`
+}
+
+type wacPaymentRequestPaymentLink struct {
+	URI string `json:"uri"`
+}
+
+type wacPaymentRequestPaymentSetting struct {
+	Type           string                           `json:"type"`
+	PixDynamicCode *wacPaymentRequestPixDynamicCode `json:"pix_dynamic_code,omitempty"`
+	Boleto         *wacPaymentRequestBoleto         `json:"boleto,omitempty"`
+	PaymentLink    *wacPaymentRequestPaymentLink    `json:"payment_link,omitempty"`
+}
+
+type wacPaymentRequest struct {
+	PaymentSetting wacPaymentRequestPaymentSetting `json:"payment_setting"`
+}
+
 type wacMTAction struct {
-	OrderDetails *wacOrderDetails `json:"order_details,omitempty"`
+	OrderDetails   *wacOrderDetails   `json:"order_details,omitempty"`
+	PaymentRequest *wacPaymentRequest `json:"payment_request,omitempty"`
 }
 
 type wacParam struct {
@@ -3424,14 +3448,40 @@ func (h *handler) buildTemplateComponents(msg courier.Msg, templating *MsgTempla
 	if len(msg.Buttons()) > 0 {
 		for i, button := range msg.Buttons() {
 			buttonComponent := &wacComponent{Type: "button", SubType: button.SubType, Index: &i}
-			for _, parameter := range button.Parameters {
-				buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: parameter.Type, Text: parameter.Text})
+			if button.SubType == "payment_request" {
+				for _, parameter := range button.Parameters {
+					buttonComponent.Params = append(buttonComponent.Params, buildPaymentRequestParam(parameter))
+				}
+			} else {
+				for _, parameter := range button.Parameters {
+					buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: parameter.Type, Text: parameter.Text})
+				}
 			}
 			components = append(components, buttonComponent)
 		}
 	}
 
 	return components, nil
+}
+
+func buildPaymentRequestParam(parameter courier.ButtonParam) *wacParam {
+	setting := wacPaymentRequestPaymentSetting{Type: parameter.Type}
+	switch parameter.Type {
+	case "pix_dynamic_code":
+		setting.PixDynamicCode = &wacPaymentRequestPixDynamicCode{Code: parameter.Text}
+	case "boleto":
+		setting.Boleto = &wacPaymentRequestBoleto{DigitableLine: parameter.Text}
+	case "payment_link":
+		setting.PaymentLink = &wacPaymentRequestPaymentLink{URI: parameter.Text}
+	}
+	return &wacParam{
+		Type: "action",
+		Action: &wacMTAction{
+			PaymentRequest: &wacPaymentRequest{
+				PaymentSetting: setting,
+			},
+		},
+	}
 }
 
 // buildHeaderComponent builds a single header component with media attachment

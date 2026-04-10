@@ -265,6 +265,7 @@ type moPayload struct {
 							LastFourDigits   string `json:"last_four_digits"`
 							CredentialID     string `json:"credential_id"`
 						} `json:"payment_method,omitempty"`
+						PaymentNotification interface{} `json:"payment_notification,omitempty"`
 					} `json:"interactive,omitempty"`
 					Contacts []struct {
 						Name struct {
@@ -476,6 +477,13 @@ func processWACPaymentMethodMetadata(paymentMethod interface{}) *wacMessageMetad
 	return &wacMessageMetadata{
 		Key:   "payment_method",
 		Value: paymentMethod,
+	}
+}
+
+func processWACPaymentNotificationMetadata(paymentNotification interface{}) *wacMessageMetadata {
+	return &wacMessageMetadata{
+		Key:   "payment_notification",
+		Value: paymentNotification,
 	}
 }
 
@@ -857,6 +865,8 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					text = strings.Join(phones, ", ")
 				} else if msg.Type == "interactive" && msg.Interactive.Type == "payment_method" {
 					text = ""
+				} else if msg.Type == "interactive" && msg.Interactive.Type == "payment_notification" {
+					text = ""
 				} else if msg.Type == "reaction" {
 					data = append(data, courier.NewInfoData("ignoring echo reaction message"))
 					continue
@@ -890,6 +900,8 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					}
 				} else if msg.Interactive.Type == "payment_method" {
 					wacMeta = processWACPaymentMethodMetadata(msg.Interactive.PaymentMethod)
+				} else if msg.Interactive.Type == "payment_notification" {
+					wacMeta = processWACPaymentNotificationMetadata(msg.Interactive.PaymentNotification)
 				}
 
 				if wacMeta != nil {

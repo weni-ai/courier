@@ -2073,6 +2073,9 @@ func (h *handler) fillWACPayloadByInteractionType(i int, msg courier.Msg, msgPar
 		}
 	case "flow_msg":
 		if flowMessage := msg.FlowMessage(); flowMessage != nil {
+			if flowMessage.FlowToken == "" {
+				flowMessage.FlowToken = string(uuids.New())
+			}
 			interactive := wacInteractive[map[string]any]{
 				Type: "flow",
 				Body: struct {
@@ -2092,7 +2095,7 @@ func (h *handler) fillWACPayloadByInteractionType(i int, msg courier.Msg, msgPar
 					Parameters: map[string]interface{}{
 						"mode":                 flowMessage.FlowMode,
 						"flow_message_version": "3",
-						"flow_token":           uuids.New(),
+						"flow_token":           flowMessage.FlowToken,
 						"flow_id":              flowMessage.FlowID,
 						"flow_cta":             flowMessage.FlowCTA,
 						"flow_action":          "navigate",
@@ -2480,6 +2483,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						}
 					} else if msg.InteractionType() == "flow_msg" {
 						if flowMessage := msg.FlowMessage(); flowMessage != nil {
+							if flowMessage.FlowToken == "" {
+								flowMessage.FlowToken = string(uuids.New())
+							}
 							payload.Type = "interactive"
 							interactive := wacInteractive[map[string]any]{
 								Type: "flow",
@@ -2500,7 +2506,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 									Parameters: map[string]interface{}{
 										"mode":                 flowMessage.FlowMode,
 										"flow_message_version": "3",
-										"flow_token":           uuids.New(),
+										"flow_token":           flowMessage.FlowToken,
 										"flow_id":              flowMessage.FlowID,
 										"flow_cta":             flowMessage.FlowCTA,
 										"flow_action":          "navigate",

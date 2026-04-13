@@ -589,12 +589,13 @@ func (s *server) CheckS3() error {
 }
 
 func handleBilling(s *server, msg Msg) error {
-	isMultiAgents := msg.Channel().BoolConfigForKey("is_multi_agents", false) // if true project is ab2, publish only if is ab1
+	isMultiAgentsConf := msg.Channel().OrgConfigForKey("is_multi_agents", false)
+	isMultiAgents, _ := isMultiAgentsConf.(bool) // if true project is ab2, publish only if is ab1
 	logrus.WithFields(logrus.Fields{
 		"channel_uuid":               msg.Channel().UUID(),
 		"org_uuid":                   msg.Channel().UUID(),
 		"is_multi_agents":            isMultiAgents,
-		"org_config_is_multi_agents": msg.Channel().OrgConfigForKey("is_multi_agents", nil),
+		"org_config_is_multi_agents": msg.Channel().OrgConfigForKey("is_multi_agents", false).(bool),
 		"text":                       msg.Text(),
 	}).Info("org is multi agents debug")
 	if isMultiAgents {

@@ -281,12 +281,13 @@ func (w *Sender) sendMessage(msg Msg) {
 		}
 
 		sentOk := status.Status() != MsgErrored && status.Status() != MsgFailed
-		isMultiAgents := msg.Channel().BoolConfigForKey("is_multi_agents", false) // if true project is ab2, publish only if is ab1
+		isMultiAgentsConf := msg.Channel().OrgConfigForKey("is_multi_agents", false) // if true project is ab2, publish only if is ab1
+		isMultiAgents, _ := isMultiAgentsConf.(bool)
 		logrus.WithFields(logrus.Fields{
 			"channel_uuid":               msg.Channel().UUID(),
 			"org_uuid":                   msg.Channel().UUID(),
 			"is_multi_agents":            isMultiAgents,
-			"org_config_is_multi_agents": msg.Channel().OrgConfigForKey("is_multi_agents", nil),
+			"org_config_is_multi_agents": msg.Channel().OrgConfigForKey("is_multi_agents", false),
 			"sent_ok":                    sentOk,
 		}).Info("org is multi agents")
 		billingPublishOk := sentOk && isMultiAgents == false

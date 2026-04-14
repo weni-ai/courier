@@ -1,3 +1,7 @@
+1.49.1
+----------
+ * feat: Add Extra field to product for wwc-socket messages
+
 1.49.0
 ----------
  * feat: Add payment request templates for PIX, Boleto, and multiple payment options in WhatsApp handler

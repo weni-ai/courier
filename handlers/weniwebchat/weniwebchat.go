@@ -197,15 +197,16 @@ type wwcSectionRow struct {
 }
 
 type wwcProductItem struct {
-	ProductRetailerID string `json:"product_retailer_id"`
-	Name              string `json:"name"`
-	Price             string `json:"price"`
-	SalePrice         string `json:"sale_price,omitempty"`
-	Currency          string `json:"currency"`
-	Image             string `json:"image"`
-	Description       string `json:"description"`
-	SellerID          string `json:"seller_id"`
-	ProductURL        string `json:"product_url,omitempty"`
+	ProductRetailerID string                 `json:"product_retailer_id"`
+	Name              string                 `json:"name"`
+	Price             string                 `json:"price"`
+	SalePrice         string                 `json:"sale_price,omitempty"`
+	Currency          string                 `json:"currency"`
+	Image             string                 `json:"image"`
+	Description       string                 `json:"description"`
+	SellerID          string                 `json:"seller_id"`
+	ProductURL        string                 `json:"product_url,omitempty"`
+	Extra             map[string]interface{} `json:"extra,omitempty"`
 }
 
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
@@ -540,6 +541,9 @@ func extractProductSections(products []map[string]interface{}) []wwcSection {
 						}
 						if productURL, ok := priMap["product_url"].(string); ok {
 							item.ProductURL = productURL
+						}
+						if extra, ok := priMap["extra"].(map[string]interface{}); ok {
+							item.Extra = extra
 						}
 						section.ProductItems = append(section.ProductItems, item)
 					}

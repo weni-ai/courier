@@ -4047,6 +4047,9 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 	if err != nil {
 		return "", logs, errors.Wrapf(err, "error builing media request")
 	}
+	if isTemplate {
+		req.Header.Set("Accept", "image/webp,image/png,image/jpeg,image/*,*/*;q=0.8")
+	}
 	rr, err := utils.MakeHTTPRequest(req)
 	log := courier.NewChannelLogFromRR("Fetching media", msg.Channel(), msg.ID(), rr).WithError("error fetching media", err)
 	logs = append(logs, log)

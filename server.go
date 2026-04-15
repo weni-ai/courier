@@ -589,6 +589,11 @@ func (s *server) CheckS3() error {
 }
 
 func handleBilling(s *server, msg Msg) error {
+	isMultiAgentsConf := msg.Channel().OrgConfigForKey("is_multi_agents", false)
+	isMultiAgents, _ := isMultiAgentsConf.(bool) // if true project is ab2, publish only if is ab1
+	if isMultiAgents {
+		return nil
+	}
 	billingMsg := billing.NewMessage(
 		string(msg.URN().Identity()),
 		"",

@@ -150,6 +150,10 @@ func (c *rabbitmqRetryClient) Send(msg Message, routingKey string) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to publish msg to billing")
 	}
+	logrus.WithFields(logrus.Fields{
+		"routing_key": routingKey,
+		"msg":         string(msgMarshalled),
+	}).Info("message published to billing")
 	return nil
 }
 

@@ -65,6 +65,10 @@ INSERT INTO
 RETURNING id
 `
 
+const updateContactNameSQL = `
+UPDATE contacts_contact SET name = $1, modified_on = $2 WHERE id = $3 AND (name IS NULL OR name = '')
+`
+
 // insertContact inserts the passed in contact, the id field will be populated with the result on success
 func insertContact(tx *sqlx.Tx, contact *DBContact) error {
 	rows, err := tx.NamedQuery(insertContactSQL, contact)
@@ -179,7 +183,6 @@ func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChanne
 
 	// we found it, return it
 	if err != sql.ErrNoRows {
-		// insert it
 		tx, err := b.db.BeginTxx(ctx, nil)
 		if err != nil {
 			logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
@@ -192,6 +195,20 @@ func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChanne
 			tx.Rollback()
 			return nil, err
 		}
+
+		if name != "" && !channel.OrgIsAnon() && string(contact.Name_) == "" {
+			if utf8.RuneCountInString(name) > 128 {
+				name = string([]rune(name)[:127])
+			}
+			_, err = tx.Exec(updateContactNameSQL, name, time.Now(), contact.ID_)
+			if err != nil {
+				logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error updating contact name")
+				tx.Rollback()
+				return nil, err
+			}
+			contact.Name_ = null.String(name)
+		}
+
 		return contact, tx.Commit()
 	}
 

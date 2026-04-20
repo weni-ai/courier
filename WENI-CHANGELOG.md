@@ -1,3 +1,7 @@
+1.50.0
+----------
+ * feat: Update contact handling to support name updates and truncation in backend tests
+
 1.49.1
 ----------
  * feat: Add Extra field to product for wwc-socket messages

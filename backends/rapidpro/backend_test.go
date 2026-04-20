@@ -420,6 +420,23 @@ func (ts *BackendTestSuite) TestContact() {
 	ts.Equal(null.String(""), contact.Name_)
 	ts.Equal("a984069d-0008-4d8c-a772-b14a8a6acccc", contact.UUID_.String())
 
+	// contact created without a name, then looked up with a name should get updated
+	urnNoName, _ := urns.NewTelURNForCountry("12065551520", "US")
+	contactNoName, err := contactForURN(ctx, ts.b, knChannel.OrgID(), knChannel, urnNoName, "", "")
+	ts.NoError(err)
+	ts.Equal(null.String(""), contactNoName.Name_)
+
+	contactUpdated, err := contactForURN(ctx, ts.b, knChannel.OrgID(), knChannel, urnNoName, "", "New Push Name")
+	ts.NoError(err)
+	ts.Equal(contactNoName.ID_, contactUpdated.ID_)
+	ts.Equal(null.String("New Push Name"), contactUpdated.Name_)
+
+	// once name is set, it should not be overwritten by a different name
+	contactNotOverwritten, err := contactForURN(ctx, ts.b, knChannel.OrgID(), knChannel, urnNoName, "", "Another Name")
+	ts.NoError(err)
+	ts.Equal(contactNoName.ID_, contactNotOverwritten.ID_)
+	ts.Equal(null.String("New Push Name"), contactNotOverwritten.Name_)
+
 	urn, _ = urns.NewTelURNForCountry("12065551519", "US")
 
 	// long name are truncated
@@ -429,6 +446,14 @@ func (ts *BackendTestSuite) TestContact() {
 	ts.NoError(err)
 
 	ts.Equal(null.String(longName[0:127]), contact3.Name_)
+
+	// long name should also be truncated when updating an existing contact with empty name
+	urnLongUpdate, _ := urns.NewTelURNForCountry("12065551521", "US")
+	_, err = contactForURN(ctx, ts.b, knChannel.OrgID(), knChannel, urnLongUpdate, "", "")
+	ts.NoError(err)
+	contactLongUpdate, err := contactForURN(ctx, ts.b, knChannel.OrgID(), knChannel, urnLongUpdate, "", longName)
+	ts.NoError(err)
+	ts.Equal(null.String(longName[0:127]), contactLongUpdate.Name_)
 
 }
 

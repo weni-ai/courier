@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/gomodule/redigo/redis"
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/batch"
 	"github.com/nyaruka/courier/metrics"
@@ -749,16 +750,21 @@ func (b *backend) Start() error {
 	}
 
 	// create our storage (S3 or file system)
-	if b.config.AWSAccessKeyID != "" {
-		s3Client, err := storage.NewS3Client(&storage.S3Options{
-			AWSAccessKeyID:     b.config.AWSAccessKeyID,
-			AWSSecretAccessKey: b.config.AWSSecretAccessKey,
-			Endpoint:           b.config.S3Endpoint,
+	if b.config.AWSAccessKeyID != "" || b.config.S3UseIamRole {
+		s3Opts := &storage.S3Options{
+			AWSAccessKeyID:     b.config.AWSAccessKeyID,     // can be empty for IAM role
+			AWSSecretAccessKey: b.config.AWSSecretAccessKey, // can be empty for IAM role
 			Region:             b.config.S3Region,
 			DisableSSL:         b.config.S3DisableSSL,
 			ForcePathStyle:     b.config.S3ForcePathStyle,
 			MaxRetries:         3,
-		})
+		}
+		// Only set endpoint if explicitly configured (non-empty)
+		// Empty endpoint allows SDK to auto-discover endpoints (required for IAM role/WebIdentity)
+		if b.config.S3Endpoint != "" {
+			s3Opts.Endpoint = b.config.S3Endpoint
+		}
+		s3Client, err := storage.NewS3Client(s3Opts)
 		if err != nil {
 			return err
 		}
@@ -927,4 +933,25 @@ func (b *backend) GetMessage(ctx context.Context, msgUUID string) (courier.Msg, 
 
 func (b *backend) GetProjectUUIDFromChannelUUID(ctx context.Context, channelUUID courier.ChannelUUID) (string, error) {
 	return getProjectUUIDFromChannelUUID(ctx, b.db, channelUUID.String())
+}
+
+const updateMsgAttachmentsSQL = `
+UPDATE
+	msgs_msg
+SET
+	attachments = $2
+WHERE
+	id = $1
+`
+
+// UpdateMsgAttachments updates the attachments of an outgoing message with presigned URLs
+func (b *backend) UpdateMsgAttachments(ctx context.Context, msgID courier.MsgID, attachments []string) error {
+	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
+	defer cancel()
+
+	_, err := b.db.ExecContext(timeout, updateMsgAttachmentsSQL, msgID, pq.Array(attachments))
+	if err != nil {
+		return errors.Wrap(err, "error updating message attachments")
+	}
+	return nil
 }

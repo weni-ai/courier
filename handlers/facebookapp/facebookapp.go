@@ -265,6 +265,7 @@ type moPayload struct {
 							LastFourDigits   string `json:"last_four_digits"`
 							CredentialID     string `json:"credential_id"`
 						} `json:"payment_method,omitempty"`
+						PaymentNotification interface{} `json:"payment_notification,omitempty"`
 					} `json:"interactive,omitempty"`
 					Contacts []struct {
 						Name struct {
@@ -476,6 +477,13 @@ func processWACPaymentMethodMetadata(paymentMethod interface{}) *wacMessageMetad
 	return &wacMessageMetadata{
 		Key:   "payment_method",
 		Value: paymentMethod,
+	}
+}
+
+func processWACPaymentNotificationMetadata(paymentNotification interface{}) *wacMessageMetadata {
+	return &wacMessageMetadata{
+		Key:   "payment_notification",
+		Value: paymentNotification,
 	}
 }
 
@@ -857,6 +865,8 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					text = strings.Join(phones, ", ")
 				} else if msg.Type == "interactive" && msg.Interactive.Type == "payment_method" {
 					text = ""
+				} else if msg.Type == "interactive" && msg.Interactive.Type == "payment_notification" {
+					text = ""
 				} else if msg.Type == "reaction" {
 					data = append(data, courier.NewInfoData("ignoring echo reaction message"))
 					continue
@@ -890,6 +900,8 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					}
 				} else if msg.Interactive.Type == "payment_method" {
 					wacMeta = processWACPaymentMethodMetadata(msg.Interactive.PaymentMethod)
+				} else if msg.Interactive.Type == "payment_notification" {
+					wacMeta = processWACPaymentNotificationMetadata(msg.Interactive.PaymentNotification)
 				}
 
 				if wacMeta != nil {
@@ -982,19 +994,20 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 							billingMsg := billing.NewMessage(
 								string(urn.Identity()),
 								"",
-								contactNames[status.RecipientID],
-								channel.UUID().String(),
-								status.ID,
-								time.Now().Format(time.RFC3339),
-								"",
-								channel.ChannelType().String(),
-								"",
-								nil,
-								nil,
-								false,
-								"",
-								string(msgStatus),
-							)
+							contactNames[status.RecipientID],
+							channel.UUID().String(),
+							status.ID,
+							time.Now().Format(time.RFC3339),
+							"",
+							channel.ChannelType().String(),
+							"",
+							nil,
+							nil,
+							false,
+							"",
+							string(msgStatus),
+							0,
+						)
 							h.Server().Billing().SendAsync(billingMsg, billing.RoutingKeyUpdate, nil, nil)
 						}
 					}
@@ -1803,8 +1816,32 @@ type wacMTButton struct {
 	QuickReply *mtQuickReply `json:"quick_reply,omitempty"` // standard field used for messages with quick replies in the carousel
 }
 
+type wacPaymentRequestPixDynamicCode struct {
+	Code string `json:"code"`
+}
+
+type wacPaymentRequestBoleto struct {
+	DigitableLine string `json:"digitable_line"`
+}
+
+type wacPaymentRequestPaymentLink struct {
+	URI string `json:"uri"`
+}
+
+type wacPaymentRequestPaymentSetting struct {
+	Type           string                           `json:"type"`
+	PixDynamicCode *wacPaymentRequestPixDynamicCode `json:"pix_dynamic_code,omitempty"`
+	Boleto         *wacPaymentRequestBoleto         `json:"boleto,omitempty"`
+	PaymentLink    *wacPaymentRequestPaymentLink    `json:"payment_link,omitempty"`
+}
+
+type wacPaymentRequest struct {
+	PaymentSetting wacPaymentRequestPaymentSetting `json:"payment_setting"`
+}
+
 type wacMTAction struct {
-	OrderDetails *wacOrderDetails `json:"order_details,omitempty"`
+	OrderDetails   *wacOrderDetails   `json:"order_details,omitempty"`
+	PaymentRequest *wacPaymentRequest `json:"payment_request,omitempty"`
 }
 
 type wacParam struct {
@@ -2036,6 +2073,9 @@ func (h *handler) fillWACPayloadByInteractionType(i int, msg courier.Msg, msgPar
 		}
 	case "flow_msg":
 		if flowMessage := msg.FlowMessage(); flowMessage != nil {
+			if flowMessage.FlowToken == "" {
+				flowMessage.FlowToken = string(uuids.New())
+			}
 			interactive := wacInteractive[map[string]any]{
 				Type: "flow",
 				Body: struct {
@@ -2055,7 +2095,7 @@ func (h *handler) fillWACPayloadByInteractionType(i int, msg courier.Msg, msgPar
 					Parameters: map[string]interface{}{
 						"mode":                 flowMessage.FlowMode,
 						"flow_message_version": "3",
-						"flow_token":           uuids.New(),
+						"flow_token":           flowMessage.FlowToken,
 						"flow_id":              flowMessage.FlowID,
 						"flow_cta":             flowMessage.FlowCTA,
 						"flow_action":          "navigate",
@@ -2443,6 +2483,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						}
 					} else if msg.InteractionType() == "flow_msg" {
 						if flowMessage := msg.FlowMessage(); flowMessage != nil {
+							if flowMessage.FlowToken == "" {
+								flowMessage.FlowToken = string(uuids.New())
+							}
 							payload.Type = "interactive"
 							interactive := wacInteractive[map[string]any]{
 								Type: "flow",
@@ -2463,7 +2506,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 									Parameters: map[string]interface{}{
 										"mode":                 flowMessage.FlowMode,
 										"flow_message_version": "3",
-										"flow_token":           uuids.New(),
+										"flow_token":           flowMessage.FlowToken,
 										"flow_id":              flowMessage.FlowID,
 										"flow_cta":             flowMessage.FlowCTA,
 										"flow_action":          "navigate",
@@ -3405,14 +3448,40 @@ func (h *handler) buildTemplateComponents(msg courier.Msg, templating *MsgTempla
 	if len(msg.Buttons()) > 0 {
 		for i, button := range msg.Buttons() {
 			buttonComponent := &wacComponent{Type: "button", SubType: button.SubType, Index: &i}
-			for _, parameter := range button.Parameters {
-				buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: parameter.Type, Text: parameter.Text})
+			if button.SubType == "payment_request" {
+				for _, parameter := range button.Parameters {
+					buttonComponent.Params = append(buttonComponent.Params, buildPaymentRequestParam(parameter))
+				}
+			} else {
+				for _, parameter := range button.Parameters {
+					buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: parameter.Type, Text: parameter.Text})
+				}
 			}
 			components = append(components, buttonComponent)
 		}
 	}
 
 	return components, nil
+}
+
+func buildPaymentRequestParam(parameter courier.ButtonParam) *wacParam {
+	setting := wacPaymentRequestPaymentSetting{Type: parameter.Type}
+	switch parameter.Type {
+	case "pix_dynamic_code":
+		setting.PixDynamicCode = &wacPaymentRequestPixDynamicCode{Code: parameter.Text}
+	case "boleto":
+		setting.Boleto = &wacPaymentRequestBoleto{DigitableLine: parameter.Text}
+	case "payment_link":
+		setting.PaymentLink = &wacPaymentRequestPaymentLink{URI: parameter.Text}
+	}
+	return &wacParam{
+		Type: "action",
+		Action: &wacMTAction{
+			PaymentRequest: &wacPaymentRequest{
+				PaymentSetting: setting,
+			},
+		},
+	}
 }
 
 // buildHeaderComponent builds a single header component with media attachment

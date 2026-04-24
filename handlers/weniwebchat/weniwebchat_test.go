@@ -673,8 +673,54 @@ var productSendTestCases = []ChannelSendTestCase{
 		SendPrep:       prepareSendMsg,
 		Metadata:       json.RawMessage(`{"products":[{"product":"Product Name","product_retailer_info":[{"retailer_id":"product-123","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001","product_url":"https://store.example.com/tv-50"}]}],"action":"View Product"}`),
 	},
+	{
+		Label:          "Product with extra metadata on retailer info",
+		Text:           "Product includes custom extra fields",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Product includes custom extra fields","interactive":{"type":"product_list","action":{"sections":[{"title":"Product Name","product_items":[{"product_retailer_id":"product-123","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001","extra":{"sku":"ABC123","variant_id":"v1"}}]}],"name":"View Product"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+		Metadata:       json.RawMessage(`{"products":[{"product":"Product Name","product_retailer_info":[{"retailer_id":"product-123","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001","extra":{"sku":"ABC123","variant_id":"v1"}}]}],"action":"View Product"}`),
+	},
 }
 
 func TestProductSending(t *testing.T) {
 	RunChannelSendTestCases(t, testChannels[0], newHandler(), productSendTestCases, nil)
+}
+
+func TestExtractProductSectionsExtra(t *testing.T) {
+	products := []map[string]interface{}{
+		{
+			"product": "Electronics",
+			"product_retailer_info": []interface{}{
+				map[string]interface{}{
+					"retailer_id": "p-1",
+					"name":        "Item",
+					"price":       "10.00",
+					"currency":    "BRL",
+					"image":       "https://example.com/i.jpg",
+					"description": "Desc",
+					"seller_id":   "seller-1",
+					"extra": map[string]interface{}{
+						"sku":        "SKU-9",
+						"variant_id": "var-2",
+					},
+				},
+			},
+		},
+	}
+	sections := extractProductSections(products)
+	if len(sections) != 1 || len(sections[0].ProductItems) != 1 {
+		t.Fatalf("expected 1 section with 1 product, got %d sections", len(sections))
+	}
+	item := sections[0].ProductItems[0]
+	if item.Extra == nil {
+		t.Fatal("expected Extra to be set")
+	}
+	if item.Extra["sku"] != "SKU-9" || item.Extra["variant_id"] != "var-2" {
+		t.Errorf("Extra = %#v, want sku=SKU-9 variant_id=var-2", item.Extra)
+	}
 }

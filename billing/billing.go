@@ -42,10 +42,11 @@ type Message struct {
 	ChatsUUID    string   `json:"chats_uuid,omitempty"`
 	Status       string   `json:"status,omitempty"`
 	TemplateUUID string   `json:"template_uuid,omitempty"`
+	BroadcastID  int64    `json:"broadcast_id,omitempty"`
 }
 
 // Create a new message
-func NewMessage(contactURN, contactUUID, name, channelUUID, messageID, messageDate, direction, channelType, text string, attachments, quickreplies []string, fromTicketer bool, chatsUUID string, status string) Message {
+func NewMessage(contactURN, contactUUID, name, channelUUID, messageID, messageDate, direction, channelType, text string, attachments, quickreplies []string, fromTicketer bool, chatsUUID string, status string, broadcastID int64) Message {
 	return Message{
 		ContactURN:   contactURN,
 		ContactUUID:  contactUUID,
@@ -61,6 +62,7 @@ func NewMessage(contactURN, contactUUID, name, channelUUID, messageID, messageDa
 		FromTicketer: fromTicketer,
 		ChatsUUID:    chatsUUID,
 		Status:       status,
+		BroadcastID:  broadcastID,
 	}
 }
 

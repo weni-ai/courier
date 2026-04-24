@@ -158,6 +158,8 @@ type Msg interface {
 
 	ActionType() MsgActionType
 	ActionExternalID() string
+
+	BroadcastID() int64
 }
 
 type ButtonComponent struct {
@@ -186,6 +188,7 @@ type FlowMessage struct {
 	FlowData   map[string]interface{} `json:"flow_data"`
 	FlowCTA    string                 `json:"flow_cta"`
 	FlowMode   string                 `json:"flow_mode"`
+	FlowToken  string                 `json:"flow_token"`
 }
 
 type ListItems struct {

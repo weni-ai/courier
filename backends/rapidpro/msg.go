@@ -576,6 +576,8 @@ type DBMsg struct {
 	SessionWaitStartedOn_ *time.Time `json:"session_wait_started_on,omitempty"`
 	SessionStatus_        string     `json:"session_status,omitempty"`
 
+	BroadcastID_ int64 `json:"broadcast_id,omitempty"`
+
 	channel        *DBChannel
 	workerToken    queue.WorkerToken
 	alreadyWritten bool
@@ -980,6 +982,9 @@ func (m *DBMsg) FlowMessage() *courier.FlowMessage {
 			if flowMode, ok := flowMessageData["flow_mode"].(string); ok {
 				flowMessage.FlowMode = strings.ToLower(flowMode)
 			}
+			if flowToken, ok := flowMessageData["flow_token"].(string); ok {
+				flowMessage.FlowToken = flowToken
+			}
 			return flowMessage
 		}
 	}
@@ -1216,3 +1221,5 @@ func (m *DBMsg) ActionExternalID() string {
 	actionExternalID, _, _, _ := jsonparser.Get(*m.Metadata_, "action_external_id")
 	return string(actionExternalID)
 }
+
+func (m *DBMsg) BroadcastID() int64 { return m.BroadcastID_ }

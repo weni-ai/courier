@@ -1,3 +1,7 @@
+1.50.1
+----------
+ * feat: check if org is not ab2(is_multi_agents) before publish billing message event
+
 1.50.0
 ----------
  * feat: Update contact handling to support name updates and truncation in backend tests

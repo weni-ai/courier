@@ -10,9 +10,7 @@ import (
 	"github.com/nyaruka/courier/billing"
 	"github.com/nyaruka/courier/metrics"
 	"github.com/nyaruka/courier/templates"
-	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/librato"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -253,63 +251,6 @@ func (w *Sender) sendMessage(msg Msg) {
 		log.Error("message loop detected, failing message")
 	} else {
 
-		waitMediaChannels := w.foreman.server.Config().WaitMediaChannels
-		msgChannel := msg.Channel().ChannelType().String()
-		mustWait := utils.StringArrayContains(waitMediaChannels, msgChannel)
-
-		if mustWait {
-			// check if previous message is already Delivered
-			msgUUID := msg.UUID().String()
-
-			if msgUUID != "" {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Second*35)
-				defer cancel()
-
-				msgEvents, err := server.Backend().GetRunEventsByMsgUUIDFromDB(ctx, msgUUID)
-
-				if err != nil {
-					log.Error(errors.Wrap(err, "unable to get events"))
-				}
-
-				if msgEvents != nil {
-
-					msgIndex := func(slice []RunEvent, item string) int {
-						for i := range slice {
-							if slice[i].Msg.UUID == item {
-								return i
-							}
-						}
-						return -1
-					}(msgEvents, msg.UUID().String())
-
-					if msgIndex > 0 {
-						ctx, cancel := context.WithTimeout(context.Background(), time.Second*35)
-						defer cancel()
-						previousEventMsgUUID := msgEvents[msgIndex-1].Msg.UUID
-						tries := 0
-						tryLimit := w.foreman.server.Config().WaitMediaCount
-						for tries < tryLimit {
-							tries++
-							prevMsg, err := server.Backend().GetMessage(ctx, previousEventMsgUUID)
-							if err != nil {
-								log.Error(errors.Wrap(err, "GetMessage for previous message failed"))
-								break
-							}
-							if prevMsg != nil {
-								if prevMsg.Status() != MsgDelivered &&
-									prevMsg.Status() != MsgRead {
-									sleepDuration := time.Duration(w.foreman.server.Config().WaitMediaSleepDuration)
-									time.Sleep(time.Millisecond * sleepDuration)
-									continue
-								}
-							}
-							break
-						}
-					}
-				}
-			}
-		}
-
 		nsendCTX, ncancel := context.WithTimeout(context.Background(), time.Second*35)
 		defer ncancel()
 		// send our message
@@ -340,9 +281,12 @@ func (w *Sender) sendMessage(msg Msg) {
 		}
 
 		sentOk := status.Status() != MsgErrored && status.Status() != MsgFailed
-		if sentOk {
-			isTemplateMessage, metadata := isTemplateMessage(msg)
+		isMultiAgentsConf := msg.Channel().OrgConfigForKey("is_multi_agents", false)
+		isMultiAgents, _ := isMultiAgentsConf.(bool)
+		billingPublishOk := sentOk && !isMultiAgents
+		isTemplateMessage, metadata := isTemplateMessage(msg)
 
+		if billingPublishOk {
 			if w.foreman.server.Billing() != nil {
 				chatsUUID, _ := jsonparser.GetString(msg.Metadata(), "chats_msg_uuid")
 				ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
@@ -375,36 +319,36 @@ func (w *Sender) sendMessage(msg Msg) {
 				}
 				w.foreman.server.Billing().SendAsync(billingMsg, billing.RoutingKeyCreate, nil, nil)
 			}
+		}
 
-			if w.foreman.server.Templates() != nil && isTemplateMessage {
-				templatingData := metadata.Templating
-				templateName := templatingData.Template.Name
-				templateUUID := templatingData.Template.UUID
-				templateLanguage := templatingData.Language
-				templateNamespace := templatingData.Namespace
+		if w.foreman.server.Templates() != nil && isTemplateMessage {
+			templatingData := metadata.Templating
+			templateName := templatingData.Template.Name
+			templateUUID := templatingData.Template.UUID
+			templateLanguage := templatingData.Language
+			templateNamespace := templatingData.Namespace
 
-				var templateVariables []string
-				if templatingData.Variables != nil {
-					templateVariables = templatingData.Variables
-				}
-
-				templateMsg := templates.NewTemplateMessage(
-					string(msg.URN().Identity()),
-					"",
-					msg.Channel().UUID().String(),
-					status.ExternalID(),
-					time.Now().Format(time.RFC3339),
-					"O",
-					msg.Channel().ChannelType().String(),
-					msg.Text(),
-					templateName,
-					templateUUID,
-					templateLanguage,
-					templateNamespace,
-					templateVariables,
-				)
-				w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
+			var templateVariables []string
+			if templatingData.Variables != nil {
+				templateVariables = templatingData.Variables
 			}
+
+			templateMsg := templates.NewTemplateMessage(
+				string(msg.URN().Identity()),
+				"",
+				msg.Channel().UUID().String(),
+				status.ExternalID(),
+				time.Now().Format(time.RFC3339),
+				"O",
+				msg.Channel().ChannelType().String(),
+				msg.Text(),
+				templateName,
+				templateUUID,
+				templateLanguage,
+				templateNamespace,
+				templateVariables,
+			)
+			w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
 		}
 	}
 

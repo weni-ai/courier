@@ -374,6 +374,7 @@ func (w *Sender) sendMessage(msg Msg) {
 				templateLanguage,
 				templateNamespace,
 				templateVariables,
+				msg.BroadcastID(),
 			)
 			w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
 		}

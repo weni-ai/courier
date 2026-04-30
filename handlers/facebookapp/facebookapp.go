@@ -994,20 +994,20 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 							billingMsg := billing.NewMessage(
 								string(urn.Identity()),
 								"",
-							contactNames[status.RecipientID],
-							channel.UUID().String(),
-							status.ID,
-							time.Now().Format(time.RFC3339),
-							"",
-							channel.ChannelType().String(),
-							"",
-							nil,
-							nil,
-							false,
-							"",
-							string(msgStatus),
-							0,
-						)
+								contactNames[status.RecipientID],
+								channel.UUID().String(),
+								status.ID,
+								time.Now().Format(time.RFC3339),
+								"",
+								channel.ChannelType().String(),
+								"",
+								nil,
+								nil,
+								false,
+								"",
+								string(msgStatus),
+								0,
+							)
 							h.Server().Billing().SendAsync(billingMsg, billing.RoutingKeyUpdate, nil, nil)
 						}
 					}
@@ -1026,6 +1026,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 								status.ID,
 								string(msgStatus),
 								templateType,
+								0,
 							)
 							h.Server().Templates().SendAsync(statusMsg, templates.RoutingKeyStatus, nil, nil)
 						}

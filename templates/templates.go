@@ -34,6 +34,7 @@ type TemplateMessage struct {
 	TemplateVariables []string `json:"template_variables,omitempty"`
 	Status            string   `json:"status,omitempty"`
 	TemplateType      string   `json:"template_type,omitempty"`
+	BroadcastID       int64    `json:"broadcast_id,omitempty"`
 }
 
 // NewTemplateMessage cria uma nova mensagem de template
@@ -41,7 +42,7 @@ func NewTemplateMessage(
 	contactURN, contactUUID, channelUUID, messageID, messageDate,
 	direction, channelType, text,
 	templateName, templateUUID, templateLanguage, templateNamespace string,
-	templateVariables []string) TemplateMessage {
+	templateVariables []string, broadcastID int64) TemplateMessage {
 
 	return TemplateMessage{
 		ContactURN:        contactURN,
@@ -57,12 +58,13 @@ func NewTemplateMessage(
 		TemplateLanguage:  templateLanguage,
 		TemplateNamespace: templateNamespace,
 		TemplateVariables: templateVariables,
+		BroadcastID:       broadcastID,
 	}
 }
 
 // NewTemplateStatusMessage cria uma nova mensagem de status de template
 func NewTemplateStatusMessage(
-	contactURN, channelUUID, messageID, status, templateType string) TemplateMessage {
+	contactURN, channelUUID, messageID, status, templateType string, broadcastID int64) TemplateMessage {
 
 	return TemplateMessage{
 		ContactURN:   contactURN,
@@ -71,6 +73,7 @@ func NewTemplateStatusMessage(
 		MessageDate:  time.Now().Format(time.RFC3339),
 		Status:       status,
 		TemplateType: templateType,
+		BroadcastID:  broadcastID,
 	}
 }
 

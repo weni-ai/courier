@@ -178,6 +178,14 @@ func (c *rabbitmqClient) send(msg TemplateMessage, routingKey string) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to publish template message")
 	}
+	logrus.WithFields(logrus.Fields{
+		"exchange_name": c.exchangeName,
+		"routing_key":   routingKey,
+		"msg":           string(msgMarshalled),
+		"contact_urn":   msg.ContactURN,
+		"template_name": msg.TemplateName,
+		"status":        msg.Status,
+	}).Info("message published to templates")
 	return nil
 }
 

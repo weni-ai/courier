@@ -84,6 +84,30 @@ var waTemplateTypeMapping = map[string]string{
 	"utility":        "utility",
 }
 
+// waTemplateTypeFromMetadata extracts the template type for a status update by
+// inspecting the metadata of the original outbound message. It returns the
+// mapped template type (one of the values in waTemplateTypeMapping) or an
+// empty string when the message is not a template, the category is missing,
+// or the category is unknown — preserving the previous "only known categories
+// trigger a publish" semantics.
+func waTemplateTypeFromMetadata(metadata json.RawMessage) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+	if _, _, _, err := jsonparser.Get(metadata, "templating"); err != nil {
+		return ""
+	}
+	category, err := jsonparser.GetString(metadata, "templating", "template", "category")
+	if err != nil || category == "" {
+		return ""
+	}
+	templateType, ok := waTemplateTypeMapping[strings.ToLower(category)]
+	if !ok {
+		return ""
+	}
+	return templateType
+}
+
 var waIgnoreStatuses = map[string]bool{
 	"deleted": true,
 }
@@ -1013,9 +1037,8 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					}
 				}
 
-				if status.Conversation != nil {
-					templateType, isTemplateMessage := waTemplateTypeMapping[status.Conversation.Origin.Type]
-					if isTemplateMessage && h.Server().Templates() != nil {
+				if h.Server().Templates() != nil {
+					if templateType := waTemplateTypeFromMetadata(event.Metadata()); templateType != "" {
 						urn, err := urns.NewWhatsAppURN(status.RecipientID)
 						if err != nil {
 							handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)

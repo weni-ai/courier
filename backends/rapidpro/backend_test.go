@@ -888,6 +888,28 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	ts.NoError(tx.Commit())
 }
 
+func (ts *BackendTestSuite) TestStatusMetadataReturning() {
+	ctx := context.Background()
+	channel := ts.getChannel("KN", "dbc126ed-66bc-4e28-b67b-81dc3327c95d")
+
+	expectedMetadata := `{"templating":{"template":{"name":"hi","uuid":"abc","category":"MARKETING"}}}`
+
+	// seed metadata on the existing test message (id 10000, external_id ext1)
+	_, err := ts.b.db.ExecContext(ctx, `UPDATE msgs_msg SET metadata = $1 WHERE id = 10000`, expectedMetadata)
+	ts.NoError(err)
+
+	// hit the external-id path so the new RETURNING clause runs
+	status := ts.b.NewMsgStatusForExternalID(channel, "ext1", courier.MsgDelivered)
+	ts.NoError(ts.b.WriteMsgStatus(ctx, status))
+
+	ts.JSONEq(expectedMetadata, string(status.Metadata()))
+
+	// id-path statuses should still work and leave Metadata nil (no RETURNING change there)
+	statusByID := ts.b.NewMsgStatusForID(channel, courier.NewMsgID(10000), courier.MsgRead)
+	ts.NoError(ts.b.WriteMsgStatus(ctx, statusByID))
+	ts.Nil(statusByID.Metadata())
+}
+
 func (ts *BackendTestSuite) TestContactLastSeenWithName() {
 	ctx := context.Background()
 	channel := ts.getChannel("TG", "dbc126ed-66bc-4e28-b67b-81dc3327c98a")

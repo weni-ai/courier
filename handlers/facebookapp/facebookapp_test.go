@@ -1840,3 +1840,29 @@ func TestSendingWCD(t *testing.T) {
 
 	RunChannelSendTestCases(t, ChannelWCD, newWACDemoHandler("WCD", "WhatsApp Cloud Demo"), SendTestCasesWCD, nil)
 }
+
+func TestWaTemplateTypeFromMetadata(t *testing.T) {
+	cases := []struct {
+		label    string
+		metadata string
+		expected string
+	}{
+		{"empty metadata", ``, ""},
+		{"nil metadata bytes", `null`, ""},
+		{"non-template metadata", `{"topic":"event","text_language":"eng"}`, ""},
+		{"templating without category", `{"templating":{"template":{"name":"hi","uuid":"abc"},"language":"eng"}}`, ""},
+		{"category MARKETING", `{"templating":{"template":{"name":"hi","uuid":"abc","category":"MARKETING"},"language":"eng"}}`, "marketing"},
+		{"category Utility mixed-case", `{"templating":{"template":{"name":"hi","uuid":"abc","category":"Utility"}}}`, "utility"},
+		{"category authentication lowercase", `{"templating":{"template":{"name":"otp","uuid":"abc","category":"authentication"}}}`, "authentication"},
+		{"unknown category", `{"templating":{"template":{"name":"hi","uuid":"abc","category":"SERVICE"}}}`, ""},
+		{"empty category string", `{"templating":{"template":{"name":"hi","uuid":"abc","category":""}}}`, ""},
+		{"malformed JSON", `{"templating":`, ""},
+	}
+
+	for _, c := range cases {
+		t.Run(c.label, func(t *testing.T) {
+			got := waTemplateTypeFromMetadata(json.RawMessage(c.metadata))
+			assert.Equal(t, c.expected, got)
+		})
+	}
+}

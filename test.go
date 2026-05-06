@@ -1184,6 +1184,7 @@ type mockMsgStatus struct {
 	externalID string
 	status     MsgStatusValue
 	createdOn  time.Time
+	metadata   json.RawMessage
 
 	logs []*ChannelLog
 }
@@ -1212,6 +1213,9 @@ func (m *mockMsgStatus) SetExternalID(id string) { m.externalID = id }
 
 func (m *mockMsgStatus) Status() MsgStatusValue          { return m.status }
 func (m *mockMsgStatus) SetStatus(status MsgStatusValue) { m.status = status }
+
+func (m *mockMsgStatus) Metadata() json.RawMessage              { return m.metadata }
+func (m *mockMsgStatus) SetMetadata(metadata json.RawMessage)   { m.metadata = metadata }
 
 func (m *mockMsgStatus) Logs() []*ChannelLog    { return m.logs }
 func (m *mockMsgStatus) AddLog(log *ChannelLog) { m.logs = append(m.logs, log) }

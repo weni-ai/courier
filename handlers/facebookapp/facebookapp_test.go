@@ -1847,16 +1847,34 @@ func TestWaTemplateTypeFromMetadata(t *testing.T) {
 		metadata string
 		expected string
 	}{
-		{"empty metadata", ``, ""},
-		{"nil metadata bytes", `null`, ""},
-		{"non-template metadata", `{"topic":"event","text_language":"eng"}`, ""},
-		{"templating without category", `{"templating":{"template":{"name":"hi","uuid":"abc"},"language":"eng"}}`, ""},
+		// happy paths
 		{"category MARKETING", `{"templating":{"template":{"name":"hi","uuid":"abc","category":"MARKETING"},"language":"eng"}}`, "marketing"},
 		{"category Utility mixed-case", `{"templating":{"template":{"name":"hi","uuid":"abc","category":"Utility"}}}`, "utility"},
 		{"category authentication lowercase", `{"templating":{"template":{"name":"otp","uuid":"abc","category":"authentication"}}}`, "authentication"},
+		{"object with leading whitespace", "  \t\n{\"templating\":{\"template\":{\"name\":\"hi\",\"uuid\":\"abc\",\"category\":\"MARKETING\"}}}", "marketing"},
+
+		// known no-publish cases
+		{"non-template metadata", `{"topic":"event","text_language":"eng"}`, ""},
+		{"templating without category", `{"templating":{"template":{"name":"hi","uuid":"abc"},"language":"eng"}}`, ""},
 		{"unknown category", `{"templating":{"template":{"name":"hi","uuid":"abc","category":"SERVICE"}}}`, ""},
 		{"empty category string", `{"templating":{"template":{"name":"hi","uuid":"abc","category":""}}}`, ""},
-		{"malformed JSON", `{"templating":`, ""},
+
+		// metadata column that isn't a JSON object — must skip without error
+		{"empty metadata", ``, ""},
+		{"whitespace only", `   `, ""},
+		{"literal null", `null`, ""},
+		{"literal true", `true`, ""},
+		{"literal number", `42`, ""},
+		{"json string", `"hello"`, ""},
+		{"json array", `[{"templating":{"template":{"category":"MARKETING"}}}]`, ""},
+		{"raw plain text", `hello world`, ""},
+
+		// malformed json inside an object — must not panic, must skip
+		{"malformed JSON truncated", `{"templating":`, ""},
+		{"malformed JSON unbalanced", `{"templating":{"template":{}`, ""},
+		{"malformed JSON garbage after object", `{} not json`, ""},
+		{"category not a string", `{"templating":{"template":{"category":123}}}`, ""},
+		{"category as object", `{"templating":{"template":{"category":{"name":"MARKETING"}}}}`, ""},
 	}
 
 	for _, c := range cases {

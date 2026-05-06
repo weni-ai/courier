@@ -199,9 +199,17 @@ func writeMsgStatusToDB(ctx context.Context, b *backend, status *DBMsgStatus) er
 	// scan the id (and metadata, when available) of the msg that was updated
 	if rows.Next() {
 		if status.ID() != courier.NilMsgID {
-			rows.Scan(&status.ID_)
+			if scanErr := rows.Scan(&status.ID_); scanErr != nil {
+				return scanErr
+			}
 		} else {
-			rows.Scan(&status.ID_, &status.Metadata_)
+			var metadataBytes []byte
+			if scanErr := rows.Scan(&status.ID_, &metadataBytes); scanErr != nil {
+				return scanErr
+			}
+			if len(metadataBytes) > 0 {
+				status.Metadata_ = json.RawMessage(metadataBytes)
+			}
 		}
 	} else {
 		return courier.ErrMsgNotFound

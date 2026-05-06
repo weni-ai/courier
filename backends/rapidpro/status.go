@@ -176,7 +176,7 @@ UPDATE msgs_msg SET
 WHERE 
 	msgs_msg.id = (SELECT msgs_msg.id FROM msgs_msg WHERE msgs_msg.external_id = :external_id AND msgs_msg.channel_id = :channel_id AND msgs_msg.direction = 'O' LIMIT 1)
 RETURNING 
-	msgs_msg.id
+	msgs_msg.id, msgs_msg.metadata
 `
 
 // writeMsgStatusToDB writes the passed in msg status to our db
@@ -196,9 +196,21 @@ func writeMsgStatusToDB(ctx context.Context, b *backend, status *DBMsgStatus) er
 	}
 	defer rows.Close()
 
-	// scan and read the id of the msg that was updated
+	// scan the id (and metadata, when available) of the msg that was updated
 	if rows.Next() {
-		rows.Scan(&status.ID_)
+		if status.ID() != courier.NilMsgID {
+			if scanErr := rows.Scan(&status.ID_); scanErr != nil {
+				return scanErr
+			}
+		} else {
+			var metadataBytes []byte
+			if scanErr := rows.Scan(&status.ID_, &metadataBytes); scanErr != nil {
+				return scanErr
+			}
+			if len(metadataBytes) > 0 {
+				status.Metadata_ = json.RawMessage(metadataBytes)
+			}
+		}
 	} else {
 		return courier.ErrMsgNotFound
 	}
@@ -306,6 +318,7 @@ type DBMsgStatus struct {
 	ExternalID_  string                 `json:"external_id,omitempty"    db:"external_id"`
 	Status_      courier.MsgStatusValue `json:"status"                   db:"status"`
 	ModifiedOn_  time.Time              `json:"modified_on"              db:"modified_on"`
+	Metadata_    json.RawMessage        `json:"-"                         db:"metadata"`
 
 	logs []*courier.ChannelLog
 }
@@ -359,3 +372,5 @@ func (s *DBMsgStatus) AddLog(log *courier.ChannelLog) { s.logs = append(s.logs, 
 
 func (s *DBMsgStatus) Status() courier.MsgStatusValue          { return s.Status_ }
 func (s *DBMsgStatus) SetStatus(status courier.MsgStatusValue) { s.Status_ = status }
+
+func (s *DBMsgStatus) Metadata() json.RawMessage { return s.Metadata_ }

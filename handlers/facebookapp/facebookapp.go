@@ -84,6 +84,52 @@ var waTemplateTypeMapping = map[string]string{
 	"utility":        "utility",
 }
 
+// waTemplateTypeFromMetadata extracts the template type for a status update by
+// inspecting the metadata of the original outbound message. It returns the
+// mapped template type (one of the values in waTemplateTypeMapping) or an
+// empty string when the message is not a template, the category is missing,
+// the category is unknown, or the metadata is not a parseable JSON object.
+//
+// The helper is intentionally lenient: the metadata column is loosely typed
+// upstream, so anything that isn't a JSON object containing a usable
+// templating block (nil, empty string, "null", scalars, arrays, malformed
+// JSON, raw text, etc.) is treated as "not a template" — the caller skips the
+// template-status publish in that case. A defer/recover guards against any
+// unexpected panic in the JSON parser so a single bad row never takes down
+// the webhook handler.
+func waTemplateTypeFromMetadata(metadata json.RawMessage) (templateType string) {
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.WithField("recover", r).Warn("recovered from panic in waTemplateTypeFromMetadata; skipping template-status publish")
+			templateType = ""
+		}
+	}()
+
+	if len(metadata) == 0 {
+		return ""
+	}
+	// only JSON objects can carry a templating block — short-circuit on
+	// anything else (null, scalars, arrays, raw text) before invoking the
+	// JSON parser.
+	trimmed := bytes.TrimSpace(metadata)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return ""
+	}
+
+	if _, _, _, err := jsonparser.Get(trimmed, "templating"); err != nil {
+		return ""
+	}
+	category, err := jsonparser.GetString(trimmed, "templating", "template", "category")
+	if err != nil || category == "" {
+		return ""
+	}
+	mapped, ok := waTemplateTypeMapping[strings.ToLower(category)]
+	if !ok {
+		return ""
+	}
+	return mapped
+}
+
 var waIgnoreStatuses = map[string]bool{
 	"deleted": true,
 }
@@ -994,28 +1040,27 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 							billingMsg := billing.NewMessage(
 								string(urn.Identity()),
 								"",
-							contactNames[status.RecipientID],
-							channel.UUID().String(),
-							status.ID,
-							time.Now().Format(time.RFC3339),
-							"",
-							channel.ChannelType().String(),
-							"",
-							nil,
-							nil,
-							false,
-							"",
-							string(msgStatus),
-							0,
-						)
+								contactNames[status.RecipientID],
+								channel.UUID().String(),
+								status.ID,
+								time.Now().Format(time.RFC3339),
+								"",
+								channel.ChannelType().String(),
+								"",
+								nil,
+								nil,
+								false,
+								"",
+								string(msgStatus),
+								0,
+							)
 							h.Server().Billing().SendAsync(billingMsg, billing.RoutingKeyUpdate, nil, nil)
 						}
 					}
 				}
 
-				if status.Conversation != nil {
-					templateType, isTemplateMessage := waTemplateTypeMapping[status.Conversation.Origin.Type]
-					if isTemplateMessage && h.Server().Templates() != nil {
+				if h.Server().Templates() != nil {
+					if templateType := waTemplateTypeFromMetadata(event.Metadata()); templateType != "" {
 						urn, err := urns.NewWhatsAppURN(status.RecipientID)
 						if err != nil {
 							handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
@@ -1026,6 +1071,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 								status.ID,
 								string(msgStatus),
 								templateType,
+								0,
 							)
 							h.Server().Templates().SendAsync(statusMsg, templates.RoutingKeyStatus, nil, nil)
 						}

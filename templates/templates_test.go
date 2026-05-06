@@ -111,6 +111,7 @@ func TestTemplateResilientClient(t *testing.T) {
 		"pt_BR",
 		"namespace-12345",
 		[]string{"João", "ativa"},
+		42,
 	)
 
 	templateClient, err := NewRMQTemplateClient(connURL, 3, 1000, templatesTestExchangeName)
@@ -154,6 +155,7 @@ func TestTemplateResilientClient(t *testing.T) {
 	assert.Equal(t, msg.TemplateUUID, receivedMsg.TemplateUUID)
 	assert.Equal(t, msg.TemplateLanguage, receivedMsg.TemplateLanguage)
 	assert.ElementsMatch(t, msg.TemplateVariables, receivedMsg.TemplateVariables)
+	assert.Equal(t, int64(42), receivedMsg.BroadcastID)
 }
 
 func TestTemplateResilientClientSendStatus(t *testing.T) {
@@ -177,6 +179,7 @@ func TestTemplateResilientClientSendStatus(t *testing.T) {
 		"msg-123456",
 		"delivered",
 		"marketing",
+		99,
 	)
 
 	templateClient, err := NewRMQTemplateClient(connURL, 3, 1000, templatesTestExchangeName)
@@ -217,6 +220,7 @@ func TestTemplateResilientClientSendStatus(t *testing.T) {
 	wg.Wait()
 	assert.Equal(t, msg.MessageID, receivedMsg.MessageID)
 	assert.Equal(t, msg.Status, receivedMsg.Status)
+	assert.Equal(t, int64(99), receivedMsg.BroadcastID)
 }
 
 func TestTemplateResilientClientSendAsync(t *testing.T) {
@@ -248,6 +252,7 @@ func TestTemplateResilientClientSendAsync(t *testing.T) {
 		"pt_BR",
 		"namespace-12345",
 		[]string{"João", "ativa"},
+		7,
 	)
 
 	templateClient, err := NewRMQTemplateClient(connURL, 3, 1000, templatesTestExchangeName)
@@ -329,6 +334,7 @@ func TestTemplateResilientClientSendAsyncWithPanic(t *testing.T) {
 		"pt_BR",
 		"namespace-12345",
 		[]string{"João", "ativa"},
+		0,
 	)
 
 	templateClient, err := NewRMQTemplateClient(connURL, 3, 1000, templatesTestExchangeName)

@@ -1,6 +1,10 @@
 package courier
 
-import "github.com/nyaruka/gocommon/urns"
+import (
+	"encoding/json"
+
+	"github.com/nyaruka/gocommon/urns"
+)
 
 // MsgStatusValue is the status of a message
 type MsgStatusValue string
@@ -38,6 +42,11 @@ type MsgStatus interface {
 
 	Status() MsgStatusValue
 	SetStatus(MsgStatusValue)
+
+	// Metadata returns the metadata of the underlying message row, when the
+	// backend populates it (e.g. via the RETURNING clause of the status update).
+	// Returns nil when not available.
+	Metadata() json.RawMessage
 
 	Logs() []*ChannelLog
 	AddLog(log *ChannelLog)

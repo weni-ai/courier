@@ -959,6 +959,11 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 			}
 
 			for _, status := range change.Value.Statuses {
+				logrus.WithFields(logrus.Fields{
+					"channel_uuid": channel.UUID().String(),
+					"status":       status.ID,
+					"msg_status":   status.Status,
+				}).Info("processing status message")
 
 				msgStatus, found := waStatusMapping[status.Status]
 				if !found {
@@ -1019,7 +1024,19 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 						urn, err := urns.NewWhatsAppURN(status.RecipientID)
 						if err != nil {
 							handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+							logrus.WithFields(logrus.Fields{
+								"channel_uuid": channel.UUID().String(),
+								"status":       status.ID,
+								"msg_status":   msgStatus,
+								"error":        err,
+							}).Info("error creating urn")
 						} else {
+							logrus.WithFields(logrus.Fields{
+								"channel_uuid": channel.UUID().String(),
+								"status":       status.ID,
+								"msg_status":   msgStatus,
+								"urn":          urn.Identity(),
+							}).Info("creating template status message")
 							statusMsg := templates.NewTemplateStatusMessage(
 								string(urn.Identity()),
 								channel.UUID().String(),
@@ -1030,7 +1047,20 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 							)
 							h.Server().Templates().SendAsync(statusMsg, templates.RoutingKeyStatus, nil, nil)
 						}
+					} else {
+						logrus.WithFields(logrus.Fields{
+							"channel_uuid":  channel.UUID().String(),
+							"status":        status.ID,
+							"msg_status":    msgStatus,
+							"template_type": templateType,
+						}).Info("status message not a template message")
 					}
+				} else {
+					logrus.WithFields(logrus.Fields{
+						"channel_uuid": channel.UUID().String(),
+						"status":       status.ID,
+						"msg_status":   msgStatus,
+					}).Info("status message not found")
 				}
 
 				events = append(events, event)

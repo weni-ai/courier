@@ -475,6 +475,18 @@ var testCasesWAC = []ChannelHandleTestCase{
 		}),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Reaction Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/reactionWAC.json")), Status: 200, Response: `"ignoring echo reaction message"`, PrepRequest: addValidSignatureWAC},
+
+	{Label: "Receive Message BSUID Only", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUID.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:US.13491208655302741918"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Message Phone and BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUIDWithPhone.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Message BSUID with Username", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUIDUsername.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:US.13491208655302741918"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Status BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/statusBSUID.json")), Status: 200, Response: `"type":"status"`,
+		MsgStatus: Sp("S"), ExternalID: Sp("external_id"), PrepRequest: addValidSignatureWAC},
 }
 
 func TestHandler(t *testing.T) {
@@ -1528,6 +1540,42 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		},
 		SendPrep: setSendURL,
 	},
+	{Label: "Plain Send BSUID",
+		Text: "Simple Message", URN: "whatsapp:US.13491208655302741918", Path: "/12345_ID/messages",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","recipient":"US.13491208655302741918","type":"text","text":{"body":"Simple Message"}}`,
+		SendPrep:    setSendURL},
+	{Label: "Plain Send Phone Number Regression",
+		Text: "Simple Message", URN: "whatsapp:250788123123", Path: "/12345_ID/messages",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"Simple Message"}}`,
+		SendPrep:    setSendURL},
+	{Label: "Audio Send BSUID",
+		Text:   "audio caption",
+		URN:    "whatsapp:US.13491208655302741918",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"audio/mpeg:https://foo.bar/audio.mp3"},
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","recipient":"US.13491208655302741918","type":"audio","audio":{"link":"https://foo.bar/audio.mp3"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","recipient":"US.13491208655302741918","type":"text","text":{"body":"audio caption"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
 }
 
 var CachedSendTestCasesWAC = []ChannelSendTestCase{

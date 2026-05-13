@@ -38,6 +38,7 @@ require (
 	github.com/lestrrat-go/jwx v1.2.25
 	github.com/prometheus/client_golang v1.22.0
 	go.uber.org/automaxprocs v1.6.0
+	golang.org/x/image v0.35.0
 	gopkg.in/go-playground/assert.v1 v1.2.1
 )
 
@@ -49,7 +50,6 @@ require (
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.62.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
-	golang.org/x/image v0.35.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	google.golang.org/protobuf v1.36.5 // indirect
 )
@@ -86,4 +86,4 @@ go 1.24.0
 
 toolchain go1.24.12
 
-replace github.com/nyaruka/gocommon => github.com/weni-ai/gocommon v1.16.4-weni-stg
+replace github.com/nyaruka/gocommon => github.com/weni-ai/gocommon v1.17.0-weni-stg

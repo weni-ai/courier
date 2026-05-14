@@ -961,17 +961,6 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				// create our message
 				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(msg.ID).WithContactName(contactName)
 
-				// add BSUID as secondary URN when both phone and BSUID are present
-				if msg.From != "" && msg.FromUserID != "" {
-					bsuidURN, bsuidErr := urns.NewWhatsAppURN(msg.FromUserID)
-					if bsuidErr == nil {
-						contact, contactErr := h.Backend().GetContact(ctx, channel, urn, "", "")
-						if contactErr == nil {
-							h.Backend().AddURNtoContact(ctx, channel, contact, bsuidURN)
-						}
-					}
-				}
-
 				// store username as contact field
 				contactFields := map[string]string{}
 				username := contactUsernames[msg.From]
@@ -1057,6 +1046,17 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				err = h.Backend().WriteMsg(ctx, event)
 				if err != nil {
 					return nil, nil, err
+				}
+
+				// add BSUID as secondary URN after contact is persisted
+				if msg.From != "" && msg.FromUserID != "" {
+					bsuidURN, bsuidErr := urns.NewWhatsAppURN(msg.FromUserID)
+					if bsuidErr == nil {
+						contact, contactErr := h.Backend().GetContact(ctx, channel, urn, "", "")
+						if contactErr == nil {
+							h.Backend().AddURNtoContact(ctx, channel, contact, bsuidURN)
+						}
+					}
 				}
 
 				h.Backend().WriteExternalIDSeen(event)

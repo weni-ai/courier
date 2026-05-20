@@ -148,10 +148,11 @@ const (
 )
 
 var integrationWebhookFields = map[string]bool{
-	"message_template_status_update":  true,
-	"template_category_update":        true,
-	"message_template_quality_update": true,
-	"account_update":                  true,
+	"message_template_status_update":      true,
+	"template_category_update":            true,
+	"message_template_quality_update":     true,
+	"account_update":                      true,
+	"template_correct_category_detection": true,
 }
 
 func newHandler(channelType courier.ChannelType, name string, useUUIDRoutes bool) courier.ChannelHandler {
@@ -397,6 +398,8 @@ type moPayload struct {
 				MessageTemplateID       int    `json:"message_template_id"`
 				MessageTemplateName     string `json:"message_template_name"`
 				MessageTemplateLanguage string `json:"message_template_language"`
+				Category                string `json:"category"`
+				CorrectCategory         string `json:"correct_category"`
 				WabaInfo                *struct {
 					WabaID          string `json:"waba_id"`
 					OwnerBusinessID string `json:"owner_business_id"`
@@ -667,6 +670,18 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 					}
 					logrus.WithField("waba_id", wabaID).Info("[mmlite] channel config updated with waba_id")
 				}
+			}
+
+			if payload.Entry[0].Changes[0].Field == "template_correct_category_detection" {
+				logrus.WithField("event", payload.Entry[0].Changes[0].Value.Event).Info("[template_correct_category_detection] receiving template_correct_category_detection webhook")
+				// Handle template_correct_category_detection webhook type
+				logrus.WithFields(logrus.Fields{
+					"template_id":       payload.Entry[0].Changes[0].Value.MessageTemplateID,
+					"template_name":     payload.Entry[0].Changes[0].Value.MessageTemplateName,
+					"template_language": payload.Entry[0].Changes[0].Value.MessageTemplateLanguage,
+					"category":          payload.Entry[0].Changes[0].Value.Category,
+					"correct_category":  payload.Entry[0].Changes[0].Value.CorrectCategory,
+				}).Info("[template_correct_category_detection] template_correct_category_detection event detected for message template")
 			}
 
 			return nil, fmt.Errorf("template update, so ignore")

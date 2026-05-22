@@ -2067,8 +2067,11 @@ type wacMTPayload[P wacInteractiveActionParams] struct {
 
 	Template *wacTemplate `json:"template,omitempty"`
 
-	Category   string `json:"category,omitempty"`
-	TTLSeconds int    `json:"ttl_seconds,omitempty"` // default 30 days; min: 30 seconds and max: 43200 seconds (12 hours)
+	Category         string `json:"category,omitempty"`
+	TTLSeconds       int    `json:"ttl_seconds,omitempty"` // default 30 days; min: 30 seconds and max: 43200 seconds (12 hours)
+	DirectSendConfig *struct {
+		TemplateName string `json:"template_name,omitempty"`
+	} `json:"direct_send_config,omitempty"`
 }
 
 type wacMTResponse struct {
@@ -2388,7 +2391,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 	}
 	qrs := msg.QuickReplies()
 
-	msgCategory, msgTTLSeconds := getWACDirectSend(msg)
+	msgCategory, msgTTLSeconds, msgDirectSendTemplateName := getWACDirectSend(msg)
 
 	var payloadAudio wacMTPayload[map[string]any]
 
@@ -2962,6 +2965,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		if templating == nil {
 			payload.Category = msgCategory
 			payload.TTLSeconds = msgTTLSeconds
+			if msgDirectSendTemplateName != "" {
+				payload.DirectSendConfig = &struct {
+					TemplateName string `json:"template_name,omitempty"`
+				}{TemplateName: msgDirectSendTemplateName}
+			}
 		}
 
 		var zeroIndex bool
@@ -4014,11 +4022,11 @@ func (h *handler) getTemplate(msg courier.Msg) (*MsgTemplating, error) {
 	return templating, err
 }
 
-func getWACDirectSend(msg courier.Msg) (string, int) {
+func getWACDirectSend(msg courier.Msg) (string, int, string) {
 	if msg.DirectSend() {
-		return "utility", msg.TTLSeconds()
+		return "utility", msg.TTLSeconds(), msg.DirectSendTemplateName()
 	}
-	return "", 0
+	return "", 0, ""
 }
 
 type TemplateMetadata struct {

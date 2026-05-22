@@ -8,6 +8,103 @@ import (
 	. "github.com/nyaruka/courier/handlers"
 )
 
+var testChannels = []courier.Channel{
+	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "EM", "support@company.com", "US",
+		map[string]interface{}{
+			courier.ConfigUsername: "support@company.com",
+		}),
+}
+
+const receiveURL = "/c/em/8eb23e93-5ecb-45ba-b726-3b064e0c56ab/receive"
+
+var (
+	plainReceive    = `{"from":"client@example.com","to":"support@company.com","subject":"Hello","body":"Hi there","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab"}`
+	messageIDOnly   = `{"from":"client@example.com","to":"support@company.com","subject":"Hi","body":"First message","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<first@example.com>"}`
+	threadedReceive = `{"from":"client@example.com","to":"support@company.com","subject":"Re: Pedido #123","body":"Resposta","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<CABc@mail.gmail.com>","in_reply_to":"<root@example.com>","references":["<root@example.com>"]}`
+	missingBrackets = `{"from":"client@example.com","to":"support@company.com","subject":"Re:","body":"resp","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"abc@example.com","in_reply_to":"parent@example.com","references":["root@example.com","parent@example.com"]}`
+	dupReferences   = `{"from":"client@example.com","to":"support@company.com","subject":"Re:","body":"resp","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<a@x>","in_reply_to":"<root@x>","references":["<root@x>","<root@x>","<mid@x>"]}`
+	nullReferences  = `{"from":"client@example.com","to":"support@company.com","subject":"Re:","body":"resp","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<a@x>","in_reply_to":"<b@x>","references":null}`
+	emptyReferences = `{"from":"client@example.com","to":"support@company.com","subject":"Re:","body":"resp","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<a@x>","in_reply_to":"<b@x>","references":[]}`
+	missingFrom     = `{"to":"support@company.com","body":"hi","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab"}`
+	missingBody     = `{"from":"client@example.com","to":"support@company.com","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab"}`
+)
+
+var receiveTestCases = []ChannelHandleTestCase{
+	{Label: "Receive plain without threading",
+		URL: receiveURL, Data: plainReceive, Status: 200, Response: "Message Accepted",
+		Text: Sp("Hi there"), URN: Sp("mailto:client@example.com"), ExternalID: Sp("")},
+
+	{Label: "Receive with message_id only",
+		URL: receiveURL, Data: messageIDOnly, Status: 200, Response: "Message Accepted",
+		Text: Sp("First message"), URN: Sp("mailto:client@example.com"),
+		ExternalID: Sp("<first@example.com>")},
+
+	{Label: "Receive with full threading",
+		URL: receiveURL, Data: threadedReceive, Status: 200, Response: "Message Accepted",
+		Text: Sp("Resposta"), URN: Sp("mailto:client@example.com"),
+		ExternalID: Sp("<CABc@mail.gmail.com>"),
+		Metadata: Jp(map[string]interface{}{
+			"email": map[string]interface{}{
+				"in_reply_to": "<root@example.com>",
+				"references":  []string{"<root@example.com>"},
+				"subject":     "Re: Pedido #123",
+			},
+		})},
+
+	{Label: "Receive normalizes missing angle brackets",
+		URL: receiveURL, Data: missingBrackets, Status: 200, Response: "Message Accepted",
+		Text: Sp("resp"), URN: Sp("mailto:client@example.com"),
+		ExternalID: Sp("<abc@example.com>"),
+		Metadata: Jp(map[string]interface{}{
+			"email": map[string]interface{}{
+				"in_reply_to": "<parent@example.com>",
+				"references":  []string{"<root@example.com>", "<parent@example.com>"},
+				"subject":     "Re:",
+			},
+		})},
+
+	{Label: "Receive dedupes references",
+		URL: receiveURL, Data: dupReferences, Status: 200, Response: "Message Accepted",
+		Text: Sp("resp"), URN: Sp("mailto:client@example.com"),
+		ExternalID: Sp("<a@x>"),
+		Metadata: Jp(map[string]interface{}{
+			"email": map[string]interface{}{
+				"in_reply_to": "<root@x>",
+				"references":  []string{"<root@x>", "<mid@x>"},
+				"subject":     "Re:",
+			},
+		})},
+
+	{Label: "Receive accepts null references",
+		URL: receiveURL, Data: nullReferences, Status: 200, Response: "Message Accepted",
+		Text: Sp("resp"), URN: Sp("mailto:client@example.com"),
+		ExternalID: Sp("<a@x>"),
+		Metadata: Jp(map[string]interface{}{
+			"email": map[string]interface{}{
+				"in_reply_to": "<b@x>",
+				"subject":     "Re:",
+			},
+		})},
+
+	{Label: "Receive accepts empty references",
+		URL: receiveURL, Data: emptyReferences, Status: 200, Response: "Message Accepted",
+		Text: Sp("resp"), URN: Sp("mailto:client@example.com"),
+		ExternalID: Sp("<a@x>"),
+		Metadata: Jp(map[string]interface{}{
+			"email": map[string]interface{}{
+				"in_reply_to": "<b@x>",
+				"subject":     "Re:",
+			},
+		})},
+
+	{Label: "Missing from", URL: receiveURL, Data: missingFrom, Status: 400, Response: "'from' required"},
+	{Label: "Missing body", URL: receiveURL, Data: missingBody, Status: 400, Response: "'body' required"},
+}
+
+func TestHandler(t *testing.T) {
+	RunChannelTestCases(t, testChannels, newHandler(), receiveTestCases)
+}
+
 // setSendURL sets the email proxy URL for testing
 func setSendURL(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
 	sendURL = s.URL

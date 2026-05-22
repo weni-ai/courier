@@ -20,6 +20,11 @@ var (
 	authToken = ""
 )
 
+// maxExternalIDLength matches the size of the msgs_msg.external_id column.
+// Message-IDs longer than this are skipped instead of truncated so we don't
+// silently break thread resolution on a future reply.
+const maxExternalIDLength = 255
+
 func init() {
 	courier.RegisterHandler(newHandler())
 }
@@ -72,7 +77,79 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		msg.WithAttachment(attachment)
 	}
 
+	if messageID := normalizeMessageID(payload.MessageID); messageID != "" && len(messageID) <= maxExternalIDLength {
+		msg.WithExternalID(messageID)
+	}
+
+	if metadata := buildThreadMetadata(payload); metadata != nil {
+		msg.WithMetadata(metadata)
+	}
+
 	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
+}
+
+// buildThreadMetadata returns the email-specific metadata blob to stash on
+// the incoming message, or nil when the payload carries no threading info.
+// The original subject only rides along when threading data is present, since
+// it is exclusively consumed by the outbound "Re:" prefix logic.
+func buildThreadMetadata(payload *moPayload) json.RawMessage {
+	inReplyTo := normalizeMessageID(payload.InReplyTo)
+	references := normalizeReferences(payload.References)
+
+	if inReplyTo == "" && len(references) == 0 {
+		return nil
+	}
+
+	body, err := json.Marshal(map[string]emailThreadMetadata{
+		"email": {
+			InReplyTo:  inReplyTo,
+			References: references,
+			Subject:    strings.TrimSpace(payload.Subject),
+		},
+	})
+	if err != nil {
+		return nil
+	}
+	return body
+}
+
+// normalizeMessageID trims whitespace and ensures the RFC 5322 angle brackets
+// are present, so we always store and compare against the canonical
+// "<id@host>" form. Returns "" when the input is blank.
+func normalizeMessageID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ""
+	}
+	if !strings.HasPrefix(id, "<") {
+		id = "<" + id
+	}
+	if !strings.HasSuffix(id, ">") {
+		id = id + ">"
+	}
+	return id
+}
+
+// normalizeReferences normalizes each entry, drops empty/duplicate values
+// while preserving the original order.
+func normalizeReferences(refs []string) []string {
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(refs))
+	seen := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		ref = normalizeMessageID(ref)
+		if ref == "" || seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		out = append(out, ref)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 type moPayload struct {
@@ -83,6 +160,21 @@ type moPayload struct {
 	Subject     string              `json:"subject,omitempty"`
 	Attachments []string            `json:"attachments,omitempty"`
 	ChannelUUID courier.ChannelUUID `json:"channel_uuid,omitempty"`
+
+	// RFC 5322 threading headers forwarded by the email-proxy. All optional;
+	// when absent we fall back to the legacy "new message" behaviour.
+	MessageID  string   `json:"message_id,omitempty"`
+	InReplyTo  string   `json:"in_reply_to,omitempty"`
+	References []string `json:"references,omitempty"`
+}
+
+// emailThreadMetadata is the email-specific block stashed under msg.metadata
+// so an outgoing reply can rebuild In-Reply-To/References and the "Re:"
+// subject prefix without re-fetching the parent message.
+type emailThreadMetadata struct {
+	InReplyTo  string   `json:"in_reply_to,omitempty"`
+	References []string `json:"references,omitempty"`
+	Subject    string   `json:"subject,omitempty"`
 }
 
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {

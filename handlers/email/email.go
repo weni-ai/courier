@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/buger/jsonparser"
@@ -192,22 +193,30 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		return nil, errors.New("could not send msg without a sender email")
 	}
 
+	inReplyTo, references, subject := h.buildReplyContext(ctx, msg)
+
 	payload := moPayload{
 		UUID:        msg.UUID(),
 		From:        senderEmail,
 		To:          msg.URN().Path(),
-		Subject:     subjectFromMsg(msg),
+		Subject:     subject,
 		Body:        msg.Text(),
 		Attachments: attachments,
 		ChannelUUID: msg.Channel().UUID(),
+		InReplyTo:   inReplyTo,
+		References:  references,
 	}
 
-	body, err := json.Marshal(payload)
-	if err != nil {
+	// disable HTML escaping so RFC 5322 IDs ("<id@host>") keep their literal
+	// angle brackets in the outbound payload instead of leaking \u003c/\u003e
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(payload); err != nil {
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, sendURL, bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, sendURL, bytes.NewReader(buf.Bytes()))
 	if err != nil {
 		return nil, err
 	}
@@ -247,4 +256,58 @@ func subjectFromMsg(msg courier.Msg) string {
 		return trunkString(msg.Text(), 56)
 	}
 	return trunkString(lines[0], 56)
+}
+
+// rePrefixPattern matches a leading "Re:" (any case, optional surrounding
+// whitespace) so we can avoid producing "Re: Re: ..." chains on long threads.
+var rePrefixPattern = regexp.MustCompile(`(?i)^\s*re\s*:\s*`)
+
+// buildReplyContext produces the RFC 5322 threading fields for an outbound
+// reply. When the message isn't a reply (no ResponseToExternalID set by
+// mailroom) it returns empty values and the original subject derived from the
+// message body, preserving the legacy "new conversation" behaviour.
+//
+// When it is a reply, the parent message is loaded so its accumulated
+// References chain and original subject can be carried forward — falling back
+// gracefully to a single-entry chain if the parent can't be resolved.
+func (h *handler) buildReplyContext(ctx context.Context, msg courier.Msg) (inReplyTo string, references []string, subject string) {
+	subject = subjectFromMsg(msg)
+	inReplyTo = normalizeMessageID(msg.ResponseToExternalID())
+	if inReplyTo == "" {
+		return "", nil, subject
+	}
+
+	references = make([]string, 0, 2)
+	if parent, err := h.Backend().LookupMsgByExternalID(ctx, msg.Channel(), inReplyTo); err == nil && parent != nil {
+		if meta := parseEmailThreadMetadata(parent.Metadata()); meta != nil {
+			references = append(references, meta.References...)
+			if meta.Subject != "" {
+				subject = meta.Subject
+			}
+		}
+	}
+	references = append(references, inReplyTo)
+	references = normalizeReferences(references)
+
+	if !rePrefixPattern.MatchString(subject) {
+		subject = "Re: " + subject
+	}
+	subject = trunkString(subject, 56)
+	return inReplyTo, references, subject
+}
+
+// parseEmailThreadMetadata extracts the email-specific block previously written
+// by buildThreadMetadata on the inbound parent. Returns nil when the metadata
+// is empty or doesn't carry an "email" key.
+func parseEmailThreadMetadata(raw json.RawMessage) *emailThreadMetadata {
+	if len(raw) == 0 {
+		return nil
+	}
+	var wrapper struct {
+		Email *emailThreadMetadata `json:"email"`
+	}
+	if err := json.Unmarshal(raw, &wrapper); err != nil {
+		return nil
+	}
+	return wrapper.Email
 }

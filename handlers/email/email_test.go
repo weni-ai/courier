@@ -1,11 +1,13 @@
 package email
 
 import (
+	"encoding/json"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/nyaruka/courier"
 	. "github.com/nyaruka/courier/handlers"
+	"github.com/nyaruka/gocommon/urns"
 )
 
 var testChannels = []courier.Channel{
@@ -14,6 +16,11 @@ var testChannels = []courier.Channel{
 			courier.ConfigUsername: "support@company.com",
 		}),
 }
+
+var defaultChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "EM", "2020", "US",
+	map[string]interface{}{
+		courier.ConfigUsername: "test@example.com",
+	})
 
 const receiveURL = "/c/em/8eb23e93-5ecb-45ba-b726-3b064e0c56ab/receive"
 
@@ -146,13 +153,67 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		ExternalID:   "<generated@your-domain>",
 		ResponseBody: `{"message_id": "generated@your-domain"}`, ResponseStatus: 200,
 		SendPrep: setSendURL},
+
+	{Label: "Send reply with no parent in store sends single-entry references",
+		Text: "Reply body", URN: "mailto:recipient@example.com",
+		ResponseToExternalID: "<unknown@x>",
+		Status:               "W",
+		RequestBody:          `{"uuid":"00000000-0000-0000-0000-000000000000","from":"test@example.com","to":"recipient@example.com","body":"Reply body","subject":"Re: Reply body","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<unknown@x>","references":["<unknown@x>"]}`,
+		ResponseBody:         `{"status":"sent"}`, ResponseStatus: 200,
+		SendPrep: setSendURL},
+
+	{Label: "Send reply with known parent chains references and reuses subject",
+		Text: "Reply body", URN: "mailto:client@example.com",
+		ResponseToExternalID: "<root@x>",
+		Status:               "W",
+		RequestBody:          `{"uuid":"00000000-0000-0000-0000-000000000000","from":"test@example.com","to":"client@example.com","body":"Reply body","subject":"Re: Pedido #123","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<root@x>","references":["<root@x>"]}`,
+		ResponseBody:         `{"status":"sent"}`, ResponseStatus: 200,
+		SendPrep: setSendURL},
+
+	{Label: "Send reply extends multi-turn references chain",
+		Text: "Body", URN: "mailto:client@example.com",
+		ResponseToExternalID: "<turn2@x>",
+		Status:               "W",
+		RequestBody:          `{"uuid":"00000000-0000-0000-0000-000000000000","from":"test@example.com","to":"client@example.com","body":"Body","subject":"Re: Pedido","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<turn2@x>","references":["<root@x>","<turn1@x>","<turn2@x>"]}`,
+		ResponseBody:         `{"status":"sent"}`, ResponseStatus: 200,
+		SendPrep: setSendURL},
+
+	{Label: "Send reply does not double-prefix Re when parent subject already has it",
+		Text: "Body", URN: "mailto:client@example.com",
+		ResponseToExternalID: "<existingre@x>",
+		Status:               "W",
+		RequestBody:          `{"uuid":"00000000-0000-0000-0000-000000000000","from":"test@example.com","to":"client@example.com","body":"Body","subject":"Re: Already prefixed","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<existingre@x>","references":["<r@x>","<existingre@x>"]}`,
+		ResponseBody:         `{"status":"sent"}`, ResponseStatus: 200,
+		SendPrep: setSendURL},
+
+	{Label: "Send reply normalizes ResponseToExternalID without angle brackets",
+		Text: "Body", URN: "mailto:client@example.com",
+		ResponseToExternalID: "root@x",
+		Status:               "W",
+		RequestBody:          `{"uuid":"00000000-0000-0000-0000-000000000000","from":"test@example.com","to":"client@example.com","body":"Body","subject":"Re: Pedido #123","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<root@x>","references":["<root@x>"]}`,
+		ResponseBody:         `{"status":"sent"}`, ResponseStatus: 200,
+		SendPrep: setSendURL},
+}
+
+// seedParents pre-populates the mock backend with parent inbound messages so
+// the outbound threading tests can exercise the LookupMsgByExternalID path.
+func seedParents(mb *courier.MockBackend) {
+	parent := mb.NewIncomingMsg(defaultChannel, urns.URN("mailto:client@example.com"), "Pedido #123").
+		WithExternalID("<root@x>").
+		WithMetadata(json.RawMessage(`{"email":{"references":["<root@x>"],"subject":"Pedido #123"}}`))
+	mb.AddMsgByExternalID(parent)
+
+	parent2 := mb.NewIncomingMsg(defaultChannel, urns.URN("mailto:client@example.com"), "Pedido").
+		WithExternalID("<turn2@x>").
+		WithMetadata(json.RawMessage(`{"email":{"references":["<root@x>","<turn1@x>"],"subject":"Pedido"}}`))
+	mb.AddMsgByExternalID(parent2)
+
+	parent3 := mb.NewIncomingMsg(defaultChannel, urns.URN("mailto:client@example.com"), "X").
+		WithExternalID("<existingre@x>").
+		WithMetadata(json.RawMessage(`{"email":{"references":["<r@x>"],"subject":"Re: Already prefixed"}}`))
+	mb.AddMsgByExternalID(parent3)
 }
 
 func TestSending(t *testing.T) {
-	var defaultChannel = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "EM", "2020", "US",
-		map[string]interface{}{
-			courier.ConfigUsername: "test@example.com",
-		})
-
-	RunChannelSendTestCases(t, defaultChannel, newHandler(), defaultSendTestCases, nil)
+	RunChannelSendTestCases(t, defaultChannel, newHandler(), defaultSendTestCases, seedParents)
 }

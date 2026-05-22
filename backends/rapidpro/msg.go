@@ -222,6 +222,36 @@ WHERE
 	uuid = $1
 `
 
+const selectMsgByExternalIDSQL = `
+SELECT
+	id,
+	uuid,
+	org_id,
+	direction,
+	text,
+	attachments,
+	msg_count,
+	error_count,
+	high_priority,
+	status,
+	visibility,
+	external_id,
+	channel_id,
+	contact_id,
+	contact_urn_id,
+	created_on,
+	modified_on,
+	queued_on,
+	sent_on,
+	metadata
+FROM
+	msgs_msg
+WHERE
+	channel_id = $1 AND external_id = $2
+ORDER BY id DESC
+LIMIT 1
+`
+
 const selectChannelSQL = `
 SELECT
 	org_id,
@@ -753,6 +783,18 @@ func GetMsg(b *backend, id courier.MsgID) (*DBMsg, error) {
 func GetMsgByUUID(b *backend, uuid string) (*DBMsg, error) {
 	m := &DBMsg{}
 	err := b.db.Get(m, selectMsgByUUIDSQL, uuid)
+	if err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
+
+// GetMsgByExternalID returns the most recent message on the passed channel
+// with the given external_id, or sql.ErrNoRows when none matches.
+func GetMsgByExternalID(b *backend, channelID courier.ChannelID, externalID string) (*DBMsg, error) {
+	m := &DBMsg{}
+	err := b.db.Get(m, selectMsgByExternalIDSQL, channelID, externalID)
 	if err != nil {
 		return nil, err
 	}

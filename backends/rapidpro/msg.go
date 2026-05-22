@@ -859,6 +859,14 @@ func (m *DBMsg) DirectSend() bool {
 	return directSend
 }
 
+func (m *DBMsg) DirectSendTemplateName() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	byteValue, _, _, _ := jsonparser.Get(*m.Metadata_, "direct_send_template_name")
+	return string(byteValue)
+}
+
 func (m *DBMsg) TTLSeconds() int {
 	if m.Metadata_ == nil {
 		return 0

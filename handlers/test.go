@@ -214,6 +214,7 @@ func newServer(backend courier.Backend) courier.Server {
 	config.WhatsappCloudWebhookSecret = "wac_webhook_secret"
 	config.WhatsappCloudApplicationSecret = "wac_app_secret"
 	config.WhatsappAdminSystemUserToken = "wac_admin_system_user_token"
+	config.EmailProxyAuthToken = "email_proxy_auth_token"
 
 	return courier.NewServerWithLogger(config, backend, logger)
 

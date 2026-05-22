@@ -118,6 +118,13 @@ type Backend interface {
 
 	GetMessage(context.Context, string) (Msg, error)
 
+	// LookupMsgByExternalID returns the most recent message on the passed in
+	// channel that has the given external_id, used by handlers (e.g. email) to
+	// resolve the thread parent at send time. Returns a non-nil error when no
+	// match exists; callers should treat any non-nil error as "no parent" and
+	// fall back gracefully.
+	LookupMsgByExternalID(context.Context, Channel, string) (Msg, error)
+
 	UpdateChannelConfig(context.Context, Channel, map[string]interface{}) error
 
 	UpdateChannelConfigByWabaID(context.Context, string, map[string]interface{}) error

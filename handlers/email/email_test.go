@@ -134,6 +134,18 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		Status:       "E",
 		ResponseBody: `{"error": "API Error"}`, ResponseStatus: 500,
 		SendPrep: setSendURL},
+	{Label: "Send stores returned message_id as external id",
+		Text: "Reply body", URN: "mailto:recipient@example.com",
+		Status:       "W",
+		ExternalID:   "<generated@your-domain>",
+		ResponseBody: `{"message": "Email send requested", "message_id": "<generated@your-domain>"}`, ResponseStatus: 200,
+		SendPrep: setSendURL},
+	{Label: "Send normalizes returned message_id without brackets",
+		Text: "Reply body", URN: "mailto:recipient@example.com",
+		Status:       "W",
+		ExternalID:   "<generated@your-domain>",
+		ResponseBody: `{"message_id": "generated@your-domain"}`, ResponseStatus: 200,
+		SendPrep: setSendURL},
 }
 
 func TestSending(t *testing.T) {

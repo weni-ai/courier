@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/buger/jsonparser"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
@@ -217,6 +218,15 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
 	if err == nil {
 		status.SetStatus(courier.MsgWired)
+
+		// the proxy returns the RFC Message-ID it actually used to send the
+		// email; persist it so the next turn can reference this message as
+		// the parent of the thread
+		if returnedID, jpErr := jsonparser.GetString(rr.Body, "message_id"); jpErr == nil {
+			if normalized := normalizeMessageID(returnedID); normalized != "" && len(normalized) <= maxExternalIDLength {
+				status.SetExternalID(normalized)
+			}
+		}
 	}
 	status.AddLog(log)
 	return status, nil

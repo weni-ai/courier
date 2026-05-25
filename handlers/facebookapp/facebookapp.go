@@ -411,18 +411,31 @@ type moPayload struct {
 					WabaID          string `json:"waba_id"`
 					OwnerBusinessID string `json:"owner_business_id"`
 				} `json:"waba_info"`
-				Calls []struct {
-					ID        string `json:"id"`
-					To        string `json:"to"`
-					From      string `json:"from"`
-					Event     string `json:"event"`
-					Timestamp string `json:"timestamp"`
-					Direction string `json:"direction"`
-					Session   struct {
-						SdpType string `json:"sdp_type"`
-						Sdp     string `json:"sdp"`
-					} `json:"session"`
-				} `json:"calls"`
+			Calls []struct {
+				ID        string `json:"id"`
+				To        string `json:"to"`
+				From      string `json:"from"`
+				Event     string `json:"event"`
+				Timestamp string `json:"timestamp"`
+				Direction string `json:"direction"`
+				Session   struct {
+					SdpType string `json:"sdp_type"`
+					Sdp     string `json:"sdp"`
+				} `json:"session"`
+			} `json:"calls"`
+			UserIDUpdate []struct {
+				WaID   string `json:"wa_id"`
+				Detail string `json:"detail"`
+				UserID struct {
+					Previous string `json:"previous"`
+					Current  string `json:"current"`
+				} `json:"user_id"`
+				ParentUserID *struct {
+					Previous string `json:"previous"`
+					Current  string `json:"current"`
+				} `json:"parent_user_id,omitempty"`
+				Timestamp string `json:"timestamp"`
+			} `json:"user_id_update"`
 			} `json:"value"`
 		} `json:"changes"`
 		Messaging []struct {
@@ -1210,6 +1223,47 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("failed to send calls webhook"))
 				}
 				data = append(data, courier.NewInfoData(fmt.Sprintf("New whatsapp call received: %s", call.ID)))
+			}
+
+			for _, update := range change.Value.UserIDUpdate {
+				if update.UserID.Previous == "" || update.UserID.Current == "" {
+					logrus.WithField("channel_uuid", channel.UUID()).Warn("user_id_update missing previous or current BSUID, skipping")
+					continue
+				}
+
+				oldURN, err := urns.NewWhatsAppURN(update.UserID.Previous)
+				if err != nil {
+					logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Error("user_id_update: invalid old BSUID URN")
+					continue
+				}
+
+				newURN, err := urns.NewWhatsAppURN(update.UserID.Current)
+				if err != nil {
+					logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Error("user_id_update: invalid new BSUID URN")
+					continue
+				}
+
+				contact, err := h.Backend().GetContact(ctx, channel, oldURN, "", "")
+				if err != nil {
+					logrus.WithField("channel_uuid", channel.UUID()).WithField("old_bsuid", update.UserID.Previous).WithError(err).Warn("user_id_update: contact not found for old BSUID")
+					continue
+				}
+
+				if _, err := h.Backend().AddURNtoContact(ctx, channel, contact, newURN); err != nil {
+					logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Error("user_id_update: failed to add new BSUID URN")
+					continue
+				}
+
+				if _, err := h.Backend().RemoveURNfromContact(ctx, channel, contact, oldURN); err != nil {
+					logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Error("user_id_update: failed to remove old BSUID URN")
+				}
+
+				logrus.WithField("channel_uuid", channel.UUID()).
+					WithField("old_bsuid", update.UserID.Previous).
+					WithField("new_bsuid", update.UserID.Current).
+					Info("user_id_update: successfully updated BSUID URN")
+
+				data = append(data, courier.NewInfoData(fmt.Sprintf("user_id_update: BSUID updated from %s to %s", update.UserID.Previous, update.UserID.Current)))
 			}
 		}
 

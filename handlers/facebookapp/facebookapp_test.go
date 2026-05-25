@@ -127,6 +127,25 @@ var testCasesIG = []ChannelHandleTestCase{
 	{Label: "Invalid URN", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/invalidURNIG.json")), Status: 400, Response: "invalid instagram id", PrepRequest: addValidSignature},
 	{Label: "Story Mention", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/storyMentionIG.json")), Status: 200, Response: `ignoring story_mention`, PrepRequest: addValidSignature},
 	{Label: "Message unsent", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/unsentMsgIG.json")), Status: 200, Response: `msg deleted`, PrepRequest: addValidSignature},
+	{Label: "Story Reply", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/storyReplyIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Nice story!"), URN: Sp("instagram:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"reply_to": map[string]interface{}{
+				"story": map[string]interface{}{
+					"url": "https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=story123",
+					"id":  "story-id-123",
+				},
+			},
+			"overwrite_message": map[string]interface{}{
+				"reply_to": map[string]interface{}{
+					"story": map[string]interface{}{
+						"url": "https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=story123",
+						"id":  "story-id-123",
+					},
+				},
+			},
+		}),
+		PrepRequest: addValidSignature},
 }
 
 func addValidSignature(r *http.Request) {

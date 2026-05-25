@@ -487,6 +487,8 @@ var testCasesWAC = []ChannelHandleTestCase{
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Status BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/statusBSUID.json")), Status: 200, Response: `"type":"status"`,
 		MsgStatus: Sp("S"), ExternalID: Sp("external_id"), PrepRequest: addValidSignatureWAC},
+	{Label: "Receive User ID Update", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/userIDUpdateWAC.json")), Status: 200, Response: `"user_id_update: BSUID updated from US.13491208655302741918 to US.98765432100000000001"`,
+		PrepRequest: addValidSignatureWAC},
 }
 
 func TestHandler(t *testing.T) {

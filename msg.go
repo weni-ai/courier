@@ -146,6 +146,7 @@ type Msg interface {
 	InteractionType() string
 	DirectSend() bool
 	TTLSeconds() int
+	DirectSendTemplateName() string
 	CTAMessage() *CTAMessage
 	FlowMessage() *FlowMessage
 	OrderDetailsMessage() *OrderDetailsMessage

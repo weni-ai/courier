@@ -84,6 +84,8 @@ type moTemplatesPayload struct {
 				MessageTemplateID       int    `json:"message_template_id,omitempty"`
 				MessageTemplateName     string `json:"message_template_name,omitempty"`
 				MessageTemplateLanguage string `json:"message_template_language,omitempty"`
+				Category                string `json:"category,omitempty"`
+				CorrectCategory         string `json:"correct_category,omitempty"`
 				Message                 string `json:"message,omitempty"`
 				FlowID                  string `json:"flow_id,omitempty"`
 				OldStatus               string `json:"old_status,omitempty"`

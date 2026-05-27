@@ -1,3 +1,8 @@
+1.52.0
+----------
+ * feat: Add category and correct category fields to moTemplatesPayload
+ * feat: Add DirectSendTemplateName
+
 1.51.0
 ----------
  * feat: Add BroadcastID to TemplateMessage and related functions for improved message tracking

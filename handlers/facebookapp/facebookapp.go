@@ -14,6 +14,7 @@ import (
 	"net/textproto"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -133,6 +134,8 @@ func waTemplateTypeFromMetadata(metadata json.RawMessage) (templateType string) 
 var waIgnoreStatuses = map[string]bool{
 	"deleted": true,
 }
+
+var isPhoneNumber = regexp.MustCompile(`^[0-9]+$`)
 
 const (
 	mediaCacheKeyPatternWhatsapp = "whatsapp_cloud_media_%s"
@@ -255,15 +258,20 @@ type moPayload struct {
 					DisplayPhoneNumber string `json:"display_phone_number"`
 					PhoneNumberID      string `json:"phone_number_id"`
 				} `json:"metadata"`
-				Contacts []struct {
-					Profile struct {
-						Name string `json:"name"`
-					} `json:"profile"`
-					WaID string `json:"wa_id"`
-				} `json:"contacts"`
-				Messages []struct {
-					ID        string `json:"id"`
-					From      string `json:"from"`
+			Contacts []struct {
+				Profile struct {
+					Name     string `json:"name"`
+					Username string `json:"username,omitempty"`
+				} `json:"profile"`
+				WaID         string `json:"wa_id"`
+				UserID       string `json:"user_id,omitempty"`
+				ParentUserID string `json:"parent_user_id,omitempty"`
+			} `json:"contacts"`
+			Messages []struct {
+				ID               string `json:"id"`
+				From             string `json:"from"`
+				FromUserID       string `json:"from_user_id,omitempty"`
+				FromParentUserID string `json:"from_parent_user_id,omitempty"`
 					Timestamp string `json:"timestamp"`
 					Type      string `json:"type"`
 					Context   *struct {
@@ -356,12 +364,14 @@ type moPayload struct {
 						Type string `json:"type"`
 					} `json:"errors"`
 				} `json:"messages"`
-				Statuses []struct {
-					ID           string `json:"id"`
-					RecipientID  string `json:"recipient_id"`
-					Status       string `json:"status"`
-					Timestamp    string `json:"timestamp"`
-					Type         string `json:"type"`
+			Statuses []struct {
+				ID                   string `json:"id"`
+				RecipientID          string `json:"recipient_id"`
+				RecipientUserID      string `json:"recipient_user_id,omitempty"`
+				RecipientParentUserID string `json:"recipient_parent_user_id,omitempty"`
+				Status               string `json:"status"`
+				Timestamp            string `json:"timestamp"`
+				Type                 string `json:"type"`
 					Conversation *struct {
 						ID     string `json:"id"`
 						Origin *struct {
@@ -402,18 +412,31 @@ type moPayload struct {
 					WabaID          string `json:"waba_id"`
 					OwnerBusinessID string `json:"owner_business_id"`
 				} `json:"waba_info"`
-				Calls []struct {
-					ID        string `json:"id"`
-					To        string `json:"to"`
-					From      string `json:"from"`
-					Event     string `json:"event"`
-					Timestamp string `json:"timestamp"`
-					Direction string `json:"direction"`
-					Session   struct {
-						SdpType string `json:"sdp_type"`
-						Sdp     string `json:"sdp"`
-					} `json:"session"`
-				} `json:"calls"`
+			Calls []struct {
+				ID        string `json:"id"`
+				To        string `json:"to"`
+				From      string `json:"from"`
+				Event     string `json:"event"`
+				Timestamp string `json:"timestamp"`
+				Direction string `json:"direction"`
+				Session   struct {
+					SdpType string `json:"sdp_type"`
+					Sdp     string `json:"sdp"`
+				} `json:"session"`
+			} `json:"calls"`
+			UserIDUpdate []struct {
+				WaID   string `json:"wa_id"`
+				Detail string `json:"detail"`
+				UserID struct {
+					Previous string `json:"previous"`
+					Current  string `json:"current"`
+				} `json:"user_id"`
+				ParentUserID *struct {
+					Previous string `json:"previous"`
+					Current  string `json:"current"`
+				} `json:"parent_user_id,omitempty"`
+				Timestamp string `json:"timestamp"`
+			} `json:"user_id_update"`
 			} `json:"value"`
 		} `json:"changes"`
 		Messaging []struct {
@@ -836,6 +859,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 	data := make([]interface{}, 0, 2)
 
 	var contactNames = make(map[string]string)
+	var contactUsernames = make(map[string]string)
 
 	// for each entry
 	for _, entry := range payload.Entry {
@@ -846,7 +870,20 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 		for _, change := range entry.Changes {
 
 			for _, contact := range change.Value.Contacts {
-				contactNames[contact.WaID] = contact.Profile.Name
+				if contact.WaID != "" {
+					contactNames[contact.WaID] = contact.Profile.Name
+				}
+				if contact.UserID != "" {
+					contactNames[contact.UserID] = contact.Profile.Name
+				}
+				if contact.Profile.Username != "" {
+					if contact.WaID != "" {
+						contactUsernames[contact.WaID] = contact.Profile.Username
+					}
+					if contact.UserID != "" {
+						contactUsernames[contact.UserID] = contact.Profile.Username
+					}
+				}
 			}
 
 			for _, msg := range change.Value.Messages {
@@ -857,7 +894,15 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				}
 				date := time.Unix(ts, 0).UTC()
 
-				urn, err := urns.NewWhatsAppURN(msg.From)
+				var urn urns.URN
+				if msg.From != "" {
+					urn, err = urns.NewWhatsAppURN(msg.From)
+				} else if msg.FromUserID != "" {
+					urn, err = urns.NewWhatsAppURN(msg.FromUserID)
+				} else {
+					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r,
+						errors.New("no sender identifier in message"))
+				}
 				if err != nil {
 					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 				}
@@ -922,8 +967,27 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					courier.LogRequestError(r, channel, fmt.Errorf("unsupported message type %s", msg.Type))
 				}
 
+				contactName := contactNames[msg.From]
+				if contactName == "" {
+					contactName = contactNames[msg.FromUserID]
+				}
+
 				// create our message
-				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(msg.ID).WithContactName(contactNames[msg.From])
+				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(msg.ID).WithContactName(contactName)
+
+				// store username as contact field
+				contactFields := map[string]string{}
+				username := contactUsernames[msg.From]
+				if username == "" {
+					username = contactUsernames[msg.FromUserID]
+				}
+				if username != "" {
+					contactFields["whatsapp_username"] = username
+				}
+				if len(contactFields) > 0 {
+					ev.WithNewContactFields(contactFields)
+				}
+
 				event := h.Backend().CheckExternalIDSeen(ev)
 
 				// write the contact last seen
@@ -998,6 +1062,17 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					return nil, nil, err
 				}
 
+				// add BSUID as secondary URN after contact is persisted
+				if msg.From != "" && msg.FromUserID != "" {
+					bsuidURN, bsuidErr := urns.NewWhatsAppURN(msg.FromUserID)
+					if bsuidErr == nil {
+						contact, contactErr := h.Backend().GetContact(ctx, channel, urn, "", "")
+						if contactErr == nil {
+							h.Backend().AddURNtoContact(ctx, channel, contact, bsuidURN)
+						}
+					}
+				}
+
 				h.Backend().WriteExternalIDSeen(event)
 
 				events = append(events, event)
@@ -1032,49 +1107,68 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 				if (msgStatus == courier.MsgDelivered || msgStatus == courier.MsgRead) &&
 					channel.Address() != h.Server().Config().WhatsappCloudDemoAddress {
-					// if the channel is the demo channel, we don't need to send the message to the billing system
-					urn, err := urns.NewWhatsAppURN(status.RecipientID)
-					if err != nil {
-						handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
-					} else {
-						if h.Server().Billing() != nil {
-							billingMsg := billing.NewMessage(
-								string(urn.Identity()),
-								"",
-								contactNames[status.RecipientID],
-								channel.UUID().String(),
-								status.ID,
-								time.Now().Format(time.RFC3339),
-								"",
-								channel.ChannelType().String(),
-								"",
-								nil,
-								nil,
-								false,
-								"",
-								string(msgStatus),
-								0,
-							)
-							h.Server().Billing().SendAsync(billingMsg, billing.RoutingKeyUpdate, nil, nil)
+
+					recipientID := status.RecipientID
+					if recipientID == "" {
+						recipientID = status.RecipientUserID
+					}
+
+					if recipientID != "" {
+						urn, err := urns.NewWhatsAppURN(recipientID)
+						if err != nil {
+							handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+						} else {
+							name := contactNames[status.RecipientID]
+							if name == "" {
+								name = contactNames[status.RecipientUserID]
+							}
+
+							if h.Server().Billing() != nil {
+								billingMsg := billing.NewMessage(
+									string(urn.Identity()),
+									"",
+									name,
+									channel.UUID().String(),
+									status.ID,
+									time.Now().Format(time.RFC3339),
+									"",
+									channel.ChannelType().String(),
+									"",
+									nil,
+									nil,
+									false,
+									"",
+									string(msgStatus),
+									0,
+								)
+								h.Server().Billing().SendAsync(billingMsg, billing.RoutingKeyUpdate, nil, nil)
+							}
 						}
 					}
 				}
 
 				if h.Server().Templates() != nil {
 					if templateType := waTemplateTypeFromMetadata(event.Metadata()); templateType != "" {
-						urn, err := urns.NewWhatsAppURN(status.RecipientID)
-						if err != nil {
-							handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
-						} else {
-							statusMsg := templates.NewTemplateStatusMessage(
-								string(urn.Identity()),
-								channel.UUID().String(),
-								status.ID,
-								string(msgStatus),
-								templateType,
-								0,
-							)
-							h.Server().Templates().SendAsync(statusMsg, templates.RoutingKeyStatus, nil, nil)
+						recipientID := status.RecipientID
+						if recipientID == "" {
+							recipientID = status.RecipientUserID
+						}
+
+						if recipientID != "" {
+							urn, err := urns.NewWhatsAppURN(recipientID)
+							if err != nil {
+								handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+							} else {
+								statusMsg := templates.NewTemplateStatusMessage(
+									string(urn.Identity()),
+									channel.UUID().String(),
+									status.ID,
+									string(msgStatus),
+									templateType,
+									0,
+								)
+								h.Server().Templates().SendAsync(statusMsg, templates.RoutingKeyStatus, nil, nil)
+							}
 						}
 					}
 				}
@@ -1130,6 +1224,47 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("failed to send calls webhook"))
 				}
 				data = append(data, courier.NewInfoData(fmt.Sprintf("New whatsapp call received: %s", call.ID)))
+			}
+
+			for _, update := range change.Value.UserIDUpdate {
+				if update.UserID.Previous == "" || update.UserID.Current == "" {
+					logrus.WithField("channel_uuid", channel.UUID()).Warn("user_id_update missing previous or current BSUID, skipping")
+					continue
+				}
+
+				oldURN, err := urns.NewWhatsAppURN(update.UserID.Previous)
+				if err != nil {
+					logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Error("user_id_update: invalid old BSUID URN")
+					continue
+				}
+
+				newURN, err := urns.NewWhatsAppURN(update.UserID.Current)
+				if err != nil {
+					logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Error("user_id_update: invalid new BSUID URN")
+					continue
+				}
+
+				contact, err := h.Backend().GetContact(ctx, channel, oldURN, "", "")
+				if err != nil {
+					logrus.WithField("channel_uuid", channel.UUID()).WithField("old_bsuid", update.UserID.Previous).WithError(err).Warn("user_id_update: contact not found for old BSUID")
+					continue
+				}
+
+				if _, err := h.Backend().AddURNtoContact(ctx, channel, contact, newURN); err != nil {
+					logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Error("user_id_update: failed to add new BSUID URN")
+					continue
+				}
+
+				if _, err := h.Backend().RemoveURNfromContact(ctx, channel, contact, oldURN); err != nil {
+					logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Error("user_id_update: failed to remove old BSUID URN")
+				}
+
+				logrus.WithField("channel_uuid", channel.UUID()).
+					WithField("old_bsuid", update.UserID.Previous).
+					WithField("new_bsuid", update.UserID.Current).
+					Info("user_id_update: successfully updated BSUID URN")
+
+				data = append(data, courier.NewInfoData(fmt.Sprintf("user_id_update: BSUID updated from %s to %s", update.UserID.Previous, update.UserID.Current)))
 			}
 		}
 
@@ -1971,7 +2106,8 @@ type wacInteractive[P wacInteractiveActionParams] struct {
 type wacMTPayload[P wacInteractiveActionParams] struct {
 	MessagingProduct string `json:"messaging_product"`
 	RecipientType    string `json:"recipient_type"`
-	To               string `json:"to"`
+	To               string `json:"to,omitempty"`
+	Recipient        string `json:"recipient,omitempty"`
 	Type             string `json:"type"`
 
 	Text *wacText `json:"text,omitempty"`
@@ -1998,8 +2134,9 @@ type wacMTResponse struct {
 		ID string `json:"id"`
 	} `json:"messages"`
 	Contacts []*struct {
-		Input string `json:"input,omitempty"`
-		WaID  string `json:"wa_id,omitempty"`
+		Input  string `json:"input,omitempty"`
+		WaID   string `json:"wa_id,omitempty"`
+		UserID string `json:"user_id,omitempty"`
 	} `json:"contacts,omitempty"`
 }
 type wacMTProductItem struct {
@@ -2313,8 +2450,15 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 	var payloadAudio wacMTPayload[map[string]any]
 
+	urnPath := msg.URN().Path()
+
 	for i := 0; i < len(msgParts)+len(msg.Attachments()); i++ {
-		payload := wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path()}
+		payload := wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual"}
+		if isPhoneNumber.MatchString(urnPath) {
+			payload.To = urnPath
+		} else {
+			payload.Recipient = urnPath
+		}
 
 		// do we have a template?
 		if templating != nil || len(msg.Attachments()) == 0 {
@@ -2762,7 +2906,12 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							if i == 0 {
 								zeroIndex = true
 							}
-							payloadAudio = wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path(), Type: "audio", Audio: &wacMTMedia{ID: mediaID, Link: attURL}, Category: msgCategory, TTLSeconds: msgTTLSeconds}
+							payloadAudio = wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", Type: "audio", Audio: &wacMTMedia{ID: mediaID, Link: attURL}, Category: msgCategory, TTLSeconds: msgTTLSeconds}
+							if isPhoneNumber.MatchString(urnPath) {
+								payloadAudio.To = urnPath
+							} else {
+								payloadAudio.Recipient = urnPath
+							}
 							status, _, err := requestWAC(payloadAudio, token, msg, status, wacPhoneURL, zeroIndex, useMarketingMessages)
 							if err != nil {
 								return status, nil
@@ -2888,6 +3037,27 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			return status, err
 		}
 
+		// add BSUID from response if present and different from what we sent
+		if len(respPayload.Contacts) > 0 && respPayload.Contacts[0].UserID != "" &&
+			respPayload.Contacts[0].UserID != msg.URN().Path() {
+			if !hasNewURN {
+				bsuidURN, err := urns.NewWhatsAppURN(respPayload.Contacts[0].UserID)
+				if err == nil {
+					contact, err := h.Backend().GetContact(ctx, msg.Channel(), msg.URN(), "", "")
+					if err != nil {
+						log := courier.NewChannelLogFromError("unable to get contact for BSUID URN", msg.Channel(), msg.ID(), time.Since(start), err)
+						status.AddLog(log)
+					} else {
+						_, err = h.Backend().AddURNtoContact(ctx, msg.Channel(), contact, bsuidURN)
+						if err != nil {
+							log := courier.NewChannelLogFromError("unable to add BSUID URN to contact", msg.Channel(), msg.ID(), time.Since(start), err)
+							status.AddLog(log)
+						}
+					}
+				}
+			}
+		}
+
 		// if payload.contacts[0].wa_id != payload.contacts[0].input | to fix cases with 9 extra
 		if len(respPayload.Contacts) > 0 && respPayload.Contacts[0].WaID != msg.URN().Path() {
 			if !hasNewURN {
@@ -2923,7 +3093,12 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			return status, errors.New("Catalog ID not found in channel config")
 		}
 
-		payload := wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", To: msg.URN().Path()}
+		payload := wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual"}
+		if isPhoneNumber.MatchString(urnPath) {
+			payload.To = urnPath
+		} else {
+			payload.Recipient = urnPath
+		}
 
 		payload.Type = "interactive"
 

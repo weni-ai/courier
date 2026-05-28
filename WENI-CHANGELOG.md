@@ -1,3 +1,8 @@
+1.52.0
+----------
+ * feat: Enhance WhatsApp message handling with support for BSUID and username, including new test cases for various message formats
+ * feat: Add support for story replies in Instagram message handling with metadata integration
+
 1.51.0
 ----------
  * feat: Add BroadcastID to TemplateMessage and related functions for improved message tracking

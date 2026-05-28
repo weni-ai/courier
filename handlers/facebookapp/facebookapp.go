@@ -484,6 +484,12 @@ type moPayload struct {
 						} `json:"coordinates"`
 					}
 				} `json:"attachments"`
+				ReplyTo *struct {
+					Story *struct {
+						URL string `json:"url"`
+						ID  string `json:"id"`
+					} `json:"story"`
+				} `json:"reply_to"`
 			} `json:"message"`
 
 			Delivery *struct {
@@ -1533,6 +1539,21 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 			// add any attachment URL found
 			for _, attURL := range attachmentURLs {
 				event.WithAttachment(attURL)
+			}
+
+			if msg.Message.ReplyTo != nil && msg.Message.ReplyTo.Story != nil {
+				storyURL := strings.ReplaceAll(msg.Message.ReplyTo.Story.URL, "\\/", "/")
+				storyReplyMetadata := map[string]interface{}{
+					"reply_to": map[string]interface{}{
+						"story": map[string]interface{}{
+							"url": storyURL,
+							"id":  msg.Message.ReplyTo.Story.ID,
+						},
+					},
+				}
+				if err := addMetadataWithOverwrite(event, storyReplyMetadata); err != nil {
+					return nil, nil, err
+				}
 			}
 
 			err := h.Backend().WriteMsg(ctx, event)

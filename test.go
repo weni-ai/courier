@@ -851,6 +851,14 @@ func (m *mockMsg) DirectSend() bool {
 	return directSend
 }
 
+func (m *mockMsg) DirectSendTemplateName() string {
+	if m.metadata == nil {
+		return ""
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "direct_send_template_name")
+	return string(byteValue)
+}
+
 func (m *mockMsg) TTLSeconds() int {
 	if m.metadata == nil {
 		return 0
@@ -1214,8 +1222,8 @@ func (m *mockMsgStatus) SetExternalID(id string) { m.externalID = id }
 func (m *mockMsgStatus) Status() MsgStatusValue          { return m.status }
 func (m *mockMsgStatus) SetStatus(status MsgStatusValue) { m.status = status }
 
-func (m *mockMsgStatus) Metadata() json.RawMessage              { return m.metadata }
-func (m *mockMsgStatus) SetMetadata(metadata json.RawMessage)   { m.metadata = metadata }
+func (m *mockMsgStatus) Metadata() json.RawMessage            { return m.metadata }
+func (m *mockMsgStatus) SetMetadata(metadata json.RawMessage) { m.metadata = metadata }
 
 func (m *mockMsgStatus) Logs() []*ChannelLog    { return m.logs }
 func (m *mockMsgStatus) AddLog(log *ChannelLog) { m.logs = append(m.logs, log) }

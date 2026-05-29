@@ -920,6 +920,102 @@ func (ts *BackendTestSuite) TestStatusMetadataReturning() {
 	ts.Nil(statusByID.Metadata())
 }
 
+// TestLookupMsgByExternalIDWithProductionSchema reproduces the production
+// column types and NULL patterns from msgs_msg in Mailroom, which differ from
+// our test schema: uuid is the native uuid type (not varchar), and several
+// columns (high_priority, modified_on, queued_on, channel_id, contact_urn_id)
+// are nullable. This test guarantees the email reply-in-thread lookup is
+// resilient to the real production schema; without it the unit tests pass
+// while production silently fails the scan and degrades thread metadata.
+func (ts *BackendTestSuite) TestLookupMsgByExternalIDWithProductionSchema() {
+	ctx := context.Background()
+	channel := ts.getChannel("KN", "dbc126ed-66bc-4e28-b67b-81dc3327c95d")
+
+	// promote uuid column to the native uuid type used by Django's UUIDField
+	_, err := ts.b.db.ExecContext(ctx, `ALTER TABLE msgs_msg ALTER COLUMN uuid TYPE uuid USING uuid::uuid`)
+	ts.Require().NoError(err, "failed to migrate uuid column to native type")
+	defer func() {
+		// restore the test schema so subsequent tests see the original type
+		_, _ = ts.b.db.ExecContext(ctx, `ALTER TABLE msgs_msg ALTER COLUMN uuid TYPE character varying(36) USING uuid::text`)
+	}()
+
+	expectedMetadata := `{"email":{"in_reply_to":"<5b9b0e83-78ca-41de-b04b-517a3328d23d@gmail.com>","references":["<5b9b0e83-78ca-41de-b04b-517a3328d23d@gmail.com>"],"subject":"Re: say anything"}}`
+
+	cases := []struct {
+		name       string
+		uuid       string
+		externalID string
+		extraSQL   string // additional SET fragment applied after the INSERT
+	}{
+		{
+			name:       "all_fields_populated",
+			uuid:       "a984069d-0008-4d8c-a772-b14a8a6acc01",
+			externalID: "<905446112.6374467.1780007334110@mail.yahoo.com>",
+		},
+		{
+			name:       "null_queued_on",
+			uuid:       "a984069d-0008-4d8c-a772-b14a8a6acc02",
+			externalID: "<a2@mail.yahoo.com>",
+			extraSQL:   "queued_on = NULL",
+		},
+		{
+			name:       "null_sent_on",
+			uuid:       "a984069d-0008-4d8c-a772-b14a8a6acc03",
+			externalID: "<a3@mail.yahoo.com>",
+			extraSQL:   "sent_on = NULL",
+		},
+		{
+			name:       "null_modified_on",
+			uuid:       "a984069d-0008-4d8c-a772-b14a8a6acc04",
+			externalID: "<a4@mail.yahoo.com>",
+			extraSQL:   "modified_on = NULL",
+		},
+		{
+			name:       "null_high_priority",
+			uuid:       "a984069d-0008-4d8c-a772-b14a8a6acc05",
+			externalID: "<a5@mail.yahoo.com>",
+			extraSQL:   "high_priority = NULL",
+		},
+		{
+			name:       "null_attachments",
+			uuid:       "a984069d-0008-4d8c-a772-b14a8a6acc06",
+			externalID: "<a6@mail.yahoo.com>",
+			extraSQL:   "attachments = NULL",
+		},
+	}
+
+	for _, tc := range cases {
+		ts.Run(tc.name, func() {
+			_, err := ts.b.db.ExecContext(ctx, `
+				INSERT INTO msgs_msg (
+					uuid, text, high_priority, created_on, modified_on, sent_on, queued_on,
+					direction, status, visibility, msg_count, error_count, next_attempt,
+					external_id, channel_id, contact_id, contact_urn_id, org_id, metadata
+				) VALUES (
+					$1, 'parent body', true, now(), now(), now(), now(),
+					'I', 'H', 'V', 1, 0, now(),
+					$2, $3, 100, 1000, 1, $4
+				)`,
+				tc.uuid, tc.externalID, channel.ID(), expectedMetadata,
+			)
+			ts.Require().NoError(err, "failed to seed parent message")
+
+			if tc.extraSQL != "" {
+				_, err = ts.b.db.ExecContext(ctx, fmt.Sprintf(`UPDATE msgs_msg SET %s WHERE uuid::text = $1`, tc.extraSQL), tc.uuid)
+				ts.Require().NoError(err, "failed to apply nullable column override")
+			}
+
+			msg, err := ts.b.LookupMsgByExternalID(ctx, channel, tc.externalID)
+			ts.NoError(err, "LookupMsgByExternalID should not error against production-like schema")
+			if !ts.NotNil(msg, "msg should be returned") {
+				return
+			}
+			ts.Equal(tc.externalID, msg.ExternalID())
+			ts.JSONEq(expectedMetadata, string(msg.Metadata()), "metadata should round-trip unchanged")
+		})
+	}
+}
+
 func (ts *BackendTestSuite) TestContactLastSeenWithName() {
 	ctx := context.Background()
 	channel := ts.getChannel("TG", "dbc126ed-66bc-4e28-b67b-81dc3327c98a")

@@ -1528,7 +1528,7 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		Status: "W", ExternalID: "157b5e14568e8",
 		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "marketing_promo", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3", "category": "MARKETING" }, "language": "eng", "variables": ["Customer", "50%"]}}`),
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
-		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"marketing_promo","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","text":"Customer"},{"type":"text","text":"50%"}]}]}}`,
+		RequestBody: `{"message_activity_sharing":true,"messaging_product":"whatsapp","recipient_type":"individual","template":{"components":[{"parameters":[{"text":"Customer","type":"text"},{"text":"50%","type":"text"}],"type":"body"}],"language":{"code":"en","policy":"deterministic"},"name":"marketing_promo"},"to":"250788123123","type":"template"}`,
 		SendPrep:    setSendURL,
 	},
 	{

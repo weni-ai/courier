@@ -1,3 +1,7 @@
+1.54.0
+----------
+ * feat: Add RFC 5322 threading headers support to email channel for inbound and outbound reply threading
+
 1.53.1
 ----------
  * fix: Update gocommon dependency to version 1.17.0

@@ -52,6 +52,10 @@ type MockBackend struct {
 	redisPool *redis.Pool
 
 	seenExternalIDs []string
+
+	// msgsByExternalID is seeded by tests to back LookupMsgByExternalID; keyed
+	// as "<channelUUID>|<externalID>".
+	msgsByExternalID map[string]Msg
 }
 
 // NewMockBackend returns a new mock backend suitable for testing
@@ -84,7 +88,20 @@ func NewMockBackend() *MockBackend {
 		contacts:          make(map[urns.URN]Contact),
 		sentMsgs:          make(map[MsgID]bool),
 		redisPool:         redisPool,
+		msgsByExternalID:  make(map[string]Msg),
 	}
+}
+
+// AddMsgByExternalID seeds a parent message keyed by its channel + external_id
+// so tests can exercise LookupMsgByExternalID.
+func (mb *MockBackend) AddMsgByExternalID(msg Msg) {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+	if msg == nil || msg.Channel() == nil || msg.ExternalID() == "" {
+		return
+	}
+	key := fmt.Sprintf("%s|%s", msg.Channel().UUID(), msg.ExternalID())
+	mb.msgsByExternalID[key] = msg
 }
 
 // GetLastQueueMsg returns the last message queued to the server
@@ -428,6 +445,20 @@ func (b *MockBackend) GetRunEventsByMsgUUIDFromDB(ctx context.Context, msgUUID s
 
 func (b *MockBackend) GetMessage(ctx context.Context, msgUUID string) (Msg, error) {
 	return nil, nil
+}
+
+func (b *MockBackend) LookupMsgByExternalID(ctx context.Context, channel Channel, externalID string) (Msg, error) {
+	if channel == nil || externalID == "" {
+		return nil, ErrMsgNotFound
+	}
+	b.mutex.RLock()
+	defer b.mutex.RUnlock()
+	key := fmt.Sprintf("%s|%s", channel.UUID(), externalID)
+	msg, ok := b.msgsByExternalID[key]
+	if !ok {
+		return nil, ErrMsgNotFound
+	}
+	return msg, nil
 }
 
 func (b *MockBackend) GetProjectUUIDFromChannelUUID(ctx context.Context, channelUUID ChannelUUID) (string, error) {

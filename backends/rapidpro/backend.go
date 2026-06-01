@@ -925,6 +925,19 @@ func (b *backend) GetMessage(ctx context.Context, msgUUID string) (courier.Msg, 
 	return GetMsgByUUID(b, msgUUID)
 }
 
+// LookupMsgByExternalID resolves a channel + external_id pair to the message
+// row, used to thread replies (e.g. email Message-ID -> In-Reply-To).
+func (b *backend) LookupMsgByExternalID(ctx context.Context, channel courier.Channel, externalID string) (courier.Msg, error) {
+	if externalID == "" {
+		return nil, courier.ErrMsgNotFound
+	}
+	dbChannel, ok := channel.(*DBChannel)
+	if !ok {
+		return nil, fmt.Errorf("LookupMsgByExternalID requires a *DBChannel, got %T", channel)
+	}
+	return GetMsgByExternalID(b, dbChannel.ID(), externalID)
+}
+
 func (b *backend) GetProjectUUIDFromChannelUUID(ctx context.Context, channelUUID courier.ChannelUUID) (string, error) {
 	return getProjectUUIDFromChannelUUID(ctx, b.db, channelUUID.String())
 }

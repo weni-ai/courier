@@ -910,6 +910,49 @@ func (ts *BackendTestSuite) TestStatusMetadataReturning() {
 	ts.Nil(statusByID.Metadata())
 }
 
+// TestLookupMsgByExternalIDWithJSONBMetadata reproduces the production scenario
+// where msgs_msg.metadata is jsonb (Django JSONField) instead of the test
+// schema's text. It exists to catch regressions in the scan path used by the
+// email reply-in-thread feature, which is the first SELECT in courier that
+// reads metadata into DBMsg.
+func (ts *BackendTestSuite) TestLookupMsgByExternalIDWithJSONBMetadata() {
+	ctx := context.Background()
+	channel := ts.getChannel("KN", "dbc126ed-66bc-4e28-b67b-81dc3327c95d")
+
+	// promote the column type to match production (Mailroom uses jsonb)
+	_, err := ts.b.db.ExecContext(ctx, `ALTER TABLE msgs_msg ALTER COLUMN metadata TYPE jsonb USING NULLIF(metadata, '')::jsonb`)
+	ts.Require().NoError(err, "failed to migrate metadata column to jsonb")
+	defer func() {
+		// restore the test schema so subsequent tests see the original type
+		_, _ = ts.b.db.ExecContext(ctx, `ALTER TABLE msgs_msg ALTER COLUMN metadata TYPE text USING metadata::text`)
+	}()
+
+	expectedMetadata := `{"email":{"in_reply_to":"<5b9b0e83-78ca-41de-b04b-517a3328d23d@gmail.com>","references":["<5b9b0e83-78ca-41de-b04b-517a3328d23d@gmail.com>"],"subject":"Re: say anything"}}`
+	externalID := "<905446112.6374467.1780007334110@mail.yahoo.com>"
+
+	_, err = ts.b.db.ExecContext(ctx, `
+		INSERT INTO msgs_msg (
+			uuid, text, high_priority, created_on, modified_on, sent_on, queued_on,
+			direction, status, visibility, msg_count, error_count, next_attempt,
+			external_id, channel_id, contact_id, contact_urn_id, org_id, metadata
+		) VALUES (
+			'a984069d-0008-4d8c-a772-b14a8a6acc01', 'parent body', true, now(), now(), now(), now(),
+			'I', 'H', 'V', 1, 0, now(),
+			$1, $2, 100, 1000, 1, $3
+		)`,
+		externalID, channel.ID(), expectedMetadata,
+	)
+	ts.Require().NoError(err, "failed to seed parent message")
+
+	msg, err := ts.b.LookupMsgByExternalID(ctx, channel, externalID)
+	ts.NoError(err, "LookupMsgByExternalID should not error when scanning jsonb metadata")
+	if !ts.NotNil(msg, "msg should be returned") {
+		return
+	}
+	ts.Equal(externalID, msg.ExternalID())
+	ts.JSONEq(expectedMetadata, string(msg.Metadata()), "metadata should round-trip unchanged from jsonb column")
+}
+
 func (ts *BackendTestSuite) TestContactLastSeenWithName() {
 	ctx := context.Background()
 	channel := ts.getChannel("TG", "dbc126ed-66bc-4e28-b67b-81dc3327c98a")

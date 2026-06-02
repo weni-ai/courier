@@ -2433,11 +2433,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 	var err error
 	templating, err := h.getTemplate(msg)
 	if err == nil && templating != nil {
-		fmt.Println("templating", templating)
 		// Check if template category is "MARKETING" in the template category
 		// This is how Meta identifies marketing templates
 		isMarketingTemplate = strings.ToUpper(templating.Template.Category) == "MARKETING"
-		fmt.Println("isMarketingTemplate", isMarketingTemplate)
 	} else if err != nil {
 		return nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())
 	}
@@ -3462,7 +3460,6 @@ func mountOrderTaxShippingDiscount(orderDetails *courier.OrderDetailsMessage) (w
 func requestWAC[P wacInteractiveActionParams](payload wacMTPayload[P], accessToken string, msg courier.Msg, status courier.MsgStatus, wacPhoneURL *url.URL, zeroIndex bool, useMarketingMessages bool) (courier.MsgStatus, *wacMTResponse, error) {
 	var jsonBody []byte
 	var err error
-	fmt.Println("useMarketingMessages", useMarketingMessages)
 	if useMarketingMessages {
 		// Add message_activity_sharing to the original payload
 		jsonBody, err = prepareMarketingMessagePayload(payload)

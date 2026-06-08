@@ -1,3 +1,7 @@
+1.54.0
+----------
+ * refactor: Update WhatsApp message handling to align with new template structure and improve marketing message detection
+
 1.53.1
 ----------
  * fix: Update gocommon dependency to version 1.17.0

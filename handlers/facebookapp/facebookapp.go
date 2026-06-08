@@ -258,23 +258,23 @@ type moPayload struct {
 					DisplayPhoneNumber string `json:"display_phone_number"`
 					PhoneNumberID      string `json:"phone_number_id"`
 				} `json:"metadata"`
-			Contacts []struct {
-				Profile struct {
-					Name     string `json:"name"`
-					Username string `json:"username,omitempty"`
-				} `json:"profile"`
-				WaID         string `json:"wa_id"`
-				UserID       string `json:"user_id,omitempty"`
-				ParentUserID string `json:"parent_user_id,omitempty"`
-			} `json:"contacts"`
-			Messages []struct {
-				ID               string `json:"id"`
-				From             string `json:"from"`
-				FromUserID       string `json:"from_user_id,omitempty"`
-				FromParentUserID string `json:"from_parent_user_id,omitempty"`
-					Timestamp string `json:"timestamp"`
-					Type      string `json:"type"`
-					Context   *struct {
+				Contacts []struct {
+					Profile struct {
+						Name     string `json:"name"`
+						Username string `json:"username,omitempty"`
+					} `json:"profile"`
+					WaID         string `json:"wa_id"`
+					UserID       string `json:"user_id,omitempty"`
+					ParentUserID string `json:"parent_user_id,omitempty"`
+				} `json:"contacts"`
+				Messages []struct {
+					ID               string `json:"id"`
+					From             string `json:"from"`
+					FromUserID       string `json:"from_user_id,omitempty"`
+					FromParentUserID string `json:"from_parent_user_id,omitempty"`
+					Timestamp        string `json:"timestamp"`
+					Type             string `json:"type"`
+					Context          *struct {
 						Forwarded           bool   `json:"forwarded"`
 						FrequentlyForwarded bool   `json:"frequently_forwarded"`
 						From                string `json:"from"`
@@ -364,15 +364,15 @@ type moPayload struct {
 						Type string `json:"type"`
 					} `json:"errors"`
 				} `json:"messages"`
-			Statuses []struct {
-				ID                   string `json:"id"`
-				RecipientID          string `json:"recipient_id"`
-				RecipientUserID      string `json:"recipient_user_id,omitempty"`
-				RecipientParentUserID string `json:"recipient_parent_user_id,omitempty"`
-				Status               string `json:"status"`
-				Timestamp            string `json:"timestamp"`
-				Type                 string `json:"type"`
-					Conversation *struct {
+				Statuses []struct {
+					ID                    string `json:"id"`
+					RecipientID           string `json:"recipient_id"`
+					RecipientUserID       string `json:"recipient_user_id,omitempty"`
+					RecipientParentUserID string `json:"recipient_parent_user_id,omitempty"`
+					Status                string `json:"status"`
+					Timestamp             string `json:"timestamp"`
+					Type                  string `json:"type"`
+					Conversation          *struct {
 						ID     string `json:"id"`
 						Origin *struct {
 							Type string `json:"type"`
@@ -412,31 +412,31 @@ type moPayload struct {
 					WabaID          string `json:"waba_id"`
 					OwnerBusinessID string `json:"owner_business_id"`
 				} `json:"waba_info"`
-			Calls []struct {
-				ID        string `json:"id"`
-				To        string `json:"to"`
-				From      string `json:"from"`
-				Event     string `json:"event"`
-				Timestamp string `json:"timestamp"`
-				Direction string `json:"direction"`
-				Session   struct {
-					SdpType string `json:"sdp_type"`
-					Sdp     string `json:"sdp"`
-				} `json:"session"`
-			} `json:"calls"`
-			UserIDUpdate []struct {
-				WaID   string `json:"wa_id"`
-				Detail string `json:"detail"`
-				UserID struct {
-					Previous string `json:"previous"`
-					Current  string `json:"current"`
-				} `json:"user_id"`
-				ParentUserID *struct {
-					Previous string `json:"previous"`
-					Current  string `json:"current"`
-				} `json:"parent_user_id,omitempty"`
-				Timestamp string `json:"timestamp"`
-			} `json:"user_id_update"`
+				Calls []struct {
+					ID        string `json:"id"`
+					To        string `json:"to"`
+					From      string `json:"from"`
+					Event     string `json:"event"`
+					Timestamp string `json:"timestamp"`
+					Direction string `json:"direction"`
+					Session   struct {
+						SdpType string `json:"sdp_type"`
+						Sdp     string `json:"sdp"`
+					} `json:"session"`
+				} `json:"calls"`
+				UserIDUpdate []struct {
+					WaID   string `json:"wa_id"`
+					Detail string `json:"detail"`
+					UserID struct {
+						Previous string `json:"previous"`
+						Current  string `json:"current"`
+					} `json:"user_id"`
+					ParentUserID *struct {
+						Previous string `json:"previous"`
+						Current  string `json:"current"`
+					} `json:"parent_user_id,omitempty"`
+					Timestamp string `json:"timestamp"`
+				} `json:"user_id_update"`
 			} `json:"value"`
 		} `json:"changes"`
 		Messaging []struct {
@@ -2428,9 +2428,6 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		graphURL = demoURL
 	}
 
-	// Check if we should use marketing messages
-	mmliteEnabled := msg.Channel().BoolConfigForKey("mmlite", false)
-
 	// Check if the message is a marketing template by examining metadata
 	isMarketingTemplate := false
 	var err error
@@ -2443,12 +2440,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		return nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())
 	}
 
-	// Only use marketing messages endpoint if mmlite is enabled AND it's a marketing template
-	useMarketingMessages := mmliteEnabled && isMarketingTemplate
-
 	base, _ := url.Parse(graphURL)
 	var path *url.URL
-	if useMarketingMessages {
+	if isMarketingTemplate {
 		path, _ = url.Parse(fmt.Sprintf("/%s/marketing_messages", msg.Channel().Address()))
 	} else {
 		path, _ = url.Parse(fmt.Sprintf("/%s/messages", msg.Channel().Address()))
@@ -2933,7 +2927,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							} else {
 								payloadAudio.Recipient = urnPath
 							}
-							status, _, err := requestWAC(payloadAudio, token, msg, status, wacPhoneURL, zeroIndex, useMarketingMessages)
+							status, _, err := requestWAC(payloadAudio, token, msg, status, wacPhoneURL, zeroIndex, isMarketingTemplate)
 							if err != nil {
 								return status, nil
 							}
@@ -3053,7 +3047,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			zeroIndex = true
 		}
 
-		status, respPayload, err := requestWAC(payload, token, msg, status, wacPhoneURL, zeroIndex, useMarketingMessages)
+		status, respPayload, err := requestWAC(payload, token, msg, status, wacPhoneURL, zeroIndex, isMarketingTemplate)
 		if err != nil {
 			return status, err
 		}
@@ -3190,7 +3184,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				Name: "catalog_message",
 			}
 			payload.Interactive = &interactive
-			status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true, useMarketingMessages)
+			status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true, isMarketingTemplate)
 			if err != nil {
 				return status, err
 			}
@@ -3283,7 +3277,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					}
 
 					payload.Interactive = &interactive
-					status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true, useMarketingMessages)
+					status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true, isMarketingTemplate)
 					if err != nil {
 						return status, err
 					}
@@ -3305,7 +3299,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					ProductRetailerID: unitaryProduct,
 				}
 				payload.Interactive = &interactive
-				status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true, useMarketingMessages)
+				status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true, isMarketingTemplate)
 				if err != nil {
 					return status, err
 				}
@@ -3466,7 +3460,6 @@ func mountOrderTaxShippingDiscount(orderDetails *courier.OrderDetailsMessage) (w
 func requestWAC[P wacInteractiveActionParams](payload wacMTPayload[P], accessToken string, msg courier.Msg, status courier.MsgStatus, wacPhoneURL *url.URL, zeroIndex bool, useMarketingMessages bool) (courier.MsgStatus, *wacMTResponse, error) {
 	var jsonBody []byte
 	var err error
-
 	if useMarketingMessages {
 		// Add message_activity_sharing to the original payload
 		jsonBody, err = prepareMarketingMessagePayload(payload)

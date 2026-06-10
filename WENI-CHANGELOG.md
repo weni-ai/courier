@@ -1,3 +1,11 @@
+1.55.0
+----------
+ * refactor: Update WhatsApp message handling to align with new template structure and improve marketing message detection
+
+1.54.0
+----------
+ * feat: Add RFC 5322 threading headers support to email channel for inbound and outbound reply threading
+
 1.53.1
 ----------
  * fix: Update gocommon dependency to version 1.17.0

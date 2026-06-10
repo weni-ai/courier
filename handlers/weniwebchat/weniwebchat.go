@@ -19,7 +19,8 @@ import (
 )
 
 const (
-	InteractiveProductListType = "product_list"
+	InteractiveProductListType     = "product_list"
+	InteractiveProductCarouselType = "product_carousel"
 )
 
 func init() {
@@ -473,10 +474,15 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 	// Build message batches respecting limits (30 products, 10 sections per message)
 	allBatches := buildProductBatches(sections)
 
+	interactiveType := InteractiveProductListType
+	if msg.ProductCarousel() {
+		interactiveType = InteractiveProductCarouselType
+	}
+
 	// Send each batch as a separate message
 	for _, batch := range allBatches {
 		interactive := wwcInteractive{
-			Type:   InteractiveProductListType,
+			Type:   interactiveType,
 			Header: header,
 			Footer: footer,
 			Action: &wwcAction{

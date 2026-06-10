@@ -329,8 +329,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 	{Label: "Receive Order WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/orderWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{
 			"order": map[string]interface{}{
-				"catalog_id": "800683284849775",
-				"text":       "",
+				"text": "",
 				"product_items": []map[string]interface{}{
 					{
 						"product_retailer_id": "1031",
@@ -348,8 +347,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 			},
 			"overwrite_message": map[string]interface{}{
 				"order": map[string]interface{}{
-					"catalog_id": "800683284849775",
-					"text":       "",
+					"text": "",
 					"product_items": []map[string]interface{}{
 						{
 							"product_retailer_id": "1031",

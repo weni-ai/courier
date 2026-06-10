@@ -344,10 +344,9 @@ type moPayload struct {
 						Video      *wacMedia `json:"video"`
 						CtwaClid   string    `json:"ctwa_clid"`
 					} `json:"referral"`
-					Order struct {
-						CatalogID    string `json:"catalog_id"`
-						Text         string `json:"text"`
-						ProductItems []struct {
+				Order struct {
+					Text         string `json:"text"`
+					ProductItems []struct {
 							ProductRetailerID string  `json:"product_retailer_id"`
 							Quantity          int     `json:"quantity"`
 							ItemPrice         float64 `json:"item_price"`

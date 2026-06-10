@@ -815,7 +815,7 @@ func (m *mockMsg) ProductCarousel() bool {
 	if m.metadata == nil {
 		return false
 	}
-	byteValue, _, _, _ := jsonparser.Get(m.metadata, "carousel")
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "product_carousel")
 	v, err := strconv.ParseBool(string(byteValue))
 	if err != nil {
 		return false

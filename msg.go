@@ -140,6 +140,7 @@ type Msg interface {
 	Footer() string
 	Action() string
 	SendCatalog() bool
+	ProductCarousel() bool
 	HeaderType() string
 	HeaderText() string
 	ListMessage() ListMessage

@@ -865,6 +865,18 @@ func (m *DBMsg) SendCatalog() bool {
 	return sendCatalog
 }
 
+func (m *DBMsg) ProductCarousel() bool {
+	if m.Metadata_ == nil {
+		return false
+	}
+	byteValue, _, _, _ := jsonparser.Get(*m.Metadata_, "carousel")
+	v, err := strconv.ParseBool(string(byteValue))
+	if err != nil {
+		return false
+	}
+	return v
+}
+
 func (m *DBMsg) HeaderType() string {
 	if m.Metadata_ == nil {
 		return ""

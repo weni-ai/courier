@@ -1263,6 +1263,13 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"location_request_message","body":{"text":"Interactive Location Request"},"action":{"name":"send_location"}}}`,
 		SendPrep:    setSendURL},
+	{Label: "Interactive Request Contact Info",
+		Metadata: json.RawMessage(`{"interaction_type":"request_contact_info"}`),
+		Text:     "Share your contact info", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"request_contact_info","body":{"text":"Share your contact info"},"action":{"name":"request_contact_info"}}}`,
+		SendPrep:    setSendURL},
 	{Label: "[VERIFY] Interactive Location Request - With attachment - Sending only the attachment (is this ok? shouldn't the location request be a priority?)", // TODO: Verify, is Location + Attachment a valid combination? I believe that the Send WhatsApp Message card does not allow this
 		Metadata: json.RawMessage(`{"interaction_type":"location"}`),
 		Text:     "Interactive Location Request With Attachment", URN: "whatsapp:250788123123",

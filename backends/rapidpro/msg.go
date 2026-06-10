@@ -927,7 +927,7 @@ func (m *DBMsg) ProductCarousel() bool {
 	if m.Metadata_ == nil {
 		return false
 	}
-	byteValue, _, _, _ := jsonparser.Get(*m.Metadata_, "carousel")
+	byteValue, _, _, _ := jsonparser.Get(*m.Metadata_, "product_carousel")
 	v, err := strconv.ParseBool(string(byteValue))
 	if err != nil {
 		return false

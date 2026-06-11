@@ -181,8 +181,9 @@ type wwcInteractive struct {
 }
 
 type wwcAction struct {
-	Sections []wwcSection `json:"sections,omitempty"`
-	Name     string       `json:"name,omitempty"`
+	Sections     []wwcSection    `json:"sections,omitempty"`
+	Name         string          `json:"name,omitempty"`
+	ProductItems []wwcProductItem `json:"product_items,omitempty"`
 }
 
 type wwcSection struct {
@@ -409,19 +410,6 @@ func normalizeQuickReplies(quickReplies []string) []string {
 func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, status courier.MsgStatus, sendURL string, start time.Time) (courier.MsgStatus, error) {
 	products := msg.Products()
 
-	// Extract sections with their products
-	sections := extractProductSections(products)
-
-	// Count total products
-	totalProducts := 0
-	for _, section := range sections {
-		totalProducts += len(section.ProductItems)
-	}
-
-	if totalProducts == 0 {
-		return status, nil
-	}
-
 	// Build base payload
 	basePayload := moPayload{
 		Type:        "message",
@@ -471,18 +459,47 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 		}
 	}
 
+	if msg.ProductCarousel() {
+		items := extractProductItems(products)
+		if len(items) == 0 {
+			return status, nil
+		}
+
+		interactive := wwcInteractive{
+			Type:   InteractiveProductCarouselType,
+			Header: header,
+			Footer: footer,
+			Action: &wwcAction{
+				ProductItems: items,
+			},
+		}
+
+		payload := basePayload
+		payload.Message.Interactive = &interactive
+
+		return h.sendPayload(ctx, payload, status, sendURL, start, msg.Channel(), msg.ID())
+	}
+
+	// Extract sections with their products
+	sections := extractProductSections(products)
+
+	// Count total products
+	totalProducts := 0
+	for _, section := range sections {
+		totalProducts += len(section.ProductItems)
+	}
+
+	if totalProducts == 0 {
+		return status, nil
+	}
+
 	// Build message batches respecting limits (30 products, 10 sections per message)
 	allBatches := buildProductBatches(sections)
-
-	interactiveType := InteractiveProductListType
-	if msg.ProductCarousel() {
-		interactiveType = InteractiveProductCarouselType
-	}
 
 	// Send each batch as a separate message
 	for _, batch := range allBatches {
 		interactive := wwcInteractive{
-			Type:   interactiveType,
+			Type:   InteractiveProductListType,
 			Header: header,
 			Footer: footer,
 			Action: &wwcAction{
@@ -503,6 +520,68 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 	return status, nil
 }
 
+func parseProductItem(priMap map[string]interface{}) wwcProductItem {
+	item := wwcProductItem{}
+	if v, ok := priMap["name"].(string); ok {
+		item.Name = v
+	}
+	if v, ok := priMap["retailer_id"].(string); ok {
+		item.ProductRetailerID = v
+	}
+	if v, ok := priMap["price"].(string); ok {
+		item.Price = v
+	}
+	if v, ok := priMap["sale_price"].(string); ok {
+		item.SalePrice = v
+	}
+	if v, ok := priMap["currency"].(string); ok {
+		item.Currency = v
+	}
+	if v, ok := priMap["image"].(string); ok {
+		item.Image = v
+	}
+	if v, ok := priMap["description"].(string); ok {
+		item.Description = v
+	}
+	if v, ok := priMap["seller_id"].(string); ok {
+		item.SellerID = v
+	}
+	if v, ok := priMap["product_url"].(string); ok {
+		item.ProductURL = v
+	}
+	if v, ok := priMap["extra"].(map[string]interface{}); ok {
+		item.Extra = v
+	}
+	return item
+}
+
+func extractRetailerInfoItems(product map[string]interface{}) []wwcProductItem {
+	priData, ok := product["product_retailer_info"]
+	if !ok {
+		return nil
+	}
+	priList, ok := priData.([]interface{})
+	if !ok {
+		return nil
+	}
+	var items []wwcProductItem
+	for _, pri := range priList {
+		if priMap, ok := pri.(map[string]interface{}); ok {
+			items = append(items, parseProductItem(priMap))
+		}
+	}
+	return items
+}
+
+// extractProductItems extracts a flat list of product items from all products
+func extractProductItems(products []map[string]interface{}) []wwcProductItem {
+	var items []wwcProductItem
+	for _, product := range products {
+		items = append(items, extractRetailerInfoItems(product)...)
+	}
+	return items
+}
+
 // extractProductSections extracts sections with their products from the products map
 func extractProductSections(products []map[string]interface{}) []wwcSection {
 	var sections []wwcSection
@@ -510,52 +589,11 @@ func extractProductSections(products []map[string]interface{}) []wwcSection {
 	for _, product := range products {
 		section := wwcSection{}
 
-		// Get section title from "product" field
 		if title, ok := product["product"].(string); ok {
 			section.Title = title
 		}
 
-		// Extract product_retailer_info as products for this section
-		if priData, ok := product["product_retailer_info"]; ok {
-			if priList, ok := priData.([]interface{}); ok {
-				for _, pri := range priList {
-					if priMap, ok := pri.(map[string]interface{}); ok {
-						item := wwcProductItem{}
-						if name, ok := priMap["name"].(string); ok {
-							item.Name = name
-						}
-						if retailerID, ok := priMap["retailer_id"].(string); ok {
-							item.ProductRetailerID = retailerID
-						}
-						if price, ok := priMap["price"].(string); ok {
-							item.Price = price
-						}
-						if salePrice, ok := priMap["sale_price"].(string); ok {
-							item.SalePrice = salePrice
-						}
-						if currency, ok := priMap["currency"].(string); ok {
-							item.Currency = currency
-						}
-						if image, ok := priMap["image"].(string); ok {
-							item.Image = image
-						}
-						if description, ok := priMap["description"].(string); ok {
-							item.Description = description
-						}
-						if sellerID, ok := priMap["seller_id"].(string); ok {
-							item.SellerID = sellerID
-						}
-						if productURL, ok := priMap["product_url"].(string); ok {
-							item.ProductURL = productURL
-						}
-						if extra, ok := priMap["extra"].(map[string]interface{}); ok {
-							item.Extra = extra
-						}
-						section.ProductItems = append(section.ProductItems, item)
-					}
-				}
-			}
-		}
+		section.ProductItems = extractRetailerInfoItems(product)
 
 		if len(section.ProductItems) > 0 {
 			sections = append(sections, section)

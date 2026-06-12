@@ -1,3 +1,8 @@
+1.56.0
+----------
+ * refactor: Simplify order structure in WhatsApp message handling by removing redundant catalog_id field
+ * feat: Add support for sending product carousel messages
+
 1.55.0
 ----------
  * refactor: Update WhatsApp message handling to align with new template structure and improve marketing message detection

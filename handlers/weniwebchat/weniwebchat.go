@@ -181,8 +181,8 @@ type wwcInteractive struct {
 }
 
 type wwcAction struct {
-	Sections     []wwcSection    `json:"sections,omitempty"`
-	Name         string          `json:"name,omitempty"`
+	Sections     []wwcSection     `json:"sections,omitempty"`
+	Name         string           `json:"name,omitempty"`
 	ProductItems []wwcProductItem `json:"product_items,omitempty"`
 }
 
@@ -224,7 +224,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	var logs []*courier.ChannelLog
 
 	// Check for product messages first
-	if len(msg.Products()) > 0 || msg.SendCatalog() {
+	if len(msg.Products()) > 0 || msg.SendCatalog() || msg.ProductCarousel() {
 		return h.sendProductMessage(ctx, msg, status, sendURL, start)
 	}
 
@@ -458,7 +458,7 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 			Text: msg.Footer(),
 		}
 	}
-
+	fmt.Println("msg.ProductCarousel()", msg.ProductCarousel())
 	if msg.ProductCarousel() {
 		items := extractProductItems(products)
 		if len(items) == 0 {

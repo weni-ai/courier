@@ -297,6 +297,24 @@ var testCasesWAC = []ChannelHandleTestCase{
 
 	{Label: "Receive Valid Button Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/buttonWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("No"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"button": map[string]interface{}{
+				"payload": "No-Button-Payload",
+				"text":    "No",
+			},
+			"context": map[string]interface{}{
+				"from":                 "5678",
+				"id":                   "gBGGFmkiWVVPAgkgQkwi7IORac0",
+				"forwarded":           false,
+				"frequently_forwarded": false,
+			},
+			"overwrite_message": map[string]interface{}{
+				"button": map[string]interface{}{
+					"payload": "No-Button-Payload",
+					"text":    "No",
+				},
+			},
+		}),
 		PrepRequest: addValidSignatureWAC},
 
 	{Label: "Receive Referral WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/referralWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,

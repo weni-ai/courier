@@ -562,6 +562,19 @@ func processWACPaymentNotificationMetadata(paymentNotification interface{}) *wac
 	}
 }
 
+func processWACButtonMetadata(button *struct {
+	Text    string `json:"text"`
+	Payload string `json:"payload"`
+}) *wacMessageMetadata {
+	return &wacMessageMetadata{
+		Key: "button",
+		Value: map[string]string{
+			"payload": button.Payload,
+			"text":    button.Text,
+		},
+	}
+}
+
 // addMetadataWithOverwrite adds metadata to both the root level and overwrite_message field
 // This function ensures all metadata for FBA, IG, and WAC channels are available in both places
 // Note: "context" is excluded from overwrite_message and only added to root level
@@ -1006,9 +1019,11 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				// Process WhatsApp metadata (order, nfm_reply, payment_method) with overwrite_message
 				var wacMeta *wacMessageMetadata
 
-				if msg.Type == "order" {
-					wacMeta = processWACOrderMetadata(msg.Order)
-				} else if msg.Interactive.Type == "nfm_reply" {
+			if msg.Type == "button" && msg.Button != nil {
+				wacMeta = processWACButtonMetadata(msg.Button)
+			} else if msg.Type == "order" {
+				wacMeta = processWACOrderMetadata(msg.Order)
+			} else if msg.Interactive.Type == "nfm_reply" {
 					var err error
 					wacMeta, err = processWACNFMReplyMetadata(msg.Interactive.NFMReply.Name, msg.Interactive.NFMReply.ResponseJSON)
 					if err != nil {

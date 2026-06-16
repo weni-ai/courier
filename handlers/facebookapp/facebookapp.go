@@ -2193,7 +2193,7 @@ type wacOrderDetails struct {
 	PaymentSettings []wacOrderDetailsPaymentSetting `json:"payment_settings" validate:"required"`
 	Currency        string                          `json:"currency" validate:"required"`
 	TotalAmount     wacAmountWithOffset             `json:"total_amount" validate:"required"`
-	Order           wacOrder                        `json:"order" validate:"required"`
+	Order           *wacOrder                       `json:"order,omitempty"`
 }
 
 type wacOrder struct {
@@ -3211,7 +3211,7 @@ func mountOrderDetails(msg courier.Msg, paymentSettings []wacOrderDetailsPayment
 		catalogIDValue = *catalogID
 	}
 
-	return &wacOrderDetails{
+	result := &wacOrderDetails{
 		ReferenceID:     orderDetails.ReferenceID,
 		Type:            paymentType,
 		PaymentType:     "br",
@@ -3221,7 +3221,10 @@ func mountOrderDetails(msg courier.Msg, paymentSettings []wacOrderDetailsPayment
 			Value:  orderDetails.TotalAmount,
 			Offset: 100,
 		},
-		Order: wacOrder{
+	}
+
+	if len(orderDetails.Order.Items) > 0 {
+		result.Order = &wacOrder{
 			Status:    "pending",
 			CatalogID: catalogIDValue,
 			Items:     orderDetails.Order.Items,
@@ -3232,8 +3235,10 @@ func mountOrderDetails(msg courier.Msg, paymentSettings []wacOrderDetailsPayment
 			Tax:      orderTax,
 			Shipping: orderShipping,
 			Discount: orderDiscount,
-		},
+		}
 	}
+
+	return result
 }
 
 func mountOrderPaymentSettings(orderDetails *courier.OrderDetailsMessage) []wacOrderDetailsPaymentSetting {

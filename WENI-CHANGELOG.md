@@ -1,3 +1,8 @@
+1.57.0
+----------
+ * refactor: Update wacOrderDetails structure to make Order field optional and adjust order handling logic for improved flexibility
+ * feat: Add button metadata processing for WhatsApp messages and update test cases to include button message handling
+
 1.56.0
 ----------
  * refactor: Simplify order structure in WhatsApp message handling by removing redundant catalog_id field

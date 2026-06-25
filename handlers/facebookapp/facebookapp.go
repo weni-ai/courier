@@ -575,6 +575,61 @@ func processWACButtonMetadata(button *struct {
 	}
 }
 
+// addSecondaryURN creates a WhatsApp URN from the given identifier and adds it
+// to the contact that owns primaryURN. Errors are silently ignored so that a
+// failure to attach a secondary URN never blocks message processing.
+func (h *handler) addSecondaryURN(ctx context.Context, channel courier.Channel, primaryURN urns.URN, identifier string) {
+	secondaryURN, err := urns.NewWhatsAppURN(identifier)
+	if err != nil {
+		return
+	}
+	contact, err := h.Backend().GetContact(ctx, channel, primaryURN, "", "")
+	if err != nil {
+		return
+	}
+	h.Backend().AddURNtoContact(ctx, channel, contact, secondaryURN)
+}
+
+type bsuidUpdate struct {
+	Previous string
+	Current  string
+}
+
+// processUserIDURNUpdate swaps an old BSUID URN for a new one on the contact
+// that owns the old URN. Returns a human-readable info string on success, or
+// an error description to log.
+func (h *handler) processUserIDURNUpdate(ctx context.Context, channel courier.Channel, label string, upd bsuidUpdate) (string, error) {
+	oldURN, err := urns.NewWhatsAppURN(upd.Previous)
+	if err != nil {
+		return "", fmt.Errorf("user_id_update: invalid old %s URN: %w", label, err)
+	}
+
+	newURN, err := urns.NewWhatsAppURN(upd.Current)
+	if err != nil {
+		return "", fmt.Errorf("user_id_update: invalid new %s URN: %w", label, err)
+	}
+
+	contact, err := h.Backend().GetContact(ctx, channel, oldURN, "", "")
+	if err != nil {
+		return "", fmt.Errorf("user_id_update: contact not found for old %s %s: %w", label, upd.Previous, err)
+	}
+
+	if _, err := h.Backend().AddURNtoContact(ctx, channel, contact, newURN); err != nil {
+		return "", fmt.Errorf("user_id_update: failed to add new %s URN: %w", label, err)
+	}
+
+	if _, err := h.Backend().RemoveURNfromContact(ctx, channel, contact, oldURN); err != nil {
+		logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Errorf("user_id_update: failed to remove old %s URN", label)
+	}
+
+	logrus.WithField("channel_uuid", channel.UUID()).
+		WithField("old_"+label, upd.Previous).
+		WithField("new_"+label, upd.Current).
+		Infof("user_id_update: successfully updated %s URN", label)
+
+	return fmt.Sprintf("user_id_update: %s updated from %s to %s", label, upd.Previous, upd.Current), nil
+}
+
 // addMetadataWithOverwrite adds metadata to both the root level and overwrite_message field
 // This function ensures all metadata for FBA, IG, and WAC channels are available in both places
 // Note: "context" is excluded from overwrite_message and only added to root level
@@ -1082,15 +1137,12 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					return nil, nil, err
 				}
 
-				// add BSUID as secondary URN after contact is persisted
+				// add BSUID / parent BSUID as secondary URNs after contact is persisted
 				if msg.From != "" && msg.FromUserID != "" {
-					bsuidURN, bsuidErr := urns.NewWhatsAppURN(msg.FromUserID)
-					if bsuidErr == nil {
-						contact, contactErr := h.Backend().GetContact(ctx, channel, urn, "", "")
-						if contactErr == nil {
-							h.Backend().AddURNtoContact(ctx, channel, contact, bsuidURN)
-						}
-					}
+					h.addSecondaryURN(ctx, channel, urn, msg.FromUserID)
+				}
+				if msg.FromParentUserID != "" {
+					h.addSecondaryURN(ctx, channel, urn, msg.FromParentUserID)
 				}
 
 				h.Backend().WriteExternalIDSeen(event)
@@ -1252,39 +1304,27 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					continue
 				}
 
-				oldURN, err := urns.NewWhatsAppURN(update.UserID.Previous)
-				if err != nil {
-					logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Error("user_id_update: invalid old BSUID URN")
-					continue
+				updates := []struct {
+					label string
+					upd   bsuidUpdate
+				}{
+					{"BSUID", bsuidUpdate{update.UserID.Previous, update.UserID.Current}},
+				}
+				if update.ParentUserID != nil && update.ParentUserID.Previous != "" && update.ParentUserID.Current != "" {
+					updates = append(updates, struct {
+						label string
+						upd   bsuidUpdate
+					}{"parent BSUID", bsuidUpdate{update.ParentUserID.Previous, update.ParentUserID.Current}})
 				}
 
-				newURN, err := urns.NewWhatsAppURN(update.UserID.Current)
-				if err != nil {
-					logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Error("user_id_update: invalid new BSUID URN")
-					continue
+				for _, u := range updates {
+					info, err := h.processUserIDURNUpdate(ctx, channel, u.label, u.upd)
+					if err != nil {
+						logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Warn(err.Error())
+						continue
+					}
+					data = append(data, courier.NewInfoData(info))
 				}
-
-				contact, err := h.Backend().GetContact(ctx, channel, oldURN, "", "")
-				if err != nil {
-					logrus.WithField("channel_uuid", channel.UUID()).WithField("old_bsuid", update.UserID.Previous).WithError(err).Warn("user_id_update: contact not found for old BSUID")
-					continue
-				}
-
-				if _, err := h.Backend().AddURNtoContact(ctx, channel, contact, newURN); err != nil {
-					logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Error("user_id_update: failed to add new BSUID URN")
-					continue
-				}
-
-				if _, err := h.Backend().RemoveURNfromContact(ctx, channel, contact, oldURN); err != nil {
-					logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Error("user_id_update: failed to remove old BSUID URN")
-				}
-
-				logrus.WithField("channel_uuid", channel.UUID()).
-					WithField("old_bsuid", update.UserID.Previous).
-					WithField("new_bsuid", update.UserID.Current).
-					Info("user_id_update: successfully updated BSUID URN")
-
-				data = append(data, courier.NewInfoData(fmt.Sprintf("user_id_update: BSUID updated from %s to %s", update.UserID.Previous, update.UserID.Current)))
 			}
 		}
 

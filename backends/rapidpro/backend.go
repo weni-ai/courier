@@ -820,6 +820,9 @@ func (b *backend) Start() error {
 		})
 	b.contactLastSeenCommitter.Start()
 
+	b.templateLastDispatchWorker = newTemplateLastDispatchWorker(b.db)
+	b.templateLastDispatchWorker.start()
+
 	// register and start our spool flushers
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "msgs"), b.flushMsgFile)
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "statuses"), b.flushStatusFile)
@@ -859,6 +862,10 @@ func (b *backend) Cleanup() error {
 		b.contactLastSeenCommitter.Stop()
 	}
 
+	if b.templateLastDispatchWorker != nil {
+		b.templateLastDispatchWorker.stop()
+	}
+
 	// wait for them to flush fully
 	b.committerWG.Wait()
 
@@ -892,6 +899,7 @@ type backend struct {
 	statusCommitter          batch.Committer
 	logCommitter             batch.Committer
 	contactLastSeenCommitter batch.Committer
+	templateLastDispatchWorker *templateLastDispatchWorker
 	committerWG              *sync.WaitGroup
 
 	db        *sqlx.DB

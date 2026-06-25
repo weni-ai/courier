@@ -100,6 +100,7 @@ type MsgTemplating struct {
 	Template struct {
 		Name string `json:"name" validate:"required"`
 		UUID string `json:"uuid" validate:"required"`
+		ID   string `json:"id"`
 	} `json:"template" validate:"required,dive"`
 	Language  string   `json:"language" validate:"required"`
 	Country   string   `json:"country"`

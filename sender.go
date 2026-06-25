@@ -351,6 +351,10 @@ func (w *Sender) sendMessage(msg Msg) {
 			)
 			w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
 		}
+
+		if sentOk {
+			queueTemplateLastDispatch(backend, msg)
+		}
 	}
 
 	// we allot 15 seconds to write our status to the db
@@ -397,4 +401,53 @@ func isTemplateMessage(msg Msg) (bool, *templates.TemplateMetadata) {
 	}
 
 	return true, metadata
+}
+
+func queueTemplateLastDispatch(backend Backend, msg Msg) {
+	data, ok := ExtractTemplateLastDispatchData(msg)
+	if !ok {
+		return
+	}
+
+	firedOn := time.Now()
+	if sentOn := msg.SentOn(); sentOn != nil {
+		firedOn = *sentOn
+	}
+
+	backend.QueueTemplateLastDispatch(context.Background(), msg, data, firedOn)
+}
+
+// TemplateLastDispatchData holds template metadata extracted from a message.
+type TemplateLastDispatchData struct {
+	TemplateUUID   string
+	Name           string
+	MetaTemplateID string
+}
+
+// ExtractTemplateLastDispatchData extracts template dispatch metadata from a message.
+// Returns false when templating is missing or meta_template_id is empty.
+func ExtractTemplateLastDispatchData(msg Msg) (TemplateLastDispatchData, bool) {
+	if msg.Metadata() == nil {
+		return TemplateLastDispatchData{}, false
+	}
+
+	metadata := &templates.TemplateMetadata{}
+	if err := json.Unmarshal(msg.Metadata(), metadata); err != nil {
+		return TemplateLastDispatchData{}, false
+	}
+
+	if metadata.Templating == nil {
+		return TemplateLastDispatchData{}, false
+	}
+
+	templating := metadata.Templating
+	if templating.Template.UUID == "" || templating.Template.Name == "" || templating.Template.ID == "" {
+		return TemplateLastDispatchData{}, false
+	}
+
+	return TemplateLastDispatchData{
+		TemplateUUID:   templating.Template.UUID,
+		Name:           templating.Template.Name,
+		MetaTemplateID: templating.Template.ID,
+	}, true
 }

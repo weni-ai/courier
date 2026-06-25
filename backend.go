@@ -75,6 +75,9 @@ type Backend interface {
 	// WriteCtwaToDB writes the passed in ctwa data to our backend
 	WriteCtwaToDB(context.Context, string, urns.URN, time.Time, ChannelUUID, string) error
 
+	// QueueTemplateLastDispatch enqueues a template last dispatch record for async persistence
+	QueueTemplateLastDispatch(context.Context, Msg, TemplateLastDispatchData, time.Time)
+
 	// PopNextOutgoingMsg returns the next message that needs to be sent, callers should call MarkOutgoingMsgComplete with the
 	// returned message when they have dealt with the message (regardless of whether it was sent or not)
 	PopNextOutgoingMsg(context.Context) (Msg, error)

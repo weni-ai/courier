@@ -122,5 +122,17 @@ CREATE TABLE flows_flowsession (
     wait_started_on timestamp with time zone
 );
 
+DROP TABLE IF EXISTS templates_templatelastdispatch CASCADE;
+CREATE TABLE templates_templatelastdispatch (
+    id serial primary key,
+    org_id integer NOT NULL references orgs_org(id) on delete cascade,
+    template_id integer NULL,
+    template_uuid character varying(36) NOT NULL,
+    name character varying(512) NOT NULL,
+    meta_template_id character varying(64) NOT NULL,
+    last_fired_on timestamp with time zone NOT NULL,
+    UNIQUE (org_id, meta_template_id)
+);
+
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO courier;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO courier;

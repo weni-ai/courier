@@ -56,6 +56,14 @@ type MockBackend struct {
 	// msgsByExternalID is seeded by tests to back LookupMsgByExternalID; keyed
 	// as "<channelUUID>|<externalID>".
 	msgsByExternalID map[string]Msg
+
+	templateLastDispatches []templateLastDispatchCall
+}
+
+type templateLastDispatchCall struct {
+	msg     Msg
+	data    TemplateLastDispatchData
+	firedOn time.Time
 }
 
 // NewMockBackend returns a new mock backend suitable for testing
@@ -149,6 +157,15 @@ func (mb *MockBackend) DeleteMsgWithExternalID(ctx context.Context, channel Chan
 // NewIncomingMsg creates a new message from the given params
 func (mb *MockBackend) NewIncomingMsg(channel Channel, urn urns.URN, text string) Msg {
 	return &mockMsg{channel: channel, urn: urn, text: text}
+}
+
+// NewMockOutgoingMsg creates a mock outgoing message for tests.
+func NewMockOutgoingMsg(channel Channel, text string, metadata json.RawMessage) Msg {
+	return &mockMsg{
+		channel:  channel,
+		text:     text,
+		metadata: metadata,
+	}
 }
 
 // NewOutgoingMsg creates a new outgoing message from the given params
@@ -292,6 +309,18 @@ func (mb *MockBackend) WriteContactLastSeen(ctx context.Context, msg Msg, lastSe
 func (mb *MockBackend) WriteCtwaToDB(ctx context.Context, ctwaClid string, contactUrn urns.URN, timestamp time.Time, channelUUID ChannelUUID, waba string) error {
 	// For the mock backend, we just return nil as this is primarily for testing
 	return nil
+}
+
+// QueueTemplateLastDispatch records template last dispatch queue calls for testing.
+func (mb *MockBackend) QueueTemplateLastDispatch(_ context.Context, msg Msg, data TemplateLastDispatchData, firedOn time.Time) {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+
+	mb.templateLastDispatches = append(mb.templateLastDispatches, templateLastDispatchCall{
+		msg:     msg,
+		data:    data,
+		firedOn: firedOn,
+	})
 }
 
 // NewChannelEvent creates a new channel event with the passed in parameters

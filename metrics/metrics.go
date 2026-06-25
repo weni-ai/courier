@@ -162,6 +162,27 @@ var media_upload_size = promauto.NewSummary(prometheus.SummaryOpts{
 	Objectives: summaryObjectives,
 })
 
+var template_last_dispatch_upsert_total = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "template_last_dispatch_upsert_total",
+	Help: "Total successful template last dispatch upserts",
+})
+
+var template_last_dispatch_errors_total = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "template_last_dispatch_errors_total",
+	Help: "Total failed template last dispatch upserts",
+})
+
+var template_last_dispatch_dropped_total = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "template_last_dispatch_dropped_total",
+	Help: "Total template last dispatch events dropped due to a full buffer",
+})
+
+var template_last_dispatch_latency_ms = promauto.NewSummary(prometheus.SummaryOpts{
+	Name:       "template_last_dispatch_latency_ms",
+	Help:       "Template last dispatch upsert latency in milliseconds",
+	Objectives: summaryObjectives,
+})
+
 func SetAvailableWorkers(count int) {
 	availableWorkers.Set(float64(count))
 }
@@ -264,4 +285,20 @@ func IncrementNewContactsByUUID(channelUUID uuid.UUID) {
 
 func IncrementMediaUploadSize(size int) {
 	media_upload_size.Observe(float64(size))
+}
+
+func IncrementTemplateLastDispatchUpsert() {
+	template_last_dispatch_upsert_total.Inc()
+}
+
+func IncrementTemplateLastDispatchErrors() {
+	template_last_dispatch_errors_total.Inc()
+}
+
+func IncrementTemplateLastDispatchDropped() {
+	template_last_dispatch_dropped_total.Inc()
+}
+
+func ObserveTemplateLastDispatchLatency(milliseconds float64) {
+	template_last_dispatch_latency_ms.Observe(milliseconds)
 }

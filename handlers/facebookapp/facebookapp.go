@@ -4267,7 +4267,7 @@ func requestWACMediaUpload(file []byte, mediaURL string, requestUrl string, mime
 
 	fmt.Println("mime recebido:", mimeType)
 	fmt.Println("mediaURL:", mediaURL)
-	fmt.Println("fileName:", filepath.Base(mediaURL))
+	fmt.Println("fileName:", path.Base(mediaURL))
 	fmt.Println("detect:", http.DetectContentType(file))
 	fmt.Println("magic:", mimetype.Detect(file).String())
 	fmt.Printf("% x\n", file[:16])

@@ -4266,6 +4266,8 @@ func requestWACMediaUpload(file []byte, mediaURL string, requestUrl string, mime
 	var logs []*courier.ChannelLog
 
 	fmt.Println("mime recebido:", mimeType)
+	fmt.Println("mediaURL:", mediaURL)
+	fmt.Println("fileName:", filepath.Base(mediaURL))
 	fmt.Println("detect:", http.DetectContentType(file))
 	fmt.Println("magic:", mimetype.Detect(file).String())
 	fmt.Printf("% x\n", file[:16])
@@ -4291,6 +4293,7 @@ func requestWACMediaUpload(file []byte, mediaURL string, requestUrl string, mime
 		fmt.Sprintf(`form-data; name="%s"; filename="%s"`,
 			"file", fileName))
 	h.Set("Content-Type", fileType)
+	fmt.Printf("part headers: %#v\n", h)
 	fileField, err := writer.CreatePart(h)
 	if err != nil {
 		return "", logs, errors.Wrapf(err, "failed to create form field:")

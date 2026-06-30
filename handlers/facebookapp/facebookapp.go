@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/png"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -4262,6 +4264,17 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 
 func requestWACMediaUpload(file []byte, mediaURL string, requestUrl string, mimeType string, msg courier.Msg, accessToken string) (string, []*courier.ChannelLog, error) {
 	var logs []*courier.ChannelLog
+
+	fmt.Println("mime recebido:", mimeType)
+	fmt.Println("detect:", http.DetectContentType(file))
+	fmt.Println("magic:", mimetype.Detect(file).String())
+	fmt.Printf("% x\n", file[:16])
+
+	imgCfg, format, imgErr := image.DecodeConfig(bytes.NewReader(file))
+	fmt.Println(format)
+	fmt.Println(imgCfg.Width)
+	fmt.Println(imgCfg.Height)
+	fmt.Println(imgErr)
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)

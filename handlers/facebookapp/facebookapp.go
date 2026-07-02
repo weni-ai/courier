@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
-	"path/filepath"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -4403,7 +4403,11 @@ func requestWACMediaUpload(file []byte, mediaURL string, requestUrl string, mime
 	writer := multipart.NewWriter(body)
 
 	fileType := http.DetectContentType(file)
-	fileName := filepath.Base(mediaURL)
+	u, err := url.Parse(mediaURL)
+	if err != nil {
+		return "", logs, errors.Wrap(err, "invalid media URL")
+	}
+	fileName := path.Base(u.Path)
 
 	if fileType != mimeType || fileType == "application/octet-stream" || fileType == "application/zip" {
 		fileType = mimetype.Detect(file).String()

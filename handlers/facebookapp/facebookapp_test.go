@@ -1725,6 +1725,30 @@ var CachedSendTestCasesWAC = []ChannelSendTestCase{
 			},
 		},
 		SendPrep: setSendURL},
+	{Label: "Image Send with URL query params - filename should not contain params",
+		Text:   "image caption",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"image/jpeg:https://foo.bar/image.jpg?token=abc123&expires=9999"},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method:       "POST",
+				Path:         "/12345_ID/media",
+				BodyContains: `filename="image.jpg"`,
+			}: {
+				Status: 201,
+				Body:   `{"id":"157b5e14568e8"}`,
+			},
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"id":"157b5e14568e8","caption":"image caption"}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
 }
 
 var FailingCachedSendTestCasesWAC = []ChannelSendTestCase{

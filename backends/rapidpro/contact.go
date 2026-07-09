@@ -148,9 +148,11 @@ func contactForURNTeams(ctx context.Context, b *backend, urn urns.URN, org OrgID
 	return contact, nil
 }
 
-// contactForURN first tries to look up a contact for the passed in URN, if not finding one then creating one
-func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChannel, urn urns.URN, auth string, name string) (*DBContact, error) {
-	// try to look up our contact by URN
+// lookupContactByURN looks up a contact for the given URN, also trying any known
+// equivalent variation of it (currently: Brazilian WhatsApp numbers with/without the
+// extra leading 9). This is a pure read with no side effects, returning sql.ErrNoRows
+// if neither the URN nor its variation match an existing contact.
+func lookupContactByURN(ctx context.Context, b *backend, org OrgID, urn urns.URN) (*DBContact, error) {
 	contact := &DBContact{}
 
 	err := b.db.GetContext(ctx, contact, lookupContactFromURNSQL, urn.Identity(), org)
@@ -159,25 +161,44 @@ func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChanne
 		return nil, err
 	}
 
+	if err == sql.ErrNoRows {
+		if urnVariation := newWhatsappURNVariation(urn); urnVariation != nil {
+			err = b.db.GetContext(ctx, contact, lookupContactFromURNSQL, urnVariation.Identity(), org)
+			if err != nil && err != sql.ErrNoRows {
+				logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
+				return nil, err
+			}
+		}
+	}
+
+	return contact, err
+}
+
+// findContactByURN looks up a contact by URN without creating one. Returns courier.ErrContactNotFound if none exists.
+func findContactByURN(ctx context.Context, b *backend, org OrgID, urn urns.URN) (*DBContact, error) {
+	contact, err := lookupContactByURN(ctx, b, org, urn)
+	if err == sql.ErrNoRows {
+		return nil, courier.ErrContactNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return contact, nil
+}
+
+// contactForURN first tries to look up a contact for the passed in URN, if not finding one then creating one
+func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChannel, urn urns.URN, auth string, name string) (*DBContact, error) {
+	// try to look up our contact by URN (including known variations of it)
+	contact, err := lookupContactByURN(ctx, b, org, urn)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+
 	if urn.Scheme() == "teams" && err == sql.ErrNoRows {
 		contact, err = contactForURNTeams(ctx, b, urn, org)
 		if err != nil && err != sql.ErrNoRows {
 			logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
 			return nil, err
-		}
-	}
-
-	if err == sql.ErrNoRows {
-		// we not found a contact with the given urn, so try find one with another variation with or without extra 9
-		if urn.Scheme() == urns.WhatsAppScheme && strings.HasPrefix(urn.Path(), "55") {
-			urnVariation := newWhatsappURNVariation(urn)
-			if urnVariation != nil {
-				err = b.db.GetContext(ctx, contact, lookupContactFromURNSQL, urnVariation.Identity(), org)
-				if err != nil && err != sql.ErrNoRows {
-					logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
-					return nil, err
-				}
-			}
 		}
 	}
 

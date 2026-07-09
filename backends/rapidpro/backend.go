@@ -74,6 +74,16 @@ func (b *backend) GetContact(ctx context.Context, c courier.Channel, urn urns.UR
 	return contactForURN(ctx, b, dbChannel.OrgID_, dbChannel, urn, auth, name)
 }
 
+// FindContact looks up a contact by URN without creating one
+func (b *backend) FindContact(ctx context.Context, c courier.Channel, urn urns.URN) (courier.Contact, error) {
+	dbChannel := c.(*DBChannel)
+	contact, err := findContactByURN(ctx, b, dbChannel.OrgID_, urn)
+	if err != nil {
+		return nil, err
+	}
+	return contact, nil
+}
+
 // AddURNtoContact adds a URN to the passed in contact
 func (b *backend) AddURNtoContact(ctx context.Context, c courier.Channel, contact courier.Contact, urn urns.URN) (urns.URN, error) {
 	tx, err := b.db.BeginTxx(ctx, nil)

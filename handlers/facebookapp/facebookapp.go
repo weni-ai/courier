@@ -970,7 +970,37 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				date := time.Unix(ts, 0).UTC()
 
 				var urn urns.URN
-				if msg.From != "" {
+				var secondaryURN urns.URN
+				if msg.From != "" && msg.FromUserID != "" {
+					// Both phone and BSUID present: prefer the URN that already has a contact
+					// so we don't create a duplicate and steal the other URN from the existing one.
+					phoneURN, phoneErr := urns.NewWhatsAppURN(msg.From)
+					bsuidURN, bsuidErr := urns.NewWhatsAppURN(msg.FromUserID)
+					if phoneErr != nil {
+						return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, phoneErr)
+					}
+					if bsuidErr != nil {
+						return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, bsuidErr)
+					}
+
+					// Check BSUID first: in steady state (contact already has both URNs, or
+					// only the BSUID) this single lookup is enough, sparing the phone query.
+					// The phone lookup only runs for the transitional/edge cases where the
+					// BSUID isn't linked to a contact yet.
+					if _, bsuidContactErr := h.Backend().FindContact(ctx, channel, bsuidURN); bsuidContactErr == nil {
+						// Existing BSUID contact (username-first / phone-number-sharing flow)
+						urn = bsuidURN
+						secondaryURN = phoneURN
+					} else if _, phoneContactErr := h.Backend().FindContact(ctx, channel, phoneURN); phoneContactErr == nil {
+						// Existing phone contact receiving BSUID for the first time
+						urn = phoneURN
+						secondaryURN = bsuidURN
+					} else {
+						// Neither exists yet: prefer BSUID as stable identity, phone as secondary
+						urn = bsuidURN
+						secondaryURN = phoneURN
+					}
+				} else if msg.From != "" {
 					urn, err = urns.NewWhatsAppURN(msg.From)
 				} else if msg.FromUserID != "" {
 					urn, err = urns.NewWhatsAppURN(msg.FromUserID)
@@ -1139,12 +1169,12 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					return nil, nil, err
 				}
 
-				// add BSUID / parent BSUID as secondary URNs after contact is persisted
-				if msg.From != "" && msg.FromUserID != "" {
-					h.addSecondaryURN(ctx, channel, urn, msg.FromUserID)
-				}
-				if msg.FromParentUserID != "" {
-					h.addSecondaryURN(ctx, channel, urn, msg.FromParentUserID)
+				// add secondary URN (phone or BSUID) after contact is persisted
+				if secondaryURN != urns.NilURN {
+					contact, contactErr := h.Backend().GetContact(ctx, channel, urn, "", "")
+					if contactErr == nil {
+						h.Backend().AddURNtoContact(ctx, channel, contact, secondaryURN)
+					}
 				}
 
 				h.Backend().WriteExternalIDSeen(event)

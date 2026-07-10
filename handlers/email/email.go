@@ -91,14 +91,15 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 }
 
 // buildThreadMetadata returns the email-specific metadata blob to stash on
-// the incoming message, or nil when the payload carries no threading info.
-// The original subject only rides along when threading data is present, since
-// it is exclusively consumed by the outbound "Re:" prefix logic.
+// the incoming message, or nil when the payload carries no email context.
+// Subject is always stored when present so outbound replies can reuse it even
+// when the inbound message is not itself a reply.
 func buildThreadMetadata(payload *moPayload) json.RawMessage {
 	inReplyTo := normalizeMessageID(payload.InReplyTo)
 	references := normalizeReferences(payload.References)
+	subject := strings.TrimSpace(payload.Subject)
 
-	if inReplyTo == "" && len(references) == 0 {
+	if inReplyTo == "" && len(references) == 0 && subject == "" {
 		return nil
 	}
 
@@ -106,7 +107,7 @@ func buildThreadMetadata(payload *moPayload) json.RawMessage {
 		"email": {
 			InReplyTo:  inReplyTo,
 			References: references,
-			Subject:    strings.TrimSpace(payload.Subject),
+			Subject:    subject,
 		},
 	})
 	if err != nil {
@@ -263,16 +264,16 @@ func subjectFromMsg(msg courier.Msg) string {
 var rePrefixPattern = regexp.MustCompile(`(?i)^\s*re\s*:\s*`)
 
 // buildReplyContext produces the RFC 5322 threading fields for an outbound
-// reply. When the message isn't a reply (no ResponseToExternalID set by
-// mailroom) it returns empty values and the original subject derived from the
-// message body, preserving the legacy "new conversation" behaviour.
+// reply. When no parent can be resolved it returns empty values and the
+// subject derived from the message body, preserving the legacy "new
+// conversation" behaviour.
 //
-// When it is a reply, the parent message is loaded so its accumulated
-// References chain and original subject can be carried forward — falling back
-// gracefully to a single-entry chain if the parent can't be resolved.
+// When a parent is found, its accumulated References chain and original subject
+// are carried forward — falling back gracefully to a single-entry chain if the
+// parent row can't be loaded from the store.
 func (h *handler) buildReplyContext(ctx context.Context, msg courier.Msg) (inReplyTo string, references []string, subject string) {
 	subject = subjectFromMsg(msg)
-	inReplyTo = normalizeMessageID(msg.ResponseToExternalID())
+	inReplyTo = h.resolveParentExternalID(ctx, msg)
 	if inReplyTo == "" {
 		return "", nil, subject
 	}
@@ -294,6 +295,33 @@ func (h *handler) buildReplyContext(ctx context.Context, msg courier.Msg) (inRep
 	}
 	subject = trunkString(subject, 56)
 	return inReplyTo, references, subject
+}
+
+// resolveParentExternalID picks the Message-ID of the message being replied to.
+// Mailroom sets response_to_external_id when a flow session is active; when it
+// does not (e.g. ticket/chats without flow), we fall back to response_to_id and
+// then to the latest message on the channel for this contact that has an
+// external_id.
+func (h *handler) resolveParentExternalID(ctx context.Context, msg courier.Msg) string {
+	if id := normalizeMessageID(msg.ResponseToExternalID()); id != "" {
+		return id
+	}
+
+	if msg.ResponseToID() != courier.NilMsgID {
+		if parent, err := h.Backend().LookupMsgByID(ctx, msg.ResponseToID()); err == nil && parent != nil {
+			if id := normalizeMessageID(parent.ExternalID()); id != "" {
+				return id
+			}
+		}
+	}
+
+	if parent, err := h.Backend().LookupLastMsgWithExternalID(ctx, msg.Channel(), msg.URN()); err == nil && parent != nil {
+		if id := normalizeMessageID(parent.ExternalID()); id != "" {
+			return id
+		}
+	}
+
+	return ""
 }
 
 // parseEmailThreadMetadata extracts the email-specific block previously written

@@ -56,6 +56,13 @@ type MockBackend struct {
 	// msgsByExternalID is seeded by tests to back LookupMsgByExternalID; keyed
 	// as "<channelUUID>|<externalID>".
 	msgsByExternalID map[string]Msg
+
+	// msgsByID is seeded by tests to back LookupMsgByID.
+	msgsByID map[MsgID]Msg
+
+	// lastMsgByChannelURN is seeded by tests to back LookupLastMsgWithExternalID;
+	// keyed as "<channelUUID>|<urnIdentity>".
+	lastMsgByChannelURN map[string]Msg
 }
 
 // NewMockBackend returns a new mock backend suitable for testing
@@ -83,12 +90,14 @@ func NewMockBackend() *MockBackend {
 	}
 
 	return &MockBackend{
-		channels:          make(map[ChannelUUID]Channel),
-		channelsByAddress: make(map[ChannelAddress]Channel),
-		contacts:          make(map[urns.URN]Contact),
-		sentMsgs:          make(map[MsgID]bool),
-		redisPool:         redisPool,
-		msgsByExternalID:  make(map[string]Msg),
+		channels:            make(map[ChannelUUID]Channel),
+		channelsByAddress:   make(map[ChannelAddress]Channel),
+		contacts:            make(map[urns.URN]Contact),
+		sentMsgs:            make(map[MsgID]bool),
+		redisPool:           redisPool,
+		msgsByExternalID:    make(map[string]Msg),
+		msgsByID:            make(map[MsgID]Msg),
+		lastMsgByChannelURN: make(map[string]Msg),
 	}
 }
 
@@ -102,6 +111,27 @@ func (mb *MockBackend) AddMsgByExternalID(msg Msg) {
 	}
 	key := fmt.Sprintf("%s|%s", msg.Channel().UUID(), msg.ExternalID())
 	mb.msgsByExternalID[key] = msg
+}
+
+// AddMsgByID seeds a parent message keyed by its Temba id.
+func (mb *MockBackend) AddMsgByID(msg Msg) {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+	if msg == nil || msg.ID() == NilMsgID {
+		return
+	}
+	mb.msgsByID[msg.ID()] = msg
+}
+
+// AddLastMsgForContact seeds the latest message for a channel + contact URN pair.
+func (mb *MockBackend) AddLastMsgForContact(msg Msg) {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+	if msg == nil || msg.Channel() == nil || msg.URN() == urns.NilURN || msg.ExternalID() == "" {
+		return
+	}
+	key := fmt.Sprintf("%s|%s", msg.Channel().UUID(), msg.URN().Identity())
+	mb.lastMsgByChannelURN[key] = msg
 }
 
 // GetLastQueueMsg returns the last message queued to the server
@@ -456,6 +486,33 @@ func (b *MockBackend) LookupMsgByExternalID(ctx context.Context, channel Channel
 	key := fmt.Sprintf("%s|%s", channel.UUID(), externalID)
 	msg, ok := b.msgsByExternalID[key]
 	if !ok {
+		return nil, ErrMsgNotFound
+	}
+	return msg, nil
+}
+
+func (b *MockBackend) LookupMsgByID(ctx context.Context, id MsgID) (Msg, error) {
+	if id == NilMsgID {
+		return nil, ErrMsgNotFound
+	}
+	b.mutex.RLock()
+	defer b.mutex.RUnlock()
+	msg, ok := b.msgsByID[id]
+	if !ok {
+		return nil, ErrMsgNotFound
+	}
+	return msg, nil
+}
+
+func (b *MockBackend) LookupLastMsgWithExternalID(ctx context.Context, channel Channel, urn urns.URN) (Msg, error) {
+	if channel == nil || urn == urns.NilURN {
+		return nil, ErrMsgNotFound
+	}
+	b.mutex.RLock()
+	defer b.mutex.RUnlock()
+	key := fmt.Sprintf("%s|%s", channel.UUID(), urn.Identity())
+	msg, ok := b.lastMsgByChannelURN[key]
+	if !ok || msg.ExternalID() == "" {
 		return nil, ErrMsgNotFound
 	}
 	return msg, nil

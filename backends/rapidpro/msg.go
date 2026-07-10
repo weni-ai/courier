@@ -252,6 +252,70 @@ ORDER BY id DESC
 LIMIT 1
 `
 
+const selectMsgByIDWithMetadataSQL = `
+SELECT
+	id,
+	uuid,
+	org_id,
+	direction,
+	text,
+	attachments,
+	msg_count,
+	error_count,
+	high_priority,
+	status,
+	visibility,
+	external_id,
+	channel_id,
+	contact_id,
+	contact_urn_id,
+	created_on,
+	modified_on,
+	queued_on,
+	sent_on,
+	metadata
+FROM
+	msgs_msg
+WHERE
+	id = $1
+`
+
+const selectLastMsgWithExternalIDSQL = `
+SELECT
+	m.id,
+	m.uuid,
+	m.org_id,
+	m.direction,
+	m.text,
+	m.attachments,
+	m.msg_count,
+	m.error_count,
+	m.high_priority,
+	m.status,
+	m.visibility,
+	m.external_id,
+	m.channel_id,
+	m.contact_id,
+	m.contact_urn_id,
+	m.created_on,
+	m.modified_on,
+	m.queued_on,
+	m.sent_on,
+	m.metadata
+FROM
+	msgs_msg m
+INNER JOIN contacts_contacturn u ON m.contact_urn_id = u.id
+WHERE
+	m.channel_id = $1
+	AND u.identity = $2
+	AND m.external_id IS NOT NULL
+	AND m.external_id != ''
+	AND m.visibility = 'V'
+ORDER BY
+	m.id DESC
+LIMIT 1
+`
+
 const selectChannelSQL = `
 SELECT
 	org_id,
@@ -799,6 +863,28 @@ func GetMsgByExternalID(b *backend, channelID courier.ChannelID, externalID stri
 		return nil, err
 	}
 
+	return m, nil
+}
+
+// GetMsgByIDWithMetadata returns the message row for the given id including
+// metadata, or sql.ErrNoRows when none matches.
+func GetMsgByIDWithMetadata(b *backend, id courier.MsgID) (*DBMsg, error) {
+	m := &DBMsg{}
+	err := b.db.Get(m, selectMsgByIDWithMetadataSQL, id)
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// GetLastMsgWithExternalID returns the most recent visible message on the
+// channel for the contact URN that has a non-empty external_id.
+func GetLastMsgWithExternalID(b *backend, channelID courier.ChannelID, urnIdentity string) (*DBMsg, error) {
+	m := &DBMsg{}
+	err := b.db.Get(m, selectLastMsgWithExternalIDSQL, channelID, urnIdentity)
+	if err != nil {
+		return nil, err
+	}
 	return m, nil
 }
 

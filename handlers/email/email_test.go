@@ -39,12 +39,22 @@ var (
 var receiveTestCases = []ChannelHandleTestCase{
 	{Label: "Receive plain without threading",
 		URL: receiveURL, Data: plainReceive, Status: 200, Response: "Message Accepted",
-		Text: Sp("Hi there"), URN: Sp("mailto:client@example.com"), ExternalID: Sp("")},
+		Text: Sp("Hi there"), URN: Sp("mailto:client@example.com"), ExternalID: Sp(""),
+		Metadata: Jp(map[string]interface{}{
+			"email": map[string]interface{}{
+				"subject": "Hello",
+			},
+		})},
 
 	{Label: "Receive with message_id only",
 		URL: receiveURL, Data: messageIDOnly, Status: 200, Response: "Message Accepted",
 		Text: Sp("First message"), URN: Sp("mailto:client@example.com"),
-		ExternalID: Sp("<first@example.com>")},
+		ExternalID: Sp("<first@example.com>"),
+		Metadata: Jp(map[string]interface{}{
+			"email": map[string]interface{}{
+				"subject": "Hi",
+			},
+		})},
 
 	{Label: "Receive with full threading",
 		URL: receiveURL, Data: threadedReceive, Status: 200, Response: "Message Accepted",
@@ -193,6 +203,21 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		RequestBody:          `{"uuid":"00000000-0000-0000-0000-000000000000","from":"test@example.com","to":"client@example.com","body":"Body","subject":"Re: Pedido #123","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<root@x>","references":["<root@x>"]}`,
 		ResponseBody:         `{"status":"sent"}`, ResponseStatus: 200,
 		SendPrep: setSendURL},
+
+	{Label: "Send reply via ResponseToID when ResponseToExternalID empty",
+		Text: "Reply body", URN: "mailto:client@example.com",
+		ResponseToID: 42,
+		Status:       "W",
+		RequestBody:  `{"uuid":"00000000-0000-0000-0000-000000000000","from":"test@example.com","to":"client@example.com","body":"Reply body","subject":"Re: Via ID","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<via-id@x>","references":["<via-id@x>"]}`,
+		ResponseBody: `{"status":"sent"}`, ResponseStatus: 200,
+		SendPrep: setSendURL},
+
+	{Label: "Send reply via last contact message when no mailroom parent",
+		Text: "Agent reply", URN: "mailto:ticket@example.com",
+		Status:       "W",
+		RequestBody:  `{"uuid":"00000000-0000-0000-0000-000000000000","from":"test@example.com","to":"ticket@example.com","body":"Agent reply","subject":"Re: Account issue","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<ticket-inbound@x>","references":["<ticket-inbound@x>"]}`,
+		ResponseBody: `{"status":"sent"}`, ResponseStatus: 200,
+		SendPrep: setSendURL},
 }
 
 // seedParents pre-populates the mock backend with parent inbound messages so
@@ -212,6 +237,19 @@ func seedParents(mb *courier.MockBackend) {
 		WithExternalID("<existingre@x>").
 		WithMetadata(json.RawMessage(`{"email":{"references":["<r@x>"],"subject":"Re: Already prefixed"}}`))
 	mb.AddMsgByExternalID(parent3)
+
+	parentViaID := mb.NewIncomingMsg(defaultChannel, urns.URN("mailto:client@example.com"), "Via ID").
+		WithID(courier.NewMsgID(42)).
+		WithExternalID("<via-id@x>").
+		WithMetadata(json.RawMessage(`{"email":{"subject":"Via ID"}}`))
+	mb.AddMsgByID(parentViaID)
+	mb.AddMsgByExternalID(parentViaID)
+
+	lastInbound := mb.NewIncomingMsg(defaultChannel, urns.URN("mailto:ticket@example.com"), "Help").
+		WithExternalID("<ticket-inbound@x>").
+		WithMetadata(json.RawMessage(`{"email":{"subject":"Account issue"}}`))
+	mb.AddLastMsgForContact(lastInbound)
+	mb.AddMsgByExternalID(lastInbound)
 }
 
 func TestSending(t *testing.T) {

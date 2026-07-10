@@ -128,6 +128,15 @@ type Backend interface {
 	// fall back gracefully.
 	LookupMsgByExternalID(context.Context, Channel, string) (Msg, error)
 
+	// LookupMsgByID returns the message with the given Temba id. Used by the
+	// email handler when response_to_id is set but response_to_external_id is not.
+	LookupMsgByID(context.Context, MsgID) (Msg, error)
+
+	// LookupLastMsgWithExternalID returns the most recent visible message on the
+	// channel for the contact URN that carries a non-empty external_id. Used by the
+	// email handler to thread replies when mailroom did not set response_to_external_id.
+	LookupLastMsgWithExternalID(context.Context, Channel, urns.URN) (Msg, error)
+
 	UpdateChannelConfig(context.Context, Channel, map[string]interface{}) error
 
 	UpdateChannelConfigByWabaID(context.Context, string, map[string]interface{}) error

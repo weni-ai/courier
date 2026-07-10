@@ -1,3 +1,11 @@
+1.58.0
+----------
+ * feat: Implement user ID and parent BSUID update handling in WhatsApp messages
+
+1.57.1
+----------
+ * fix: extract filename from URL path to avoid query params in media upload
+
 1.57.0
 ----------
  * refactor: Update wacOrderDetails structure to make Order field optional and adjust order handling logic for improved flexibility

@@ -3,6 +3,8 @@ package email
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -68,7 +70,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("field 'body' required"))
 	}
 
-	urn, err := urns.NewURNFromParts(urns.EmailScheme, payload.From, "", "")
+	urn, err := buildContactURN(payload)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
@@ -114,6 +116,80 @@ func buildThreadMetadata(payload *moPayload) json.RawMessage {
 		return nil
 	}
 	return body
+}
+
+// threadTagPattern matches the synthetic sub-address tag we inject into the
+// local part of an address to segregate conversations ("+wt-<8 hex chars>"
+// right before the "@"). It is scoped to our own prefix so a real "+" already
+// present in the contact's address (e.g. "person+work@gmail.com") is left
+// untouched.
+var threadTagPattern = regexp.MustCompile(`\+wt-[0-9a-f]{8}(@|$)`)
+
+// buildContactURN derives the URN used to identify the contact for an inbound
+// message. Each new conversation (a message that isn't a reply to anything we
+// recognize) gets its own synthetic address derived from the real one, so
+// Temba creates a distinct contact per subject/thread even though the sender's
+// mailbox is the same. Replies within a thread resolve back to the same
+// synthetic address — and therefore the same contact — because the tag is
+// deterministically derived from the thread's root Message-ID.
+//
+// Messages that carry no threading headers at all (message_id/in_reply_to/
+// references all empty) fall back to the real address, preserving the legacy
+// "one contact per mailbox" behaviour.
+func buildContactURN(payload *moPayload) (urns.URN, error) {
+	address := payload.From
+	if anchor := threadAnchor(payload); anchor != "" {
+		address = withThreadTag(address, anchor)
+	}
+	return urns.NewURNFromParts(urns.EmailScheme, address, "", "")
+}
+
+// threadAnchor returns the Message-ID that identifies the root of the
+// conversation an inbound message belongs to: the oldest entry in References
+// when present (RFC 5322 orders References oldest-first), otherwise
+// In-Reply-To, otherwise the message's own Message-ID — meaning a message
+// with no reply headers anchors a brand new thread. Returns "" when the
+// payload carries no threading information at all.
+func threadAnchor(payload *moPayload) string {
+	if len(payload.References) > 0 {
+		if root := normalizeMessageID(payload.References[0]); root != "" {
+			return root
+		}
+	}
+	if id := normalizeMessageID(payload.InReplyTo); id != "" {
+		return id
+	}
+	if id := normalizeMessageID(payload.MessageID); id != "" {
+		return id
+	}
+	return ""
+}
+
+// withThreadTag inserts a short, deterministic tag derived from the thread
+// anchor into the local part of the address, immediately before the "@".
+func withThreadTag(address, anchor string) string {
+	at := strings.LastIndex(address, "@")
+	if at < 0 {
+		return address
+	}
+	local, domain := address[:at], address[at:]
+	return fmt.Sprintf("%s+wt-%s%s", local, threadHash(anchor), domain)
+}
+
+// threadHash returns a short, stable, URL/email-safe fingerprint of the
+// thread anchor. It doesn't need to be cryptographically strong — only
+// deterministic and low-collision for the same mailbox.
+func threadHash(anchor string) string {
+	sum := sha1.Sum([]byte(anchor))
+	return hex.EncodeToString(sum[:])[:8]
+}
+
+// realAddressFromURNPath strips a thread tag we may have injected into the
+// local part of the contact's URN, returning the actual deliverable mailbox
+// address. Addresses without our tag (legacy contacts, or payloads with no
+// threading info) are returned unchanged.
+func realAddressFromURNPath(path string) string {
+	return threadTagPattern.ReplaceAllString(path, "$1")
 }
 
 // normalizeMessageID trims whitespace and ensures the RFC 5322 angle brackets
@@ -199,7 +275,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	payload := moPayload{
 		UUID:        msg.UUID(),
 		From:        senderEmail,
-		To:          msg.URN().Path(),
+		To:          realAddressFromURNPath(msg.URN().Path()),
 		Subject:     subject,
 		Body:        msg.Text(),
 		Attachments: attachments,

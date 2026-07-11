@@ -17,6 +17,7 @@ import (
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/urns"
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -379,24 +380,48 @@ func (h *handler) buildReplyContext(ctx context.Context, msg courier.Msg) (inRep
 // then to the latest message on the channel for this contact that has an
 // external_id.
 func (h *handler) resolveParentExternalID(ctx context.Context, msg courier.Msg) string {
+	log := logrus.WithFields(logrus.Fields{
+		"channel_uuid": msg.Channel().UUID().String(),
+		"msg_id":       msg.ID(),
+		"urn":          msg.URN().Identity(),
+	})
+
 	if id := normalizeMessageID(msg.ResponseToExternalID()); id != "" {
+		log.WithField("in_reply_to", id).WithField("source", "response_to_external_id").
+			Info("resolved parent Message-ID")
 		return id
 	}
 
 	if msg.ResponseToID() != courier.NilMsgID {
-		if parent, err := h.Backend().LookupMsgByID(ctx, msg.ResponseToID()); err == nil && parent != nil {
+		parent, err := h.Backend().LookupMsgByID(ctx, msg.ResponseToID())
+		if err != nil {
+			log.WithError(err).WithField("response_to_id", msg.ResponseToID()).
+				Warn("LookupMsgByID failed while resolving parent")
+		} else if parent != nil {
 			if id := normalizeMessageID(parent.ExternalID()); id != "" {
+				log.WithField("in_reply_to", id).WithField("source", "response_to_id").
+					WithField("response_to_id", msg.ResponseToID()).
+					Info("resolved parent Message-ID")
 				return id
 			}
+			log.WithField("response_to_id", msg.ResponseToID()).
+				Warn("parent found by ResponseToID but has empty external_id")
 		}
 	}
 
-	if parent, err := h.Backend().LookupLastMsgWithExternalID(ctx, msg.Channel(), msg.URN()); err == nil && parent != nil {
+	parent, err := h.Backend().LookupLastMsgWithExternalID(ctx, msg.Channel(), msg.URN())
+	if err != nil {
+		log.WithError(err).Warn("LookupLastMsgWithExternalID failed while resolving parent")
+	} else if parent != nil {
 		if id := normalizeMessageID(parent.ExternalID()); id != "" {
+			log.WithField("in_reply_to", id).WithField("source", "last_msg_for_contact").
+				Info("resolved parent Message-ID")
 			return id
 		}
+		log.Warn("last message for contact has empty external_id")
 	}
 
+	log.Info("no parent Message-ID resolved for outbound reply")
 	return ""
 }
 

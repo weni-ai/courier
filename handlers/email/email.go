@@ -343,11 +343,13 @@ var rePrefixPattern = regexp.MustCompile(`(?i)^\s*re\s*:\s*`)
 // buildReplyContext produces the RFC 5322 threading fields for an outbound
 // reply. When no parent can be resolved it returns empty values and the
 // subject derived from the message body, preserving the legacy "new
-// conversation" behaviour.
+// conversation" behaviour (no "Re:" prefix).
 //
 // When a parent is found, its accumulated References chain and original subject
 // are carried forward — falling back gracefully to a single-entry chain if the
-// parent row can't be loaded from the store.
+// parent row can't be loaded from the store. The "Re:" prefix is only applied
+// when we reuse a parent subject; brand-new sends keep the body-derived subject
+// as-is.
 func (h *handler) buildReplyContext(ctx context.Context, msg courier.Msg) (inReplyTo string, references []string, subject string) {
 	subject = subjectFromMsg(msg)
 	inReplyTo = h.resolveParentExternalID(ctx, msg)
@@ -356,18 +358,20 @@ func (h *handler) buildReplyContext(ctx context.Context, msg courier.Msg) (inRep
 	}
 
 	references = make([]string, 0, 2)
+	reusedParentSubject := false
 	if parent, err := h.Backend().LookupMsgByExternalID(ctx, msg.Channel(), inReplyTo); err == nil && parent != nil {
 		if meta := parseEmailThreadMetadata(parent.Metadata()); meta != nil {
 			references = append(references, meta.References...)
 			if meta.Subject != "" {
 				subject = meta.Subject
+				reusedParentSubject = true
 			}
 		}
 	}
 	references = append(references, inReplyTo)
 	references = normalizeReferences(references)
 
-	if !rePrefixPattern.MatchString(subject) {
+	if reusedParentSubject && !rePrefixPattern.MatchString(subject) {
 		subject = "Re: " + subject
 	}
 	subject = trunkString(subject, 56)

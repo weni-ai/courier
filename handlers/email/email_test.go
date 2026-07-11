@@ -213,7 +213,7 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		Text: "Reply body", URN: "mailto:recipient@example.com",
 		ResponseToExternalID: "<unknown@x>",
 		Status:               "W",
-		RequestBody:          `{"uuid":"00000000-0000-0000-0000-000000000000","from":"test@example.com","to":"recipient@example.com","body":"Reply body","subject":"Re: Reply body","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<unknown@x>","references":["<unknown@x>"]}`,
+		RequestBody:          `{"uuid":"00000000-0000-0000-0000-000000000000","from":"test@example.com","to":"recipient@example.com","body":"Reply body","subject":"Reply body","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<unknown@x>","references":["<unknown@x>"]}`,
 		ResponseBody:         `{"status":"sent"}`, ResponseStatus: 200,
 		SendPrep: setSendURL},
 

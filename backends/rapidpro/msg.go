@@ -2,6 +2,7 @@ package rapidpro
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -857,33 +858,82 @@ func GetMsgByUUID(b *backend, uuid string) (*DBMsg, error) {
 // GetMsgByExternalID returns the most recent message on the passed channel
 // with the given external_id, or sql.ErrNoRows when none matches.
 func GetMsgByExternalID(b *backend, channelID courier.ChannelID, externalID string) (*DBMsg, error) {
-	m := &DBMsg{}
-	err := b.db.Get(m, selectMsgByExternalIDSQL, channelID, externalID)
-	if err != nil {
-		return nil, err
-	}
-
-	return m, nil
+	row := b.db.QueryRowxContext(context.Background(), selectMsgByExternalIDSQL, channelID, externalID)
+	return scanDBMsgWithMetadata(row)
 }
 
 // GetMsgByIDWithMetadata returns the message row for the given id including
 // metadata, or sql.ErrNoRows when none matches.
 func GetMsgByIDWithMetadata(b *backend, id courier.MsgID) (*DBMsg, error) {
-	m := &DBMsg{}
-	err := b.db.Get(m, selectMsgByIDWithMetadataSQL, id)
-	if err != nil {
-		return nil, err
-	}
-	return m, nil
+	row := b.db.QueryRowxContext(context.Background(), selectMsgByIDWithMetadataSQL, id)
+	return scanDBMsgWithMetadata(row)
 }
 
 // GetLastMsgWithExternalID returns the most recent visible message on the
 // channel for the contact URN that has a non-empty external_id.
 func GetLastMsgWithExternalID(b *backend, channelID courier.ChannelID, urnIdentity string) (*DBMsg, error) {
+	row := b.db.QueryRowxContext(context.Background(), selectLastMsgWithExternalIDSQL, channelID, urnIdentity)
+	return scanDBMsgWithMetadata(row)
+}
+
+// msgRow is the Scan surface shared by sql.Row / sqlx.Row.
+type msgRow interface {
+	Scan(dest ...interface{}) error
+}
+
+// scanDBMsgWithMetadata scans a msgs_msg row that includes the metadata column.
+//
+// The scan is done manually (rather than via sqlx Get) because the production
+// msgs_msg schema differs from a naive struct mapping in two important ways:
+//   - metadata is "text" rather than jsonb, so the pq driver returns a
+//     string (not []byte) which can't be scanned into *json.RawMessage
+//     directly.
+//   - several columns (high_priority, modified_on, queued_on, sent_on) are
+//     nullable, but the DBMsg fields are plain bool / time.Time, which fail
+//     the scan when the database delivers NULL.
+//
+// Both pitfalls cause db.Get to return an error, which in turn makes the
+// email reply-in-thread lookup degrade silently (parent treated as missing).
+// Reading into nullable holders and copying back keeps the lookup robust to
+// both schemas.
+func scanDBMsgWithMetadata(row msgRow) (*DBMsg, error) {
 	m := &DBMsg{}
-	err := b.db.Get(m, selectLastMsgWithExternalIDSQL, channelID, urnIdentity)
+
+	var (
+		highPriority  sql.NullBool
+		modifiedOn    sql.NullTime
+		queuedOn      sql.NullTime
+		sentOn        sql.NullTime
+		metadataBytes []byte
+	)
+
+	err := row.Scan(
+		&m.ID_, &m.UUID_, &m.OrgID_, &m.Direction_, &m.Text_, &m.Attachments_,
+		&m.MessageCount_, &m.ErrorCount_, &highPriority, &m.Status_, &m.Visibility_,
+		&m.ExternalID_, &m.ChannelID_, &m.ContactID_, &m.ContactURNID_,
+		&m.CreatedOn_, &modifiedOn, &queuedOn, &sentOn,
+		&metadataBytes,
+	)
 	if err != nil {
 		return nil, err
+	}
+
+	if highPriority.Valid {
+		m.HighPriority_ = highPriority.Bool
+	}
+	if modifiedOn.Valid {
+		m.ModifiedOn_ = modifiedOn.Time
+	}
+	if queuedOn.Valid {
+		m.QueuedOn_ = queuedOn.Time
+	}
+	if sentOn.Valid {
+		t := sentOn.Time
+		m.SentOn_ = &t
+	}
+	if len(metadataBytes) > 0 {
+		raw := json.RawMessage(metadataBytes)
+		m.Metadata_ = &raw
 	}
 	return m, nil
 }

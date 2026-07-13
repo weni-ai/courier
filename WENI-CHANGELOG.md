@@ -1,3 +1,8 @@
+1.59.0
+----------
+ * feat: Add support for 'request_contact_info' interaction type in WhatsApp message handling and update related tests
+ * refactor: Refactor the parsing of the catalog message body and header to correctly handle backslashes
+
 1.58.0
 ----------
  * feat: Implement user ID and parent BSUID update handling in WhatsApp messages

@@ -305,7 +305,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 			"context": map[string]interface{}{
 				"from":                 "5678",
 				"id":                   "gBGGFmkiWVVPAgkgQkwi7IORac0",
-				"forwarded":           false,
+				"forwarded":            false,
 				"frequently_forwarded": false,
 			},
 			"overwrite_message": map[string]interface{}{
@@ -1082,6 +1082,13 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		Status: "W", ExternalID: "157b5e14568e8",
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"product_list","body":{"text":"Catalog Body Msg"},"action":{"sections":[{"title":"product1","product_items":[{"product_retailer_id":"p1"}]},{"title":"long product name greate","product_items":[{"product_retailer_id":"p2"}]}],"catalog_id":"c4t4l0g-1D","name":"View Products"}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Catalog Message Send 2 products - With slashes",
+		Metadata: json.RawMessage(`{"body":"Catalog Body Msg \\\\slashes1, /slashes2, \\/slashes3", "products": [{"product": "product1","product_retailer_ids":["p1"]},{"product": "long product name greate than 24","product_retailer_ids":["p2"]}], "action": "View Products", "send_catalog":false}`),
+		Text:     "Catalog Msg", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"product_list","body":{"text":"Catalog Body Msg slashes1, /slashes2, /slashes3"},"action":{"sections":[{"title":"product1","product_items":[{"product_retailer_id":"p1"}]},{"title":"long product name greate","product_items":[{"product_retailer_id":"p2"}]}],"catalog_id":"c4t4l0g-1D","name":"View Products"}}}`,
 		SendPrep:    setSendURL},
 	{Label: "Catalog Message Send 2 products - With Header - With Footer",
 		Metadata: json.RawMessage(`{"header": "header text", "footer": "footer text", "body":"Catalog Body Msg", "products": [{"product": "product1","product_retailer_ids":["p1"]},{"product": "long product name greate than 24","product_retailer_ids":["p2"]}], "action": "View Products", "send_catalog":false}`),

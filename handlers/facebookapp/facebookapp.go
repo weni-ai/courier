@@ -344,9 +344,9 @@ type moPayload struct {
 						Video      *wacMedia `json:"video"`
 						CtwaClid   string    `json:"ctwa_clid"`
 					} `json:"referral"`
-				Order struct {
-					Text         string `json:"text"`
-					ProductItems []struct {
+					Order struct {
+						Text         string `json:"text"`
+						ProductItems []struct {
 							ProductRetailerID string  `json:"product_retailer_id"`
 							Quantity          int     `json:"quantity"`
 							ItemPrice         float64 `json:"item_price"`
@@ -1074,11 +1074,11 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				// Process WhatsApp metadata (order, nfm_reply, payment_method) with overwrite_message
 				var wacMeta *wacMessageMetadata
 
-			if msg.Type == "button" && msg.Button != nil {
-				wacMeta = processWACButtonMetadata(msg.Button)
-			} else if msg.Type == "order" {
-				wacMeta = processWACOrderMetadata(msg.Order)
-			} else if msg.Interactive.Type == "nfm_reply" {
+				if msg.Type == "button" && msg.Button != nil {
+					wacMeta = processWACButtonMetadata(msg.Button)
+				} else if msg.Type == "order" {
+					wacMeta = processWACOrderMetadata(msg.Order)
+				} else if msg.Interactive.Type == "nfm_reply" {
 					var err error
 					wacMeta, err = processWACNFMReplyMetadata(msg.Interactive.NFMReply.Name, msg.Interactive.NFMReply.ResponseJSON)
 					if err != nil {
@@ -3200,7 +3200,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		interactive.Body = struct {
 			Text string `json:"text"`
 		}{
-			Text: msg.Body(),
+			Text: parseBacklashes(msg.Body()),
 		}
 
 		if msg.Header() != "" && !isUnitaryProduct && !msg.SendCatalog() {
@@ -3212,7 +3212,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				Document *wacMTMedia `json:"document,omitempty"`
 			}{
 				Type: "text",
-				Text: msg.Header(),
+				Text: parseBacklashes(msg.Header()),
 			}
 		}
 

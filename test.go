@@ -243,6 +243,12 @@ func (mb *MockBackend) WriteMsg(ctx context.Context, m Msg) error {
 
 	mb.queueMsgs = append(mb.queueMsgs, m)
 	mb.lastContactName = m.(*mockMsg).contactName
+
+	// ensure a contact exists for this URN (mirrors contactForURN on write)
+	if _, found := mb.contacts[m.URN()]; !found {
+		uuid, _ := NewContactUUID(string(uuids.New()))
+		mb.contacts[m.URN()] = &mockContact{m.Channel(), m.URN(), m.URNAuth(), uuid}
+	}
 	return nil
 }
 
@@ -350,6 +356,15 @@ func (mb *MockBackend) GetContact(ctx context.Context, channel Channel, urn urns
 	return contact, nil
 }
 
+// FindContact looks up a contact by URN without creating one
+func (mb *MockBackend) FindContact(ctx context.Context, channel Channel, urn urns.URN) (Contact, error) {
+	contact, found := mb.contacts[urn]
+	if !found {
+		return nil, ErrContactNotFound
+	}
+	return contact, nil
+}
+
 // AddURNtoContact adds a URN to the passed in contact
 func (mb *MockBackend) AddURNtoContact(context context.Context, channel Channel, contact Contact, urn urns.URN) (urns.URN, error) {
 	mb.contacts[urn] = contact
@@ -389,6 +404,13 @@ func (mb *MockBackend) Cleanup() error { return nil }
 // ClearQueueMsgs clears our mock msg queue
 func (mb *MockBackend) ClearQueueMsgs() {
 	mb.queueMsgs = nil
+}
+
+// ClearContacts clears all contacts from the mock backend
+func (mb *MockBackend) ClearContacts() {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+	mb.contacts = make(map[urns.URN]Contact)
 }
 
 // ClearSeenExternalIDs clears our mock seen external ids

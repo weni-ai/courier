@@ -515,7 +515,47 @@ var testCasesWAC = []ChannelHandleTestCase{
 		Text: Sp("Hello World"), URN: Sp("whatsapp:US.13491208655302741918"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Message Phone and BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUIDWithPhone.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:US.13491208655302741918"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		ContactURNs: map[string]bool{
+			"whatsapp:US.13491208655302741918": true,
+			"whatsapp:5678":                   true,
+		},
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Message Phone and BSUID Existing BSUID Contact", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUIDWithPhone.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:US.13491208655302741918"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		ContactURNs: map[string]bool{
+			"whatsapp:US.13491208655302741918": true,
+			"whatsapp:5678":                   true,
+		},
+		PrepBackend: func(mb *courier.MockBackend) {
+			bsuidURN, _ := urns.NewWhatsAppURN("US.13491208655302741918")
+			mb.GetContact(context.Background(), testChannelsWAC[0], bsuidURN, "", "")
+		},
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Message Phone and BSUID Existing Phone Contact", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUIDWithPhone.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		ContactURNs: map[string]bool{
+			"whatsapp:US.13491208655302741918": true,
+			"whatsapp:5678":                   true,
+		},
+		PrepBackend: func(mb *courier.MockBackend) {
+			phoneURN, _ := urns.NewWhatsAppURN("5678")
+			mb.GetContact(context.Background(), testChannelsWAC[0], phoneURN, "", "")
+		},
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Contact Request Response Phone and BSUID Existing BSUID Contact", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUIDWithPhoneContactRequest.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("+250 788 123 456"), URN: Sp("whatsapp:US.13491208655302741918"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		ContactURNs: map[string]bool{
+			"whatsapp:US.13491208655302741918": true,
+			"whatsapp:5678":                   true,
+		},
+		PrepBackend: func(mb *courier.MockBackend) {
+			// reproduces the reported incident: contact previously existed with only the BSUID
+			// (no phone number known yet), then the user responds to a request_contact_info
+			// message by sharing their own contact, revealing the phone number for the first time.
+			bsuidURN, _ := urns.NewWhatsAppURN("US.13491208655302741918")
+			mb.GetContact(context.Background(), testChannelsWAC[0], bsuidURN, "", "")
+		},
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Message BSUID with Username", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUIDUsername.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("Hello World"), URN: Sp("whatsapp:US.13491208655302741918"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
@@ -525,7 +565,11 @@ var testCasesWAC = []ChannelHandleTestCase{
 	{Label: "Receive User ID Update", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/userIDUpdateWAC.json")), Status: 200, Response: `"user_id_update: BSUID updated from US.13491208655302741918 to US.98765432100000000001"`,
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Message Phone BSUID and Parent BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloParentBSUID.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
-		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		Text: Sp("Hello World"), URN: Sp("whatsapp:US.13491208655302741918"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		ContactURNs: map[string]bool{
+			"whatsapp:US.13491208655302741918": true,
+			"whatsapp:5678":                   true,
+		},
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Message BSUID and Parent BSUID Only", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloParentBSUIDOnly.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("Hello World"), URN: Sp("whatsapp:US.13491208655302741918"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
@@ -1293,6 +1337,13 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		Status: "W", ExternalID: "157b5e14568e8", TextLanguage: "en-US",
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"location_request_message","body":{"text":"Interactive Location Request"},"action":{"name":"send_location"}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Interactive Request Contact Info",
+		Metadata: json.RawMessage(`{"interaction_type":"request_contact_info"}`),
+		Text:     "Share your contact info", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"request_contact_info","body":{"text":"Share your contact info"},"action":{"name":"request_contact_info"}}}`,
 		SendPrep:    setSendURL},
 	{Label: "[VERIFY] Interactive Location Request - With attachment - Sending only the attachment (is this ok? shouldn't the location request be a priority?)", // TODO: Verify, is Location + Attachment a valid combination? I believe that the Send WhatsApp Message card does not allow this
 		Metadata: json.RawMessage(`{"interaction_type":"location"}`),

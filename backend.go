@@ -36,6 +36,9 @@ type Backend interface {
 	// GetContact returns (or creates) the contact for the passed in channel and URN
 	GetContact(context context.Context, channel Channel, urn urns.URN, auth string, name string) (Contact, error)
 
+	// FindContact looks up a contact by URN without creating one. Returns ErrContactNotFound if none exists.
+	FindContact(context context.Context, channel Channel, urn urns.URN) (Contact, error)
+
 	// AddURNtoContact adds a URN to the passed in contact
 	AddURNtoContact(context context.Context, channel Channel, contact Contact, urn urns.URN) (urns.URN, error)
 

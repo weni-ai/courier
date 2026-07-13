@@ -58,6 +58,10 @@ type ChannelHandleTestCase struct {
 	NoInvalidChannelCheck bool
 
 	PrepRequest RequestPrepFunc
+	PrepBackend func(*courier.MockBackend)
+
+	// ContactURNs maps URN -> whether it should be present on the same contact as the message URN after handling
+	ContactURNs map[string]bool
 }
 
 // SendPrepFunc allows test cases to modify the channel, msg or server before a message is sent
@@ -402,6 +406,11 @@ func RunChannelTestCases(t *testing.T, channels []courier.Channel, handler couri
 
 			mb.ClearQueueMsgs()
 			mb.ClearSeenExternalIDs()
+			mb.ClearContacts()
+
+			if testCase.PrepBackend != nil {
+				testCase.PrepBackend(mb)
+			}
 
 			testHandlerRequest(t, s, testCase.URL, testCase.Headers, testCase.Data, testCase.MultipartFormFields, testCase.Status, &testCase.Response, testCase.PrepRequest)
 
@@ -479,6 +488,20 @@ func RunChannelTestCases(t *testing.T, channels []courier.Channel, handler couri
 					wants := *testCase.Metadata
 					have := msg.Metadata()
 					require.JSONEq(string(wants), string(have))
+				}
+				if testCase.ContactURNs != nil && msg != nil {
+					ctx := context.Background()
+					primaryContact, err := mb.FindContact(ctx, channels[0], msg.URN())
+					require.NoError(err)
+					for urn, shouldBePresent := range testCase.ContactURNs {
+						contact, findErr := mb.FindContact(ctx, channels[0], urns.URN(urn))
+						if shouldBePresent {
+							require.NoError(findErr, "expected URN %s to be present", urn)
+							require.Equal(primaryContact.UUID(), contact.UUID(), "URN %s should belong to the same contact", urn)
+						} else {
+							require.Equal(courier.ErrContactNotFound, findErr, "expected URN %s to be absent", urn)
+						}
+					}
 				}
 			}
 		})

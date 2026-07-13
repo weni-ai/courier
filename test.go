@@ -833,6 +833,18 @@ func (m *mockMsg) SendCatalog() bool {
 	return sendCatalog
 }
 
+func (m *mockMsg) ProductCarousel() bool {
+	if m.metadata == nil {
+		return false
+	}
+	byteValue, _, _, _ := jsonparser.Get(m.metadata, "product_carousel")
+	v, err := strconv.ParseBool(string(byteValue))
+	if err != nil {
+		return false
+	}
+	return v
+}
+
 func (m *mockMsg) ListMessage() ListMessage {
 	if m.metadata == nil {
 		return ListMessage{}

@@ -1,3 +1,21 @@
+1.58.0
+----------
+ * feat: Implement user ID and parent BSUID update handling in WhatsApp messages
+
+1.57.1
+----------
+ * fix: extract filename from URL path to avoid query params in media upload
+
+1.57.0
+----------
+ * refactor: Update wacOrderDetails structure to make Order field optional and adjust order handling logic for improved flexibility
+ * feat: Add button metadata processing for WhatsApp messages and update test cases to include button message handling
+
+1.56.0
+----------
+ * refactor: Simplify order structure in WhatsApp message handling by removing redundant catalog_id field
+ * feat: Add support for sending product carousel messages
+
 1.55.0
 ----------
  * refactor: Update WhatsApp message handling to align with new template structure and improve marketing message detection

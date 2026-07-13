@@ -297,6 +297,24 @@ var testCasesWAC = []ChannelHandleTestCase{
 
 	{Label: "Receive Valid Button Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/buttonWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("No"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"button": map[string]interface{}{
+				"payload": "No-Button-Payload",
+				"text":    "No",
+			},
+			"context": map[string]interface{}{
+				"from":                 "5678",
+				"id":                   "gBGGFmkiWVVPAgkgQkwi7IORac0",
+				"forwarded":           false,
+				"frequently_forwarded": false,
+			},
+			"overwrite_message": map[string]interface{}{
+				"button": map[string]interface{}{
+					"payload": "No-Button-Payload",
+					"text":    "No",
+				},
+			},
+		}),
 		PrepRequest: addValidSignatureWAC},
 
 	{Label: "Receive Referral WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/referralWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
@@ -329,8 +347,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 	{Label: "Receive Order WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/orderWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{
 			"order": map[string]interface{}{
-				"catalog_id": "800683284849775",
-				"text":       "",
+				"text": "",
 				"product_items": []map[string]interface{}{
 					{
 						"product_retailer_id": "1031",
@@ -348,8 +365,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 			},
 			"overwrite_message": map[string]interface{}{
 				"order": map[string]interface{}{
-					"catalog_id": "800683284849775",
-					"text":       "",
+					"text": "",
 					"product_items": []map[string]interface{}{
 						{
 							"product_retailer_id": "1031",
@@ -547,6 +563,14 @@ var testCasesWAC = []ChannelHandleTestCase{
 	{Label: "Receive Status BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/statusBSUID.json")), Status: 200, Response: `"type":"status"`,
 		MsgStatus: Sp("S"), ExternalID: Sp("external_id"), PrepRequest: addValidSignatureWAC},
 	{Label: "Receive User ID Update", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/userIDUpdateWAC.json")), Status: 200, Response: `"user_id_update: BSUID updated from US.13491208655302741918 to US.98765432100000000001"`,
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Message Phone BSUID and Parent BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloParentBSUID.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Message BSUID and Parent BSUID Only", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloParentBSUIDOnly.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:US.13491208655302741918"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive User ID Update with Parent BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/userIDUpdateParentBSUID.json")), Status: 200, Response: `"user_id_update: parent BSUID updated from US.ENT.11815799212886844830 to US.ENT.99999999999999999999"`,
 		PrepRequest: addValidSignatureWAC},
 }
 
@@ -1742,6 +1766,30 @@ var CachedSendTestCasesWAC = []ChannelSendTestCase{
 				Method: "POST",
 				Path:   "/12345_ID/messages",
 				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"revive_issue","language":{"policy":"deterministic","code":"en_US"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]},{"type":"header","parameters":[{"type":"document","document":{"id":"268c6f24679f9","filename":"document2.pdf"}}]}]}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
+	{Label: "Image Send with URL query params - filename should not contain params",
+		Text:   "image caption",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"image/jpeg:https://foo.bar/image.jpg?token=abc123&expires=9999"},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method:       "POST",
+				Path:         "/12345_ID/media",
+				BodyContains: `filename="image.jpg"`,
+			}: {
+				Status: 201,
+				Body:   `{"id":"157b5e14568e8"}`,
+			},
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"id":"157b5e14568e8","caption":"image caption"}}`,
 			}: {
 				Status: 201,
 				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,

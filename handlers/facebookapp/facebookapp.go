@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
-	"path/filepath"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -344,10 +344,9 @@ type moPayload struct {
 						Video      *wacMedia `json:"video"`
 						CtwaClid   string    `json:"ctwa_clid"`
 					} `json:"referral"`
-					Order struct {
-						CatalogID    string `json:"catalog_id"`
-						Text         string `json:"text"`
-						ProductItems []struct {
+				Order struct {
+					Text         string `json:"text"`
+					ProductItems []struct {
 							ProductRetailerID string  `json:"product_retailer_id"`
 							Quantity          int     `json:"quantity"`
 							ItemPrice         float64 `json:"item_price"`
@@ -561,6 +560,74 @@ func processWACPaymentNotificationMetadata(paymentNotification interface{}) *wac
 		Key:   "payment_notification",
 		Value: paymentNotification,
 	}
+}
+
+func processWACButtonMetadata(button *struct {
+	Text    string `json:"text"`
+	Payload string `json:"payload"`
+}) *wacMessageMetadata {
+	return &wacMessageMetadata{
+		Key: "button",
+		Value: map[string]string{
+			"payload": button.Payload,
+			"text":    button.Text,
+		},
+	}
+}
+
+// addSecondaryURN creates a WhatsApp URN from the given identifier and adds it
+// to the contact that owns primaryURN. Errors are silently ignored so that a
+// failure to attach a secondary URN never blocks message processing.
+func (h *handler) addSecondaryURN(ctx context.Context, channel courier.Channel, primaryURN urns.URN, identifier string) {
+	secondaryURN, err := urns.NewWhatsAppURN(identifier)
+	if err != nil {
+		return
+	}
+	contact, err := h.Backend().GetContact(ctx, channel, primaryURN, "", "")
+	if err != nil {
+		return
+	}
+	h.Backend().AddURNtoContact(ctx, channel, contact, secondaryURN)
+}
+
+type bsuidUpdate struct {
+	Previous string
+	Current  string
+}
+
+// processUserIDURNUpdate swaps an old BSUID URN for a new one on the contact
+// that owns the old URN. Returns a human-readable info string on success, or
+// an error description to log.
+func (h *handler) processUserIDURNUpdate(ctx context.Context, channel courier.Channel, label string, upd bsuidUpdate) (string, error) {
+	oldURN, err := urns.NewWhatsAppURN(upd.Previous)
+	if err != nil {
+		return "", fmt.Errorf("user_id_update: invalid old %s URN: %w", label, err)
+	}
+
+	newURN, err := urns.NewWhatsAppURN(upd.Current)
+	if err != nil {
+		return "", fmt.Errorf("user_id_update: invalid new %s URN: %w", label, err)
+	}
+
+	contact, err := h.Backend().GetContact(ctx, channel, oldURN, "", "")
+	if err != nil {
+		return "", fmt.Errorf("user_id_update: contact not found for old %s %s: %w", label, upd.Previous, err)
+	}
+
+	if _, err := h.Backend().AddURNtoContact(ctx, channel, contact, newURN); err != nil {
+		return "", fmt.Errorf("user_id_update: failed to add new %s URN: %w", label, err)
+	}
+
+	if _, err := h.Backend().RemoveURNfromContact(ctx, channel, contact, oldURN); err != nil {
+		logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Errorf("user_id_update: failed to remove old %s URN", label)
+	}
+
+	logrus.WithField("channel_uuid", channel.UUID()).
+		WithField("old_"+label, upd.Previous).
+		WithField("new_"+label, upd.Current).
+		Infof("user_id_update: successfully updated %s URN", label)
+
+	return fmt.Sprintf("user_id_update: %s updated from %s to %s", label, upd.Previous, upd.Current), nil
 }
 
 // addMetadataWithOverwrite adds metadata to both the root level and overwrite_message field
@@ -1037,9 +1104,11 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				// Process WhatsApp metadata (order, nfm_reply, payment_method) with overwrite_message
 				var wacMeta *wacMessageMetadata
 
-				if msg.Type == "order" {
-					wacMeta = processWACOrderMetadata(msg.Order)
-				} else if msg.Interactive.Type == "nfm_reply" {
+			if msg.Type == "button" && msg.Button != nil {
+				wacMeta = processWACButtonMetadata(msg.Button)
+			} else if msg.Type == "order" {
+				wacMeta = processWACOrderMetadata(msg.Order)
+			} else if msg.Interactive.Type == "nfm_reply" {
 					var err error
 					wacMeta, err = processWACNFMReplyMetadata(msg.Interactive.NFMReply.Name, msg.Interactive.NFMReply.ResponseJSON)
 					if err != nil {
@@ -1265,39 +1334,27 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					continue
 				}
 
-				oldURN, err := urns.NewWhatsAppURN(update.UserID.Previous)
-				if err != nil {
-					logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Error("user_id_update: invalid old BSUID URN")
-					continue
+				updates := []struct {
+					label string
+					upd   bsuidUpdate
+				}{
+					{"BSUID", bsuidUpdate{update.UserID.Previous, update.UserID.Current}},
+				}
+				if update.ParentUserID != nil && update.ParentUserID.Previous != "" && update.ParentUserID.Current != "" {
+					updates = append(updates, struct {
+						label string
+						upd   bsuidUpdate
+					}{"parent BSUID", bsuidUpdate{update.ParentUserID.Previous, update.ParentUserID.Current}})
 				}
 
-				newURN, err := urns.NewWhatsAppURN(update.UserID.Current)
-				if err != nil {
-					logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Error("user_id_update: invalid new BSUID URN")
-					continue
+				for _, u := range updates {
+					info, err := h.processUserIDURNUpdate(ctx, channel, u.label, u.upd)
+					if err != nil {
+						logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Warn(err.Error())
+						continue
+					}
+					data = append(data, courier.NewInfoData(info))
 				}
-
-				contact, err := h.Backend().GetContact(ctx, channel, oldURN, "", "")
-				if err != nil {
-					logrus.WithField("channel_uuid", channel.UUID()).WithField("old_bsuid", update.UserID.Previous).WithError(err).Warn("user_id_update: contact not found for old BSUID")
-					continue
-				}
-
-				if _, err := h.Backend().AddURNtoContact(ctx, channel, contact, newURN); err != nil {
-					logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Error("user_id_update: failed to add new BSUID URN")
-					continue
-				}
-
-				if _, err := h.Backend().RemoveURNfromContact(ctx, channel, contact, oldURN); err != nil {
-					logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Error("user_id_update: failed to remove old BSUID URN")
-				}
-
-				logrus.WithField("channel_uuid", channel.UUID()).
-					WithField("old_bsuid", update.UserID.Previous).
-					WithField("new_bsuid", update.UserID.Current).
-					Info("user_id_update: successfully updated BSUID URN")
-
-				data = append(data, courier.NewInfoData(fmt.Sprintf("user_id_update: BSUID updated from %s to %s", update.UserID.Previous, update.UserID.Current)))
 			}
 		}
 
@@ -2221,7 +2278,7 @@ type wacOrderDetails struct {
 	PaymentSettings []wacOrderDetailsPaymentSetting `json:"payment_settings" validate:"required"`
 	Currency        string                          `json:"currency" validate:"required"`
 	TotalAmount     wacAmountWithOffset             `json:"total_amount" validate:"required"`
-	Order           wacOrder                        `json:"order" validate:"required"`
+	Order           *wacOrder                       `json:"order,omitempty"`
 }
 
 type wacOrder struct {
@@ -3239,7 +3296,7 @@ func mountOrderDetails(msg courier.Msg, paymentSettings []wacOrderDetailsPayment
 		catalogIDValue = *catalogID
 	}
 
-	return &wacOrderDetails{
+	result := &wacOrderDetails{
 		ReferenceID:     orderDetails.ReferenceID,
 		Type:            paymentType,
 		PaymentType:     "br",
@@ -3249,7 +3306,10 @@ func mountOrderDetails(msg courier.Msg, paymentSettings []wacOrderDetailsPayment
 			Value:  orderDetails.TotalAmount,
 			Offset: 100,
 		},
-		Order: wacOrder{
+	}
+
+	if len(orderDetails.Order.Items) > 0 {
+		result.Order = &wacOrder{
 			Status:    "pending",
 			CatalogID: catalogIDValue,
 			Items:     orderDetails.Order.Items,
@@ -3260,8 +3320,10 @@ func mountOrderDetails(msg courier.Msg, paymentSettings []wacOrderDetailsPayment
 			Tax:      orderTax,
 			Shipping: orderShipping,
 			Discount: orderDiscount,
-		},
+		}
 	}
+
+	return result
 }
 
 func mountOrderPaymentSettings(orderDetails *courier.OrderDetailsMessage) []wacOrderDetailsPaymentSetting {
@@ -4235,7 +4297,11 @@ func requestWACMediaUpload(file []byte, mediaURL string, requestUrl string, mime
 	writer := multipart.NewWriter(body)
 
 	fileType := http.DetectContentType(file)
-	fileName := filepath.Base(mediaURL)
+	u, err := url.Parse(mediaURL)
+	if err != nil {
+		return "", logs, errors.Wrap(err, "invalid media URL")
+	}
+	fileName := path.Base(u.Path)
 
 	if fileType != mimeType || fileType == "application/octet-stream" || fileType == "application/zip" {
 		fileType = mimetype.Detect(file).String()

@@ -565,7 +565,11 @@ var testCasesWAC = []ChannelHandleTestCase{
 	{Label: "Receive User ID Update", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/userIDUpdateWAC.json")), Status: 200, Response: `"user_id_update: BSUID updated from US.13491208655302741918 to US.98765432100000000001"`,
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Message Phone BSUID and Parent BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloParentBSUID.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
-		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		Text: Sp("Hello World"), URN: Sp("whatsapp:US.13491208655302741918"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		ContactURNs: map[string]bool{
+			"whatsapp:US.13491208655302741918": true,
+			"whatsapp:5678":                   true,
+		},
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Message BSUID and Parent BSUID Only", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloParentBSUIDOnly.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("Hello World"), URN: Sp("whatsapp:US.13491208655302741918"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),

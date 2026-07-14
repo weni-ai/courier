@@ -1,3 +1,7 @@
+1.59.1
+----------
+ * fix: Update WhatsApp message handling to improve URN assignment logic
+
 1.59.0
 ----------
  * feat: Add support for 'request_contact_info' interaction type in WhatsApp message handling and update related tests

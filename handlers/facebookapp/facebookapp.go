@@ -970,34 +970,34 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				var urn urns.URN
 				var secondaryURN urns.URN
 				if msg.From != "" && msg.FromUserID != "" {
-					// Both phone and BSUID present: prefer the URN that already has a contact
-					// so we don't create a duplicate and steal the other URN from the existing one.
+					// Both phone number and BSUID are present. The phone number is always the
+					// contact's preferred URN, so the message is attributed to it: writing the
+					// message promotes its URN to the contact's default (highest priority). The
+					// BSUID is kept as a secondary URN so the contact stays reachable if the
+					// phone number changes.
 					phoneURN, phoneErr := urns.NewWhatsAppURN(msg.From)
-					bsuidURN, bsuidErr := urns.NewWhatsAppURN(msg.FromUserID)
 					if phoneErr != nil {
 						return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, phoneErr)
 					}
+					bsuidURN, bsuidErr := urns.NewWhatsAppURN(msg.FromUserID)
 					if bsuidErr != nil {
 						return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, bsuidErr)
 					}
 
-					// Check BSUID first: in steady state (contact already has both URNs, or
-					// only the BSUID) this single lookup is enough, sparing the phone query.
-					// The phone lookup only runs for the transitional/edge cases where the
-					// BSUID isn't linked to a contact yet.
-					if _, bsuidContactErr := h.Backend().FindContact(ctx, channel, bsuidURN); bsuidContactErr == nil {
-						// Existing BSUID contact (username-first / phone-number-sharing flow)
-						urn = bsuidURN
-						secondaryURN = phoneURN
-					} else if _, phoneContactErr := h.Backend().FindContact(ctx, channel, phoneURN); phoneContactErr == nil {
-						// Existing phone contact receiving BSUID for the first time
-						urn = phoneURN
-						secondaryURN = bsuidURN
-					} else {
-						// Neither exists yet: prefer BSUID as stable identity, phone as secondary
-						urn = bsuidURN
-						secondaryURN = phoneURN
+					// If a contact already exists only under the BSUID (phone-number-sharing
+					// flow, where the phone number is revealed for the first time), attach the
+					// phone number to that existing contact before writing the message so we
+					// don't create a duplicate contact.
+					if bsuidContact, bsuidContactErr := h.Backend().FindContact(ctx, channel, bsuidURN); bsuidContactErr == nil {
+						if _, phoneContactErr := h.Backend().FindContact(ctx, channel, phoneURN); phoneContactErr != nil {
+							if _, addErr := h.Backend().AddURNtoContact(ctx, channel, bsuidContact, phoneURN); addErr != nil {
+								courier.LogRequestError(r, channel, fmt.Errorf("unable to add phone URN to existing BSUID contact: %v", addErr))
+							}
+						}
 					}
+
+					urn = phoneURN
+					secondaryURN = bsuidURN
 				} else if msg.From != "" {
 					urn, err = urns.NewWhatsAppURN(msg.From)
 				} else if msg.FromUserID != "" {

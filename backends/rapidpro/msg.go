@@ -857,22 +857,22 @@ func GetMsgByUUID(b *backend, uuid string) (*DBMsg, error) {
 
 // GetMsgByExternalID returns the most recent message on the passed channel
 // with the given external_id, or sql.ErrNoRows when none matches.
-func GetMsgByExternalID(b *backend, channelID courier.ChannelID, externalID string) (*DBMsg, error) {
-	row := b.db.QueryRowxContext(context.Background(), selectMsgByExternalIDSQL, channelID, externalID)
+func GetMsgByExternalID(ctx context.Context, b *backend, channelID courier.ChannelID, externalID string) (*DBMsg, error) {
+	row := b.db.QueryRowxContext(ctx, selectMsgByExternalIDSQL, channelID, externalID)
 	return scanDBMsgWithMetadata(row)
 }
 
 // GetMsgByIDWithMetadata returns the message row for the given id including
 // metadata, or sql.ErrNoRows when none matches.
-func GetMsgByIDWithMetadata(b *backend, id courier.MsgID) (*DBMsg, error) {
-	row := b.db.QueryRowxContext(context.Background(), selectMsgByIDWithMetadataSQL, id)
+func GetMsgByIDWithMetadata(ctx context.Context, b *backend, id courier.MsgID) (*DBMsg, error) {
+	row := b.db.QueryRowxContext(ctx, selectMsgByIDWithMetadataSQL, id)
 	return scanDBMsgWithMetadata(row)
 }
 
 // GetLastMsgWithExternalID returns the most recent visible message on the
 // channel for the contact URN that has a non-empty external_id.
-func GetLastMsgWithExternalID(b *backend, channelID courier.ChannelID, urnIdentity string) (*DBMsg, error) {
-	row := b.db.QueryRowxContext(context.Background(), selectLastMsgWithExternalIDSQL, channelID, urnIdentity)
+func GetLastMsgWithExternalID(ctx context.Context, b *backend, channelID courier.ChannelID, urnIdentity string) (*DBMsg, error) {
+	row := b.db.QueryRowxContext(ctx, selectLastMsgWithExternalIDSQL, channelID, urnIdentity)
 	return scanDBMsgWithMetadata(row)
 }
 

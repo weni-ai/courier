@@ -2,6 +2,7 @@ package rapidpro
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -249,6 +250,70 @@ FROM
 WHERE
 	channel_id = $1 AND external_id = $2
 ORDER BY id DESC
+LIMIT 1
+`
+
+const selectMsgByIDWithMetadataSQL = `
+SELECT
+	id,
+	uuid,
+	org_id,
+	direction,
+	text,
+	attachments,
+	msg_count,
+	error_count,
+	high_priority,
+	status,
+	visibility,
+	external_id,
+	channel_id,
+	contact_id,
+	contact_urn_id,
+	created_on,
+	modified_on,
+	queued_on,
+	sent_on,
+	metadata
+FROM
+	msgs_msg
+WHERE
+	id = $1
+`
+
+const selectLastMsgWithExternalIDSQL = `
+SELECT
+	m.id,
+	m.uuid,
+	m.org_id,
+	m.direction,
+	m.text,
+	m.attachments,
+	m.msg_count,
+	m.error_count,
+	m.high_priority,
+	m.status,
+	m.visibility,
+	m.external_id,
+	m.channel_id,
+	m.contact_id,
+	m.contact_urn_id,
+	m.created_on,
+	m.modified_on,
+	m.queued_on,
+	m.sent_on,
+	m.metadata
+FROM
+	msgs_msg m
+INNER JOIN contacts_contacturn u ON m.contact_urn_id = u.id
+WHERE
+	m.channel_id = $1
+	AND u.identity = $2
+	AND m.external_id IS NOT NULL
+	AND m.external_id != ''
+	AND m.visibility = 'V'
+ORDER BY
+	m.id DESC
 LIMIT 1
 `
 
@@ -792,13 +857,85 @@ func GetMsgByUUID(b *backend, uuid string) (*DBMsg, error) {
 
 // GetMsgByExternalID returns the most recent message on the passed channel
 // with the given external_id, or sql.ErrNoRows when none matches.
-func GetMsgByExternalID(b *backend, channelID courier.ChannelID, externalID string) (*DBMsg, error) {
+func GetMsgByExternalID(ctx context.Context, b *backend, channelID courier.ChannelID, externalID string) (*DBMsg, error) {
+	row := b.db.QueryRowxContext(ctx, selectMsgByExternalIDSQL, channelID, externalID)
+	return scanDBMsgWithMetadata(row)
+}
+
+// GetMsgByIDWithMetadata returns the message row for the given id including
+// metadata, or sql.ErrNoRows when none matches.
+func GetMsgByIDWithMetadata(ctx context.Context, b *backend, id courier.MsgID) (*DBMsg, error) {
+	row := b.db.QueryRowxContext(ctx, selectMsgByIDWithMetadataSQL, id)
+	return scanDBMsgWithMetadata(row)
+}
+
+// GetLastMsgWithExternalID returns the most recent visible message on the
+// channel for the contact URN that has a non-empty external_id.
+func GetLastMsgWithExternalID(ctx context.Context, b *backend, channelID courier.ChannelID, urnIdentity string) (*DBMsg, error) {
+	row := b.db.QueryRowxContext(ctx, selectLastMsgWithExternalIDSQL, channelID, urnIdentity)
+	return scanDBMsgWithMetadata(row)
+}
+
+// msgRow is the Scan surface shared by sql.Row / sqlx.Row.
+type msgRow interface {
+	Scan(dest ...interface{}) error
+}
+
+// scanDBMsgWithMetadata scans a msgs_msg row that includes the metadata column.
+//
+// The scan is done manually (rather than via sqlx Get) because the production
+// msgs_msg schema differs from a naive struct mapping in two important ways:
+//   - metadata is "text" rather than jsonb, so the pq driver returns a
+//     string (not []byte) which can't be scanned into *json.RawMessage
+//     directly. Scanning into sql.NullString works for both text and jsonb
+//     (jsonb is accepted as string by database/sql).
+//   - several columns (high_priority, modified_on, queued_on, sent_on) are
+//     nullable, but the DBMsg fields are plain bool / time.Time, which fail
+//     the scan when the database delivers NULL.
+//
+// Both pitfalls cause db.Get to return an error, which in turn makes the
+// email reply-in-thread lookup degrade silently (parent treated as missing).
+// Reading into nullable holders and copying back keeps the lookup robust to
+// both schemas.
+func scanDBMsgWithMetadata(row msgRow) (*DBMsg, error) {
 	m := &DBMsg{}
-	err := b.db.Get(m, selectMsgByExternalIDSQL, channelID, externalID)
+
+	var (
+		highPriority sql.NullBool
+		modifiedOn   sql.NullTime
+		queuedOn     sql.NullTime
+		sentOn       sql.NullTime
+		metadataStr  sql.NullString
+	)
+
+	err := row.Scan(
+		&m.ID_, &m.UUID_, &m.OrgID_, &m.Direction_, &m.Text_, &m.Attachments_,
+		&m.MessageCount_, &m.ErrorCount_, &highPriority, &m.Status_, &m.Visibility_,
+		&m.ExternalID_, &m.ChannelID_, &m.ContactID_, &m.ContactURNID_,
+		&m.CreatedOn_, &modifiedOn, &queuedOn, &sentOn,
+		&metadataStr,
+	)
 	if err != nil {
 		return nil, err
 	}
 
+	if highPriority.Valid {
+		m.HighPriority_ = highPriority.Bool
+	}
+	if modifiedOn.Valid {
+		m.ModifiedOn_ = modifiedOn.Time
+	}
+	if queuedOn.Valid {
+		m.QueuedOn_ = queuedOn.Time
+	}
+	if sentOn.Valid {
+		t := sentOn.Time
+		m.SentOn_ = &t
+	}
+	if metadataStr.Valid && metadataStr.String != "" {
+		raw := json.RawMessage(metadataStr.String)
+		m.Metadata_ = &raw
+	}
 	return m, nil
 }
 

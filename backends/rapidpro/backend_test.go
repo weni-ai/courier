@@ -953,6 +953,47 @@ func (ts *BackendTestSuite) TestLookupMsgByExternalIDWithJSONBMetadata() {
 	ts.JSONEq(expectedMetadata, string(msg.Metadata()), "metadata should round-trip unchanged from jsonb column")
 }
 
+// TestLookupLastMsgWithExternalIDWithTextMetadata reproduces the production
+// failure where msgs_msg.metadata is text and sqlx Get cannot scan a string
+// into *json.RawMessage — the exact error seen when resolveParentExternalID
+// falls back to LookupLastMsgWithExternalID for email replies.
+func (ts *BackendTestSuite) TestLookupLastMsgWithExternalIDWithTextMetadata() {
+	ctx := context.Background()
+	channel := ts.getChannel("KN", "dbc126ed-66bc-4e28-b67b-81dc3327c95d")
+
+	// 10002 is the highest-id visible msg with a non-empty external_id for URN 1000.
+	// Seed uuid (NULL in testdata.sql) and text metadata like production.
+	expectedMetadata := `{"email":{"subject":"Meu Produto","references":["<produto@example.com>"]}}`
+	_, err := ts.b.db.ExecContext(ctx, `
+		UPDATE msgs_msg
+		SET metadata = $1, uuid = 'a984069d-0008-4d8c-a772-b14a8a6acc99'
+		WHERE id = 10002`, expectedMetadata)
+	ts.Require().NoError(err)
+
+	urn, err := urns.NewURNFromParts(urns.TelScheme, "+12067799192", "", "")
+	ts.Require().NoError(err)
+
+	msg, err := ts.b.LookupLastMsgWithExternalID(ctx, channel, urn)
+	ts.NoError(err, "LookupLastMsgWithExternalID must scan text metadata without error")
+	if !ts.NotNil(msg) {
+		return
+	}
+	ts.Equal("ext2", msg.ExternalID())
+	ts.JSONEq(expectedMetadata, string(msg.Metadata()))
+
+	// same scan path via id lookup
+	_, err = ts.b.db.ExecContext(ctx, `
+		UPDATE msgs_msg
+		SET metadata = $1, uuid = 'a984069d-0008-4d8c-a772-b14a8a6acc98'
+		WHERE id = 10000`, expectedMetadata)
+	ts.Require().NoError(err)
+	byID, err := ts.b.LookupMsgByID(ctx, courier.NewMsgID(10000))
+	ts.NoError(err, "LookupMsgByID must scan text metadata without error")
+	if ts.NotNil(byID) {
+		ts.JSONEq(expectedMetadata, string(byID.Metadata()))
+	}
+}
+
 func (ts *BackendTestSuite) TestContactLastSeenWithName() {
 	ctx := context.Background()
 	channel := ts.getChannel("TG", "dbc126ed-66bc-4e28-b67b-81dc3327c98a")

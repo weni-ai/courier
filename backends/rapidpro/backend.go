@@ -945,7 +945,28 @@ func (b *backend) LookupMsgByExternalID(ctx context.Context, channel courier.Cha
 	if !ok {
 		return nil, fmt.Errorf("LookupMsgByExternalID requires a *DBChannel, got %T", channel)
 	}
-	return GetMsgByExternalID(b, dbChannel.ID(), externalID)
+	return GetMsgByExternalID(ctx, b, dbChannel.ID(), externalID)
+}
+
+// LookupMsgByID resolves a Temba message id to its row, including metadata.
+func (b *backend) LookupMsgByID(ctx context.Context, id courier.MsgID) (courier.Msg, error) {
+	if id == courier.NilMsgID {
+		return nil, courier.ErrMsgNotFound
+	}
+	return GetMsgByIDWithMetadata(ctx, b, id)
+}
+
+// LookupLastMsgWithExternalID returns the latest visible message on the channel
+// for the contact that carries an external_id (e.g. email Message-ID).
+func (b *backend) LookupLastMsgWithExternalID(ctx context.Context, channel courier.Channel, urn urns.URN) (courier.Msg, error) {
+	if urn == urns.NilURN {
+		return nil, courier.ErrMsgNotFound
+	}
+	dbChannel, ok := channel.(*DBChannel)
+	if !ok {
+		return nil, fmt.Errorf("LookupLastMsgWithExternalID requires a *DBChannel, got %T", channel)
+	}
+	return GetLastMsgWithExternalID(ctx, b, dbChannel.ID(), string(urn.Identity()))
 }
 
 func (b *backend) GetProjectUUIDFromChannelUUID(ctx context.Context, channelUUID courier.ChannelUUID) (string, error) {

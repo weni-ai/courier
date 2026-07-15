@@ -867,22 +867,22 @@ func GetMsgByUUID(b *backend, uuid string) (*DBMsg, error) {
 
 // GetMsgByExternalID returns the most recent message on the passed channel
 // with the given external_id, or sql.ErrNoRows when none matches.
-func GetMsgByExternalID(b *backend, channelID courier.ChannelID, externalID string) (*DBMsg, error) {
-	row := b.db.QueryRowxContext(context.Background(), selectMsgByExternalIDSQL, channelID, externalID)
+func GetMsgByExternalID(ctx context.Context, b *backend, channelID courier.ChannelID, externalID string) (*DBMsg, error) {
+	row := b.db.QueryRowxContext(ctx, selectMsgByExternalIDSQL, channelID, externalID)
 	return scanDBMsgWithMetadata(row)
 }
 
 // GetMsgByIDWithMetadata returns the message row for the given id including
 // metadata, or sql.ErrNoRows when none matches.
-func GetMsgByIDWithMetadata(b *backend, id courier.MsgID) (*DBMsg, error) {
-	row := b.db.QueryRowxContext(context.Background(), selectMsgByIDWithMetadataSQL, id)
+func GetMsgByIDWithMetadata(ctx context.Context, b *backend, id courier.MsgID) (*DBMsg, error) {
+	row := b.db.QueryRowxContext(ctx, selectMsgByIDWithMetadataSQL, id)
 	return scanDBMsgWithMetadata(row)
 }
 
 // GetLastMsgWithExternalID returns the most recent visible message on the
 // channel for the contact URN that has a non-empty external_id.
-func GetLastMsgWithExternalID(b *backend, channelID courier.ChannelID, urnIdentity string) (*DBMsg, error) {
-	row := b.db.QueryRowxContext(context.Background(), selectLastMsgWithExternalIDSQL, channelID, urnIdentity)
+func GetLastMsgWithExternalID(ctx context.Context, b *backend, channelID courier.ChannelID, urnIdentity string) (*DBMsg, error) {
+	row := b.db.QueryRowxContext(ctx, selectLastMsgWithExternalIDSQL, channelID, urnIdentity)
 	return scanDBMsgWithMetadata(row)
 }
 
@@ -897,7 +897,8 @@ type msgRow interface {
 // msgs_msg schema differs from a naive struct mapping in two important ways:
 //   - metadata is "text" rather than jsonb, so the pq driver returns a
 //     string (not []byte) which can't be scanned into *json.RawMessage
-//     directly.
+//     directly. Scanning into sql.NullString works for both text and jsonb
+//     (jsonb is accepted as string by database/sql).
 //   - several columns (high_priority, modified_on, queued_on, sent_on) are
 //     nullable, but the DBMsg fields are plain bool / time.Time, which fail
 //     the scan when the database delivers NULL.
@@ -910,11 +911,11 @@ func scanDBMsgWithMetadata(row msgRow) (*DBMsg, error) {
 	m := &DBMsg{}
 
 	var (
-		highPriority  sql.NullBool
-		modifiedOn    sql.NullTime
-		queuedOn      sql.NullTime
-		sentOn        sql.NullTime
-		metadataBytes []byte
+		highPriority sql.NullBool
+		modifiedOn   sql.NullTime
+		queuedOn     sql.NullTime
+		sentOn       sql.NullTime
+		metadataStr  sql.NullString
 	)
 
 	err := row.Scan(
@@ -922,7 +923,7 @@ func scanDBMsgWithMetadata(row msgRow) (*DBMsg, error) {
 		&m.MessageCount_, &m.ErrorCount_, &highPriority, &m.Status_, &m.Visibility_,
 		&m.ExternalID_, &m.ChannelID_, &m.ContactID_, &m.ContactURNID_,
 		&m.CreatedOn_, &modifiedOn, &queuedOn, &sentOn,
-		&metadataBytes,
+		&metadataStr,
 	)
 	if err != nil {
 		return nil, err
@@ -941,8 +942,8 @@ func scanDBMsgWithMetadata(row msgRow) (*DBMsg, error) {
 		t := sentOn.Time
 		m.SentOn_ = &t
 	}
-	if len(metadataBytes) > 0 {
-		raw := json.RawMessage(metadataBytes)
+	if metadataStr.Valid && metadataStr.String != "" {
+		raw := json.RawMessage(metadataStr.String)
 		m.Metadata_ = &raw
 	}
 	return m, nil

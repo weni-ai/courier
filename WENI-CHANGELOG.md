@@ -1,3 +1,7 @@
+1.60.1
+----------
+ * fix: publish whatsapp-cloud-token (WAMID return) for AB2/is_multi_agents projects so agent messages get external_id in chats-engine; keep billing create suppressed for AB2
+
 1.60.0
 ----------
 * feat: Enhance email channel thread, Each new email thread (by root Message-ID) creates a distinct Temba contact

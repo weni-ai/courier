@@ -314,6 +314,16 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 				status.SetExternalID(normalized)
 			}
 		}
+
+		// stash the thread context we just sent on this outbound message so a
+		// subsequent send that resolves us as parent can reuse subject and
+		// extend References — without this, the next turn falls back to the
+		// body-derived subject and starts a new thread in most clients
+		if emailMeta := buildOutboundThreadMetadata(inReplyTo, references, subject); emailMeta != nil {
+			if merged := mergeEmailMetadata(msg.Metadata(), emailMeta); merged != nil {
+				status.SetMetadata(merged)
+			}
+		}
 	}
 	status.AddLog(log)
 	return status, nil
@@ -443,4 +453,66 @@ func parseEmailThreadMetadata(raw json.RawMessage) *emailThreadMetadata {
 		return nil
 	}
 	return wrapper.Email
+}
+
+// buildOutboundThreadMetadata returns the email-specific metadata blob to stash
+// on an outbound message after a successful send, mirroring what
+// buildThreadMetadata writes for inbound. Subject is always stored when present
+// so a subsequent outbound that resolves this message as parent can reuse it
+// even when this send was not itself a reply.
+func buildOutboundThreadMetadata(inReplyTo string, references []string, subject string) json.RawMessage {
+	inReplyTo = normalizeMessageID(inReplyTo)
+	references = normalizeReferences(references)
+	subject = strings.TrimSpace(subject)
+
+	if inReplyTo == "" && len(references) == 0 && subject == "" {
+		return nil
+	}
+
+	body, err := json.Marshal(map[string]emailThreadMetadata{
+		"email": {
+			InReplyTo:  inReplyTo,
+			References: references,
+			Subject:    subject,
+		},
+	})
+	if err != nil {
+		return nil
+	}
+	return body
+}
+
+// mergeEmailMetadata merges the email thread block from emailBlock into the
+// existing message metadata, preserving unrelated keys (ticketer_id,
+// chats_msg_uuid, etc.). Returns nil when emailBlock is empty.
+func mergeEmailMetadata(existing, emailBlock json.RawMessage) json.RawMessage {
+	if len(emailBlock) == 0 {
+		return nil
+	}
+
+	var emailWrapper struct {
+		Email json.RawMessage `json:"email"`
+	}
+	if err := json.Unmarshal(emailBlock, &emailWrapper); err != nil || len(emailWrapper.Email) == 0 {
+		return nil
+	}
+
+	merged := map[string]interface{}{}
+	if len(existing) > 0 {
+		if err := json.Unmarshal(existing, &merged); err != nil {
+			// existing isn't a JSON object; fall back to the email block alone
+			return emailBlock
+		}
+	}
+	var emailValue interface{}
+	if err := json.Unmarshal(emailWrapper.Email, &emailValue); err != nil {
+		return nil
+	}
+	merged["email"] = emailValue
+
+	out, err := json.Marshal(merged)
+	if err != nil {
+		return emailBlock
+	}
+	return out
 }

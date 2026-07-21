@@ -44,9 +44,16 @@ type MsgStatus interface {
 	SetStatus(MsgStatusValue)
 
 	// Metadata returns the metadata of the underlying message row, when the
-	// backend populates it (e.g. via the RETURNING clause of the status update).
+	// backend populates it (e.g. via the RETURNING clause of the status update)
+	// or when SetMetadata was called by a handler before WriteMsgStatus.
 	// Returns nil when not available.
 	Metadata() json.RawMessage
+
+	// SetMetadata attaches metadata to be persisted by WriteMsgStatus. Handlers
+	// (e.g. email) use this to stash thread context on an outbound message so a
+	// subsequent send can rebuild In-Reply-To/References/subject. Passing nil or
+	// empty leaves the existing DB metadata unchanged.
+	SetMetadata(json.RawMessage)
 
 	Logs() []*ChannelLog
 	AddLog(log *ChannelLog)

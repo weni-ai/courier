@@ -303,50 +303,9 @@ func (w *Sender) sendMessage(msg Msg) {
 		sentOk := status.Status() != MsgErrored && status.Status() != MsgFailed
 		isMultiAgentsConf := msg.Channel().OrgConfigForKey("is_multi_agents", false) // if true project is ab2, publish only if is ab1
 		isMultiAgents, _ := isMultiAgentsConf.(bool)
-		logrus.WithFields(logrus.Fields{
-			"channel_uuid":               msg.Channel().UUID(),
-			"org_uuid":                   msg.Channel().UUID(),
-			"is_multi_agents":            isMultiAgents,
-			"org_config_is_multi_agents": msg.Channel().OrgConfigForKey("is_multi_agents", false),
-			"sent_ok":                    sentOk,
-		}).Info("org is multi agents")
-		billingPublishOk := sentOk && isMultiAgents == false
 		isTemplateMessage, metadata := isTemplateMessage(msg)
 
-		if billingPublishOk {
-			if w.foreman.server.Billing() != nil {
-				chatsUUID, _ := jsonparser.GetString(msg.Metadata(), "chats_msg_uuid")
-				ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
-				fromTicketer := ticketerType != ""
-
-				billingMsg := billing.NewMessage(
-					string(msg.URN().Identity()),
-					"",
-					msg.ContactName(),
-					msg.Channel().UUID().String(),
-					status.ExternalID(),
-					time.Now().Format(time.RFC3339),
-					"O",
-					msg.Channel().ChannelType().String(),
-					msg.Text(),
-					msg.Attachments(),
-					msg.QuickReplies(),
-					fromTicketer,
-					chatsUUID,
-					string(msg.Status()),
-					msg.BroadcastID(),
-				)
-
-				if isTemplateMessage {
-					billingMsg.TemplateUUID = metadata.Templating.Template.UUID
-				}
-
-				if msg.Channel().ChannelType() == "WAC" {
-					w.foreman.server.Billing().SendAsync(billingMsg, billing.RoutingKeyWAC, nil, nil)
-				}
-				w.foreman.server.Billing().SendAsync(billingMsg, billing.RoutingKeyCreate, nil, nil)
-			}
-		}
+		publishOutgoingMsgEvents(w.foreman.server.Billing(), msg, status, sentOk, isMultiAgents, isTemplateMessage, metadata)
 
 		if w.foreman.server.Templates() != nil && isTemplateMessage {
 			templatingData := metadata.Templating
@@ -397,6 +356,64 @@ func (w *Sender) sendMessage(msg Msg) {
 
 	// mark our send task as complete
 	backend.MarkOutgoingMsgComplete(writeCTX, msg, status)
+}
+
+// publishOutgoingMsgEvents publishes post-send events for chats-engine and billing.
+//
+// RoutingKeyWAC (whatsapp-cloud-token) carries the Meta WAMID back to chats-engine so
+// agent messages get their external_id set (required for reply indexing). It must be
+// published for every successful WAC send, including AB2 (is_multi_agents) projects.
+//
+// RoutingKeyCreate is the billing create event and remains suppressed for AB2 projects
+// (Courier v1.50.1 behaviour).
+func publishOutgoingMsgEvents(
+	client billing.Client,
+	msg Msg,
+	status MsgStatus,
+	sentOk bool,
+	isMultiAgents bool,
+	isTemplateMessage bool,
+	templateMetadata *templates.TemplateMetadata,
+) {
+	if !sentOk || client == nil {
+		return
+	}
+
+	chatsUUID, _ := jsonparser.GetString(msg.Metadata(), "chats_msg_uuid")
+	ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
+	fromTicketer := ticketerType != ""
+
+	billingMsg := billing.NewMessage(
+		string(msg.URN().Identity()),
+		"",
+		msg.ContactName(),
+		msg.Channel().UUID().String(),
+		status.ExternalID(),
+		time.Now().Format(time.RFC3339),
+		"O",
+		msg.Channel().ChannelType().String(),
+		msg.Text(),
+		msg.Attachments(),
+		msg.QuickReplies(),
+		fromTicketer,
+		chatsUUID,
+		string(msg.Status()),
+		msg.BroadcastID(),
+	)
+
+	if isTemplateMessage && templateMetadata != nil && templateMetadata.Templating != nil {
+		billingMsg.TemplateUUID = templateMetadata.Templating.Template.UUID
+	}
+
+	// Always return WAMID to chats-engine for successful WAC sends (including AB2).
+	if msg.Channel().ChannelType() == "WAC" {
+		client.SendAsync(billingMsg, billing.RoutingKeyWAC, nil, nil)
+	}
+
+	// Billing create stays suppressed for AB2 (is_multi_agents) projects.
+	if !isMultiAgents {
+		client.SendAsync(billingMsg, billing.RoutingKeyCreate, nil, nil)
+	}
 }
 
 // isTemplateMessage checks if a message contains valid template metadata

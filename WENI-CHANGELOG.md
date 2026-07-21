@@ -1,3 +1,16 @@
+1.60.1
+----------
+ * fix: publish whatsapp-cloud-token (WAMID return) for AB2/is_multi_agents projects so agent messages get external_id in chats-engine; keep billing create suppressed for AB2
+
+1.60.0
+----------
+* feat: Enhance email channel thread, Each new email thread (by root Message-ID) creates a distinct Temba contact
+* feat: Replies now resolve correctly even without an active flow session, via a fallback chain: response_to_external_id → response_to_id → last contact message with external_id.
+
+1.59.1
+----------
+ * fix: Update WhatsApp message handling to improve URN assignment logic
+
 1.59.0
 ----------
  * feat: Add support for 'request_contact_info' interaction type in WhatsApp message handling and update related tests

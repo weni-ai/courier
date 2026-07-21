@@ -222,6 +222,17 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		ResponseToExternalID: "<root@x>",
 		Status:               "W",
 		RequestBody:          `{"uuid":"00000000-0000-0000-0000-000000000000","from":"test@example.com","to":"client@example.com","body":"Reply body","subject":"Re: Pedido #123","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<root@x>","references":["<root@x>"]}`,
+		StatusMetadata:       json.RawMessage(`{"email":{"in_reply_to":"<root@x>","references":["<root@x>"],"subject":"Re: Pedido #123"}}`),
+		ResponseBody:         `{"status":"sent"}`, ResponseStatus: 200,
+		SendPrep: setSendURL},
+
+	{Label: "Send subsequent message reuses subject and extends references from prior outbound",
+		Text: "Follow-up details", URN: "mailto:client@example.com",
+		ResponseToExternalID: "<outbound1@x>",
+		Metadata:             json.RawMessage(`{"ticketer_id":1}`),
+		Status:               "W",
+		RequestBody:          `{"uuid":"00000000-0000-0000-0000-000000000000","from":"test@example.com","to":"client@example.com","body":"Follow-up details","subject":"Re: Pedido #123","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<outbound1@x>","references":["<root@x>","<outbound1@x>"]}`,
+		StatusMetadata:       json.RawMessage(`{"email":{"in_reply_to":"<outbound1@x>","references":["<root@x>","<outbound1@x>"],"subject":"Re: Pedido #123"},"ticketer_id":1}`),
 		ResponseBody:         `{"status":"sent"}`, ResponseStatus: 200,
 		SendPrep: setSendURL},
 
@@ -303,6 +314,14 @@ func seedParents(mb *courier.MockBackend) {
 		WithMetadata(json.RawMessage(`{"email":{"subject":"Via ID"}}`))
 	mb.AddMsgByID(parentViaID)
 	mb.AddMsgByExternalID(parentViaID)
+
+	// prior outbound that already stashed thread metadata (what SendMsg now
+	// writes after a successful reply) — subsequent sends resolve this as
+	// parent and must keep the same subject / extend References
+	priorOutbound := mb.NewIncomingMsg(defaultChannel, urns.URN("mailto:client@example.com"), "First reply").
+		WithExternalID("<outbound1@x>").
+		WithMetadata(json.RawMessage(`{"email":{"in_reply_to":"<root@x>","references":["<root@x>"],"subject":"Re: Pedido #123"}}`))
+	mb.AddMsgByExternalID(priorOutbound)
 
 	lastInbound := mb.NewIncomingMsg(defaultChannel, urns.URN("mailto:ticket@example.com"), "Help").
 		WithExternalID("<ticket-inbound@x>").

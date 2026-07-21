@@ -76,7 +76,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
-	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Body)
+	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Body).WithContactName(payload.From)
 
 	for _, attachment := range payload.Attachments {
 		msg.WithAttachment(attachment)

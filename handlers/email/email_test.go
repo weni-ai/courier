@@ -53,7 +53,7 @@ func urnWithTag(address, anchor string) string {
 var receiveTestCases = []ChannelHandleTestCase{
 	{Label: "Receive plain without threading",
 		URL: receiveURL, Data: plainReceive, Status: 200, Response: "Message Accepted",
-		Text: Sp("Hi there"), URN: Sp("mailto:client@example.com"), ExternalID: Sp(""),
+		Name: Sp("client@example.com"), Text: Sp("Hi there"), URN: Sp("mailto:client@example.com"), ExternalID: Sp(""),
 		Metadata: Jp(map[string]interface{}{
 			"email": map[string]interface{}{
 				"subject": "Hello",
@@ -62,7 +62,7 @@ var receiveTestCases = []ChannelHandleTestCase{
 
 	{Label: "Receive with message_id only",
 		URL: receiveURL, Data: messageIDOnly, Status: 200, Response: "Message Accepted",
-		Text: Sp("First message"), URN: Sp(urnWithTag("client@example.com", "<first@example.com>")),
+		Name: Sp("client@example.com"), Text: Sp("First message"), URN: Sp(urnWithTag("client@example.com", "<first@example.com>")),
 		ExternalID: Sp("<first@example.com>"),
 		Metadata: Jp(map[string]interface{}{
 			"email": map[string]interface{}{
@@ -72,7 +72,7 @@ var receiveTestCases = []ChannelHandleTestCase{
 
 	{Label: "Receive with full threading",
 		URL: receiveURL, Data: threadedReceive, Status: 200, Response: "Message Accepted",
-		Text: Sp("Resposta"), URN: Sp(urnWithTag("client@example.com", "<root@example.com>")),
+		Name: Sp("client@example.com"), Text: Sp("Resposta"), URN: Sp(urnWithTag("client@example.com", "<root@example.com>")),
 		ExternalID: Sp("<CABc@mail.gmail.com>"),
 		Metadata: Jp(map[string]interface{}{
 			"email": map[string]interface{}{
@@ -84,7 +84,7 @@ var receiveTestCases = []ChannelHandleTestCase{
 
 	{Label: "Receive normalizes missing angle brackets",
 		URL: receiveURL, Data: missingBrackets, Status: 200, Response: "Message Accepted",
-		Text: Sp("resp"), URN: Sp(urnWithTag("client@example.com", "root@example.com")),
+		Name: Sp("client@example.com"), Text: Sp("resp"), URN: Sp(urnWithTag("client@example.com", "root@example.com")),
 		ExternalID: Sp("<abc@example.com>"),
 		Metadata: Jp(map[string]interface{}{
 			"email": map[string]interface{}{
@@ -96,7 +96,7 @@ var receiveTestCases = []ChannelHandleTestCase{
 
 	{Label: "Receive dedupes references",
 		URL: receiveURL, Data: dupReferences, Status: 200, Response: "Message Accepted",
-		Text: Sp("resp"), URN: Sp(urnWithTag("client@example.com", "<root@x>")),
+		Name: Sp("client@example.com"), Text: Sp("resp"), URN: Sp(urnWithTag("client@example.com", "<root@x>")),
 		ExternalID: Sp("<a@x>"),
 		Metadata: Jp(map[string]interface{}{
 			"email": map[string]interface{}{
@@ -108,7 +108,7 @@ var receiveTestCases = []ChannelHandleTestCase{
 
 	{Label: "Receive accepts null references",
 		URL: receiveURL, Data: nullReferences, Status: 200, Response: "Message Accepted",
-		Text: Sp("resp"), URN: Sp(urnWithTag("client@example.com", "<b@x>")),
+		Name: Sp("client@example.com"), Text: Sp("resp"), URN: Sp(urnWithTag("client@example.com", "<b@x>")),
 		ExternalID: Sp("<a@x>"),
 		Metadata: Jp(map[string]interface{}{
 			"email": map[string]interface{}{
@@ -119,7 +119,7 @@ var receiveTestCases = []ChannelHandleTestCase{
 
 	{Label: "Receive accepts empty references",
 		URL: receiveURL, Data: emptyReferences, Status: 200, Response: "Message Accepted",
-		Text: Sp("resp"), URN: Sp(urnWithTag("client@example.com", "<b@x>")),
+		Name: Sp("client@example.com"), Text: Sp("resp"), URN: Sp(urnWithTag("client@example.com", "<b@x>")),
 		ExternalID: Sp("<a@x>"),
 		Metadata: Jp(map[string]interface{}{
 			"email": map[string]interface{}{
@@ -133,17 +133,17 @@ var receiveTestCases = []ChannelHandleTestCase{
 
 	{Label: "New thread on subject Meu Produto gets its own contact",
 		URL: receiveURL, Data: newThreadProduct, Status: 200, Response: "Message Accepted",
-		Text: Sp("Duvida sobre produto"), URN: Sp(urnWithTag("fulano123@gmail.com", "<produto@example.com>")),
+		Name: Sp("fulano123@gmail.com"), Text: Sp("Duvida sobre produto"), URN: Sp(urnWithTag("fulano123@gmail.com", "<produto@example.com>")),
 		ExternalID: Sp("<produto@example.com>")},
 
 	{Label: "New thread on subject Minha fatura gets a different contact",
 		URL: receiveURL, Data: newThreadInvoice, Status: 200, Response: "Message Accepted",
-		Text: Sp("Duvida sobre fatura"), URN: Sp(urnWithTag("fulano123@gmail.com", "<fatura@example.com>")),
+		Name: Sp("fulano123@gmail.com"), Text: Sp("Duvida sobre fatura"), URN: Sp(urnWithTag("fulano123@gmail.com", "<fatura@example.com>")),
 		ExternalID: Sp("<fatura@example.com>")},
 
 	{Label: "Reply to Meu Produto thread resolves back to that same contact",
 		URL: receiveURL, Data: replyToProduct, Status: 200, Response: "Message Accepted",
-		Text: Sp("Resposta produto"), URN: Sp(urnWithTag("fulano123@gmail.com", "<produto@example.com>")),
+		Name: Sp("fulano123@gmail.com"), Text: Sp("Resposta produto"), URN: Sp(urnWithTag("fulano123@gmail.com", "<produto@example.com>")),
 		ExternalID: Sp("<produto-reply@example.com>")},
 }
 

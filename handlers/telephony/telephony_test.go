@@ -45,7 +45,7 @@ var testCases = []ChannelHandleTestCase{
 		URL:                   receiveURL,
 		Data:                  fmt.Sprintf(receiveMsgTemplate, channelDID, "+15559876543", "call-1", "1721567890", "Hello", "turn-1"),
 		Status:                200,
-		Response:              "Handled",
+		Response:              "Message Accepted",
 		NoInvalidChannelCheck: true,
 		Text:                  Sp("Hello"),
 		URN:                   Sp("tel:+15559876543"),
@@ -57,7 +57,7 @@ var testCases = []ChannelHandleTestCase{
 		URL:                   receiveURL,
 		Data:                  fmt.Sprintf(receiveMsgTemplate, channelDID, "", "call-withheld", "1721567890", "Hello", ""),
 		Status:                200,
-		Response:              "Handled",
+		Response:              "Message Accepted",
 		NoInvalidChannelCheck: true,
 		Text:                  Sp("Hello"),
 		URN:                   Sp("tel:withheld-call-withheld"),
@@ -83,7 +83,8 @@ var testCases = []ChannelHandleTestCase{
 		Label:                 "Receive Unknown DID",
 		URL:                   receiveURL,
 		Data:                  fmt.Sprintf(receiveMsgTemplate, "+19999999999", "+15559876543", "call-1", "1721567890", "Hello", ""),
-		Status:                404,
+		Status:                400,
+		Response:              "channel not found",
 		NoInvalidChannelCheck: true,
 	},
 }
@@ -117,6 +118,9 @@ var sendTestCases = []ChannelSendTestCase{
 		Text:  "Hello",
 		URN:   "tel:+15559876543",
 		Error: "blank base_url",
+		SendPrep: func(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+			c.(*courier.MockChannel).SetConfig(courier.ConfigBaseURL, "")
+		},
 	},
 }
 

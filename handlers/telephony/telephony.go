@@ -142,7 +142,7 @@ func buildContactURN(callerID, callID, country string) (urns.URN, error) {
 		if strings.TrimSpace(callID) == "" {
 			return urns.NilURN, errors.New("caller_id and call_id cannot both be empty")
 		}
-		return urns.NewURNFromParts(urns.TelScheme, fmt.Sprintf("withheld-%s", callID), "", "")
+		return urns.Parse(fmt.Sprintf("tel:withheld-%s", callID))
 	}
 
 	if strings.HasPrefix(callerID, "+") {

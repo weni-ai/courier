@@ -34,6 +34,7 @@ var (
 	emptyReferences = `{"from":"client@example.com","to":"support@company.com","subject":"Re:","body":"resp","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<a@x>","in_reply_to":"<b@x>","references":[]}`
 	missingFrom     = `{"to":"support@company.com","body":"hi","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab"}`
 	missingBody     = `{"from":"client@example.com","to":"support@company.com","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab"}`
+	spamNewThread   = `{"from":"spam@evil.com","to":"support@company.com","subject":"Buy now","body":"spam body","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<spam-new@evil.com>"}`
 
 	// Two brand new (non-reply) messages from the same mailbox on different
 	// subjects should become two distinct contacts, while a reply to the
@@ -131,6 +132,14 @@ var receiveTestCases = []ChannelHandleTestCase{
 	{Label: "Missing from", URL: receiveURL, Data: missingFrom, Status: 400, Response: "'from' required"},
 	{Label: "Missing body", URL: receiveURL, Data: missingBody, Status: 400, Response: "'body' required"},
 
+	// Blocking any virtual contact for a mailbox must stop a brand-new thread
+	// from the same real address (server returns empty 200, no queued msg).
+	{Label: "Receive from blocked mailbox is ignored",
+		URL: receiveURL, Data: spamNewThread, Status: 200, Response: "",
+		PrepBackend: func(mb *courier.MockBackend) {
+			mb.SetEmailMailboxBlocked("spam@evil.com", true)
+		}},
+
 	{Label: "New thread on subject Meu Produto gets its own contact",
 		URL: receiveURL, Data: newThreadProduct, Status: 200, Response: "Message Accepted",
 		Name: Sp("fulano123@gmail.com"), Text: Sp("Duvida sobre produto"), URN: Sp(urnWithTag("fulano123@gmail.com", "<produto@example.com>")),
@@ -160,6 +169,22 @@ func TestThreadContactSegregation(t *testing.T) {
 	}
 	if productURN != replyURN {
 		t.Fatalf("expected a reply to the original thread to derive the same contact URN: got %q, want %q", replyURN, productURN)
+	}
+}
+
+func TestRealAddressFromURNPath(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"spam+wt-a1b2c3d4@evil.com", "spam@evil.com"},
+		{"spam@evil.com", "spam@evil.com"},
+		{"person+work@gmail.com", "person+work@gmail.com"},
+		{"person+work+wt-deadbeef@gmail.com", "person+work@gmail.com"},
+	}
+	for _, tc := range cases {
+		if got := realAddressFromURNPath(tc.in); got != tc.want {
+			t.Errorf("realAddressFromURNPath(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }
 

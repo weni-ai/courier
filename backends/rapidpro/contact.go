@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -184,6 +186,49 @@ func findContactByURN(ctx context.Context, b *backend, org OrgID, urn urns.URN) 
 		return nil, err
 	}
 	return contact, nil
+}
+
+const isEmailMailboxBlockedSQL = `
+SELECT EXISTS (
+	SELECT 1
+	FROM contacts_contact AS c
+	JOIN contacts_contacturn AS u ON u.contact_id = c.id
+	WHERE u.org_id = $1
+	  AND c.is_active = TRUE
+	  AND c.status = 'B'
+	  AND (u.identity = $2 OR u.identity ~ $3)
+)
+`
+
+// isEmailMailboxBlocked returns true when the org has any active blocked
+// contact whose URN is either the real mailbox (mailto:user@domain) or a
+// synthetic thread variant (mailto:user+wt-<8hex>@domain).
+func isEmailMailboxBlocked(ctx context.Context, b *backend, org OrgID, address string) (bool, error) {
+	address = strings.ToLower(strings.TrimSpace(address))
+	if address == "" {
+		return false, nil
+	}
+
+	at := strings.LastIndex(address, "@")
+	if at <= 0 || at == len(address)-1 {
+		return false, nil
+	}
+
+	local, domain := address[:at], address[at+1:]
+	exactIdentity := "mailto:" + address
+	// Match only our synthetic +wt-<8 hex> tag so a real plus-alias like
+	// person+work@gmail.com is not treated as a thread variant of person@.
+	variantRegex := fmt.Sprintf(`^mailto:%s\+wt-[0-9a-f]{8}@%s$`,
+		regexp.QuoteMeta(local), regexp.QuoteMeta(domain))
+
+	var blocked bool
+	err := b.db.GetContext(ctx, &blocked, isEmailMailboxBlockedSQL, org, exactIdentity, variantRegex)
+	if err != nil {
+		logrus.WithError(err).WithField("address", address).WithField("org_id", org).
+			Error("error checking blocked email mailbox")
+		return false, err
+	}
+	return blocked, nil
 }
 
 // contactForURN first tries to look up a contact for the passed in URN, if not finding one then creating one

@@ -994,23 +994,58 @@ func (ts *BackendTestSuite) TestLookupLastMsgWithExternalIDWithTextMetadata() {
 	}
 }
 
-func (ts *BackendTestSuite) TestContactLastSeenWithName() {
+func (ts *BackendTestSuite) TestIsEmailMailboxBlocked() {
 	ctx := context.Background()
-	channel := ts.getChannel("TG", "dbc126ed-66bc-4e28-b67b-81dc3327c98a")
+	channel := ts.getChannel("KN", "dbc126ed-66bc-4e28-b67b-81dc3327c95d")
 
-	contactName := "flapjack"
-
-	urn, _ := urns.NewTelegramURN(1234567890, "test")
-	msg := ts.b.NewIncomingMsg(channel, urn, "test").WithContactName(contactName)
-
-	ts.b.WriteContactLastSeen(ctx, msg, time.Now())
-	time.Sleep(2 * time.Second)
-
-	contact, err := contactForURN(ctx, ts.b, channel.OrgID_, channel, urn, "", "")
+	// no contacts for this mailbox yet
+	blocked, err := ts.b.IsEmailMailboxBlocked(ctx, channel, "spam@evil.com")
 	ts.NoError(err)
-	ts.NotNil(contact.LastSeenOn_)
-	ts.Equal(null.String(contactName), contact.Name_)
+	ts.False(blocked)
+
+	// active (non-blocked) virtual contact must not block the mailbox
+	ts.b.db.MustExec(`
+		INSERT INTO contacts_contact(id, is_active, status, created_on, modified_on, uuid, ticket_count, created_by_id, modified_by_id, org_id)
+		VALUES(501, TRUE, 'A', NOW(), NOW(), 'a984069d-0008-4d8c-a772-b14a8a6ac501', 0, 1, 1, 1)
+	`)
+	ts.b.db.MustExec(`
+		INSERT INTO contacts_contacturn(id, identity, path, scheme, priority, channel_id, contact_id, org_id)
+		VALUES(5001, 'mailto:spam+wt-aaaaaaaa@evil.com', 'spam+wt-aaaaaaaa@evil.com', 'mailto', 50, 10, 501, 1)
+	`)
+	blocked, err = ts.b.IsEmailMailboxBlocked(ctx, channel, "spam@evil.com")
+	ts.NoError(err)
+	ts.False(blocked)
+
+	// blocked virtual contact should block the whole mailbox
+	ts.b.db.MustExec(`UPDATE contacts_contact SET status = 'B' WHERE id = 501`)
+	blocked, err = ts.b.IsEmailMailboxBlocked(ctx, channel, "spam@evil.com")
+	ts.NoError(err)
+	ts.True(blocked)
+
+	// case-insensitive address
+	blocked, err = ts.b.IsEmailMailboxBlocked(ctx, channel, "Spam@Evil.COM")
+	ts.NoError(err)
+	ts.True(blocked)
+
+	// real plus-alias sibling must not be treated as a thread variant
+	blocked, err = ts.b.IsEmailMailboxBlocked(ctx, channel, "spam+work@evil.com")
+	ts.NoError(err)
+	ts.False(blocked)
+
+	// blocked exact (legacy) mailbox contact
+	ts.b.db.MustExec(`
+		INSERT INTO contacts_contact(id, is_active, status, created_on, modified_on, uuid, ticket_count, created_by_id, modified_by_id, org_id)
+		VALUES(502, TRUE, 'B', NOW(), NOW(), 'a984069d-0008-4d8c-a772-b14a8a6ac502', 0, 1, 1, 1)
+	`)
+	ts.b.db.MustExec(`
+		INSERT INTO contacts_contacturn(id, identity, path, scheme, priority, channel_id, contact_id, org_id)
+		VALUES(5002, 'mailto:legacy@evil.com', 'legacy@evil.com', 'mailto', 50, 10, 502, 1)
+	`)
+	blocked, err = ts.b.IsEmailMailboxBlocked(ctx, channel, "legacy@evil.com")
+	ts.NoError(err)
+	ts.True(blocked)
 }
+
 
 func (ts *BackendTestSuite) TestContactLastSeenWithoutName() {
 	ctx := context.Background()

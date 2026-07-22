@@ -83,6 +83,16 @@ func (b *backend) FindContact(ctx context.Context, c courier.Channel, urn urns.U
 	return contact, nil
 }
 
+// IsEmailMailboxBlocked reports whether any active blocked contact in the
+// channel's org matches the real mailbox or a +wt- thread variant of it.
+func (b *backend) IsEmailMailboxBlocked(ctx context.Context, c courier.Channel, address string) (bool, error) {
+	dbChannel, ok := c.(*DBChannel)
+	if !ok {
+		return false, fmt.Errorf("IsEmailMailboxBlocked requires a *DBChannel, got %T", c)
+	}
+	return isEmailMailboxBlocked(ctx, b, dbChannel.OrgID_, address)
+}
+
 // AddURNtoContact adds a URN to the passed in contact
 func (b *backend) AddURNtoContact(ctx context.Context, c courier.Channel, contact courier.Contact, urn urns.URN) (urns.URN, error) {
 	tx, err := b.db.BeginTxx(ctx, nil)

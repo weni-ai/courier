@@ -71,6 +71,22 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("field 'body' required"))
 	}
 
+	// Block is mailbox-scoped: if any contact for this real address (or a
+	// +wt- thread variant) is blocked, reject before creating a new virtual
+	// contact for a fresh subject/thread.
+
+	blocked, err := h.Backend().IsEmailMailboxBlocked(ctx, channel, payload.From)
+	if err != nil {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r,
+			fmt.Errorf("checking blocked mailbox: %w", err))
+	}
+	if blocked {
+		logrus.WithField("channel_uuid", channel.UUID().String()).WithField("from", payload.From).
+			Info("ignored inbound email from blocked mailbox")
+		return nil, errors.New("blocked contact sending message")
+	}
+
+
 	urn, err := buildContactURN(payload)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)

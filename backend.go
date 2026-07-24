@@ -39,6 +39,13 @@ type Backend interface {
 	// FindContact looks up a contact by URN without creating one. Returns ErrContactNotFound if none exists.
 	FindContact(context context.Context, channel Channel, urn urns.URN) (Contact, error)
 
+	// IsEmailMailboxBlocked reports whether any active contact in the channel's
+	// org is blocked for the given real mailbox address — either the exact
+	// mailto: URN or any synthetic +wt-<8hex> thread variant derived from it.
+	// Used by the email handler so blocking one virtual contact stops all
+	// future inbound from that mailbox.
+	IsEmailMailboxBlocked(context context.Context, channel Channel, address string) (bool, error)
+
 	// AddURNtoContact adds a URN to the passed in contact
 	AddURNtoContact(context context.Context, channel Channel, contact Contact, urn urns.URN) (urns.URN, error)
 

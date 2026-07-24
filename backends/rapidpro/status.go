@@ -123,6 +123,14 @@ UPDATE msgs_msg SET
 		ELSE
 			external_id
 		END,
+	metadata = CASE
+		WHEN
+			CAST(:metadata AS text) IS NOT NULL AND CAST(:metadata AS text) != ''
+		THEN
+			:metadata
+		ELSE
+			metadata
+		END,
 	modified_on = :modified_on
 WHERE 
 	msgs_msg.id = :msg_id AND
@@ -291,11 +299,19 @@ UPDATE msgs_msg SET
 		ELSE
 			msgs_msg.external_id
 		END,
+	metadata = CASE
+		WHEN
+			s.metadata IS NOT NULL AND s.metadata != ''
+		THEN
+			s.metadata
+		ELSE
+			msgs_msg.metadata
+		END,
 	modified_on = NOW()
 FROM
-	(VALUES(:msg_id, :channel_id, :status, :external_id)) 
+	(VALUES(:msg_id, :channel_id, :status, :external_id, :metadata)) 
 AS 
-	s(msg_id, channel_id, status, external_id) 
+	s(msg_id, channel_id, status, external_id, metadata) 
 WHERE 
 	msgs_msg.id = s.msg_id::bigint AND
 	msgs_msg.channel_id = s.channel_id::int AND 
@@ -374,3 +390,10 @@ func (s *DBMsgStatus) Status() courier.MsgStatusValue          { return s.Status
 func (s *DBMsgStatus) SetStatus(status courier.MsgStatusValue) { s.Status_ = status }
 
 func (s *DBMsgStatus) Metadata() json.RawMessage { return s.Metadata_ }
+func (s *DBMsgStatus) SetMetadata(m json.RawMessage) {
+	if len(m) == 0 {
+		s.Metadata_ = nil
+		return
+	}
+	s.Metadata_ = m
+}

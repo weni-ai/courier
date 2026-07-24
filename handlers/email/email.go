@@ -76,7 +76,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
-	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Body)
+	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Body).WithContactName(payload.From)
 
 	for _, attachment := range payload.Attachments {
 		msg.WithAttachment(attachment)
@@ -314,6 +314,16 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 				status.SetExternalID(normalized)
 			}
 		}
+
+		// stash the thread context we just sent on this outbound message so a
+		// subsequent send that resolves us as parent can reuse subject and
+		// extend References — without this, the next turn falls back to the
+		// body-derived subject and starts a new thread in most clients
+		if emailMeta := buildOutboundThreadMetadata(inReplyTo, references, subject); emailMeta != nil {
+			if merged := mergeEmailMetadata(msg.Metadata(), emailMeta); merged != nil {
+				status.SetMetadata(merged)
+			}
+		}
 	}
 	status.AddLog(log)
 	return status, nil
@@ -443,4 +453,59 @@ func parseEmailThreadMetadata(raw json.RawMessage) *emailThreadMetadata {
 		return nil
 	}
 	return wrapper.Email
+}
+
+// buildOutboundThreadMetadata returns the email-specific metadata blob to stash
+// on an outbound message after a successful send, mirroring what
+// buildThreadMetadata writes for inbound. Subject is always stored when present
+// so a subsequent outbound that resolves this message as parent can reuse it
+// even when this send was not itself a reply.
+func buildOutboundThreadMetadata(inReplyTo string, references []string, subject string) json.RawMessage {
+	inReplyTo = normalizeMessageID(inReplyTo)
+	references = normalizeReferences(references)
+	subject = strings.TrimSpace(subject)
+
+	if inReplyTo == "" && len(references) == 0 && subject == "" {
+		return nil
+	}
+
+	body, err := json.Marshal(map[string]emailThreadMetadata{
+		"email": {
+			InReplyTo:  inReplyTo,
+			References: references,
+			Subject:    subject,
+		},
+	})
+	if err != nil {
+		return nil
+	}
+	return body
+}
+
+// mergeEmailMetadata merges keys from emailBlock into existing message
+// metadata, preserving unrelated keys (ticketer_id, chats_msg_uuid, etc.).
+// emailBlock is expected to be a well-formed JSON object (as produced by
+// buildOutboundThreadMetadata). Returns nil when emailBlock is empty.
+func mergeEmailMetadata(existing, emailBlock json.RawMessage) json.RawMessage {
+	if len(emailBlock) == 0 {
+		return nil
+	}
+	var src map[string]json.RawMessage
+	if err := json.Unmarshal(emailBlock, &src); err != nil || len(src) == 0 {
+		return nil
+	}
+	dst := map[string]json.RawMessage{}
+	if len(existing) > 0 {
+		if err := json.Unmarshal(existing, &dst); err != nil {
+			return emailBlock
+		}
+	}
+	for k, v := range src {
+		dst[k] = v
+	}
+	out, err := json.Marshal(dst)
+	if err != nil {
+		return emailBlock
+	}
+	return out
 }

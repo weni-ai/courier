@@ -1,3 +1,8 @@
+1.61.0
+----------
+ * feat: Persist email thread metadata on outbound sends so subsequent replies reuse subject and extend References instead of starting a new thread
+ * feat: Block inbound email by mailbox — blocking any virtual (+wt-) contact stops all future messages from that real address
+
 1.60.1
 ----------
  * fix: publish whatsapp-cloud-token (WAMID return) for AB2/is_multi_agents projects so agent messages get external_id in chats-engine; keep billing create suppressed for AB2

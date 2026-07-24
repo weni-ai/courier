@@ -333,3 +333,57 @@ func seedParents(mb *courier.MockBackend) {
 func TestSending(t *testing.T) {
 	RunChannelSendTestCases(t, defaultChannel, newHandler(), defaultSendTestCases, seedParents)
 }
+
+func TestMergeEmailMetadata(t *testing.T) {
+	emailBlock := json.RawMessage(`{"email":{"in_reply_to":"<a@x>","references":["<a@x>"],"subject":"Re: Hi"}}`)
+
+	t.Run("empty emailBlock returns nil", func(t *testing.T) {
+		if got := mergeEmailMetadata(json.RawMessage(`{"ticketer_id":1}`), nil); got != nil {
+			t.Fatalf("expected nil, got %s", got)
+		}
+	})
+
+	t.Run("empty object emailBlock returns nil", func(t *testing.T) {
+		if got := mergeEmailMetadata(nil, json.RawMessage(`{}`)); got != nil {
+			t.Fatalf("expected nil, got %s", got)
+		}
+	})
+
+	t.Run("nil existing returns emailBlock", func(t *testing.T) {
+		got := mergeEmailMetadata(nil, emailBlock)
+		assertJSONEqual(t, emailBlock, got)
+	})
+
+	t.Run("preserves unrelated existing keys", func(t *testing.T) {
+		existing := json.RawMessage(`{"ticketer_id":1,"chats_msg_uuid":"abc"}`)
+		got := mergeEmailMetadata(existing, emailBlock)
+		assertJSONEqual(t, json.RawMessage(`{"chats_msg_uuid":"abc","email":{"in_reply_to":"<a@x>","references":["<a@x>"],"subject":"Re: Hi"},"ticketer_id":1}`), got)
+	})
+
+	t.Run("overwrites existing email key", func(t *testing.T) {
+		existing := json.RawMessage(`{"email":{"subject":"Old"},"ticketer_id":1}`)
+		got := mergeEmailMetadata(existing, emailBlock)
+		assertJSONEqual(t, json.RawMessage(`{"email":{"in_reply_to":"<a@x>","references":["<a@x>"],"subject":"Re: Hi"},"ticketer_id":1}`), got)
+	})
+
+	t.Run("invalid existing falls back to emailBlock", func(t *testing.T) {
+		got := mergeEmailMetadata(json.RawMessage(`["not","object"]`), emailBlock)
+		assertJSONEqual(t, emailBlock, got)
+	})
+}
+
+func assertJSONEqual(t *testing.T, want, got json.RawMessage) {
+	t.Helper()
+	var wantVal, gotVal interface{}
+	if err := json.Unmarshal(want, &wantVal); err != nil {
+		t.Fatalf("want unmarshal: %v", err)
+	}
+	if err := json.Unmarshal(got, &gotVal); err != nil {
+		t.Fatalf("got unmarshal: %v\ngot=%s", err, got)
+	}
+	wantJSON, _ := json.Marshal(wantVal)
+	gotJSON, _ := json.Marshal(gotVal)
+	if string(wantJSON) != string(gotJSON) {
+		t.Fatalf("mismatch\nwant: %s\ngot:  %s", wantJSON, gotJSON)
+	}
+}

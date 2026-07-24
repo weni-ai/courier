@@ -482,35 +482,28 @@ func buildOutboundThreadMetadata(inReplyTo string, references []string, subject 
 	return body
 }
 
-// mergeEmailMetadata merges the email thread block from emailBlock into the
-// existing message metadata, preserving unrelated keys (ticketer_id,
-// chats_msg_uuid, etc.). Returns nil when emailBlock is empty.
+// mergeEmailMetadata merges keys from emailBlock into existing message
+// metadata, preserving unrelated keys (ticketer_id, chats_msg_uuid, etc.).
+// emailBlock is expected to be a well-formed JSON object (as produced by
+// buildOutboundThreadMetadata). Returns nil when emailBlock is empty.
 func mergeEmailMetadata(existing, emailBlock json.RawMessage) json.RawMessage {
 	if len(emailBlock) == 0 {
 		return nil
 	}
-
-	var emailWrapper struct {
-		Email json.RawMessage `json:"email"`
-	}
-	if err := json.Unmarshal(emailBlock, &emailWrapper); err != nil || len(emailWrapper.Email) == 0 {
+	var src map[string]json.RawMessage
+	if err := json.Unmarshal(emailBlock, &src); err != nil || len(src) == 0 {
 		return nil
 	}
-
-	merged := map[string]interface{}{}
+	dst := map[string]json.RawMessage{}
 	if len(existing) > 0 {
-		if err := json.Unmarshal(existing, &merged); err != nil {
-			// existing isn't a JSON object; fall back to the email block alone
+		if err := json.Unmarshal(existing, &dst); err != nil {
 			return emailBlock
 		}
 	}
-	var emailValue interface{}
-	if err := json.Unmarshal(emailWrapper.Email, &emailValue); err != nil {
-		return nil
+	for k, v := range src {
+		dst[k] = v
 	}
-	merged["email"] = emailValue
-
-	out, err := json.Marshal(merged)
+	out, err := json.Marshal(dst)
 	if err != nil {
 		return emailBlock
 	}

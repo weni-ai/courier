@@ -60,6 +60,7 @@ SELECT
 	id, 
 	identity, 
 	scheme, 
+	path, 
 	display, 
 	auth, 
 	priority, 

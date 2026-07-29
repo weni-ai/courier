@@ -110,6 +110,9 @@ type ChannelSendTestCase struct {
 	Error      string
 	Status     string
 	ExternalID string
+	// StatusMetadata, when set, is compared with require.JSONEq against the
+	// metadata attached to the MsgStatus returned by SendMsg.
+	StatusMetadata json.RawMessage
 
 	Stopped bool
 
@@ -351,6 +354,11 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 
 			if testCase.ExternalID != "" {
 				require.Equal(testCase.ExternalID, status.ExternalID())
+			}
+
+			if len(testCase.StatusMetadata) > 0 {
+				require.NotNil(status, "status should not be nil")
+				require.JSONEq(string(testCase.StatusMetadata), string(status.Metadata()))
 			}
 
 			if testCase.Status != "" {

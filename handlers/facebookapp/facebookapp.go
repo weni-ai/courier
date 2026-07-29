@@ -589,12 +589,67 @@ func (h *handler) addSecondaryURN(ctx context.Context, channel courier.Channel, 
 	if err != nil {
 		return
 	}
-	h.Backend().AddURNtoContact(ctx, channel, contact, secondaryURN)
+	h.replaceWhatsAppBSUIDOnContact(ctx, channel, contact, secondaryURN)
 }
 
 type bsuidUpdate struct {
 	Previous string
 	Current  string
+}
+
+// replaceWhatsAppBSUIDOnContact swaps any existing WhatsApp BSUID on the contact for newBSUID.
+// Errors are silently ignored so that a failure never blocks message processing.
+func (h *handler) replaceWhatsAppBSUIDOnContact(ctx context.Context, channel courier.Channel, contact courier.Contact, newBSUID urns.URN) {
+	if !courier.IsWhatsAppBSUIDPath(newBSUID.Path()) {
+		return
+	}
+	_, _ = h.Backend().ReplaceWhatsAppBSUIDOnContact(ctx, channel, contact, newBSUID)
+}
+
+// applyWACSendResponseContactURNs syncs BSUID and wa_id URNs returned by the WhatsApp send API
+// onto the contact that received the message. waIDAdded is true when a corrected phone URN was
+// added. abortSend is true when the returned wa_id could not be parsed as a URN.
+func (h *handler) applyWACSendResponseContactURNs(ctx context.Context, msg courier.Msg, userID, waID string, status courier.MsgStatus, start time.Time) (waIDAdded, abortSend bool) {
+	sentPath := msg.URN().Path()
+	needsBSUID := userID != "" && userID != sentPath
+	needsWaID := waID != "" && waID != sentPath
+	if !needsBSUID && !needsWaID {
+		return false, false
+	}
+
+	contact, contactErr := h.Backend().GetContact(ctx, msg.Channel(), msg.URN(), "", "")
+	if contactErr != nil {
+		if needsBSUID {
+			status.AddLog(courier.NewChannelLogFromError("unable to get contact for BSUID URN", msg.Channel(), msg.ID(), time.Since(start), contactErr))
+		}
+		if needsWaID {
+			status.AddLog(courier.NewChannelLogFromError("unable to get contact for new URN", msg.Channel(), msg.ID(), time.Since(start), contactErr))
+		}
+		return false, false
+	}
+
+	if needsBSUID {
+		bsuidURN, err := urns.NewWhatsAppURN(userID)
+		if err == nil {
+			if _, err := h.Backend().ReplaceWhatsAppBSUIDOnContact(ctx, msg.Channel(), contact, bsuidURN); err != nil {
+				status.AddLog(courier.NewChannelLogFromError("unable to replace BSUID URN on contact", msg.Channel(), msg.ID(), time.Since(start), err))
+			}
+		}
+	}
+
+	if needsWaID {
+		toUpdateURN, err := urns.NewWhatsAppURN(waID)
+		if err != nil {
+			return false, true
+		}
+		if _, err := h.Backend().AddURNtoContact(ctx, msg.Channel(), contact, toUpdateURN); err != nil {
+			status.AddLog(courier.NewChannelLogFromError("unable to add new URN to contact", msg.Channel(), msg.ID(), time.Since(start), err))
+			return false, false
+		}
+		return true, false
+	}
+
+	return false, false
 }
 
 // processUserIDURNUpdate swaps an old BSUID URN for a new one on the contact
@@ -611,17 +666,13 @@ func (h *handler) processUserIDURNUpdate(ctx context.Context, channel courier.Ch
 		return "", fmt.Errorf("user_id_update: invalid new %s URN: %w", label, err)
 	}
 
-	contact, err := h.Backend().GetContact(ctx, channel, oldURN, "", "")
+	contact, err := h.Backend().FindContact(ctx, channel, oldURN)
 	if err != nil {
 		return "", fmt.Errorf("user_id_update: contact not found for old %s %s: %w", label, upd.Previous, err)
 	}
 
-	if _, err := h.Backend().AddURNtoContact(ctx, channel, contact, newURN); err != nil {
-		return "", fmt.Errorf("user_id_update: failed to add new %s URN: %w", label, err)
-	}
-
-	if _, err := h.Backend().RemoveURNfromContact(ctx, channel, contact, oldURN); err != nil {
-		logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Errorf("user_id_update: failed to remove old %s URN", label)
+	if _, err := h.Backend().ReplaceWhatsAppBSUIDOnContact(ctx, channel, contact, newURN); err != nil {
+		return "", fmt.Errorf("user_id_update: failed to replace %s URN: %w", label, err)
 	}
 
 	logrus.WithField("channel_uuid", channel.UUID()).
@@ -1173,7 +1224,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				if secondaryURN != urns.NilURN {
 					contact, contactErr := h.Backend().GetContact(ctx, channel, urn, "", "")
 					if contactErr == nil {
-						h.Backend().AddURNtoContact(ctx, channel, contact, secondaryURN)
+						h.replaceWhatsAppBSUIDOnContact(ctx, channel, contact, secondaryURN)
 					}
 				}
 
@@ -3002,49 +3053,17 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			return status, err
 		}
 
-		// add BSUID from response if present and different from what we sent
-		if len(respPayload.Contacts) > 0 && respPayload.Contacts[0].UserID != "" &&
-			respPayload.Contacts[0].UserID != msg.URN().Path() {
-			if !hasNewURN {
-				bsuidURN, err := urns.NewWhatsAppURN(respPayload.Contacts[0].UserID)
-				if err == nil {
-					contact, err := h.Backend().GetContact(ctx, msg.Channel(), msg.URN(), "", "")
-					if err != nil {
-						log := courier.NewChannelLogFromError("unable to get contact for BSUID URN", msg.Channel(), msg.ID(), time.Since(start), err)
-						status.AddLog(log)
-					} else {
-						_, err = h.Backend().AddURNtoContact(ctx, msg.Channel(), contact, bsuidURN)
-						if err != nil {
-							log := courier.NewChannelLogFromError("unable to add BSUID URN to contact", msg.Channel(), msg.ID(), time.Since(start), err)
-							status.AddLog(log)
-						}
-					}
-				}
+		if !hasNewURN && len(respPayload.Contacts) > 0 {
+			contactInfo := respPayload.Contacts[0]
+			waIDAdded, abortSend := h.applyWACSendResponseContactURNs(ctx, msg, contactInfo.UserID, contactInfo.WaID, status, start)
+			if abortSend {
+				return status, nil
+			}
+			if waIDAdded {
+				hasNewURN = true
 			}
 		}
 
-		// if payload.contacts[0].wa_id != payload.contacts[0].input | to fix cases with 9 extra
-		if len(respPayload.Contacts) > 0 && respPayload.Contacts[0].WaID != msg.URN().Path() {
-			if !hasNewURN {
-				toUpdateURN, err := urns.NewWhatsAppURN(respPayload.Contacts[0].WaID)
-				if err != nil {
-					return status, nil
-				}
-				// Instead of updating the existing URN, add a new URN to the contact
-				contact, err := h.Backend().GetContact(ctx, msg.Channel(), msg.URN(), "", "")
-				if err != nil {
-					log := courier.NewChannelLogFromError("unable to get contact for new URN", msg.Channel(), msg.ID(), time.Since(start), err)
-					status.AddLog(log)
-				} else {
-					_, err = h.Backend().AddURNtoContact(ctx, msg.Channel(), contact, toUpdateURN)
-					if err != nil {
-						log := courier.NewChannelLogFromError("unable to add new URN to contact", msg.Channel(), msg.ID(), time.Since(start), err)
-						status.AddLog(log)
-					}
-					hasNewURN = true
-				}
-			}
-		}
 		if templating != nil && len(msg.Attachments()) > 0 || hasCaption {
 			break
 		}

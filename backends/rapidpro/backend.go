@@ -84,6 +84,16 @@ func (b *backend) FindContact(ctx context.Context, c courier.Channel, urn urns.U
 	return contact, nil
 }
 
+// IsEmailMailboxBlocked reports whether any active blocked contact in the
+// channel's org matches the real mailbox or a +wt- thread variant of it.
+func (b *backend) IsEmailMailboxBlocked(ctx context.Context, c courier.Channel, address string) (bool, error) {
+	dbChannel, ok := c.(*DBChannel)
+	if !ok {
+		return false, fmt.Errorf("IsEmailMailboxBlocked requires a *DBChannel, got %T", c)
+	}
+	return isEmailMailboxBlocked(ctx, b, dbChannel.OrgID_, address)
+}
+
 // AddURNtoContact adds a URN to the passed in contact
 func (b *backend) AddURNtoContact(ctx context.Context, c courier.Channel, contact courier.Contact, urn urns.URN) (urns.URN, error) {
 	tx, err := b.db.BeginTxx(ctx, nil)
@@ -122,6 +132,56 @@ func (b *backend) RemoveURNfromContact(ctx context.Context, c courier.Channel, c
 		return urns.NilURN, err
 	}
 	return urn, nil
+}
+
+// ReplaceWhatsAppBSUIDOnContact removes existing WhatsApp BSUID URNs in the same category
+// as newURN (regular or parent) on the contact and associates newURN with it.
+// Phone number URNs and BSUIDs in other categories are left unchanged.
+func (b *backend) ReplaceWhatsAppBSUIDOnContact(ctx context.Context, c courier.Channel, contact courier.Contact, newURN urns.URN) (urns.URN, error) {
+	if newURN.Scheme() != urns.WhatsAppScheme || !courier.IsWhatsAppBSUIDOrParentPath(newURN.Path()) {
+		return urns.NilURN, fmt.Errorf("ReplaceWhatsAppBSUIDOnContact requires a whatsapp BSUID URN")
+	}
+
+	tx, err := b.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return urns.NilURN, err
+	}
+	defer tx.Rollback()
+
+	dbChannel := c.(*DBChannel)
+	dbContact := contact.(*DBContact)
+
+	contactURNs, err := contactURNsForContact(tx, dbContact.ID_)
+	if err != nil {
+		return urns.NilURN, err
+	}
+
+	newIdentity := string(newURN.Identity())
+	newPath := newURN.Path()
+	for _, contactURN := range contactURNs {
+		if contactURN.Scheme != urns.WhatsAppScheme || !courier.IsWhatsAppBSUIDOrParentPath(contactURN.Path) {
+			continue
+		}
+		if !courier.SameWhatsAppBSUIDCategory(contactURN.Path, newPath) {
+			continue
+		}
+		if contactURN.Identity == newIdentity {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, removeURNFromContact, dbContact.ID_, contactURN.Identity); err != nil {
+			return urns.NilURN, err
+		}
+	}
+
+	if _, err := contactURNForURN(tx, dbChannel, dbContact.ID_, newURN, ""); err != nil {
+		return urns.NilURN, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return urns.NilURN, err
+	}
+
+	return newURN, nil
 }
 
 const updateMsgVisibilityDeleted = `

@@ -71,12 +71,28 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, errors.New("field 'body' required"))
 	}
 
+	// Block is mailbox-scoped: if any contact for this real address (or a
+	// +wt- thread variant) is blocked, reject before creating a new virtual
+	// contact for a fresh subject/thread.
+
+	blocked, err := h.Backend().IsEmailMailboxBlocked(ctx, channel, payload.From)
+	if err != nil {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r,
+			fmt.Errorf("checking blocked mailbox: %w", err))
+	}
+	if blocked {
+		logrus.WithField("channel_uuid", channel.UUID().String()).WithField("from", payload.From).
+			Info("ignored inbound email from blocked mailbox")
+		return nil, errors.New("blocked contact sending message")
+	}
+
+
 	urn, err := buildContactURN(payload)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
-	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Body)
+	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Body).WithContactName(payload.From)
 
 	for _, attachment := range payload.Attachments {
 		msg.WithAttachment(attachment)
@@ -482,35 +498,28 @@ func buildOutboundThreadMetadata(inReplyTo string, references []string, subject 
 	return body
 }
 
-// mergeEmailMetadata merges the email thread block from emailBlock into the
-// existing message metadata, preserving unrelated keys (ticketer_id,
-// chats_msg_uuid, etc.). Returns nil when emailBlock is empty.
+// mergeEmailMetadata merges keys from emailBlock into existing message
+// metadata, preserving unrelated keys (ticketer_id, chats_msg_uuid, etc.).
+// emailBlock is expected to be a well-formed JSON object (as produced by
+// buildOutboundThreadMetadata). Returns nil when emailBlock is empty.
 func mergeEmailMetadata(existing, emailBlock json.RawMessage) json.RawMessage {
 	if len(emailBlock) == 0 {
 		return nil
 	}
-
-	var emailWrapper struct {
-		Email json.RawMessage `json:"email"`
-	}
-	if err := json.Unmarshal(emailBlock, &emailWrapper); err != nil || len(emailWrapper.Email) == 0 {
+	var src map[string]json.RawMessage
+	if err := json.Unmarshal(emailBlock, &src); err != nil || len(src) == 0 {
 		return nil
 	}
-
-	merged := map[string]interface{}{}
+	dst := map[string]json.RawMessage{}
 	if len(existing) > 0 {
-		if err := json.Unmarshal(existing, &merged); err != nil {
-			// existing isn't a JSON object; fall back to the email block alone
+		if err := json.Unmarshal(existing, &dst); err != nil {
 			return emailBlock
 		}
 	}
-	var emailValue interface{}
-	if err := json.Unmarshal(emailWrapper.Email, &emailValue); err != nil {
-		return nil
+	for k, v := range src {
+		dst[k] = v
 	}
-	merged["email"] = emailValue
-
-	out, err := json.Marshal(merged)
+	out, err := json.Marshal(dst)
 	if err != nil {
 		return emailBlock
 	}

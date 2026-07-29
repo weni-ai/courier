@@ -563,6 +563,24 @@ var testCasesWAC = []ChannelHandleTestCase{
 	{Label: "Receive Status BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/statusBSUID.json")), Status: 200, Response: `"type":"status"`,
 		MsgStatus: Sp("S"), ExternalID: Sp("external_id"), PrepRequest: addValidSignatureWAC},
 	{Label: "Receive User ID Update", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/userIDUpdateWAC.json")), Status: 200, Response: `"user_id_update: BSUID updated from US.13491208655302741918 to US.98765432100000000001"`,
+		PrepBackend: func(mb *courier.MockBackend) {
+			oldBSUID, _ := urns.NewWhatsAppURN("US.13491208655302741918")
+			mb.GetContact(context.Background(), testChannelsWAC[0], oldBSUID, "", "")
+		},
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Message Phone and BSUID Replaces Old BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUIDWithPhoneNewBSUID.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		ContactURNs: map[string]bool{
+			"whatsapp:US.98765432100000000001": true,
+			"whatsapp:5678":                   true,
+			"whatsapp:US.13491208655302741918": false,
+		},
+		PrepBackend: func(mb *courier.MockBackend) {
+			phoneURN, _ := urns.NewWhatsAppURN("5678")
+			oldBSUID, _ := urns.NewWhatsAppURN("US.13491208655302741918")
+			contact, _ := mb.GetContact(context.Background(), testChannelsWAC[0], phoneURN, "", "")
+			mb.AddURNtoContact(context.Background(), testChannelsWAC[0], contact, oldBSUID)
+		},
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Message Phone BSUID and Parent BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloParentBSUID.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
@@ -575,6 +593,12 @@ var testCasesWAC = []ChannelHandleTestCase{
 		Text: Sp("Hello World"), URN: Sp("whatsapp:US.13491208655302741918"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive User ID Update with Parent BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/userIDUpdateParentBSUID.json")), Status: 200, Response: `"user_id_update: parent BSUID updated from US.ENT.11815799212886844830 to US.ENT.99999999999999999999"`,
+		PrepBackend: func(mb *courier.MockBackend) {
+			oldBSUID, _ := urns.NewWhatsAppURN("US.13491208655302741918")
+			oldParentBSUID, _ := urns.NewWhatsAppURN("US.ENT.11815799212886844830")
+			contact, _ := mb.GetContact(context.Background(), testChannelsWAC[0], oldBSUID, "", "")
+			mb.AddURNtoContact(context.Background(), testChannelsWAC[0], contact, oldParentBSUID)
+		},
 		PrepRequest: addValidSignatureWAC},
 }
 
@@ -1603,6 +1627,24 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"5511987654321","type":"text","text":{"body":"Simple Message"}}`,
 		SendPrep:    setSendURL,
 		ContactURNs: map[string]bool{"whatsapp:5511987654321": true, "whatsapp:551187654321": true},
+	},
+	{Label: "Replace BSUID from send response",
+		Text: "Simple Message", URN: "whatsapp:5678", Path: "/12345_ID/messages",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "contacts":[{"input":"5678", "wa_id":"5678", "user_id":"US.98765432100000000001"}], "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"5678","type":"text","text":{"body":"Simple Message"}}`,
+		SendPrep: setSendURL,
+		ContactURNs: map[string]bool{
+			"whatsapp:5678":                   true,
+			"whatsapp:US.98765432100000000001": true,
+			"whatsapp:US.13491208655302741918": false,
+		},
+		PrepBackend: func(mb *courier.MockBackend) {
+			phoneURN, _ := urns.NewWhatsAppURN("5678")
+			oldBSUID, _ := urns.NewWhatsAppURN("US.13491208655302741918")
+			contact, _ := mb.GetContact(context.Background(), testChannelsWAC[0], phoneURN, "", "")
+			mb.AddURNtoContact(context.Background(), testChannelsWAC[0], contact, oldBSUID)
+		},
 	},
 	{Label: "Marketing Template Send - mmlite disabled",
 		Text:   "marketing template message",

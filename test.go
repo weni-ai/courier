@@ -63,6 +63,10 @@ type MockBackend struct {
 	// lastMsgByChannelURN is seeded by tests to back LookupLastMsgWithExternalID;
 	// keyed as "<channelUUID>|<urnIdentity>".
 	lastMsgByChannelURN map[string]Msg
+
+	// blockedEmailMailboxes is seeded by tests to back IsEmailMailboxBlocked;
+	// keyed by lowercased real mailbox address (no mailto: prefix).
+	blockedEmailMailboxes map[string]bool
 }
 
 // NewMockBackend returns a new mock backend suitable for testing
@@ -90,14 +94,15 @@ func NewMockBackend() *MockBackend {
 	}
 
 	return &MockBackend{
-		channels:            make(map[ChannelUUID]Channel),
-		channelsByAddress:   make(map[ChannelAddress]Channel),
-		contacts:            make(map[urns.URN]Contact),
-		sentMsgs:            make(map[MsgID]bool),
-		redisPool:           redisPool,
-		msgsByExternalID:    make(map[string]Msg),
-		msgsByID:            make(map[MsgID]Msg),
-		lastMsgByChannelURN: make(map[string]Msg),
+		channels:              make(map[ChannelUUID]Channel),
+		channelsByAddress:     make(map[ChannelAddress]Channel),
+		contacts:              make(map[urns.URN]Contact),
+		sentMsgs:              make(map[MsgID]bool),
+		redisPool:             redisPool,
+		msgsByExternalID:      make(map[string]Msg),
+		msgsByID:              make(map[MsgID]Msg),
+		lastMsgByChannelURN:   make(map[string]Msg),
+		blockedEmailMailboxes: make(map[string]bool),
 	}
 }
 
@@ -395,6 +400,28 @@ func (mb *MockBackend) FindContact(ctx context.Context, channel Channel, urn urn
 	return contact, nil
 }
 
+// SetEmailMailboxBlocked marks a real mailbox as blocked for IsEmailMailboxBlocked tests.
+func (mb *MockBackend) SetEmailMailboxBlocked(address string, blocked bool) {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+	address = strings.ToLower(strings.TrimSpace(address))
+	if address == "" {
+		return
+	}
+	if blocked {
+		mb.blockedEmailMailboxes[address] = true
+	} else {
+		delete(mb.blockedEmailMailboxes, address)
+	}
+}
+
+// IsEmailMailboxBlocked reports whether the real mailbox was marked blocked via SetEmailMailboxBlocked.
+func (mb *MockBackend) IsEmailMailboxBlocked(ctx context.Context, channel Channel, address string) (bool, error) {
+	mb.mutex.RLock()
+	defer mb.mutex.RUnlock()
+	return mb.blockedEmailMailboxes[strings.ToLower(strings.TrimSpace(address))], nil
+}
+
 // AddURNtoContact adds a URN to the passed in contact
 func (mb *MockBackend) AddURNtoContact(context context.Context, channel Channel, contact Contact, urn urns.URN) (urns.URN, error) {
 	mb.contacts[urn] = contact
@@ -408,6 +435,26 @@ func (mb *MockBackend) RemoveURNfromContact(context context.Context, channel Cha
 		delete(mb.contacts, urn)
 	}
 	return urn, nil
+}
+
+// ReplaceWhatsAppBSUIDOnContact removes existing WhatsApp BSUID URNs in the same category
+// as newURN (regular or parent) on the contact and associates newURN with it.
+func (mb *MockBackend) ReplaceWhatsAppBSUIDOnContact(_ context.Context, _ Channel, contact Contact, newURN urns.URN) (urns.URN, error) {
+	newIdentity := newURN.Identity()
+	newPath := newURN.Path()
+	for urn, c := range mb.contacts {
+		if c.UUID() != contact.UUID() || urn.Scheme() != urns.WhatsAppScheme || !IsWhatsAppBSUIDOrParentPath(urn.Path()) {
+			continue
+		}
+		if !SameWhatsAppBSUIDCategory(urn.Path(), newPath) {
+			continue
+		}
+		if urn.Identity() != newIdentity {
+			delete(mb.contacts, urn)
+		}
+	}
+	mb.contacts[newURN] = contact
+	return newURN, nil
 }
 
 // AddChannel adds a test channel to the test server
@@ -441,6 +488,7 @@ func (mb *MockBackend) ClearContacts() {
 	mb.mutex.Lock()
 	defer mb.mutex.Unlock()
 	mb.contacts = make(map[urns.URN]Contact)
+	mb.blockedEmailMailboxes = make(map[string]bool)
 }
 
 // ClearSeenExternalIDs clears our mock seen external ids

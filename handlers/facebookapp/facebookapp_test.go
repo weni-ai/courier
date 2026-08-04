@@ -2115,3 +2115,88 @@ func TestWaTemplateTypeFromMetadata(t *testing.T) {
 		})
 	}
 }
+
+func TestContactUsernameUpdate(t *testing.T) {
+	channel := courier.NewMockChannel(
+		"8eb23e93-5ecb-45ba-b726-3b064e0c568c",
+		"WAC",
+		"12345",
+		"",
+		map[string]interface{}{courier.ConfigAuthToken: "a123"},
+	)
+
+	RunChannelTestCases(t, []courier.Channel{channel}, newHandler("WAC", "WhatsApp Cloud", false), []ChannelHandleTestCase{
+		{
+			Label:                 "Receive Message BSUID Username Update",
+			URL:                   wacReceiveURL,
+			Data:                  string(courier.ReadFile("./testdata/wac/helloBSUIDUsername.json")),
+			Status:                200,
+			Response:              `"username_update: username updated from olduser to @kerryfisher"`,
+			NoQueueErrorCheck:     true,
+			NoInvalidChannelCheck: true,
+			PrepRequest:           addValidSignatureWAC,
+			PrepBackend: func(mb *courier.MockBackend) {
+				bsuidURN, err := urns.NewWhatsAppURN("US.13491208655302741918")
+				assert.NoError(t, err)
+				mb.GetContact(context.Background(), channel, bsuidURN, "", "")
+				mb.SetContactFieldValue(bsuidURN, "whatsapp_username", "olduser")
+			},
+		},
+	})
+}
+
+func TestBusinessUsernameUpdatesApproved(t *testing.T) {
+	channel := courier.NewMockChannel(
+		"8eb23e93-5ecb-45ba-b726-3b064e0c568c",
+		"WAC",
+		"12345",
+		"",
+		map[string]interface{}{
+			courier.ConfigAuthToken: "a123",
+			"wa_username":           "oldusername",
+		},
+	)
+
+	RunChannelTestCases(t, []courier.Channel{channel}, newHandler("WAC", "WhatsApp Cloud", false), []ChannelHandleTestCase{
+		{
+			Label:                 "Receive Business Username Update Approved",
+			URL:                   wacReceiveURL,
+			Data:                  string(courier.ReadFile("./testdata/wac/businessUsernameUpdatesWAC.json")),
+			Status:                200,
+			Response:              `"business_username_updates: username updated from oldusername to jaspersmarket"`,
+			NoQueueErrorCheck:     true,
+			NoInvalidChannelCheck: true,
+			PrepRequest:           addValidSignatureWAC,
+		},
+	})
+
+	assert.Equal(t, "jaspersmarket", channel.StringConfigForKey("wa_username", ""))
+}
+
+func TestBusinessUsernameUpdatesReserved(t *testing.T) {
+	channel := courier.NewMockChannel(
+		"8eb23e93-5ecb-45ba-b726-3b064e0c568c",
+		"WAC",
+		"12345",
+		"",
+		map[string]interface{}{
+			courier.ConfigAuthToken: "a123",
+			"wa_username":           "oldusername",
+		},
+	)
+
+	RunChannelTestCases(t, []courier.Channel{channel}, newHandler("WAC", "WhatsApp Cloud", false), []ChannelHandleTestCase{
+		{
+			Label:                 "Ignore Business Username Update Reserved",
+			URL:                   wacReceiveURL,
+			Data:                  string(courier.ReadFile("./testdata/wac/businessUsernameUpdatesReservedWAC.json")),
+			Status:                200,
+			Response:              `"business_username_updates: ignoring status \"reserved\""`,
+			NoQueueErrorCheck:     true,
+			NoInvalidChannelCheck: true,
+			PrepRequest:           addValidSignatureWAC,
+		},
+	})
+
+	assert.Equal(t, "oldusername", channel.StringConfigForKey("wa_username", ""))
+}

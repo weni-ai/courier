@@ -83,6 +83,17 @@ func (b *backend) FindContact(ctx context.Context, c courier.Channel, urn urns.U
 	return contact, nil
 }
 
+// GetContactFieldValue returns the current text value for a contact field key.
+func (b *backend) GetContactFieldValue(ctx context.Context, c courier.Channel, contact courier.Contact, fieldKey string) (string, error) {
+	dbChannel := c.(*DBChannel)
+	dbContact := contact.(*DBContact)
+
+	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
+	defer cancel()
+
+	return getContactFieldValue(timeout, b.db, dbChannel.OrgID_, dbContact.ID_, fieldKey)
+}
+
 // IsEmailMailboxBlocked reports whether any active blocked contact in the
 // channel's org matches the real mailbox or a +wt- thread variant of it.
 func (b *backend) IsEmailMailboxBlocked(ctx context.Context, c courier.Channel, address string) (bool, error) {

@@ -188,6 +188,25 @@ func findContactByURN(ctx context.Context, b *backend, org OrgID, urn urns.URN) 
 	return contact, nil
 }
 
+const getContactFieldValueSQL = `
+SELECT c.fields->cf.uuid::text->>'text'
+FROM contacts_contact c
+JOIN contacts_contactfield cf ON cf.org_id = c.org_id AND cf.key = $3 AND cf.is_active = TRUE
+WHERE c.org_id = $1 AND c.id = $2
+`
+
+func getContactFieldValue(ctx context.Context, db *sqlx.DB, orgID OrgID, contactID ContactID, fieldKey string) (string, error) {
+	var value null.String
+	err := db.GetContext(ctx, &value, getContactFieldValueSQL, orgID, contactID, fieldKey)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return string(value), nil
+}
+
 const isEmailMailboxBlockedSQL = `
 SELECT EXISTS (
 	SELECT 1

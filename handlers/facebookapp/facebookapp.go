@@ -650,48 +650,37 @@ func (h *handler) processBusinessUsernameUpdate(ctx context.Context, channel cou
 	return fmt.Sprintf("business_username_updates: username updated from %s to %s", oldUsername, newUsername), nil
 }
 
-// processContactUsernameUpdate updates the contact whatsapp_username field when the incoming
-// value differs from what is currently stored. Returns a human-readable info string on success.
-func (h *handler) processContactUsernameUpdate(ctx context.Context, channel courier.Channel, urn urns.URN, newUsername string) (string, error) {
+// contactUsernameFieldsIfChanged returns whatsapp_username fields to apply when newUsername
+// differs from the stored value. For new contacts the fields are returned so they can be
+// attached to the incoming message.
+func (h *handler) contactUsernameFieldsIfChanged(ctx context.Context, channel courier.Channel, urn urns.URN, newUsername string) (map[string]string, string, error) {
 	if newUsername == "" {
-		return "", nil
+		return nil, "", nil
 	}
 
 	contact, err := h.Backend().FindContact(ctx, channel, urn)
 	if err == courier.ErrContactNotFound {
-		return "", nil
+		return map[string]string{contactFieldWAUsername: newUsername},
+			fmt.Sprintf("username_update: username set to %s", newUsername), nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("username_update: contact lookup failed: %w", err)
+		return nil, "", fmt.Errorf("username_update: contact lookup failed: %w", err)
 	}
 
 	oldUsername, err := h.Backend().GetContactFieldValue(ctx, channel, contact, contactFieldWAUsername)
 	if err != nil {
-		return "", fmt.Errorf("username_update: failed to read current username: %w", err)
+		return nil, "", fmt.Errorf("username_update: failed to read current username: %w", err)
 	}
 	if oldUsername == newUsername {
-		return "", nil
+		return nil, "", nil
 	}
 
-	externalID := fmt.Sprintf("username_update:%s:%s:%s", channel.UUID(), urn.Identity(), newUsername)
-	msg := h.Backend().NewIncomingMsg(channel, urn, "").
-		WithNewContactFields(map[string]string{contactFieldWAUsername: newUsername}).
-		WithExternalID(externalID).
-		WithReceivedOn(time.Now().UTC())
-
-	if err := h.Backend().WriteMsg(ctx, msg); err != nil {
-		return "", fmt.Errorf("username_update: failed to write update: %w", err)
-	}
-
-	logrus.WithField("channel_uuid", channel.UUID()).
-		WithField("old_username", oldUsername).
-		WithField("new_username", newUsername).
-		Info("username_update: successfully updated contact username")
-
+	info := fmt.Sprintf("username_update: username updated from %s to %s", oldUsername, newUsername)
 	if oldUsername == "" {
-		return fmt.Sprintf("username_update: username set to %s", newUsername), nil
+		info = fmt.Sprintf("username_update: username set to %s", newUsername)
 	}
-	return fmt.Sprintf("username_update: username updated from %s to %s", oldUsername, newUsername), nil
+
+	return map[string]string{contactFieldWAUsername: newUsername}, info, nil
 }
 
 // addMetadataWithOverwrite adds metadata to both the root level and overwrite_message field
@@ -1163,9 +1152,13 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				if username == "" {
 					username = contactUsernames[msg.FromUserID]
 				}
+				var usernameUpdateInfo string
 				if username != "" {
-					if _, err := h.Backend().FindContact(ctx, channel, urn); err == courier.ErrContactNotFound {
-						ev.WithNewContactFields(map[string]string{contactFieldWAUsername: username})
+					if fields, info, usernameErr := h.contactUsernameFieldsIfChanged(ctx, channel, urn, username); usernameErr != nil {
+						logrus.WithField("channel_uuid", channel.UUID()).WithError(usernameErr).Warn(usernameErr.Error())
+					} else if fields != nil {
+						ev.WithNewContactFields(fields)
+						usernameUpdateInfo = info
 					}
 				}
 
@@ -1245,12 +1238,8 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					return nil, nil, err
 				}
 
-				if username != "" {
-					if info, usernameErr := h.processContactUsernameUpdate(ctx, channel, urn, username); usernameErr != nil {
-						logrus.WithField("channel_uuid", channel.UUID()).WithError(usernameErr).Warn(usernameErr.Error())
-					} else if info != "" {
-						data = append(data, courier.NewInfoData(info))
-					}
+				if usernameUpdateInfo != "" {
+					data = append(data, courier.NewInfoData(usernameUpdateInfo))
 				}
 
 				// add secondary URN (phone or BSUID) after contact is persisted
@@ -1296,15 +1285,6 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				recipientID := status.RecipientID
 				if recipientID == "" {
 					recipientID = status.RecipientUserID
-				}
-				if username := contactUsernames[recipientID]; username != "" {
-					if recipientURN, urnErr := urns.NewWhatsAppURN(recipientID); urnErr != nil {
-						handlers.WriteAndLogRequestError(ctx, h, channel, w, r, urnErr)
-					} else if info, usernameErr := h.processContactUsernameUpdate(ctx, channel, recipientURN, username); usernameErr != nil {
-						logrus.WithField("channel_uuid", channel.UUID()).WithError(usernameErr).Warn(usernameErr.Error())
-					} else if info != "" {
-						data = append(data, courier.NewInfoData(info))
-					}
 				}
 
 				if (msgStatus == courier.MsgDelivered || msgStatus == courier.MsgRead) &&

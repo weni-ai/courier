@@ -881,7 +881,7 @@ func (m *mockMsg) WithNewContactFields(fields map[string]string) Msg {
 	m.newContactFields = fields
 	return m
 }
-func (m *mockMsg) WithURNAuth(auth string) Msg       { m.urnAuth = auth; return m }
+func (m *mockMsg) WithURNAuth(auth string) Msg { m.urnAuth = auth; return m }
 func (m *mockMsg) WithReceivedOn(date time.Time) Msg { m.receivedOn = &date; return m }
 func (m *mockMsg) WithExternalID(id string) Msg      { m.externalID = id; return m }
 func (m *mockMsg) WithID(id MsgID) Msg               { m.id = id; return m }

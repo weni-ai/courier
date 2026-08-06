@@ -21,7 +21,10 @@ var testChannels = []courier.Channel{
 	}),
 }
 
-var receiveURL = "/c/tph/receive"
+var (
+	receiveURL = "/c/tph/receive"
+	resolveURL = "/c/tph/resolve?did=%2B15551234567"
+)
 
 const receiveMsgTemplate = `
 {
@@ -91,6 +94,37 @@ var testCases = []ChannelHandleTestCase{
 
 func TestHandler(t *testing.T) {
 	RunChannelTestCases(t, testChannels, newHandler(), testCases)
+}
+
+var resolveTestCases = []ChannelHandleTestCase{
+	{
+		Label:                 "Resolve Valid DID",
+		URL:                   resolveURL,
+		Status:                200,
+		Response:              channelUUID,
+		NoInvalidChannelCheck: true,
+		NoQueueErrorCheck:     true,
+	},
+	{
+		Label:                 "Resolve Unknown DID",
+		URL:                   "/c/tph/resolve?did=%2B19999999999",
+		Status:                400,
+		Response:              "channel not found",
+		NoInvalidChannelCheck: true,
+		NoQueueErrorCheck:     true,
+	},
+	{
+		Label:                 "Resolve Missing DID",
+		URL:                   "/c/tph/resolve",
+		Status:                400,
+		Response:              "did is required",
+		NoInvalidChannelCheck: true,
+		NoQueueErrorCheck:     true,
+	},
+}
+
+func TestResolveHandler(t *testing.T) {
+	RunChannelTestCases(t, testChannels, newHandler(), resolveTestCases)
 }
 
 var sendTestCases = []ChannelSendTestCase{

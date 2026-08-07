@@ -2116,6 +2116,123 @@ func TestWaTemplateTypeFromMetadata(t *testing.T) {
 	}
 }
 
+func TestRouteWhatsAppChanges(t *testing.T) {
+	cases := []struct {
+		label              string
+		payload            string
+		wantHasChanges     bool
+		wantToIntegrations bool
+		wantToFlows        bool
+		wantChannelAddress string
+		wantMultipleAddrs  bool
+	}{
+		{
+			label: "template status update alone",
+			payload: `{
+				"entry":[{"changes":[{"field":"message_template_status_update","value":{}}]}]
+			}`,
+			wantHasChanges:     true,
+			wantToIntegrations: true,
+		},
+		{
+			label: "messages change alone",
+			payload: `{
+				"entry":[{"changes":[{"field":"messages","value":{"metadata":{"phone_number_id":"12345"}}}]}]
+			}`,
+			wantHasChanges:     true,
+			wantChannelAddress: "12345",
+		},
+		{
+			label: "messages then template status in same entry",
+			payload: `{
+				"entry":[{
+					"changes":[
+						{"field":"messages","value":{"metadata":{"phone_number_id":"12345"}}},
+						{"field":"message_template_status_update","value":{}}
+					]
+				}]
+			}`,
+			wantHasChanges:     true,
+			wantToIntegrations: true,
+			wantChannelAddress: "12345",
+		},
+		{
+			label: "template status in entry 0 and messages in entry 1",
+			payload: `{
+				"entry":[
+					{"changes":[{"field":"message_template_status_update","value":{}}]},
+					{"changes":[{"field":"messages","value":{"metadata":{"phone_number_id":"12345"}}}]}
+				]
+			}`,
+			wantHasChanges:     true,
+			wantToIntegrations: true,
+			wantChannelAddress: "12345",
+		},
+		{
+			label: "nil metadata does not panic",
+			payload: `{
+				"entry":[{"changes":[{"field":"messages","value":{}}]}]
+			}`,
+			wantHasChanges: true,
+		},
+		{
+			label: "two different phone_number_ids",
+			payload: `{
+				"entry":[{
+					"changes":[
+						{"field":"messages","value":{"metadata":{"phone_number_id":"111"}}},
+						{"field":"messages","value":{"metadata":{"phone_number_id":"222"}}}
+					]
+				}]
+			}`,
+			wantHasChanges:     true,
+			wantChannelAddress: "111",
+			wantMultipleAddrs:  true,
+		},
+		{
+			label:          "empty entries",
+			payload:        `{"entry":[]}`,
+			wantHasChanges: false,
+		},
+		{
+			label: "entries with no changes",
+			payload: `{
+				"entry":[{"id":"1","changes":[]}]
+			}`,
+			wantHasChanges: false,
+		},
+		{
+			label: "flows mixed with template status update",
+			payload: `{
+				"entry":[{
+					"changes":[
+						{"field":"flows","value":{}},
+						{"field":"message_template_status_update","value":{}}
+					]
+				}]
+			}`,
+			wantHasChanges:     true,
+			wantToIntegrations: true,
+			wantToFlows:        true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.label, func(t *testing.T) {
+			payload := &moPayload{}
+			err := json.Unmarshal([]byte(c.payload), payload)
+			assert.NoError(t, err)
+
+			got := routeWhatsAppChanges(payload)
+			assert.Equal(t, c.wantHasChanges, got.hasChanges)
+			assert.Equal(t, c.wantToIntegrations, got.toIntegrations)
+			assert.Equal(t, c.wantToFlows, got.toFlows)
+			assert.Equal(t, c.wantChannelAddress, got.channelAddress)
+			assert.Equal(t, c.wantMultipleAddrs, got.multipleAddrs)
+		})
+	}
+}
+
 func TestContactUsernameUpdate(t *testing.T) {
 	channel := courier.NewMockChannel(
 		"8eb23e93-5ecb-45ba-b726-3b064e0c568c",

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -63,6 +64,7 @@ func TestSendWebhooks(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"data": "success"}`))
 	}))
+	defer ts.Close()
 
 	jsonBody, err := json.Marshal(moTemplatesPayload{})
 	assert.NoError(t, err)
@@ -70,4 +72,22 @@ func TestSendWebhooks(t *testing.T) {
 
 	err = SendWebhooks(req, ts.URL, "", true)
 	assert.NoError(t, err)
+}
+
+func TestSendWebhooksRestoresBody(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data": "success"}`))
+	}))
+	defer ts.Close()
+
+	originalBody := []byte(`{"object":"whatsapp_business_account","entry":[{"id":"1","changes":[{"field":"messages","value":{}}]}]}`)
+	req := httptest.NewRequest(http.MethodPost, "https://foo.bar/webhook", strings.NewReader(string(originalBody)))
+
+	err := SendWebhooks(req, ts.URL, "", true)
+	assert.NoError(t, err)
+
+	restored, err := io.ReadAll(req.Body)
+	assert.NoError(t, err)
+	assert.Equal(t, originalBody, restored)
 }

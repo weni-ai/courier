@@ -131,6 +131,47 @@ func waTemplateTypeFromMetadata(metadata json.RawMessage) (templateType string) 
 	return mapped
 }
 
+// wacWebhookRouting is the result of scanning every entry and change of a
+// whatsapp_business_account payload. Meta batches events, so a single request
+// can require forwarding to integrations and still carry message events that
+// belong to a channel.
+type wacWebhookRouting struct {
+	hasChanges     bool
+	toIntegrations bool
+	toFlows        bool
+	channelAddress string
+	multipleAddrs  bool
+}
+
+func routeWhatsAppChanges(payload *moPayload) wacWebhookRouting {
+	var routing wacWebhookRouting
+
+	for _, entry := range payload.Entry {
+		for _, change := range entry.Changes {
+			routing.hasChanges = true
+
+			if integrationWebhookFields[change.Field] {
+				routing.toIntegrations = true
+				continue
+			}
+			if change.Field == "flows" {
+				routing.toFlows = true
+				continue
+			}
+			if change.Value.Metadata == nil || change.Value.Metadata.PhoneNumberID == "" {
+				continue
+			}
+			if routing.channelAddress == "" {
+				routing.channelAddress = change.Value.Metadata.PhoneNumberID
+			} else if routing.channelAddress != change.Value.Metadata.PhoneNumberID {
+				routing.multipleAddrs = true
+			}
+		}
+	}
+
+	return routing
+}
+
 var waIgnoreStatuses = map[string]bool{
 	"deleted": true,
 }
@@ -841,50 +882,40 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 		channelAddress = payload.Entry[0].ID
 		return h.Backend().GetChannelByAddress(ctx, courier.ChannelType("IG"), courier.ChannelAddress(channelAddress))
 	} else {
-		if len(payload.Entry[0].Changes) == 0 {
+		routing := routeWhatsAppChanges(payload)
+		if !routing.hasChanges {
 			return nil, fmt.Errorf("no changes found")
 		}
-		if integrationWebhookFields[payload.Entry[0].Changes[0].Field] {
-			logrus.WithField("field", payload.Entry[0].Changes[0].Field).Info("[integration_webhook] receiving integration webhook")
-			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, "", true)
-			if er != nil {
+
+		if routing.toIntegrations {
+			logrus.Info("[integration_webhook] receiving integration webhook")
+			if er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, "", true); er != nil {
 				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
 			}
-
-			if payload.Entry[0].Changes[0].Field == "account_update" {
-				logrus.WithField("event", payload.Entry[0].Changes[0].Value.Event).WithField("waba_info", payload.Entry[0].Changes[0].Value.WabaInfo).Info("[account_update] receiving account_update webhook")
-				// Handle account_update webhook type
-				if payload.Entry[0].Changes[0].Value.Event == "MM_LITE_TERMS_SIGNED" && payload.Entry[0].Changes[0].Value.WabaInfo != nil {
-					logrus.WithField("waba_id", payload.Entry[0].Changes[0].Value.WabaInfo.WabaID).Info("[mmlite] MM_LITE_TERMS_SIGNED event detected for waba_id")
-					wabaID := payload.Entry[0].Changes[0].Value.WabaInfo.WabaID
-
-					// Update channel config with ad_account_id and mmlite for all channels with matching waba_id
-					err := h.Backend().UpdateChannelConfigByWabaID(ctx, wabaID, map[string]interface{}{
-						"mmlite": true,
-					})
-					if err != nil {
-						logrus.WithError(err).WithField("waba_id", wabaID).Error("[mmlite] error updating channel config with waba_id")
-						return nil, fmt.Errorf("error updating channel config with waba_id %s: %v", wabaID, err)
-					}
-					logrus.WithField("waba_id", wabaID).Info("[mmlite] channel config updated with waba_id")
-				}
+			if err := h.handleMMLiteTermsSigned(ctx, payload); err != nil {
+				return nil, err
 			}
-
-			return nil, fmt.Errorf("template update, so ignore")
-		} else if payload.Entry[0].Changes[0].Field == "flows" {
-			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrlFlows, h.Server().Config().WhatsappCloudWebhooksTokenFlows, false)
-			if er != nil {
-				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
-			}
-			return nil, fmt.Errorf("template update, so ignore")
 		}
-		if payload.Entry[0].Changes[0].Value.Metadata == nil {
+
+		if routing.toFlows {
+			if er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrlFlows, h.Server().Config().WhatsappCloudWebhooksTokenFlows, false); er != nil {
+				courier.LogRequestError(r, nil, fmt.Errorf("could not send flows webhook: %s", er))
+			}
+		}
+
+		if routing.channelAddress == "" {
+			if routing.toIntegrations || routing.toFlows {
+				return nil, fmt.Errorf("template update, so ignore")
+			}
 			return nil, fmt.Errorf("no channel address found")
 		}
-		channelAddress = payload.Entry[0].Changes[0].Value.Metadata.PhoneNumberID
-		if channelAddress == "" {
-			return nil, fmt.Errorf("no channel address found")
+
+		if routing.multipleAddrs {
+			logrus.WithField("phone_number_id", routing.channelAddress).
+				Warn("batched webhook carries more than one phone_number_id; resolving the first")
 		}
+
+		channelAddress = routing.channelAddress
 
 		// get a value if exists from request header to a variable routerToken
 		routerToken := r.Header.Get("X-Router-Token")
@@ -894,6 +925,23 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 
 		return h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WAC"), courier.ChannelAddress(channelAddress))
 	}
+}
+
+func (h *handler) handleMMLiteTermsSigned(ctx context.Context, payload *moPayload) error {
+	for _, entry := range payload.Entry {
+		for _, change := range entry.Changes {
+			if change.Field != "account_update" || change.Value.Event != "MM_LITE_TERMS_SIGNED" || change.Value.WabaInfo == nil {
+				continue
+			}
+			wabaID := change.Value.WabaInfo.WabaID
+			if err := h.Backend().UpdateChannelConfigByWabaID(ctx, wabaID, map[string]interface{}{"mmlite": true}); err != nil {
+				logrus.WithError(err).WithField("waba_id", wabaID).Error("[mmlite] error updating channel config with waba_id")
+				return fmt.Errorf("error updating channel config with waba_id %s: %v", wabaID, err)
+			}
+			logrus.WithField("waba_id", wabaID).Info("[mmlite] channel config updated with waba_id")
+		}
+	}
+	return nil
 }
 
 // receiveVerify handles Facebook's webhook verification callback

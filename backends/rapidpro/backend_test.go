@@ -525,6 +525,43 @@ func (ts *BackendTestSuite) TestAddAndRemoveContactURN() {
 	ts.Equal(len(contactURNs), 1)
 }
 
+func (ts *BackendTestSuite) TestReplaceWhatsAppBSUIDOnContact() {
+	wacChannel := ts.getChannel("WAC", "a863af77-9aaf-4845-9f95-af9288e6cb31")
+	ctx := context.Background()
+
+	phoneURN, err := urns.NewWhatsAppURN("5678")
+	ts.NoError(err)
+	oldBSUID, err := urns.NewWhatsAppURN("US.13491208655302741918")
+	ts.NoError(err)
+	newBSUID, err := urns.NewWhatsAppURN("US.98765432100000000001")
+	ts.NoError(err)
+
+	contact, err := contactForURN(ctx, ts.b, wacChannel.OrgID_, wacChannel, phoneURN, "", "")
+	ts.NoError(err)
+
+	_, err = ts.b.AddURNtoContact(ctx, wacChannel, contact, oldBSUID)
+	ts.NoError(err)
+
+	_, err = ts.b.ReplaceWhatsAppBSUIDOnContact(ctx, wacChannel, contact, newBSUID)
+	ts.NoError(err)
+
+	tx, err := ts.b.db.Beginx()
+	ts.NoError(err)
+
+	contactURNs, err := contactURNsForContact(tx, contact.ID_)
+	ts.NoError(err)
+	ts.Equal(2, len(contactURNs))
+
+	identities := make([]string, len(contactURNs))
+	for i, contactURN := range contactURNs {
+		identities[i] = contactURN.Identity
+	}
+	ts.Contains(identities, string(phoneURN.Identity()))
+	ts.Contains(identities, string(newBSUID.Identity()))
+	ts.NotContains(identities, string(oldBSUID.Identity()))
+	ts.NoError(tx.Commit())
+}
+
 func (ts *BackendTestSuite) TestContactURN() {
 	knChannel := ts.getChannel("KN", "dbc126ed-66bc-4e28-b67b-81dc3327c95d")
 	twChannel := ts.getChannel("TW", "dbc126ed-66bc-4e28-b67b-81dc3327c96a")

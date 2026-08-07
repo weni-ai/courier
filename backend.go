@@ -55,6 +55,10 @@ type Backend interface {
 	// RemoveURNFromcontact removes a URN from the passed in contact
 	RemoveURNfromContact(context context.Context, channel Channel, contact Contact, urn urns.URN) (urns.URN, error)
 
+	// ReplaceWhatsAppBSUIDOnContact removes existing WhatsApp BSUID URNs in the same category
+	// as newURN (regular or parent) on the contact and associates newURN with it.
+	ReplaceWhatsAppBSUIDOnContact(context context.Context, channel Channel, contact Contact, newURN urns.URN) (urns.URN, error)
+
 	// DeleteMsgWithExternalID delete a message we receive an event that it should be deleted
 	DeleteMsgWithExternalID(ctx context.Context, channel Channel, externalID string) error
 

@@ -144,6 +144,56 @@ func (b *backend) RemoveURNfromContact(ctx context.Context, c courier.Channel, c
 	return urn, nil
 }
 
+// ReplaceWhatsAppBSUIDOnContact removes existing WhatsApp BSUID URNs in the same category
+// as newURN (regular or parent) on the contact and associates newURN with it.
+// Phone number URNs and BSUIDs in other categories are left unchanged.
+func (b *backend) ReplaceWhatsAppBSUIDOnContact(ctx context.Context, c courier.Channel, contact courier.Contact, newURN urns.URN) (urns.URN, error) {
+	if newURN.Scheme() != urns.WhatsAppScheme || !courier.IsWhatsAppBSUIDOrParentPath(newURN.Path()) {
+		return urns.NilURN, fmt.Errorf("ReplaceWhatsAppBSUIDOnContact requires a whatsapp BSUID URN")
+	}
+
+	tx, err := b.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return urns.NilURN, err
+	}
+	defer tx.Rollback()
+
+	dbChannel := c.(*DBChannel)
+	dbContact := contact.(*DBContact)
+
+	contactURNs, err := contactURNsForContact(tx, dbContact.ID_)
+	if err != nil {
+		return urns.NilURN, err
+	}
+
+	newIdentity := string(newURN.Identity())
+	newPath := newURN.Path()
+	for _, contactURN := range contactURNs {
+		if contactURN.Scheme != urns.WhatsAppScheme || !courier.IsWhatsAppBSUIDOrParentPath(contactURN.Path) {
+			continue
+		}
+		if !courier.SameWhatsAppBSUIDCategory(contactURN.Path, newPath) {
+			continue
+		}
+		if contactURN.Identity == newIdentity {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, removeURNFromContact, dbContact.ID_, contactURN.Identity); err != nil {
+			return urns.NilURN, err
+		}
+	}
+
+	if _, err := contactURNForURN(tx, dbChannel, dbContact.ID_, newURN, ""); err != nil {
+		return urns.NilURN, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return urns.NilURN, err
+	}
+
+	return newURN, nil
+}
+
 const updateMsgVisibilityDeleted = `
 UPDATE
 	msgs_msg

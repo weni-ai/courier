@@ -117,6 +117,7 @@ type ChannelSendTestCase struct {
 	Stopped bool
 
 	ContactURNs map[string]bool
+	PrepBackend func(*courier.MockBackend)
 
 	SendPrep     SendPrepFunc
 	NewURN       string
@@ -241,6 +242,13 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 		mockRRCount := 0
 		t.Run(testCase.Label, func(t *testing.T) {
 			require := require.New(t)
+
+			mb.ClearQueueMsgs()
+			mb.ClearSeenExternalIDs()
+
+			if testCase.PrepBackend != nil {
+				testCase.PrepBackend(mb)
+			}
 
 			msg := mb.NewOutgoingMsg(channel, courier.NewMsgID(10), urns.URN(testCase.URN), testCase.Text, testCase.HighPriority, testCase.QuickReplies, testCase.Topic, testCase.ResponseToID, testCase.ResponseToExternalID, testCase.TextLanguage)
 

@@ -478,6 +478,26 @@ func (mb *MockBackend) RemoveURNfromContact(context context.Context, channel Cha
 	return urn, nil
 }
 
+// ReplaceWhatsAppBSUIDOnContact removes existing WhatsApp BSUID URNs in the same category
+// as newURN (regular or parent) on the contact and associates newURN with it.
+func (mb *MockBackend) ReplaceWhatsAppBSUIDOnContact(_ context.Context, _ Channel, contact Contact, newURN urns.URN) (urns.URN, error) {
+	newIdentity := newURN.Identity()
+	newPath := newURN.Path()
+	for urn, c := range mb.contacts {
+		if c.UUID() != contact.UUID() || urn.Scheme() != urns.WhatsAppScheme || !IsWhatsAppBSUIDOrParentPath(urn.Path()) {
+			continue
+		}
+		if !SameWhatsAppBSUIDCategory(urn.Path(), newPath) {
+			continue
+		}
+		if urn.Identity() != newIdentity {
+			delete(mb.contacts, urn)
+		}
+	}
+	mb.contacts[newURN] = contact
+	return newURN, nil
+}
+
 // AddChannel adds a test channel to the test server
 func (mb *MockBackend) AddChannel(channel Channel) {
 	mb.channels[channel.UUID()] = channel

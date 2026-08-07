@@ -1,3 +1,8 @@
+1.62.0
+----------
+ * feat: add GetContactFieldValue method to Backend interface and implement related functionality
+ * feat: add ReplaceWhatsAppBSUIDOnContact method to manage WhatsApp BSUID URNs
+
 1.61.0
 ----------
  * feat: Persist email thread metadata on outbound sends so subsequent replies reuse subject and extend References instead of starting a new thread

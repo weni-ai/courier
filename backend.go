@@ -39,6 +39,9 @@ type Backend interface {
 	// FindContact looks up a contact by URN without creating one. Returns ErrContactNotFound if none exists.
 	FindContact(context context.Context, channel Channel, urn urns.URN) (Contact, error)
 
+	// GetContactFieldValue returns the current text value for a contact field key, or empty if unset.
+	GetContactFieldValue(context.Context, Channel, Contact, string) (string, error)
+
 	// IsEmailMailboxBlocked reports whether any active contact in the channel's
 	// org is blocked for the given real mailbox address — either the exact
 	// mailto: URN or any synthetic +wt-<8hex> thread variant derived from it.

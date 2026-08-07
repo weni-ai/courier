@@ -67,6 +67,9 @@ type MockBackend struct {
 	// blockedEmailMailboxes is seeded by tests to back IsEmailMailboxBlocked;
 	// keyed by lowercased real mailbox address (no mailto: prefix).
 	blockedEmailMailboxes map[string]bool
+
+	// contactFieldValues tracks contact field values for GetContactFieldValue in tests.
+	contactFieldValues map[urns.URN]map[string]string
 }
 
 // NewMockBackend returns a new mock backend suitable for testing
@@ -284,6 +287,18 @@ func (mb *MockBackend) WriteMsg(ctx context.Context, m Msg) error {
 		uuid, _ := NewContactUUID(string(uuids.New()))
 		mb.contacts[m.URN()] = &mockContact{m.Channel(), m.URN(), m.URNAuth(), uuid}
 	}
+
+	if fields := m.NewContactFields(); len(fields) > 0 {
+		if mb.contactFieldValues == nil {
+			mb.contactFieldValues = make(map[urns.URN]map[string]string)
+		}
+		if mb.contactFieldValues[m.URN()] == nil {
+			mb.contactFieldValues[m.URN()] = make(map[string]string)
+		}
+		for key, value := range fields {
+			mb.contactFieldValues[m.URN()][key] = value
+		}
+	}
 	return nil
 }
 
@@ -398,6 +413,32 @@ func (mb *MockBackend) FindContact(ctx context.Context, channel Channel, urn urn
 		return nil, ErrContactNotFound
 	}
 	return contact, nil
+}
+
+// GetContactFieldValue returns the current text value for a contact field key.
+func (mb *MockBackend) GetContactFieldValue(ctx context.Context, channel Channel, contact Contact, fieldKey string) (string, error) {
+	mc, ok := contact.(*mockContact)
+	if !ok {
+		return "", nil
+	}
+	if mb.contactFieldValues == nil {
+		return "", nil
+	}
+	if fields, ok := mb.contactFieldValues[mc.urn]; ok {
+		return fields[fieldKey], nil
+	}
+	return "", nil
+}
+
+// SetContactFieldValue seeds a contact field value for tests.
+func (mb *MockBackend) SetContactFieldValue(urn urns.URN, fieldKey, value string) {
+	if mb.contactFieldValues == nil {
+		mb.contactFieldValues = make(map[urns.URN]map[string]string)
+	}
+	if mb.contactFieldValues[urn] == nil {
+		mb.contactFieldValues[urn] = make(map[string]string)
+	}
+	mb.contactFieldValues[urn][fieldKey] = value
 }
 
 // SetEmailMailboxBlocked marks a real mailbox as blocked for IsEmailMailboxBlocked tests.
@@ -840,7 +881,7 @@ func (m *mockMsg) WithNewContactFields(fields map[string]string) Msg {
 	m.newContactFields = fields
 	return m
 }
-func (m *mockMsg) WithURNAuth(auth string) Msg       { m.urnAuth = auth; return m }
+func (m *mockMsg) WithURNAuth(auth string) Msg { m.urnAuth = auth; return m }
 func (m *mockMsg) WithReceivedOn(date time.Time) Msg { m.receivedOn = &date; return m }
 func (m *mockMsg) WithExternalID(id string) Msg      { m.externalID = id; return m }
 func (m *mockMsg) WithID(id MsgID) Msg               { m.id = id; return m }

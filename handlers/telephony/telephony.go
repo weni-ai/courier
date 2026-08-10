@@ -93,7 +93,8 @@ func (h *handler) authorizeResolve(r *http.Request) error {
 	}
 
 	token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
-	if token == "" || token != expected {
+	if subtle.ConstantTimeCompare([]byte(token), []byte(expected)) != 1 {
+
 		return errors.New("missing or invalid authorization")
 	}
 

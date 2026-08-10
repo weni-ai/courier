@@ -3,6 +3,7 @@ package telephony
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,6 +38,7 @@ func newHandler() courier.ChannelHandler {
 func (h *handler) Initialize(s courier.Server) error {
 	h.SetServer(s)
 	s.AddHandlerRoute(h, http.MethodPost, "receive", h.receiveMessage)
+	s.AddHandlerRoute(h, http.MethodGet, "resolve", h.resolveChannel)
 	return nil
 }
 
@@ -71,8 +73,50 @@ type outboundMessage struct {
 	Text      string `json:"text"`
 }
 
-// GetChannel resolves the PSTN channel from the dialed number (DID) in the request body.
+type resolveResponse struct {
+	ChannelUUID string `json:"channel_uuid"`
+	ProjectUUID string `json:"project_uuid"`
+}
+
+func isResolveRequest(r *http.Request) bool {
+	return r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/resolve")
+}
+
+func (h *handler) authorizeResolve(r *http.Request) error {
+	expected := strings.TrimSpace(h.Server().Config().TelephonyResolveToken)
+	if expected == "" {
+		return nil
+	}
+
+	authHeader := r.Header.Get("Authorization")
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		return errors.New("missing or invalid authorization")
+	}
+
+	token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+	if subtle.ConstantTimeCompare([]byte(token), []byte(expected)) != 1 {
+
+		return errors.New("missing or invalid authorization")
+	}
+
+	return nil
+}
+
+// GetChannel resolves the PSTN channel from the dialed number (DID).
 func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Channel, error) {
+	if isResolveRequest(r) {
+		if err := h.authorizeResolve(r); err != nil {
+			return nil, err
+		}
+
+		did := strings.TrimSpace(r.URL.Query().Get("did"))
+		if did == "" {
+			return nil, errors.New("did is required")
+		}
+
+		return h.Backend().GetChannelByAddress(ctx, h.ChannelType(), courier.ChannelAddress(did))
+	}
+
 	payload := &receivePayload{}
 	err := handlers.DecodeAndValidateJSON(payload, r)
 	if err != nil {
@@ -84,6 +128,24 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 	}
 
 	return h.Backend().GetChannelByAddress(ctx, h.ChannelType(), courier.ChannelAddress(payload.DID))
+}
+
+func (h *handler) resolveChannel(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
+	projectUUID, err := h.Backend().GetProjectUUIDFromChannelUUID(ctx, channel.UUID())
+	if err != nil {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(resolveResponse{
+		ChannelUUID: channel.UUID().String(),
+		ProjectUUID: projectUUID,
+	}); err != nil {
+		return nil, err
+	}
+
+	return nil, nil
 }
 
 func (h *handler) receiveMessage(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {

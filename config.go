@@ -77,6 +77,8 @@ type Config struct {
 
 	CallsWebhookURL   string `help:"the url where calls webhooks will be sent"`
 	CallsWebhookToken string `help:"the token for calls webhooks"`
+
+	TelephonyResolveToken string `help:"bearer token required for GET /c/tph/resolve; empty disables auth"`
 }
 
 // NewConfig returns a new default configuration object

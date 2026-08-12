@@ -89,8 +89,8 @@ type Backend interface {
 	// WriteContactLastSeen writes the passed in contact last seen to our backend
 	WriteContactLastSeen(context.Context, Msg, time.Time) error
 
-	// WriteCtwaToDB writes the passed in ctwa data to our backend
-	WriteCtwaToDB(context.Context, string, urns.URN, time.Time, ChannelUUID, string) error
+	// WriteCtwaToDB writes the passed in ctwa event to our backend
+	WriteCtwaToDB(context.Context, CtwaEvent) error
 
 	// QueueTemplateLastDispatch enqueues a template last dispatch record for async persistence
 	QueueTemplateLastDispatch(context.Context, Msg, TemplateLastDispatchData, time.Time)

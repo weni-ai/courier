@@ -71,6 +71,8 @@ type MockBackend struct {
 	// contactFieldValues tracks contact field values for GetContactFieldValue in tests.
 	contactFieldValues map[urns.URN]map[string]string
 	templateLastDispatches []templateLastDispatchCall
+
+	ctwaEvents []CtwaEvent
 }
 
 type templateLastDispatchCall struct {
@@ -360,9 +362,12 @@ func (mb *MockBackend) WriteContactLastSeen(ctx context.Context, msg Msg, lastSe
 	return nil
 }
 
-// WriteCtwaToDB writes the passed in ctwa data to our backend (mock implementation)
-func (mb *MockBackend) WriteCtwaToDB(ctx context.Context, ctwaClid string, contactUrn urns.URN, timestamp time.Time, channelUUID ChannelUUID, waba string) error {
-	// For the mock backend, we just return nil as this is primarily for testing
+// WriteCtwaToDB writes the passed in ctwa event to our backend (mock implementation)
+func (mb *MockBackend) WriteCtwaToDB(ctx context.Context, event CtwaEvent) error {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+
+	mb.ctwaEvents = append(mb.ctwaEvents, event)
 	return nil
 }
 
@@ -376,6 +381,16 @@ func (mb *MockBackend) QueueTemplateLastDispatch(_ context.Context, msg Msg, dat
 		data:    data,
 		firedOn: firedOn,
 	})
+}
+
+// CtwaEvents returns CTWA events written through the mock backend.
+func (mb *MockBackend) CtwaEvents() []CtwaEvent {
+	mb.mutex.RLock()
+	defer mb.mutex.RUnlock()
+
+	events := make([]CtwaEvent, len(mb.ctwaEvents))
+	copy(events, mb.ctwaEvents)
+	return events
 }
 
 // NewChannelEvent creates a new channel event with the passed in parameters

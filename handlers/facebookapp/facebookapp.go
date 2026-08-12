@@ -1259,13 +1259,32 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					if err := addMetadataWithOverwrite(event, referralMetadata); err != nil {
 						courier.LogRequestError(r, channel, err)
 					}
+				}
 
-					if msg.Referral.CtwaClid != "" {
-						// Write ctwa data to database
-						err := h.Backend().WriteCtwaToDB(ctx, msg.Referral.CtwaClid, urn, date, channel.UUID(), entry.ID)
-						if err != nil {
-							courier.LogRequestError(r, channel, fmt.Errorf("error writing ctwa data: %v", err))
-						}
+				if msg.Referral.SourceID != "" && msg.Referral.SourceType != "" {
+					phoneNumberID := ""
+					if change.Value.Metadata != nil {
+						phoneNumberID = change.Value.Metadata.PhoneNumberID
+					}
+
+					err := h.Backend().WriteCtwaToDB(ctx, courier.CtwaEvent{
+						CtwaClid:      msg.Referral.CtwaClid,
+						ContactUrn:    urn,
+						Timestamp:     date,
+						ChannelUUID:   channel.UUID(),
+						Waba:          entry.ID,
+						PhoneNumberID: phoneNumberID,
+						MessageID:     msg.ID,
+						Referral: courier.CtwaReferralSource{
+							SourceID:   msg.Referral.SourceID,
+							SourceType: msg.Referral.SourceType,
+							SourceURL:  msg.Referral.SourceURL,
+							Headline:   msg.Referral.Headline,
+							Body:       msg.Referral.Body,
+						},
+					})
+					if err != nil {
+						courier.LogRequestError(r, channel, fmt.Errorf("error writing ctwa data: %v", err))
 					}
 				}
 

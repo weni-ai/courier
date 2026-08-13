@@ -16,9 +16,9 @@ import (
 
 const upsertCtwaReferralSourceSQL = `
 INSERT INTO ctwa_referral_sources
-	(source_id, source_type, source_url, headline, body, first_seen_at, last_seen_at)
+	(source_id, source_type, source_url, headline, body, first_seen_at, last_seen_at, created_at, updated_at)
 VALUES
-	(:source_id, :source_type, :source_url, :headline, :body, NOW(), NOW())
+	(:source_id, :source_type, :source_url, :headline, :body, NOW(), NOW(), NOW(), NOW())
 ON CONFLICT (source_id, source_type) DO UPDATE SET
 	source_url = EXCLUDED.source_url,
 	headline = COALESCE(NULLIF(EXCLUDED.headline, ''), ctwa_referral_sources.headline),
@@ -30,9 +30,9 @@ RETURNING id
 
 const insertCtwaSQL = `
 INSERT INTO conversion_events_ctwa
-	(ctwa_clid, contact_urn, timestamp, channel_uuid, waba, phone_number_id, referral_source_id, message_id)
+	(ctwa_clid, contact_urn, timestamp, channel_uuid, waba, phone_number_id, referral_source_id, message_id, created_at)
 VALUES
-	(:ctwa_clid, :contact_urn, :timestamp, :channel_uuid, :waba, :phone_number_id, :referral_source_id, :message_id)
+	(:ctwa_clid, :contact_urn, :timestamp, :channel_uuid, :waba, :phone_number_id, :referral_source_id, :message_id, NOW())
 ON CONFLICT (ctwa_clid) DO NOTHING
 `
 

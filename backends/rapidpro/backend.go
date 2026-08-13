@@ -570,20 +570,12 @@ func (b *backend) WriteContactLastSeen(ctx context.Context, msg courier.Msg, las
 	return nil
 }
 
-// WriteCtwaToDB writes the passed in ctwa data to our backend
-func (b *backend) WriteCtwaToDB(ctx context.Context, ctwaClid string, contactUrn urns.URN, timestamp time.Time, channelUUID courier.ChannelUUID, waba string) error {
+// WriteCtwaToDB writes the passed in ctwa event to our backend
+func (b *backend) WriteCtwaToDB(ctx context.Context, event courier.CtwaEvent) error {
 	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
 	defer cancel()
 
-	ctwa := &DBCtwa{
-		CtwaClid:    ctwaClid,
-		ContactUrn:  contactUrn.String(),
-		Timestamp:   timestamp,
-		ChannelUUID: channelUUID.String(),
-		Waba:        waba,
-	}
-
-	return writeCtwa(timeout, b, ctwa)
+	return writeCtwa(timeout, b, event)
 }
 
 // Check if external ID has been seen in a period
@@ -866,6 +858,9 @@ func (b *backend) Start() error {
 	if err == nil {
 		err = courier.EnsureSpoolDirPresent(b.config.SpoolDir, "events")
 	}
+	if err == nil {
+		err = courier.EnsureSpoolDirPresent(b.config.SpoolDir, "ctwa")
+	}
 	if err != nil {
 		log.WithError(err).Error("spool directories not writable")
 	} else {
@@ -906,6 +901,7 @@ func (b *backend) Start() error {
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "statuses"), b.flushStatusFile)
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "events"), b.flushChannelEventFile)
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "contact_last_seens"), b.flushContactLastSeenFile)
+	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "ctwa"), b.flushCtwaFile)
 	logrus.WithFields(logrus.Fields{
 		"comp":  "backend",
 		"state": "started",

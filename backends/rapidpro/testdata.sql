@@ -3,6 +3,9 @@ DELETE FROM orgs_org;
 INSERT INTO orgs_org("id", "name", "language", "is_anon", "config", "proj_uuid")
               VALUES(1, 'Test Org', 'eng', FALSE, '{ "CHATBASE_API_KEY": "cak" }', '9bab7353-561c-42f7-860e-e24c86cfb8e6');
 
+INSERT INTO orgs_org("id", "name", "language", "is_anon", "config", "proj_uuid")
+              VALUES(2, 'Test Org 2', 'eng', FALSE, '{}', '7d3e9a12-4b8c-4f21-9e6a-2c5d8f1b0a47');
+
 /* Channel with id 10, 11, 12 */
 DELETE FROM channels_channel;
 INSERT INTO channels_channel("id", "schemes", "is_active", "created_on", "modified_on", "uuid", "channel_type", "address", "org_id", "country", "role", "config")
@@ -25,6 +28,9 @@ INSERT INTO channels_channel("id", "schemes", "is_active", "created_on", "modifi
 
 INSERT INTO channels_channel("id", "schemes", "is_active", "created_on", "modified_on", "uuid", "channel_type", "address", "org_id", "country", "role", "config")
                       VALUES('16', '{"tel"}', 'Y', NOW(), NOW(), 'dbc126ed-66bc-4e28-b67b-81dc3327222a', 'EX', NULL, 1, 'US', '', NULL);
+
+INSERT INTO channels_channel("id", "schemes", "is_active", "created_on", "modified_on", "uuid", "channel_type", "address", "org_id", "country", "role", "config")
+                      VALUES('17', '{"whatsapp"}', 'Y', NOW(), NOW(), 'dbc126ed-66bc-4e28-b67b-81dc3327333a', 'KN', '2600', 2, 'US', 'SR', NULL);
 
 /* Contacts with ids 100, 101 */
 DELETE FROM contacts_contact;

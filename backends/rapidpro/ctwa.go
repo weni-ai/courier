@@ -16,10 +16,10 @@ import (
 
 const upsertCtwaReferralSourceSQL = `
 INSERT INTO ctwa_referral_sources
-	(source_id, source_type, source_url, headline, body, first_seen_at, last_seen_at, created_at, updated_at)
+	(org_id, source_id, source_type, source_url, headline, body, first_seen_at, last_seen_at, created_at, updated_at)
 VALUES
-	(:source_id, :source_type, :source_url, :headline, :body, NOW(), NOW(), NOW(), NOW())
-ON CONFLICT (source_id, source_type) DO UPDATE SET
+	(:org_id, :source_id, :source_type, :source_url, :headline, :body, NOW(), NOW(), NOW(), NOW())
+ON CONFLICT (org_id, source_id, source_type) DO UPDATE SET
 	source_url = EXCLUDED.source_url,
 	headline = COALESCE(NULLIF(EXCLUDED.headline, ''), ctwa_referral_sources.headline),
 	body = COALESCE(NULLIF(EXCLUDED.body, ''), ctwa_referral_sources.body),
@@ -37,6 +37,7 @@ ON CONFLICT (ctwa_clid) DO NOTHING
 `
 
 type DBCtwaReferralSource struct {
+	OrgID      OrgID       `db:"org_id"`
 	SourceID   string      `db:"source_id"`
 	SourceType string      `db:"source_type"`
 	SourceURL  null.String `db:"source_url"`
@@ -80,6 +81,11 @@ func writeCtwaToDB(ctx context.Context, b *backend, event courier.CtwaEvent) err
 		return nil
 	}
 
+	orgID, err := orgIDForCtwaChannel(ctx, b, event.ChannelUUID)
+	if err != nil {
+		return err
+	}
+
 	tx, err := b.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
@@ -87,6 +93,7 @@ func writeCtwaToDB(ctx context.Context, b *backend, event courier.CtwaEvent) err
 	defer tx.Rollback()
 
 	referralSourceID, err := upsertCtwaReferralSource(tx, &DBCtwaReferralSource{
+		OrgID:      orgID,
 		SourceID:   event.Referral.SourceID,
 		SourceType: sourceType,
 		SourceURL:  nullStringFromValue(event.Referral.SourceURL),
@@ -114,6 +121,21 @@ func writeCtwaToDB(ctx context.Context, b *backend, event courier.CtwaEvent) err
 	}
 
 	return tx.Commit()
+}
+
+func orgIDForCtwaChannel(ctx context.Context, b *backend, channelUUID courier.ChannelUUID) (OrgID, error) {
+	channel, err := b.GetChannel(ctx, courier.AnyChannelType, channelUUID)
+	if err != nil {
+		return NilOrgID, err
+	}
+
+	dbChannel := channel.(*DBChannel)
+	orgID := dbChannel.OrgID()
+	if orgID == NilOrgID {
+		return NilOrgID, fmt.Errorf("channel %s has no org", channelUUID)
+	}
+
+	return orgID, nil
 }
 
 func upsertCtwaReferralSource(tx *sqlx.Tx, referral *DBCtwaReferralSource) (int64, error) {

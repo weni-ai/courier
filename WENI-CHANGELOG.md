@@ -1,3 +1,7 @@
+1.63.0
+----------
+ * feat: enhance CTWA event handling in backend
+
 1.62.0
 ----------
  * feat: add GetContactFieldValue method to Backend interface and implement related functionality

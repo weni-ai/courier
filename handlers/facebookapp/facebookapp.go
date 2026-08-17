@@ -1263,7 +1263,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					}
 				}
 
-				if msg.Referral.SourceID != "" && msg.Referral.SourceType != "" {
+				if msg.Referral.SourceID != "" && msg.Referral.SourceType != "" && msg.Referral.CtwaClid != "" {
 					phoneNumberID := ""
 					if change.Value.Metadata != nil {
 						phoneNumberID = change.Value.Metadata.PhoneNumberID

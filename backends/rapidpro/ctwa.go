@@ -108,12 +108,29 @@ func writeCtwaToDB(ctx context.Context, b *backend, event courier.CtwaEvent) err
 		MessageID:        nullStringFromValue(event.MessageID),
 	}
 
-	_, err = tx.NamedExecContext(ctx, insertCtwaSQL, ctwa)
+	result, err := tx.NamedExecContext(ctx, insertCtwaSQL, ctwa)
 	if err != nil {
 		return err
 	}
 
-	return tx.Commit()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+
+	if shouldQueueConversationStarted(rowsAffected) {
+		b.queueConversationStartedEvent(event, sourceType)
+	}
+
+	return nil
+}
+
+func shouldQueueConversationStarted(rowsAffected int64) bool {
+	return rowsAffected == 1
 }
 
 func upsertCtwaReferralSource(tx *sqlx.Tx, referral *DBCtwaReferralSource) (int64, error) {

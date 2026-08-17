@@ -81,6 +81,9 @@ type Config struct {
 	CallsWebhookToken string `help:"the token for calls webhooks"`
 
 	TelephonyResolveToken string `help:"bearer token required for GET /c/tph/resolve; empty disables auth"`
+
+	ConversionEventsURL   string `help:"the Flows URL for POST /conversion/ events (conversation_started)"`
+	ConversionEventsToken string `help:"the fixed access token for Flows /conversion/ calls from Courier"`
 }
 
 // NewConfig returns a new default configuration object
@@ -124,6 +127,7 @@ func NewConfig() *Config {
 		WhatsappCloudDemoAddress:     "1234567890",
 		WhatsappCloudDemoURL:         "http://localhost:3000/wacr/receive",
 		WhatsappCloudDemoToken:       "1234567890",
+		ConversionEventsURL:          "https://flows.stg.cloud.weni.ai",
 	}
 }
 

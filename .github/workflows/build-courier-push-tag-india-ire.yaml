@@ -3,8 +3,8 @@ name: Build Courier in India and Ireland (Push Tag)
 on:
   push:
     tags:
-      - '*.*.*-india'
-      - '*.*.*-ire'
+      - '*.*.*-mumbai'
+      - '*.*.*-ireland'
 jobs:
   docker:
     runs-on: ubuntu-latest

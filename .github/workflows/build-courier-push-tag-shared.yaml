@@ -6,7 +6,6 @@ on:
       - '*.*.*-develop'
       - '*.*.*-staging'
       - '*.*.*'
-
 jobs:
   docker:
     runs-on: ubuntu-latest
@@ -30,8 +29,8 @@ jobs:
 
   call-workflow:
     uses: weni-ai/actions-workflows/.github/workflows/reusable-workflow.yaml@main
-    docker:
-      - setup
+    needs:
+      - docker
     with:
       image_repository: courier
       dockerfile: "docker/Dockerfile"

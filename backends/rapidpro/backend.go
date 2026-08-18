@@ -861,6 +861,9 @@ func (b *backend) Start() error {
 	if err == nil {
 		err = courier.EnsureSpoolDirPresent(b.config.SpoolDir, "ctwa")
 	}
+	if err == nil {
+		err = courier.EnsureSpoolDirPresent(b.config.SpoolDir, "conversion_events")
+	}
 	if err != nil {
 		log.WithError(err).Error("spool directories not writable")
 	} else {
@@ -902,6 +905,7 @@ func (b *backend) Start() error {
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "events"), b.flushChannelEventFile)
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "contact_last_seens"), b.flushContactLastSeenFile)
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "ctwa"), b.flushCtwaFile)
+	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "conversion_events"), b.flushConversationStartedFile)
 	logrus.WithFields(logrus.Fields{
 		"comp":  "backend",
 		"state": "started",

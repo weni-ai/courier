@@ -2,10 +2,12 @@ package rapidpro
 
 import (
 	"context"
+	"testing"
 	"time"
 
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/gocommon/urns"
+	"github.com/stretchr/testify/assert"
 )
 
 const (
@@ -149,4 +151,10 @@ func (ts *BackendTestSuite) TestWriteCtwaErrorsWhenChannelMissing() {
 
 	sources := ts.loadReferralSources("missing-ad")
 	ts.Empty(sources)
+}
+
+func TestShouldQueueConversationStarted(t *testing.T) {
+	assert.True(t, shouldQueueConversationStarted(1))
+	assert.False(t, shouldQueueConversationStarted(0))
+	assert.False(t, shouldQueueConversationStarted(2))
 }

@@ -134,5 +134,36 @@ CREATE TABLE templates_templatelastdispatch (
     UNIQUE (org_id, meta_template_id)
 );
 
+DROP TABLE IF EXISTS conversion_events_ctwa CASCADE;
+DROP TABLE IF EXISTS ctwa_referral_sources CASCADE;
+CREATE TABLE ctwa_referral_sources (
+    id bigserial primary key,
+    org_id integer NOT NULL references orgs_org(id),
+    source_id character varying(64) NOT NULL,
+    source_type character varying(16) NOT NULL,
+    source_url text NULL,
+    headline text NULL,
+    body text NULL,
+    first_seen_at timestamp with time zone NOT NULL,
+    last_seen_at timestamp with time zone NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT uq_ctwa_referral_source UNIQUE (org_id, source_id, source_type),
+    CONSTRAINT chk_ctwa_referral_source_type CHECK (source_type IN ('ad', 'post'))
+);
+
+CREATE TABLE conversion_events_ctwa (
+    id bigserial primary key,
+    ctwa_clid character varying(512) NULL UNIQUE,
+    contact_urn character varying(255) NOT NULL,
+    timestamp timestamp with time zone NOT NULL,
+    channel_uuid character varying(36) NOT NULL,
+    waba character varying(255) NOT NULL,
+    phone_number_id character varying(64) NULL,
+    referral_source_id bigint NOT NULL references ctwa_referral_sources(id),
+    message_id character varying(255) NULL,
+    created_at timestamp with time zone NOT NULL
+);
+
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO courier;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO courier;

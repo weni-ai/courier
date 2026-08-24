@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -95,14 +94,16 @@ func buildConversionEventsURL(baseURL, token string) (string, error) {
 	return parsed.String(), nil
 }
 
+
 func (b *backend) flushConversationStartedFile(filename string, contents []byte) error {
 	event := courier.CtwaEvent{}
 	err := json.Unmarshal(contents, &event)
 	if err != nil {
-		log.Printf("ERROR unmarshalling spool file '%s', renaming: %s\n", filename, err)
+		logrus.WithError(err).WithField("filename", filename).Error("error unmarshalling spool file, renaming")
 		os.Rename(filename, fmt.Sprintf("%s.error", filename))
 		return nil
 	}
+
 
 	sourceType, ok := courier.NormalizeCtwaSourceType(event.Referral.SourceType)
 	if !ok {

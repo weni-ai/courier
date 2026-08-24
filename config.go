@@ -127,7 +127,9 @@ func NewConfig() *Config {
 		WhatsappCloudDemoAddress:     "1234567890",
 		WhatsappCloudDemoURL:         "http://localhost:3000/wacr/receive",
 		WhatsappCloudDemoToken:       "1234567890",
-		ConversionEventsURL:          "https://flows.stg.cloud.weni.ai/conversion/",
+
+		ConversionEventsURL:          "",
+
 	}
 }
 

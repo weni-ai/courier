@@ -1979,6 +1979,44 @@ func TestSending(t *testing.T) {
 	FailingCachedSendTestCasesWAC := mockAttachmentURLs(failingMediaServer, FailingCachedSendTestCasesWAC)
 
 	updateWebPTestCase(SendTestCasesWAC, webpMediaServer.URL)
+	SendTestCasesWAC = append(SendTestCasesWAC, ChannelSendTestCase{
+		Label: "Interactive Carousel Send - WebP images",
+		Text:  "Browse our collection",
+		URN:   "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{
+			"image/webp:" + webpMediaServer.URL + "/card1.webp",
+			"image/webp:" + webpMediaServer.URL + "/card2.webp",
+		},
+		Metadata: json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}]},{"body":"Card 2","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}]}]}`),
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method:       "POST",
+				Path:         "/12345_ID/media",
+				BodyContains: "card1.png",
+			}: {
+				Status: 201,
+				Body:   `{"id":"media-id-1"}`,
+			},
+			{
+				Method:       "POST",
+				Path:         "/12345_ID/media",
+				BodyContains: "card2.png",
+			}: {
+				Status: 201,
+				Body:   `{"id":"media-id-2"}`,
+			},
+			{
+				Method:       "POST",
+				Path:         "/12345_ID/messages",
+				BodyContains: `"id":"media-id-1"`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL,
+	})
 	SendTestCasesWAC = append(SendTestCasesWAC, CachedSendTestCasesWAC...)
 	SendTestCasesWAC = append(SendTestCasesWAC, FailingCachedSendTestCasesWAC...)
 

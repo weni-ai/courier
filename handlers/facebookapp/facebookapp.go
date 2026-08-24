@@ -3900,18 +3900,36 @@ func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg, accessToken s
 			}
 		}
 
-		attType, attURL := handlers.SplitAttachment(attachments[cardIdx])
+		mimeType, attURL := handlers.SplitAttachment(attachments[cardIdx])
 
-		parsedURL, err := url.Parse(attURL)
-		if err != nil {
-			return nil, errors.Wrapf(err, "invalid attachment URL for card %d", cardIdx)
-		}
-		media := wacMTMedia{Link: parsedURL.String()}
-
-		splitedAttType := strings.Split(attType, "/")
-		attType = splitedAttType[0]
+		splitedAttType := strings.Split(mimeType, "/")
+		attType := splitedAttType[0]
 		if attType != "image" && attType != "video" {
 			return nil, fmt.Errorf("carousel card %d has unsupported header type: %s (only image and video are supported)", cardIdx, attType)
+		}
+
+		var media wacMTMedia
+		if attType == "image" {
+			mediaID, mediaLogs, err := h.fetchWACMediaID(msg, mimeType, attURL, accessToken, true)
+			for _, log := range mediaLogs {
+				status.AddLog(log)
+			}
+			if err != nil {
+				status.AddLog(courier.NewChannelLogFromError("error on fetch media ID for carousel card", msg.Channel(), msg.ID(), time.Since(start), err))
+			} else if mediaID != "" {
+				attURL = ""
+			}
+			parsedURL, err := url.Parse(attURL)
+			if err != nil {
+				return nil, errors.Wrapf(err, "invalid attachment URL for card %d", cardIdx)
+			}
+			media = wacMTMedia{ID: mediaID, Link: parsedURL.String()}
+		} else {
+			parsedURL, err := url.Parse(attURL)
+			if err != nil {
+				return nil, errors.Wrapf(err, "invalid attachment URL for card %d", cardIdx)
+			}
+			media = wacMTMedia{Link: parsedURL.String()}
 		}
 
 		cardIdxPtr := cardIdx
@@ -4303,17 +4321,16 @@ var languageMenuMap = map[string]string{
 	"ar-JO": "قائمة",
 }
 
-// convertWebPIfNeeded converts WebP images to PNG for WhatsApp template uploads
+// convertWebPIfNeeded converts WebP images to PNG for WhatsApp template and carousel uploads
 // Returns the converted image data, new mime type, and new file extension if conversion occurred
-// Only converts for WhatsApp channels (WAC/WCD) and only for templates
-func convertWebPIfNeeded(data []byte, mimeType string, isTemplate bool, channelType courier.ChannelType) ([]byte, string, string, error) {
+// Only converts for WhatsApp channels (WAC/WCD) when convertWebP is true
+func convertWebPIfNeeded(data []byte, mimeType string, convertWebP bool, channelType courier.ChannelType) ([]byte, string, string, error) {
 	// Only convert for WhatsApp channels (WAC or WCD)
 	if channelType != "WAC" && channelType != "WCD" {
 		return data, mimeType, "", nil
 	}
 
-	// Only convert for templates
-	if !isTemplate {
+	if !convertWebP {
 		return data, mimeType, "", nil
 	}
 
@@ -4331,7 +4348,7 @@ func convertWebPIfNeeded(data []byte, mimeType string, isTemplate bool, channelT
 	return convertedData, "image/png", ".png", nil
 }
 
-func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, accessToken string, isTemplate bool) (string, []*courier.ChannelLog, error) {
+func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, accessToken string, convertWebP bool) (string, []*courier.ChannelLog, error) {
 	var logs []*courier.ChannelLog
 
 	rc := h.Backend().RedisPool().Get()
@@ -4365,8 +4382,8 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 		return "", logs, nil
 	}
 
-	// Convert WebP to PNG if needed (only for WhatsApp templates)
-	convertedData, convertedMimeType, fileExt, err := convertWebPIfNeeded(rr.Body, mimeType, isTemplate, msg.Channel().ChannelType())
+	// Convert WebP to PNG if needed (templates and carousel image cards)
+	convertedData, convertedMimeType, fileExt, err := convertWebPIfNeeded(rr.Body, mimeType, convertWebP, msg.Channel().ChannelType())
 	if err != nil {
 		return "", logs, errors.Wrapf(err, "error converting WebP image")
 	}

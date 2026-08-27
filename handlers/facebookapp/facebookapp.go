@@ -2617,7 +2617,7 @@ func (h *handler) fillWACPayloadByInteractionType(i int, msg courier.Msg, msgPar
 		if carousel := msg.Carousel(); carousel != nil {
 			hasCaption = true
 			payload.Type = "interactive"
-			payload.Interactive, err = h.buildInteractiveCarouselPayload(msg, accessToken, status, start)
+			payload.Interactive, err = h.buildInteractiveCarouselPayload(msg)
 			if err != nil {
 				return false, err
 			}
@@ -3733,7 +3733,7 @@ func (h *handler) buildTemplateComponents(msg courier.Msg, templating *MsgTempla
 	// Handle carousel templates - identified by IsCarousel flag
 	// 2-10 cards required, media is mandatory per card, body and buttons are optional (max 2 buttons per card)
 	if templating.IsCarousel {
-		carouselComponent, err := h.buildCarouselComponent(msg, templating, accessToken, status, start)
+		carouselComponent, err := h.buildCarouselComponent(msg, templating)
 		if err != nil {
 			return nil, err
 		}
@@ -3866,7 +3866,7 @@ func buildOrderDetailsComponent(msg courier.Msg) (*wacComponent, error) {
 
 // buildInteractiveCarouselPayload builds the interactive payload for WhatsApp interactive media carousel messages.
 // Uses msg.Attachments() for card media, msg.Text() for main body, msg.Carousel() for per-card body and buttons.
-func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg, accessToken string, status courier.MsgStatus, start time.Time) (*wacInteractive[map[string]any], error) {
+func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg) (*wacInteractive[map[string]any], error) {
 	carousel := msg.Carousel()
 	if carousel == nil {
 		return nil, nil
@@ -3910,29 +3910,7 @@ func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg, accessToken s
 			return nil, fmt.Errorf("carousel card %d has unsupported header type: %s (only image and video are supported)", cardIdx, attType)
 		}
 
-		var media wacMTMedia
-		if attType == "image" {
-			mediaID, mediaLogs, err := h.fetchWACMediaID(msg, mimeType, attURL, accessToken, true)
-			for _, log := range mediaLogs {
-				status.AddLog(log)
-			}
-			if err != nil {
-				status.AddLog(courier.NewChannelLogFromError("error on fetch media ID for carousel card", msg.Channel(), msg.ID(), time.Since(start), err))
-			} else if mediaID != "" {
-				attURL = ""
-			}
-			parsedURL, err := url.Parse(attURL)
-			if err != nil {
-				return nil, errors.Wrapf(err, "invalid attachment URL for card %d", cardIdx)
-			}
-			media = wacMTMedia{ID: mediaID, Link: parsedURL.String()}
-		} else {
-			parsedURL, err := url.Parse(attURL)
-			if err != nil {
-				return nil, errors.Wrapf(err, "invalid attachment URL for card %d", cardIdx)
-			}
-			media = wacMTMedia{Link: parsedURL.String()}
-		}
+		media := wacMTMedia{Link: attURL}
 
 		cardIdxPtr := cardIdx
 		card := wacCarouselCard{
@@ -4052,7 +4030,7 @@ func extractCarouselQuickReplyParams(btn courier.CarouselCardButton) (id, title 
 // buildCarouselComponent builds the carousel component for WhatsApp template messages
 // Card count is based on attachments count - media is mandatory per card (min 2, max 10 cards), body and buttons are optional (max 2 buttons per card)
 // Media (header), body variables, and buttons are matched by index
-func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplating, accessToken string, status courier.MsgStatus, start time.Time) (*wacComponent, error) {
+func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplating) (*wacComponent, error) {
 	// Carousel requires 2-10 cards, each with mandatory media
 	numCards := len(msg.Attachments())
 	if numCards < 2 {
@@ -4069,32 +4047,21 @@ func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplat
 
 		// Build header component with media (mandatory for each card)
 		headerComponent := &wacComponent{Type: "header"}
-		attType, attURL := handlers.SplitAttachment(msg.Attachments()[cardIdx])
+		mimeType, attURL := handlers.SplitAttachment(msg.Attachments()[cardIdx])
 
-		mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, true)
-		for _, log := range mediaLogs {
-			status.AddLog(log)
-		}
-		if err != nil {
-			status.AddLog(courier.NewChannelLogFromError("error on fetch media ID for carousel card", msg.Channel(), msg.ID(), time.Since(start), err))
-		} else if mediaID != "" {
-			attURL = ""
-		}
-		attType = strings.Split(attType, "/")[0]
+		attType := strings.Split(mimeType, "/")[0]
 
-		parsedURL, err := url.Parse(attURL)
-		if err != nil {
-			return nil, err
+		if attType != "image" && attType != "video" {
+			return nil, fmt.Errorf("unsupported attachment type for carousel card header: %s (only image and video are supported)", attType)
 		}
 
-		media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
+		media := wacMTMedia{Link: attURL}
+
 		switch attType {
 		case "image":
 			headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "image", Image: &media})
 		case "video":
 			headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "video", Video: &media})
-		default:
-			return nil, fmt.Errorf("unsupported attachment type for carousel card header: %s (only image and video are supported)", attType)
 		}
 		card.Components = append(card.Components, headerComponent)
 
@@ -4323,7 +4290,7 @@ var languageMenuMap = map[string]string{
 	"ar-JO": "قائمة",
 }
 
-// convertWebPIfNeeded converts WebP images to PNG for WhatsApp template and carousel uploads
+// convertWebPIfNeeded converts WebP images to PNG for WhatsApp template uploads
 // Returns the converted image data, new mime type, and new file extension if conversion occurred
 // Only converts for WhatsApp channels (WAC/WCD) when convertWebP is true
 func convertWebPIfNeeded(data []byte, mimeType string, convertWebP bool, channelType courier.ChannelType) ([]byte, string, string, error) {

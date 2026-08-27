@@ -1989,27 +1989,11 @@ func TestSending(t *testing.T) {
 			"image/webp:" + webpMediaServer.URL + "/card2.webp",
 		},
 		Metadata: json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}]},{"body":"Card 2","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}]}]}`),
+		RequestBody: fmt.Sprintf(`{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"carousel","body":{"text":"Browse our collection"},"action":{"cards":[{"card_index":0,"type":"cta_url","header":{"type":"image","image":{"link":"%s/card1.webp"}},"body":{"text":"Card 1"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}},{"card_index":1,"type":"cta_url","header":{"type":"image","image":{"link":"%s/card2.webp"}},"body":{"text":"Card 2"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}}]}}}`, webpMediaServer.URL, webpMediaServer.URL),
 		Responses: map[MockedRequest]MockedResponse{
 			{
-				Method:       "POST",
-				Path:         "/12345_ID/media",
-				BodyContains: "card1.png",
-			}: {
-				Status: 201,
-				Body:   `{"id":"media-id-1"}`,
-			},
-			{
-				Method:       "POST",
-				Path:         "/12345_ID/media",
-				BodyContains: "card2.png",
-			}: {
-				Status: 201,
-				Body:   `{"id":"media-id-2"}`,
-			},
-			{
-				Method:       "POST",
-				Path:         "/12345_ID/messages",
-				BodyContains: `"id":"media-id-1"`,
+				Method: "POST",
+				Path:   "/12345_ID/messages",
 			}: {
 				Status: 201,
 				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,

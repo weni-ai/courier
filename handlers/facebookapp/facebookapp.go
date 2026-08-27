@@ -2614,8 +2614,12 @@ func (h *handler) fillWACPayloadByInteractionType(i int, msg courier.Msg, msgPar
 	case "carousel":
 		if carousel := msg.Carousel(); carousel != nil {
 			hasCaption = true
-			payload.Type = "interactive"
-			payload.Interactive, err = h.buildInteractiveCarouselPayload(msg)
+			if len(msg.Attachments()) == 1 {
+				err = h.buildSingleCardCarouselPayload(msg, payload)
+			} else {
+				payload.Type = "interactive"
+				payload.Interactive, err = h.buildInteractiveCarouselPayload(msg)
+			}
 			if err != nil {
 				return false, err
 			}
@@ -3860,6 +3864,116 @@ func buildOrderDetailsComponent(msg courier.Msg) (*wacComponent, error) {
 
 	button.Params = append(button.Params, &param)
 	return button, nil
+}
+
+// buildSingleCardCarouselPayload sends a single-card carousel as a normal interactive message with media and text.
+// When the card has no buttons, it falls back to a media message with caption.
+func (h *handler) buildSingleCardCarouselPayload(msg courier.Msg, payload *wacMTPayload[map[string]any]) error {
+	carousel := msg.Carousel()
+	if carousel == nil || len(carousel.Cards) == 0 {
+		return fmt.Errorf("carousel message is nil")
+	}
+
+	cardData := carousel.Cards[0]
+	mimeType, attURL := handlers.SplitAttachment(msg.Attachments()[0])
+	attType := strings.Split(mimeType, "/")[0]
+	if attType != "image" && attType != "video" {
+		return fmt.Errorf("carousel card has unsupported header type: %s (only image and video are supported)", attType)
+	}
+
+	bodyText := singleCardCarouselBodyText(msg, cardData)
+	if bodyText == "" {
+		return fmt.Errorf("interactive carousel requires body text")
+	}
+
+	if len(cardData.Buttons) == 0 {
+		payload.Type = attType
+		media := wacMTMedia{Link: attURL, Caption: parseBacklashes(bodyText)}
+		if attType == "image" {
+			payload.Image = &media
+		} else {
+			payload.Video = &media
+		}
+		return nil
+	}
+
+	firstBtn := cardData.Buttons[0]
+	if firstBtn.SubType != "url" && firstBtn.SubType != "quick_reply" {
+		return fmt.Errorf("carousel card has unsupported button sub_type: %s", firstBtn.SubType)
+	}
+
+	media := wacMTMedia{Link: attURL}
+	header := &struct {
+		Type     string      `json:"type"`
+		Text     string      `json:"text,omitempty"`
+		Video    *wacMTMedia `json:"video,omitempty"`
+		Image    *wacMTMedia `json:"image,omitempty"`
+		Document *wacMTMedia `json:"document,omitempty"`
+	}{Type: attType}
+	if attType == "image" {
+		header.Image = &media
+	} else {
+		header.Video = &media
+	}
+
+	interactive := wacInteractive[map[string]any]{
+		Body: struct {
+			Text string `json:"text"`
+		}{Text: parseBacklashes(bodyText)},
+		Header: header,
+	}
+
+	if firstBtn.SubType == "url" {
+		displayText, urlVal := extractCarouselURLParams(firstBtn)
+		interactive.Type = "cta_url"
+		interactive.Action = &struct {
+			Button            string                 `json:"button,omitempty"`
+			Sections          []wacMTSection         `json:"sections,omitempty"`
+			Buttons           []wacMTButton          `json:"buttons,omitempty"`
+			CatalogID         string                 `json:"catalog_id,omitempty"`
+			ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
+			Name              string                 `json:"name,omitempty"`
+			Parameters        map[string]interface{} `json:"parameters,omitempty"`
+			Cards             []wacCarouselCard      `json:"cards,omitempty"`
+		}{
+			Name: "cta_url",
+			Parameters: map[string]interface{}{
+				"display_text": parseBacklashes(displayText),
+				"url":          urlVal,
+			},
+		}
+	} else {
+		btns := make([]wacMTButton, len(cardData.Buttons))
+		for i, btn := range cardData.Buttons {
+			id, title := extractCarouselQuickReplyParams(btn)
+			btns[i] = wacMTButton{
+				Type:  "reply",
+				Reply: &mtQuickReply{ID: id, Title: parseBacklashes(title)},
+			}
+		}
+		interactive.Type = "button"
+		interactive.Action = &struct {
+			Button            string                 `json:"button,omitempty"`
+			Sections          []wacMTSection         `json:"sections,omitempty"`
+			Buttons           []wacMTButton          `json:"buttons,omitempty"`
+			CatalogID         string                 `json:"catalog_id,omitempty"`
+			ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
+			Name              string                 `json:"name,omitempty"`
+			Parameters        map[string]interface{} `json:"parameters,omitempty"`
+			Cards             []wacCarouselCard      `json:"cards,omitempty"`
+		}{Buttons: btns}
+	}
+
+	payload.Type = "interactive"
+	payload.Interactive = &interactive
+	return nil
+}
+
+func singleCardCarouselBodyText(msg courier.Msg, card courier.CarouselCard) string {
+	if body := strings.TrimSpace(card.Body); body != "" {
+		return body
+	}
+	return strings.TrimSpace(msg.Text())
 }
 
 // buildInteractiveCarouselPayload builds the interactive payload for WhatsApp interactive media carousel messages.

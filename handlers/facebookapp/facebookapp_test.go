@@ -26,6 +26,13 @@ var testChannelsIG = []courier.Channel{
 	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "IG", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"}),
 }
 
+var testChannelsIGForwardComments = []courier.Channel{
+	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "IG", "12345", "", map[string]interface{}{
+		courier.ConfigAuthToken:      "a123",
+		courier.ConfigForwardComments: true,
+	}),
+}
+
 var testChannelsWAC = []courier.Channel{
 	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "WAC", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123", "webhook": `{"url": "https://webhook.site", "method": "POST", "headers": {}}`}),
 }
@@ -101,10 +108,6 @@ var testCasesIG = []ChannelHandleTestCase{
 		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		PrepRequest: addValidSignature},
 
-	{Label: "Receive Comment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "Handled",
-		Text: Sp("Hello World"), URN: Sp("instagram:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
-		PrepRequest: addValidSignature},
-
 	{Label: "Receive Attachment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/attachmentIG.json")), Status: 200, Response: "Handled",
 		Text: Sp(""), Attachments: []string{"https://image-url/foo.png"}, URN: Sp("instagram:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		PrepRequest: addValidSignature},
@@ -146,6 +149,130 @@ var testCasesIG = []ChannelHandleTestCase{
 			},
 		}),
 		PrepRequest: addValidSignature},
+}
+
+var testCasesIGComments = []ChannelHandleTestCase{
+	{Label: "Receive Comment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("30065218"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"ig_comment": map[string]interface{}{
+				"text": "Hello World",
+				"from": map[string]interface{}{
+					"id":       "5678",
+					"username": "username",
+				},
+				"media": map[string]interface{}{
+					"ad_id":              "1280670063",
+					"id":                 "180615383",
+					"media_product_type": "AD",
+					"original_media_id":  "179908467",
+				},
+				"time": float64(1459991487970),
+				"id":   "30065218",
+			},
+			"overwrite_message": map[string]interface{}{
+				"ig_comment": map[string]interface{}{
+					"text": "Hello World",
+					"from": map[string]interface{}{
+						"id":       "5678",
+						"username": "username",
+					},
+					"media": map[string]interface{}{
+						"ad_id":              "1280670063",
+						"id":                 "180615383",
+						"media_product_type": "AD",
+						"original_media_id":  "179908467",
+					},
+					"time": float64(1459991487970),
+					"id":   "30065218",
+				},
+			},
+		}),
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment With Caption", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentCaptionIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Nice post!"), URN: Sp("instagram:5678"), ExternalID: Sp("30065221"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"ig_comment": map[string]interface{}{
+				"text": "Nice post!",
+				"from": map[string]interface{}{
+					"id":       "5678",
+					"username": "username",
+				},
+				"media": map[string]interface{}{
+					"ad_id":              "1280670063",
+					"id":                 "180615383",
+					"media_product_type": "FEED",
+					"original_media_id":  "179908467",
+					"caption":            "Summer sale post",
+				},
+				"time": float64(1459991487970),
+				"id":   "30065221",
+			},
+			"overwrite_message": map[string]interface{}{
+				"ig_comment": map[string]interface{}{
+					"text": "Nice post!",
+					"from": map[string]interface{}{
+						"id":       "5678",
+						"username": "username",
+					},
+					"media": map[string]interface{}{
+						"ad_id":              "1280670063",
+						"id":                 "180615383",
+						"media_product_type": "FEED",
+						"original_media_id":  "179908467",
+						"caption":            "Summer sale post",
+					},
+					"time": float64(1459991487970),
+					"id":   "30065221",
+				},
+			},
+		}),
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Disabled", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "forward_comments disabled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Missing ID", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentMissingIDIG.json")), Status: 200, Response: "missing identifier", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Story Skip", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentStoryIG.json")), Status: 200, Response: "ignoring story/live comment", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Self Skip", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentSelfIG.json")), Status: 200, Response: "ignoring comment from our own channel", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		PrepRequest: addValidSignature},
+
+	{Label: "No Duplicate Receive Comment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentDuplicateIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("30065218"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		PrepRequest: addValidSignature},
+}
+
+func TestInstagramComments(t *testing.T) {
+	RunChannelTestCases(t, testChannelsIGForwardComments, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+		testCasesIGComments[0],
+		testCasesIGComments[1],
+		testCasesIGComments[4],
+		testCasesIGComments[5],
+		testCasesIGComments[6],
+	})
+
+	RunChannelTestCases(t, testChannelsIG, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+		testCasesIGComments[2],
+	})
+
+	RunChannelTestCases(t, testChannelsIGForwardComments, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+		testCasesIGComments[3],
+	})
+}
+
+func TestIsSkippedInstagramCommentMediaType(t *testing.T) {
+	assert.True(t, isSkippedInstagramCommentMediaType("STORY"))
+	assert.True(t, isSkippedInstagramCommentMediaType("story"))
+	assert.True(t, isSkippedInstagramCommentMediaType("LIVE"))
+	assert.True(t, isSkippedInstagramCommentMediaType("live"))
+	assert.False(t, isSkippedInstagramCommentMediaType("FEED"))
+	assert.False(t, isSkippedInstagramCommentMediaType("AD"))
+	assert.False(t, isSkippedInstagramCommentMediaType("REELS"))
 }
 
 func addValidSignature(r *http.Request) {

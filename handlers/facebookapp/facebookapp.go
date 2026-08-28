@@ -258,6 +258,7 @@ type moPayload struct {
 					ID               string `json:"id"`
 					MediaProductType string `json:"media_product_type"`
 					OriginalMediaID  string `json:"original_media_id"`
+					Caption          string `json:"caption"`
 				}
 				Text             string `json:"text"`
 				MessagingProduct string `json:"messaging_product"`
@@ -795,6 +796,7 @@ type IGComment struct {
 		ID               string `json:"id,omitempty"`
 		MediaProductType string `json:"media_product_type,omitempty"`
 		OriginalMediaID  string `json:"original_media_id,omitempty"`
+		Caption          string `json:"caption,omitempty"`
 	} `json:"media,omitempty"`
 	Time int64  `json:"time,omitempty"`
 	ID   string `json:"id,omitempty"`
@@ -1507,6 +1509,98 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 	return events, data, nil
 }
 
+func isSkippedInstagramCommentMediaType(mediaProductType string) bool {
+	switch strings.ToUpper(mediaProductType) {
+	case "STORY", "LIVE":
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *handler) handleInstagramComment(
+	ctx context.Context,
+	channel courier.Channel,
+	commentID string,
+	commentText string,
+	fromID string,
+	fromUsername string,
+	mediaID string,
+	mediaAdID string,
+	mediaProductType string,
+	originalMediaID string,
+	mediaCaption string,
+	entryTime int64,
+	r *http.Request,
+) (courier.Event, interface{}, error) {
+	if !channel.BoolConfigForKey(courier.ConfigForwardComments, false) {
+		return nil, courier.NewInfoData("ignoring comment, forward_comments disabled"), nil
+	}
+
+	if commentID == "" {
+		err := fmt.Errorf("instagram comment missing identifier")
+		courier.LogRequestError(r, channel, err)
+		return nil, courier.NewInfoData(err.Error()), nil
+	}
+
+	if fromID == channel.Address() {
+		return nil, courier.NewInfoData(fmt.Sprintf("ignoring comment from our own channel: %s", fromID)), nil
+	}
+
+	if isSkippedInstagramCommentMediaType(mediaProductType) {
+		return nil, courier.NewInfoData(fmt.Sprintf("ignoring story/live comment: %s", mediaProductType)), nil
+	}
+
+	igComment := IGComment{
+		Text: commentText,
+		From: struct {
+			ID       string `json:"id,omitempty"`
+			Username string `json:"username,omitempty"`
+		}{
+			ID:       fromID,
+			Username: fromUsername,
+		},
+		Media: struct {
+			AdID             string `json:"ad_id,omitempty"`
+			ID               string `json:"id,omitempty"`
+			MediaProductType string `json:"media_product_type,omitempty"`
+			OriginalMediaID  string `json:"original_media_id,omitempty"`
+			Caption          string `json:"caption,omitempty"`
+		}{
+			ID:               mediaID,
+			AdID:             mediaAdID,
+			MediaProductType: mediaProductType,
+			OriginalMediaID:  originalMediaID,
+			Caption:          mediaCaption,
+		},
+		Time: entryTime,
+		ID:   commentID,
+	}
+
+	urn, err := urns.NewInstagramURN(fromID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	ev := h.Backend().NewIncomingMsg(channel, urn, commentText).WithExternalID(commentID).WithReceivedOn(time.Unix(0, entryTime*1000000).UTC())
+	event := h.Backend().CheckExternalIDSeen(ev)
+
+	igCommentMetadata := map[string]interface{}{
+		"ig_comment": igComment,
+	}
+	if err := addMetadataWithOverwrite(event, igCommentMetadata); err != nil {
+		courier.LogRequestError(r, channel, err)
+	}
+
+	err = h.Backend().WriteMsg(ctx, event)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	h.Backend().WriteExternalIDSeen(event)
+	return event, courier.NewMsgReceiveData(event), nil
+}
+
 func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel courier.Channel, payload *moPayload, w http.ResponseWriter, r *http.Request) ([]courier.Event, []interface{}, error) {
 	var err error
 
@@ -1520,70 +1614,35 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 	for _, entry := range payload.Entry {
 
 		if len(entry.Messaging) == 0 {
-			if len(entry.Changes) > 0 && entry.Changes[0].Field == "comments" {
-
-				// Check if the comment is from our own channel to prevent loops
-				// When we reply to a comment, Instagram sends a webhook about our own reply
-				if entry.Changes[0].Value.From.ID == channel.Address() {
-					data = append(data, courier.NewInfoData(fmt.Sprintf("ignoring comment from our own channel: %s", entry.Changes[0].Value.From.ID)))
+			for _, change := range entry.Changes {
+				if change.Field != "comments" {
 					continue
 				}
 
-				// Build IGComment struct and wrapper
-				wrapper := struct {
-					IGComment IGComment `json:"ig_comment"`
-				}{
-					IGComment: IGComment{
-						Text: entry.Changes[0].Value.Text,
-						From: struct {
-							ID       string `json:"id,omitempty"`
-							Username string `json:"username,omitempty"`
-						}{
-							ID:       entry.Changes[0].Value.From.ID,
-							Username: entry.Changes[0].Value.From.Username,
-						},
-						Media: struct {
-							AdID             string `json:"ad_id,omitempty"`
-							ID               string `json:"id,omitempty"`
-							MediaProductType string `json:"media_product_type,omitempty"`
-							OriginalMediaID  string `json:"original_media_id,omitempty"`
-						}{
-							ID:               entry.Changes[0].Value.Media.ID,
-							AdID:             entry.Changes[0].Value.Media.AdID,
-							MediaProductType: entry.Changes[0].Value.Media.MediaProductType,
-							OriginalMediaID:  entry.Changes[0].Value.Media.OriginalMediaID,
-						},
-						Time: entry.Time,
-						ID:   entry.Changes[0].Value.ID,
-					},
-				}
-
-				// Create message from comment
-				text := entry.Changes[0].Value.Text
-				urn, err := urns.NewInstagramURN(entry.Changes[0].Value.From.ID)
+				event, infoData, err := h.handleInstagramComment(
+					ctx,
+					channel,
+					change.Value.ID,
+					change.Value.Text,
+					change.Value.From.ID,
+					change.Value.From.Username,
+					change.Value.Media.ID,
+					change.Value.Media.AdID,
+					change.Value.Media.MediaProductType,
+					change.Value.Media.OriginalMediaID,
+					change.Value.Media.Caption,
+					entry.Time,
+					r,
+				)
 				if err != nil {
 					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 				}
-
-				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithExternalID(entry.Changes[0].Value.ID).WithReceivedOn(time.Unix(0, entry.Time*1000000).UTC())
-				event := h.Backend().CheckExternalIDSeen(ev)
-
-				// Add IG comment metadata to both root and overwrite_message
-				igCommentMetadata := map[string]interface{}{
-					"ig_comment": wrapper.IGComment,
+				if infoData != nil {
+					data = append(data, infoData)
 				}
-				if err := addMetadataWithOverwrite(event, igCommentMetadata); err != nil {
-					courier.LogRequestError(r, channel, err)
+				if event != nil {
+					events = append(events, event)
 				}
-				err = h.Backend().WriteMsg(ctx, event)
-				if err != nil {
-					return nil, nil, err
-				}
-
-				h.Backend().WriteExternalIDSeen(event)
-				events = append(events, event)
-				data = append(data, courier.NewMsgReceiveData(event))
-
 			}
 			continue
 		}
@@ -3900,18 +3959,36 @@ func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg, accessToken s
 			}
 		}
 
-		attType, attURL := handlers.SplitAttachment(attachments[cardIdx])
+		mimeType, attURL := handlers.SplitAttachment(attachments[cardIdx])
 
-		parsedURL, err := url.Parse(attURL)
-		if err != nil {
-			return nil, errors.Wrapf(err, "invalid attachment URL for card %d", cardIdx)
-		}
-		media := wacMTMedia{Link: parsedURL.String()}
-
-		splitedAttType := strings.Split(attType, "/")
-		attType = splitedAttType[0]
+		splitedAttType := strings.Split(mimeType, "/")
+		attType := splitedAttType[0]
 		if attType != "image" && attType != "video" {
 			return nil, fmt.Errorf("carousel card %d has unsupported header type: %s (only image and video are supported)", cardIdx, attType)
+		}
+
+		var media wacMTMedia
+		if attType == "image" {
+			mediaID, mediaLogs, err := h.fetchWACMediaID(msg, mimeType, attURL, accessToken, true)
+			for _, log := range mediaLogs {
+				status.AddLog(log)
+			}
+			if err != nil {
+				status.AddLog(courier.NewChannelLogFromError("error on fetch media ID for carousel card", msg.Channel(), msg.ID(), time.Since(start), err))
+			} else if mediaID != "" {
+				attURL = ""
+			}
+			parsedURL, err := url.Parse(attURL)
+			if err != nil {
+				return nil, errors.Wrapf(err, "invalid attachment URL for card %d", cardIdx)
+			}
+			media = wacMTMedia{ID: mediaID, Link: parsedURL.String()}
+		} else {
+			parsedURL, err := url.Parse(attURL)
+			if err != nil {
+				return nil, errors.Wrapf(err, "invalid attachment URL for card %d", cardIdx)
+			}
+			media = wacMTMedia{Link: parsedURL.String()}
 		}
 
 		cardIdxPtr := cardIdx
@@ -4303,17 +4380,16 @@ var languageMenuMap = map[string]string{
 	"ar-JO": "قائمة",
 }
 
-// convertWebPIfNeeded converts WebP images to PNG for WhatsApp template uploads
+// convertWebPIfNeeded converts WebP images to PNG for WhatsApp template and carousel uploads
 // Returns the converted image data, new mime type, and new file extension if conversion occurred
-// Only converts for WhatsApp channels (WAC/WCD) and only for templates
-func convertWebPIfNeeded(data []byte, mimeType string, isTemplate bool, channelType courier.ChannelType) ([]byte, string, string, error) {
+// Only converts for WhatsApp channels (WAC/WCD) when convertWebP is true
+func convertWebPIfNeeded(data []byte, mimeType string, convertWebP bool, channelType courier.ChannelType) ([]byte, string, string, error) {
 	// Only convert for WhatsApp channels (WAC or WCD)
 	if channelType != "WAC" && channelType != "WCD" {
 		return data, mimeType, "", nil
 	}
 
-	// Only convert for templates
-	if !isTemplate {
+	if !convertWebP {
 		return data, mimeType, "", nil
 	}
 
@@ -4331,7 +4407,7 @@ func convertWebPIfNeeded(data []byte, mimeType string, isTemplate bool, channelT
 	return convertedData, "image/png", ".png", nil
 }
 
-func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, accessToken string, isTemplate bool) (string, []*courier.ChannelLog, error) {
+func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, accessToken string, convertWebP bool) (string, []*courier.ChannelLog, error) {
 	var logs []*courier.ChannelLog
 
 	rc := h.Backend().RedisPool().Get()
@@ -4365,8 +4441,8 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 		return "", logs, nil
 	}
 
-	// Convert WebP to PNG if needed (only for WhatsApp templates)
-	convertedData, convertedMimeType, fileExt, err := convertWebPIfNeeded(rr.Body, mimeType, isTemplate, msg.Channel().ChannelType())
+	// Convert WebP to PNG if needed (templates and carousel image cards)
+	convertedData, convertedMimeType, fileExt, err := convertWebPIfNeeded(rr.Body, mimeType, convertWebP, msg.Channel().ChannelType())
 	if err != nil {
 		return "", logs, errors.Wrapf(err, "error converting WebP image")
 	}

@@ -786,11 +786,7 @@ func addMetadataWithOverwrite(event courier.Msg, metadataToAdd map[string]interf
 }
 
 type IGComment struct {
-	Text string `json:"text,omitempty"`
-	From struct {
-		ID       string `json:"id,omitempty"`
-		Username string `json:"username,omitempty"`
-	} `json:"from,omitempty"`
+	ID    string `json:"id,omitempty"`
 	Media struct {
 		AdID             string `json:"ad_id,omitempty"`
 		ID               string `json:"id,omitempty"`
@@ -798,8 +794,6 @@ type IGComment struct {
 		OriginalMediaID  string `json:"original_media_id,omitempty"`
 		Caption          string `json:"caption,omitempty"`
 	} `json:"media,omitempty"`
-	Time int64  `json:"time,omitempty"`
-	ID   string `json:"id,omitempty"`
 }
 
 type FeedbackQuestion struct {
@@ -1524,7 +1518,6 @@ func (h *handler) handleInstagramComment(
 	commentID string,
 	commentText string,
 	fromID string,
-	fromUsername string,
 	mediaID string,
 	mediaAdID string,
 	mediaProductType string,
@@ -1552,14 +1545,7 @@ func (h *handler) handleInstagramComment(
 	}
 
 	igComment := IGComment{
-		Text: commentText,
-		From: struct {
-			ID       string `json:"id,omitempty"`
-			Username string `json:"username,omitempty"`
-		}{
-			ID:       fromID,
-			Username: fromUsername,
-		},
+		ID: commentID,
 		Media: struct {
 			AdID             string `json:"ad_id,omitempty"`
 			ID               string `json:"id,omitempty"`
@@ -1573,8 +1559,6 @@ func (h *handler) handleInstagramComment(
 			OriginalMediaID:  originalMediaID,
 			Caption:          mediaCaption,
 		},
-		Time: entryTime,
-		ID:   commentID,
 	}
 
 	urn, err := urns.NewInstagramURN(fromID)
@@ -1625,7 +1609,6 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 					change.Value.ID,
 					change.Value.Text,
 					change.Value.From.ID,
-					change.Value.From.Username,
 					change.Value.Media.ID,
 					change.Value.Media.AdID,
 					change.Value.Media.MediaProductType,
@@ -2116,28 +2099,54 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 		return status, nil
 
 	} else if msg.IGCommentID() != "" && msg.Text() != "" {
-		var baseURL *url.URL
-		form := url.Values{}
-
 		commentID := msg.IGCommentID()
-		if msg.IGResponseType() == "comment" {
-			baseURL, _ = url.Parse(fmt.Sprintf(graphURL+"%s/replies", commentID))
+		responseType := msg.IGResponseType()
+
+		var req *http.Request
+		switch responseType {
+		case "comment":
+			replyURL, _ := url.Parse(fmt.Sprintf("%s%s/replies", graphURL, commentID))
+			form := url.Values{}
 			form.Set("message", msg.Text())
-		} else if msg.IGResponseType() == "dm_comment" {
-			pageID := strconv.Itoa(msg.Channel().IntConfigForKey(courier.ConfigPageID, 0))
-			baseURL, _ = url.Parse(fmt.Sprintf(graphURL+"%s/messages", pageID))
-			query := baseURL.Query()
-			query.Set("recipient", fmt.Sprintf("{comment_id:%s}", commentID))
-			query.Set("message", fmt.Sprintf("{\"text\":\"%s\"}", strings.TrimSpace(msg.Text())))
-			baseURL.RawQuery = query.Encode()
+			form.Set("access_token", accessToken)
+
+			req, _ = http.NewRequest(http.MethodPost, replyURL.String(), strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		case "dm_comment":
+			igUserID := msg.Channel().Address()
+			if igUserID == "" {
+				igUserID = strconv.Itoa(msg.Channel().IntConfigForKey(courier.ConfigPageID, 0))
+			}
+			if igUserID == "" {
+				return status, fmt.Errorf("missing instagram account id for private comment reply")
+			}
+
+			messagesURL, _ := url.Parse(fmt.Sprintf("%s%s/messages", graphURL, igUserID))
+			payloadMap := map[string]interface{}{
+				"recipient": map[string]string{
+					"comment_id": commentID,
+				},
+				"message": map[string]string{
+					"text": msg.Text(),
+				},
+			}
+			jsonBody, err := json.Marshal(payloadMap)
+			if err != nil {
+				return status, err
+			}
+
+			query := url.Values{}
+			query.Set("access_token", accessToken)
+			messagesURL.RawQuery = query.Encode()
+
+			req, _ = http.NewRequest(http.MethodPost, messagesURL.String(), bytes.NewReader(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Accept", "application/json")
+
+		default:
+			return status, fmt.Errorf("invalid ig_response_type: %s", responseType)
 		}
-
-		query := baseURL.Query()
-		query.Set("access_token", accessToken)
-		baseURL.RawQuery = query.Encode()
-
-		req, _ := http.NewRequest(http.MethodPost, baseURL.String(), strings.NewReader(form.Encode()))
-		req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
 		rr, err := utils.MakeHTTPRequest(req)
 

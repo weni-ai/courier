@@ -156,35 +156,23 @@ var testCasesIGComments = []ChannelHandleTestCase{
 		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("30065218"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		Metadata: Jp(map[string]interface{}{
 			"ig_comment": map[string]interface{}{
-				"text": "Hello World",
-				"from": map[string]interface{}{
-					"id":       "5678",
-					"username": "username",
-				},
+				"id": "30065218",
 				"media": map[string]interface{}{
 					"ad_id":              "1280670063",
 					"id":                 "180615383",
 					"media_product_type": "AD",
 					"original_media_id":  "179908467",
 				},
-				"time": float64(1459991487970),
-				"id":   "30065218",
 			},
 			"overwrite_message": map[string]interface{}{
 				"ig_comment": map[string]interface{}{
-					"text": "Hello World",
-					"from": map[string]interface{}{
-						"id":       "5678",
-						"username": "username",
-					},
+					"id": "30065218",
 					"media": map[string]interface{}{
 						"ad_id":              "1280670063",
 						"id":                 "180615383",
 						"media_product_type": "AD",
 						"original_media_id":  "179908467",
 					},
-					"time": float64(1459991487970),
-					"id":   "30065218",
 				},
 			},
 		}),
@@ -194,11 +182,7 @@ var testCasesIGComments = []ChannelHandleTestCase{
 		Text: Sp("Nice post!"), URN: Sp("instagram:5678"), ExternalID: Sp("30065221"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		Metadata: Jp(map[string]interface{}{
 			"ig_comment": map[string]interface{}{
-				"text": "Nice post!",
-				"from": map[string]interface{}{
-					"id":       "5678",
-					"username": "username",
-				},
+				"id": "30065221",
 				"media": map[string]interface{}{
 					"ad_id":              "1280670063",
 					"id":                 "180615383",
@@ -206,16 +190,10 @@ var testCasesIGComments = []ChannelHandleTestCase{
 					"original_media_id":  "179908467",
 					"caption":            "Summer sale post",
 				},
-				"time": float64(1459991487970),
-				"id":   "30065221",
 			},
 			"overwrite_message": map[string]interface{}{
 				"ig_comment": map[string]interface{}{
-					"text": "Nice post!",
-					"from": map[string]interface{}{
-						"id":       "5678",
-						"username": "username",
-					},
+					"id": "30065221",
 					"media": map[string]interface{}{
 						"ad_id":              "1280670063",
 						"id":                 "180615383",
@@ -223,8 +201,6 @@ var testCasesIGComments = []ChannelHandleTestCase{
 						"original_media_id":  "179908467",
 						"caption":            "Summer sale post",
 					},
-					"time": float64(1459991487970),
-					"id":   "30065221",
 				},
 			},
 		}),
@@ -2026,13 +2002,19 @@ func buildMockIGCommentReplyServer() *httptest.Server {
 		}
 
 		if strings.Contains(r.URL.Path, "/messages") {
-			err := r.ParseForm()
-			if err != nil {
+			var payload map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				http.Error(w, "Bad request", http.StatusBadRequest)
 				return
 			}
 
-			w.Write([]byte(`{ "id": "mid.133" }`))
+			recipient, ok := payload["recipient"].(map[string]interface{})
+			if !ok || recipient["comment_id"] == nil {
+				http.Error(w, "missing recipient.comment_id", http.StatusBadRequest)
+				return
+			}
+
+			w.Write([]byte(`{ "message_id": "mid.133" }`))
 			return
 		}
 

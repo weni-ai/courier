@@ -27,6 +27,9 @@ var orderMetadata1 = json.RawMessage(`{"order":{"product_items":[{"product_retai
 var orderMetadata2 = json.RawMessage(`{"order":{"product_items":[{"product_retailer_id":"product-abc","name":"Headphones","price":"299.90","currency":"BRL","seller_id":"audio-seller","quantity":3}]},"overwrite_message":{"order":{"product_items":[{"product_retailer_id":"product-abc","name":"Headphones","price":"299.90","currency":"BRL","seller_id":"audio-seller","quantity":3}]}}}`)
 var orderMetadataSingleTV = json.RawMessage(`{"order":{"product_items":[{"product_retailer_id":"product-001","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","seller_id":"seller-001","quantity":2}]},"overwrite_message":{"order":{"product_items":[{"product_retailer_id":"product-001","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","seller_id":"seller-001","quantity":2}]}}}`)
 
+// Conversation starter metadata for tests
+var conversationStarterMetadata = json.RawMessage(`{"from_conversation_starter":true}`)
+
 const (
 	textMsgTemplate = `
 	{
@@ -36,6 +39,19 @@ const (
 			"type":"text",
 			"timestamp":%q,
 			"text":%q
+		}
+	}
+	`
+
+	textMsgWithStarterTemplate = `
+	{
+		"type":"message",
+		"from":%q,
+		"message":{
+			"type":"text",
+			"timestamp":%q,
+			"text":%q,
+			"from_conversation_starter": %s
 		}
 	}
 	`
@@ -187,6 +203,27 @@ var testCases = []ChannelHandleTestCase{
 		Label:    "Receive Valid Text Msg",
 		URL:      receiveURL,
 		Data:     fmt.Sprintf(textMsgTemplate, "2345678", "1616586927", "Hello Test!"),
+		Name:     Sp("2345678"),
+		URN:      Sp("ext:2345678"),
+		Text:     Sp("Hello Test!"),
+		Status:   200,
+		Response: "Accepted",
+	},
+	{
+		Label:    "Receive Text Msg From Conversation Starter",
+		URL:      receiveURL,
+		Data:     fmt.Sprintf(textMsgWithStarterTemplate, "2345678", "1616586927", "Qual a diferença entre os modelos?", "true"),
+		Name:     Sp("2345678"),
+		URN:      Sp("ext:2345678"),
+		Text:     Sp("Qual a diferença entre os modelos?"),
+		Metadata: &conversationStarterMetadata,
+		Status:   200,
+		Response: "Accepted",
+	},
+	{
+		Label:    "Receive Text Msg With Conversation Starter False",
+		URL:      receiveURL,
+		Data:     fmt.Sprintf(textMsgWithStarterTemplate, "2345678", "1616586927", "Hello Test!", "false"),
 		Name:     Sp("2345678"),
 		URN:      Sp("ext:2345678"),
 		Text:     Sp("Hello Test!"),
@@ -400,6 +437,69 @@ func TestBuildOrderMetadata(t *testing.T) {
 
 func TestHandler(t *testing.T) {
 	RunChannelTestCases(t, testChannels, newHandler(), testCases)
+}
+
+func TestIncomingMsgMetadata(t *testing.T) {
+	tests := []struct {
+		name     string
+		payload  *miPayload
+		expected json.RawMessage
+	}{
+		{
+			name: "text without starter flag",
+			payload: &miPayload{Message: miMessage{
+				Type: "text",
+				Text: "Hello Test!",
+			}},
+			expected: nil,
+		},
+		{
+			name: "text with starter true",
+			payload: &miPayload{Message: miMessage{
+				Type:                    "text",
+				Text:                    "Qual a diferença entre os modelos?",
+				FromConversationStarter: true,
+			}},
+			expected: json.RawMessage(`{"from_conversation_starter":true}`),
+		},
+		{
+			name: "text with starter false",
+			payload: &miPayload{Message: miMessage{
+				Type:                    "text",
+				Text:                    "Hello Test!",
+				FromConversationStarter: false,
+			}},
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := incomingMsgMetadata(tt.payload)
+			if tt.expected == nil {
+				if got != nil {
+					t.Errorf("incomingMsgMetadata() = %s, want nil", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Errorf("incomingMsgMetadata() = nil, want %s", tt.expected)
+				return
+			}
+			var wantObj, gotObj interface{}
+			if err := json.Unmarshal(tt.expected, &wantObj); err != nil {
+				t.Fatalf("invalid expected JSON: %v", err)
+			}
+			if err := json.Unmarshal(got, &gotObj); err != nil {
+				t.Fatalf("invalid result JSON: %v", err)
+			}
+			wantJSON, _ := json.Marshal(wantObj)
+			gotJSON, _ := json.Marshal(gotObj)
+			if string(wantJSON) != string(gotJSON) {
+				t.Errorf("incomingMsgMetadata() = %s, want %s", gotJSON, wantJSON)
+			}
+		})
+	}
 }
 
 func BenchmarkHandler(b *testing.B) {

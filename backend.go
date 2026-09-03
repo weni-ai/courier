@@ -95,6 +95,9 @@ type Backend interface {
 	// QueueTemplateLastDispatch enqueues a template last dispatch record for async persistence
 	QueueTemplateLastDispatch(context.Context, Msg, TemplateLastDispatchData, time.Time)
 
+	// WriteWAConversationHandover writes the passed in WA conversation handover to our backend
+	WriteWAConversationHandover(context.Context, WAConversationHandoverEvent) error
+
 	// PopNextOutgoingMsg returns the next message that needs to be sent, callers should call MarkOutgoingMsgComplete with the
 	// returned message when they have dealt with the message (regardless of whether it was sent or not)
 	PopNextOutgoingMsg(context.Context) (Msg, error)

@@ -366,6 +366,69 @@ func TestDescribeWAC(t *testing.T) {
 	}
 }
 
+func TestReceiveWACHandover(t *testing.T) {
+	tcs := []struct {
+		label       string
+		fixture     string
+		response    string
+		eventCount  int
+		contextType string
+		contextText string
+		contactName string
+	}{
+		{
+			label:       "Summary handover with recipient phone_number_id",
+			fixture:     "./testdata/wac/handoverSummaryWAC.json",
+			response:    "wa conversation handover persisted",
+			eventCount:  1,
+			contextType: courier.WAHandoverContextSummary,
+			contextText: "Customer asked about pricing and delivery.",
+			contactName: "Kerry Fisher",
+		},
+		{
+			label:       "History handover",
+			fixture:     "./testdata/wac/handoverHistoryWAC.json",
+			response:    "wa conversation handover persisted",
+			eventCount:  1,
+			contextType: courier.WAHandoverContextHistory,
+			contextText: "[user] Hi\n[business] Hello, how can I help?\n[user] <image>",
+			contactName: "Kerry Fisher",
+		},
+		{
+			label:      "Control passed without context",
+			fixture:    "./testdata/wac/handoverNoContextWAC.json",
+			response:   "control_passed without conversation context",
+			eventCount: 0,
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.label, func(t *testing.T) {
+			mb := courier.NewMockBackend()
+			s := handlers.NewTestServer(mb)
+			for _, ch := range testChannelsWAC {
+				mb.AddChannel(ch)
+			}
+			handler := newHandler("WAC", "Cloud API WhatsApp", false)
+			handler.Initialize(s)
+
+			handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, string(courier.ReadFile(tc.fixture)), nil, 200, Sp(tc.response), addValidSignatureWAC)
+
+			assert.Equal(t, 0, mb.LenQueuedMsgs())
+			events := mb.WAHandoverEvents()
+			assert.Len(t, events, tc.eventCount)
+			if tc.eventCount == 0 {
+				return
+			}
+
+			assert.Equal(t, tc.contextType, events[0].ContextType)
+			assert.Equal(t, tc.contextText, events[0].ContextText)
+			assert.Equal(t, "whatsapp:5678", events[0].ContactURN.String())
+			assert.Equal(t, tc.contactName, events[0].ContactName)
+		})
+	}
+}
+
 func TestResolveMediaURL(t *testing.T) {
 
 	tcs := []struct {

@@ -73,6 +73,8 @@ type MockBackend struct {
 	templateLastDispatches []templateLastDispatchCall
 
 	ctwaEvents []CtwaEvent
+
+	waHandoverEvents []WAConversationHandoverEvent
 }
 
 type templateLastDispatchCall struct {
@@ -383,6 +385,15 @@ func (mb *MockBackend) QueueTemplateLastDispatch(_ context.Context, msg Msg, dat
 	})
 }
 
+// WriteWAConversationHandover writes the passed in WA conversation handover to our backend (mock implementation)
+func (mb *MockBackend) WriteWAConversationHandover(ctx context.Context, event WAConversationHandoverEvent) error {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+
+	mb.waHandoverEvents = append(mb.waHandoverEvents, event)
+	return nil
+}
+
 // CtwaEvents returns CTWA events written through the mock backend.
 func (mb *MockBackend) CtwaEvents() []CtwaEvent {
 	mb.mutex.RLock()
@@ -390,6 +401,16 @@ func (mb *MockBackend) CtwaEvents() []CtwaEvent {
 
 	events := make([]CtwaEvent, len(mb.ctwaEvents))
 	copy(events, mb.ctwaEvents)
+	return events
+}
+
+// WAHandoverEvents returns WA conversation handover events written through the mock backend.
+func (mb *MockBackend) WAHandoverEvents() []WAConversationHandoverEvent {
+	mb.mutex.RLock()
+	defer mb.mutex.RUnlock()
+
+	events := make([]WAConversationHandoverEvent, len(mb.waHandoverEvents))
+	copy(events, mb.waHandoverEvents)
 	return events
 }
 

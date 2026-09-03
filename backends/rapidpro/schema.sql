@@ -153,5 +153,28 @@ CREATE TABLE conversion_events_ctwa (
     created_at timestamp with time zone NOT NULL
 );
 
+DROP TABLE IF EXISTS wa_conversation_handover CASCADE;
+CREATE TABLE wa_conversation_handover (
+    id bigserial primary key,
+    org_id integer NOT NULL references orgs_org(id),
+    channel_id integer NOT NULL references channels_channel(id),
+    contact_id integer NOT NULL references contacts_contact(id),
+    contact_urn character varying(255) NOT NULL,
+    context_type character varying(16) NOT NULL,
+    context_text text NOT NULL,
+    context_payload jsonb NULL,
+    previous_owner_app_id character varying(64) NULL,
+    previous_owner_app_role character varying(64) NULL,
+    previous_owner_business_id character varying(64) NULL,
+    handover_metadata character varying(255) NULL,
+    occurred_on timestamp with time zone NOT NULL,
+    created_on timestamp with time zone NOT NULL,
+    consumed_on timestamp with time zone NULL,
+    consumed_msg_id bigint NULL,
+    CONSTRAINT chk_wa_conv_handover_context_type CHECK (context_type IN ('history', 'summary'))
+);
+
+CREATE UNIQUE INDEX uq_wa_conv_handover_pending ON wa_conversation_handover (channel_id, contact_id) WHERE consumed_on IS NULL;
+
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO courier;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO courier;

@@ -578,6 +578,14 @@ func (b *backend) WriteCtwaToDB(ctx context.Context, event courier.CtwaEvent) er
 	return writeCtwa(timeout, b, event)
 }
 
+// WriteWAConversationHandover writes the passed in WA conversation handover to our backend
+func (b *backend) WriteWAConversationHandover(ctx context.Context, event courier.WAConversationHandoverEvent) error {
+	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
+	defer cancel()
+
+	return writeWAConversationHandover(timeout, b, event)
+}
+
 // Check if external ID has been seen in a period
 func (b *backend) CheckExternalIDSeen(msg courier.Msg) courier.Msg {
 	var prevUUID = checkExternalIDSeen(b, msg)
@@ -905,6 +913,7 @@ func (b *backend) Start() error {
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "events"), b.flushChannelEventFile)
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "contact_last_seens"), b.flushContactLastSeenFile)
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "ctwa"), b.flushCtwaFile)
+	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "wa_conversation_handover"), b.flushWAConversationHandoverFile)
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "conversion_events"), b.flushConversationStartedFile)
 	logrus.WithFields(logrus.Fields{
 		"comp":  "backend",

@@ -92,6 +92,9 @@ type Backend interface {
 	// WriteCtwaToDB writes the passed in ctwa event to our backend
 	WriteCtwaToDB(context.Context, CtwaEvent) error
 
+	// WriteWAConversationHandover writes the passed in WA conversation handover to our backend
+	WriteWAConversationHandover(context.Context, WAConversationHandoverEvent) error
+
 	// PopNextOutgoingMsg returns the next message that needs to be sent, callers should call MarkOutgoingMsgComplete with the
 	// returned message when they have dealt with the message (regardless of whether it was sent or not)
 	PopNextOutgoingMsg(context.Context) (Msg, error)

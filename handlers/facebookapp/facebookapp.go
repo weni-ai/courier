@@ -265,6 +265,12 @@ type moPayload struct {
 					DisplayPhoneNumber string `json:"display_phone_number"`
 					PhoneNumberID      string `json:"phone_number_id"`
 				} `json:"metadata"`
+				Recipient           *wacHandoverRecipient      `json:"recipient"`
+				Sender              *wacHandoverSender         `json:"sender"`
+				Timestamp           string                     `json:"timestamp"`
+				Type                string                     `json:"type"`
+				ControlPassed       *wacHandoverControlPassed  `json:"control_passed"`
+				ConversationContext *wacConversationContext    `json:"conversation_context"`
 				Contacts []struct {
 					Profile struct {
 						Name     string `json:"name"`
@@ -878,10 +884,7 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 			}
 			return nil, fmt.Errorf("template update, so ignore")
 		}
-		if payload.Entry[0].Changes[0].Value.Metadata == nil {
-			return nil, fmt.Errorf("no channel address found")
-		}
-		channelAddress = payload.Entry[0].Changes[0].Value.Metadata.PhoneNumberID
+		channelAddress = wacPhoneNumberID(payload.Entry[0].Changes[0].Value.Metadata, payload.Entry[0].Changes[0].Value.Recipient)
 		if channelAddress == "" {
 			return nil, fmt.Errorf("no channel address found")
 		}
@@ -1055,6 +1058,37 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Warn(err.Error())
 					data = append(data, courier.NewInfoData(err.Error()))
 					continue
+				}
+				data = append(data, courier.NewInfoData(info))
+				continue
+			}
+
+			if change.Field == wacStandbyField {
+				logrus.WithField("channel_uuid", channel.UUID()).Info("ignoring standby webhook")
+				data = append(data, courier.NewInfoData("ignoring standby webhook"))
+				continue
+			}
+
+			if change.Field == wacMessagingHandoversField {
+				handoverContacts := make([]wacHandoverContact, 0, len(change.Value.Contacts))
+				for _, contact := range change.Value.Contacts {
+					handoverContacts = append(handoverContacts, wacHandoverContact{
+						WaID:   contact.WaID,
+						UserID: contact.UserID,
+					})
+					handoverContacts[len(handoverContacts)-1].Profile.Name = contact.Profile.Name
+				}
+
+				info, err := h.processMessagingHandover(ctx, channel, wacHandoverValue{
+					Timestamp:           change.Value.Timestamp,
+					Type:                change.Value.Type,
+					Sender:              change.Value.Sender,
+					ControlPassed:       change.Value.ControlPassed,
+					ConversationContext: change.Value.ConversationContext,
+					Contacts:            handoverContacts,
+				}, entry.Time, r)
+				if err != nil {
+					return nil, nil, err
 				}
 				data = append(data, courier.NewInfoData(info))
 				continue

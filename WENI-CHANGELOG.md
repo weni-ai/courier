@@ -1,3 +1,7 @@
+1.65.0
+----------
+ * feat: add configurable pprof HTTP server with auth support
+
 1.64.0
 ----------
  * feat: implement CTWA referral source handling and testing

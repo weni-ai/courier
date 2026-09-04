@@ -69,15 +69,14 @@ func pprofCanStart(cfg *Config) bool {
 }
 
 func (s *server) startPprofServer() {
-	if !s.config.EnablePprof {
-		return
-	}
 	if !pprofCanStart(s.config) {
-		logrus.WithFields(logrus.Fields{
-			"comp":    "server",
-			"address": s.config.PprofAddress,
-			"port":    s.config.PprofPort,
-		}).Error("pprof not started: StatusUsername is required when pprof is bound to a non-loopback address")
+		if s.config.EnablePprof {
+			logrus.WithFields(logrus.Fields{
+				"comp":    "server",
+				"address": s.config.PprofAddress,
+				"port":    s.config.PprofPort,
+			}).Error("pprof not started: StatusUsername is required when pprof is bound to a non-loopback address")
+		}
 		return
 	}
 
@@ -95,7 +94,7 @@ func (s *server) startPprofServer() {
 			"comp":  "server",
 			"addr":  addr,
 			"state": "started",
-		}).Info("pprof listening on ", addr)
+		}).Info("pprof server started")
 		err := s.pprofServer.ListenAndServe()
 		if err != nil && err != http.ErrServerClosed {
 			logrus.WithFields(logrus.Fields{

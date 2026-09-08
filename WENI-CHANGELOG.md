@@ -1,3 +1,7 @@
+1.66.0
+----------
+ * feat: whatsapp context reply support
+
 1.65.0
 ----------
  * feat: add configurable pprof HTTP server with auth support

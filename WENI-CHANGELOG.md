@@ -1,3 +1,7 @@
+1.67.0
+----------
+ * feat: add support for interactive carousel with WebP images in WhatsApp
+
 1.66.1
 ----------
  * feat: add conversation starter metadata handling in weniwebchat

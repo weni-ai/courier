@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	_ "embed"
 	"image"
 	"image/png"
 	"math"
@@ -9,6 +10,9 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/image/webp"
 )
+
+//go:embed testdata/carousel.webp
+var minimalWebPBytes []byte
 
 const (
 	// MaxImageSizeBytes is the maximum allowed size for images (5MB)
@@ -105,6 +109,11 @@ func normalizeToRGBA(img image.Image) *image.RGBA {
 	}
 
 	return rgba
+}
+
+// MinimalWebPBytes returns a decodable WebP image for tests.
+func MinimalWebPBytes() []byte {
+	return minimalWebPBytes
 }
 
 // ConvertWebPToPNG converts a WebP image to PNG format

@@ -1,3 +1,7 @@
+1.66.1
+----------
+ * feat: add conversation starter metadata handling in weniwebchat
+
 1.66.0
 ----------
  * feat: whatsapp context reply support

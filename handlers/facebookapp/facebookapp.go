@@ -2353,12 +2353,17 @@ type wacInteractive[P wacInteractiveActionParams] struct {
 	} `json:"action,omitempty"`
 }
 
+type wacMTContext struct {
+	MessageID string `json:"message_id"`
+}
+
 type wacMTPayload[P wacInteractiveActionParams] struct {
 	MessagingProduct string `json:"messaging_product"`
 	RecipientType    string `json:"recipient_type"`
 	To               string `json:"to,omitempty"`
 	Recipient        string `json:"recipient,omitempty"`
 	Type             string `json:"type"`
+	Context          *wacMTContext `json:"context,omitempty"`
 
 	Text *wacText `json:"text,omitempty"`
 
@@ -2725,6 +2730,12 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			payload.Recipient = urnPath
 		}
 
+		// Contextual reply (quote bubble). Meta does not support context on template messages;
+		// only attach to the first part when the message is split.
+		if templating == nil && i == 0 && msg.ResponseToExternalID() != "" {
+			payload.Context = &wacMTContext{MessageID: msg.ResponseToExternalID()}
+		}
+
 		// do we have a template?
 		if templating != nil || len(msg.Attachments()) == 0 {
 			if templating != nil {
@@ -3019,6 +3030,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								payloadAudio.To = urnPath
 							} else {
 								payloadAudio.Recipient = urnPath
+							}
+							if i == 0 && msg.ResponseToExternalID() != "" {
+								payloadAudio.Context = &wacMTContext{MessageID: msg.ResponseToExternalID()}
 							}
 							status, _, err := requestWAC(payloadAudio, token, msg, status, wacPhoneURL, zeroIndex, isMarketingTemplate)
 							if err != nil {

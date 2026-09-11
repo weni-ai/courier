@@ -1902,6 +1902,36 @@ func mockAttachmentURLs(mediaServer *httptest.Server, testCases []ChannelSendTes
 	return casesWithMockedUrls
 }
 
+func isCarouselSendTestCase(testCase ChannelSendTestCase) bool {
+	meta := string(testCase.Metadata)
+	return strings.Contains(meta, `"is_carousel": true`) || strings.Contains(meta, `"interaction_type":"carousel"`)
+}
+
+func mockCarouselAttachmentURLs(mediaServer *httptest.Server, testCases []ChannelSendTestCase) []ChannelSendTestCase {
+	casesWithMockedUrls := make([]ChannelSendTestCase, len(testCases))
+
+	for i, testCase := range testCases {
+		mockedCase := testCase
+		if !isCarouselSendTestCase(testCase) {
+			casesWithMockedUrls[i] = mockedCase
+			continue
+		}
+
+		for j, attachment := range testCase.Attachments {
+			mockedCase.Attachments[j] = strings.Replace(attachment, "https://foo.bar", mediaServer.URL, 1)
+		}
+		if testCase.RequestBody != "" {
+			mockedCase.RequestBody = strings.Replace(testCase.RequestBody, "https://foo.bar", mediaServer.URL, -1)
+		}
+		casesWithMockedUrls[i] = mockedCase
+	}
+	return casesWithMockedUrls
+}
+
+func mockPublicMediaURL(mediaURL string) string {
+	return "https://localhost/media/" + handlers.PngFilenameForURL(mediaURL)
+}
+
 func buildMockIGCommentReplyServer() *httptest.Server {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
@@ -1986,38 +2016,45 @@ func TestSending(t *testing.T) {
 	webpMediaServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 		defer req.Body.Close()
 		res.WriteHeader(200)
-		// Valid 1x1 pixel WebP lossy image
-		webpData := []byte{'R', 'I', 'F', 'F', 0x1A, 0x00, 0x00, 0x00, 'W', 'E', 'B', 'P', 'V', 'P', '8', ' ', 0x0E, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x2D, 0x01, 0x00, 0x00, 0x00, 0x00}
-		res.Write(webpData)
+		res.Write(handlers.MinimalWebPBytes())
 	}))
 
 	defer mediaServer.Close()
 	defer webpMediaServer.Close()
+	SendTestCasesWAC = mockCarouselAttachmentURLs(mediaServer, SendTestCasesWAC)
 	CachedSendTestCasesWAC := mockAttachmentURLs(mediaServer, CachedSendTestCasesWAC)
 	FailingCachedSendTestCasesWAC := mockAttachmentURLs(failingMediaServer, FailingCachedSendTestCasesWAC)
 
 	updateWebPTestCase(SendTestCasesWAC, webpMediaServer.URL)
+	card1URL := webpMediaServer.URL + "/card1.webp"
+	card2URL := webpMediaServer.URL + "/card2.webp"
 	SendTestCasesWAC = append(SendTestCasesWAC, ChannelSendTestCase{
 		Label: "Interactive Carousel Send - WebP images",
 		Text:  "Browse our collection",
 		URN:   "whatsapp:250788123123",
 		Status: "W", ExternalID: "157b5e14568e8",
 		Attachments: []string{
-			"image/webp:" + webpMediaServer.URL + "/card1.webp",
-			"image/webp:" + webpMediaServer.URL + "/card2.webp",
+			"image/webp:" + card1URL,
+			"image/webp:" + card2URL,
 		},
-		Metadata: json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}]},{"body":"Card 2","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}]}]}`),
-		RequestBody: fmt.Sprintf(`{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"carousel","body":{"text":"Browse our collection"},"action":{"cards":[{"card_index":0,"type":"cta_url","header":{"type":"image","image":{"link":"%s/card1.webp"}},"body":{"text":"Card 1"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}},{"card_index":1,"type":"cta_url","header":{"type":"image","image":{"link":"%s/card2.webp"}},"body":{"text":"Card 2"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}}]}}}`, webpMediaServer.URL, webpMediaServer.URL),
-		Responses: map[MockedRequest]MockedResponse{
-			{
-				Method: "POST",
-				Path:   "/12345_ID/messages",
-			}: {
-				Status: 201,
-				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
-			},
+		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}]},{"body":"Card 2","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}]}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody:  fmt.Sprintf(`{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"carousel","body":{"text":"Browse our collection"},"action":{"cards":[{"card_index":0,"type":"cta_url","header":{"type":"image","image":{"link":"%s"}},"body":{"text":"Card 1"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}},{"card_index":1,"type":"cta_url","header":{"type":"image","image":{"link":"%s"}},"body":{"text":"Card 2"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}}]}}}`, mockPublicMediaURL(card1URL), mockPublicMediaURL(card2URL)),
+		SendPrep:     setSendURL,
+	})
+	SendTestCasesWAC = append(SendTestCasesWAC, ChannelSendTestCase{
+		Label: "Carousel Template Send - WebP images",
+		Text:  "Carousel with webp images",
+		URN:   "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{
+			"image/webp:" + card1URL,
+			"image/webp:" + card2URL,
 		},
-		SendPrep: setSendURL,
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "webp_carousel", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "is_carousel": true}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody:  fmt.Sprintf(`{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"webp_carousel","language":{"policy":"deterministic","code":"en"},"components":[{"type":"carousel","cards":[{"card_index":0,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"%s"}}]}]},{"card_index":1,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"%s"}}]}]}]}]}}`, mockPublicMediaURL(card1URL), mockPublicMediaURL(card2URL)),
+		SendPrep:     setSendURL,
 	})
 	SendTestCasesWAC = append(SendTestCasesWAC, CachedSendTestCasesWAC...)
 	SendTestCasesWAC = append(SendTestCasesWAC, FailingCachedSendTestCasesWAC...)

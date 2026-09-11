@@ -3880,6 +3880,13 @@ func (h *handler) buildSingleCardCarouselPayload(msg courier.Msg, payload *wacMT
 	if attType != "image" && attType != "video" {
 		return fmt.Errorf("carousel card has unsupported header type: %s (only image and video are supported)", attType)
 	}
+	if attType == "image" {
+		rewrittenURL, err := h.rewriteWebPImageURL(msg, attURL)
+		if err != nil {
+			return err
+		}
+		attURL = rewrittenURL
+	}
 
 	bodyText := singleCardCarouselBodyText(msg, cardData)
 	if bodyText == "" {
@@ -4020,6 +4027,13 @@ func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg) (*wacInteract
 		attType := splitedAttType[0]
 		if attType != "image" && attType != "video" {
 			return nil, fmt.Errorf("carousel card %d has unsupported header type: %s (only image and video are supported)", cardIdx, attType)
+		}
+		if attType == "image" {
+			rewrittenURL, err := h.rewriteWebPImageURL(msg, attURL)
+			if err != nil {
+				return nil, err
+			}
+			attURL = rewrittenURL
 		}
 
 		media := wacMTMedia{Link: attURL}
@@ -4165,6 +4179,13 @@ func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplat
 
 		if attType != "image" && attType != "video" {
 			return nil, fmt.Errorf("unsupported attachment type for carousel card header: %s (only image and video are supported)", attType)
+		}
+		if attType == "image" {
+			rewrittenURL, err := h.rewriteWebPImageURL(msg, attURL)
+			if err != nil {
+				return nil, err
+			}
+			attURL = rewrittenURL
 		}
 
 		media := wacMTMedia{Link: attURL}

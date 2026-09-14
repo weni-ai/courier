@@ -151,6 +151,69 @@ func truncateWAHandoverContextText(text string) string {
 	return "[truncated]" + string(runes[len(runes)-maxWAHandoverContextTextLen:])
 }
 
+func parseWAHandoverOccurredOn(value wacHandoverValue, entryTime int64) (time.Time, error) {
+	occurredOn := time.Unix(entryTime, 0).UTC()
+	if value.Timestamp == "" {
+		return occurredOn, nil
+	}
+
+	ts, err := strconv.ParseInt(value.Timestamp, 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid handover timestamp: %s", value.Timestamp)
+	}
+
+	return time.Unix(ts, 0).UTC(), nil
+}
+
+func messagingHandoverLogFields(value wacHandoverValue, occurredOn time.Time, contactURN string, contactName string, contextType string, outcome string) logrus.Fields {
+	fields := logrus.Fields{
+		"handover_type": value.Type,
+		"occurred_on":   occurredOn,
+		"outcome":       outcome,
+	}
+
+	if value.Sender != nil {
+		if value.Sender.WaID != "" {
+			fields["sender_wa_id"] = value.Sender.WaID
+		}
+		if value.Sender.UserID != "" {
+			fields["sender_user_id"] = value.Sender.UserID
+		}
+	}
+	if contactURN != "" {
+		fields["contact_urn"] = contactURN
+	}
+	if contactName != "" {
+		fields["contact_name"] = contactName
+	}
+	if contextType != "" {
+		fields["context_type"] = contextType
+	}
+	if value.ConversationContext != nil && value.ConversationContext.History != nil {
+		fields["history_item_count"] = len(value.ConversationContext.History.Items)
+	}
+	if value.ControlPassed != nil {
+		if value.ControlPassed.Metadata != "" {
+			fields["handover_metadata"] = value.ControlPassed.Metadata
+		}
+		if value.ControlPassed.PreviousOwner != nil {
+			fields["previous_owner_app_id"] = value.ControlPassed.PreviousOwner.AppID
+			fields["previous_owner_app_role"] = value.ControlPassed.PreviousOwner.AppRole
+			fields["previous_owner_business_id"] = value.ControlPassed.PreviousOwner.BusinessID
+		}
+	}
+
+	return fields
+}
+
+func logMessagingHandoverReceived(channel courier.Channel, fields logrus.Fields) {
+	log := logrus.WithField("channel_uuid", channel.UUID())
+	for key, value := range fields {
+		log = log.WithField(key, value)
+	}
+	log.Info("wa conversation handover received")
+}
+
 func (h *handler) processMessagingHandover(
 	ctx context.Context,
 	channel courier.Channel,
@@ -158,18 +221,23 @@ func (h *handler) processMessagingHandover(
 	entryTime int64,
 	r *http.Request,
 ) (string, error) {
+	occurredOn, err := parseWAHandoverOccurredOn(value, entryTime)
+	if err != nil {
+		return "", handlers.WriteAndLogRequestError(ctx, h, channel, nil, r, err)
+	}
+
 	if value.Type != wacHandoverTypeControlPassed {
+		logMessagingHandoverReceived(channel, messagingHandoverLogFields(value, occurredOn, "", "", "", "ignored_type"))
 		return fmt.Sprintf("ignoring handover type %s", value.Type), nil
 	}
 
 	contextType, contextText, ok := renderWAHandoverContextText(value.ConversationContext)
 	if !ok {
-		logrus.WithField("channel_uuid", channel.UUID()).Info("control_passed without conversation context, skipping persist")
+		logMessagingHandoverReceived(channel, messagingHandoverLogFields(value, occurredOn, "", "", "", "skipped_no_context"))
 		return "control_passed without conversation context", nil
 	}
 
 	var urn urns.URN
-	var err error
 	if value.Sender != nil && value.Sender.WaID != "" {
 		urn, err = urns.NewWhatsAppURN(value.Sender.WaID)
 	} else if value.Sender != nil && value.Sender.UserID != "" {
@@ -179,15 +247,6 @@ func (h *handler) processMessagingHandover(
 	}
 	if err != nil {
 		return "", handlers.WriteAndLogRequestError(ctx, h, channel, nil, r, err)
-	}
-
-	occurredOn := time.Unix(entryTime, 0).UTC()
-	if value.Timestamp != "" {
-		ts, parseErr := strconv.ParseInt(value.Timestamp, 10, 64)
-		if parseErr != nil {
-			return "", handlers.WriteAndLogRequestError(ctx, h, channel, nil, r, fmt.Errorf("invalid handover timestamp: %s", value.Timestamp))
-		}
-		occurredOn = time.Unix(ts, 0).UTC()
 	}
 
 	contactName := ""
@@ -219,6 +278,8 @@ func (h *handler) processMessagingHandover(
 			event.PreviousOwnerBusinessID = value.ControlPassed.PreviousOwner.BusinessID
 		}
 	}
+
+	logMessagingHandoverReceived(channel, messagingHandoverLogFields(value, occurredOn, string(urn.Identity()), contactName, contextType, "persisted"))
 
 	if err := h.Backend().WriteWAConversationHandover(ctx, event); err != nil {
 		return "", err

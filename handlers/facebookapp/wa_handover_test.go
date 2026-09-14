@@ -3,6 +3,7 @@ package facebookapp
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nyaruka/courier"
 	"github.com/stretchr/testify/assert"
@@ -73,6 +74,50 @@ func TestTruncateWAHandoverContextText(t *testing.T) {
 
 	assert.True(t, strings.HasPrefix(truncated, "[truncated]"))
 	assert.Equal(t, maxWAHandoverContextTextLen+len("[truncated]"), len([]rune(truncated)))
+}
+
+func TestMessagingHandoverLogFields(t *testing.T) {
+	occurredOn := time.Unix(1454119029, 0).UTC()
+	value := wacHandoverValue{
+		Type:      wacHandoverTypeControlPassed,
+		Timestamp: "1454119029",
+		Sender:    &wacHandoverSender{WaID: "5678"},
+		ControlPassed: &wacHandoverControlPassed{
+			Metadata: "customer requested agent",
+			PreviousOwner: &struct {
+				AppID      string `json:"app_id"`
+				AppRole    string `json:"app_role"`
+				BusinessID string `json:"business_id"`
+			}{
+				AppID:      "prev-app",
+				AppRole:    "partner",
+				BusinessID: "biz-1",
+			},
+		},
+		ConversationContext: &wacConversationContext{
+			History: &struct {
+				Items []wacHistoryItem `json:"items"`
+			}{
+				Items: []wacHistoryItem{
+					{From: "user", Type: "text", Text: &struct{ Body string `json:"body"` }{Body: "Hi"}},
+				},
+			},
+		},
+	}
+
+	fields := messagingHandoverLogFields(value, occurredOn, "5678", "Kerry Fisher", courier.WAHandoverContextHistory, "persisted")
+
+	assert.Equal(t, wacHandoverTypeControlPassed, fields["handover_type"])
+	assert.Equal(t, occurredOn, fields["occurred_on"])
+	assert.Equal(t, "persisted", fields["outcome"])
+	assert.Equal(t, "5678", fields["sender_wa_id"])
+	assert.Equal(t, "5678", fields["contact_urn"])
+	assert.Equal(t, "Kerry Fisher", fields["contact_name"])
+	assert.Equal(t, courier.WAHandoverContextHistory, fields["context_type"])
+	assert.Equal(t, 1, fields["history_item_count"])
+	assert.Equal(t, "customer requested agent", fields["handover_metadata"])
+	assert.Equal(t, "prev-app", fields["previous_owner_app_id"])
+	assert.NotContains(t, fields, "context_text")
 }
 
 func TestWACPhoneNumberID(t *testing.T) {

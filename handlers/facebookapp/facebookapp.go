@@ -1337,6 +1337,8 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					}
 				}
 
+				printWACIncomingMsgMetadata(urn, msg.ID, event)
+
 				err = h.Backend().WriteMsg(ctx, event)
 				if err != nil {
 					return nil, nil, err

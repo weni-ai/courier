@@ -350,6 +350,16 @@ func printRawMessagingHandoverChange(r *http.Request, entryIdx, changeIdx int) {
 	fmt.Println("[messaging_handovers] webhook payload:", string(changeJSON))
 }
 
+func printWACIncomingMsgMetadata(urn urns.URN, externalID string, event courier.Msg) {
+	metadata := event.Metadata()
+	if len(metadata) == 0 {
+		fmt.Printf("[wac message] metadata urn=%s external_id=%s: null\n", urn, externalID)
+		return
+	}
+
+	fmt.Printf("[wac message] metadata urn=%s external_id=%s: %s\n", urn, externalID, string(metadata))
+}
+
 func (h *handler) processMessagingHandover(
 	ctx context.Context,
 	channel courier.Channel,

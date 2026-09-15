@@ -26,6 +26,7 @@ const (
 )
 
 type wacConversationContext struct {
+	Type    string `json:"type"`
 	Summary *struct {
 		Text string `json:"text"`
 	} `json:"summary"`
@@ -35,10 +36,11 @@ type wacConversationContext struct {
 }
 
 type wacHistoryItem struct {
-	From string `json:"from"`
-	Role string `json:"role"`
-	Type string `json:"type"`
-	Text *struct {
+	From       string `json:"from"`
+	Role       string `json:"role"`
+	SenderType string `json:"sender_type"`
+	Type       string `json:"type"`
+	Text       *struct {
 		Body string `json:"body"`
 	} `json:"text"`
 }
@@ -59,10 +61,13 @@ type wacHandoverControlPassed struct {
 		AppRole    string `json:"app_role"`
 		BusinessID string `json:"business_id"`
 	} `json:"previous_owner"`
-	PreviousOwnerRole string                   `json:"previous_owner_role"`
-	NewOwnerRole      string                   `json:"new_owner_role"`
-	Metadata          string                   `json:"metadata"`
-	ConversationContext *wacConversationContext `json:"conversation_context"`
+	PreviousOwnerAppID      string                  `json:"previous_owner_app_id"`
+	PreviousOwnerAppRole    string                  `json:"previous_owner_app_role"`
+	PreviousOwnerBusinessID string                  `json:"previous_owner_business_id"`
+	PreviousOwnerRole       string                  `json:"previous_owner_role"`
+	NewOwnerRole            string                  `json:"new_owner_role"`
+	Metadata                string                  `json:"metadata"`
+	ConversationContext     *wacConversationContext `json:"conversation_context"`
 }
 
 type wacHandoverContact struct {
@@ -127,32 +132,64 @@ func renderWAHandoverContextText(ctx *wacConversationContext) (contextType strin
 		return "", "", false
 	}
 
-	if ctx.Summary != nil {
-		text := strings.TrimSpace(ctx.Summary.Text)
-		if text != "" {
-			return courier.WAHandoverContextSummary, truncateWAHandoverContextText(text), true
+	switch strings.ToLower(strings.TrimSpace(ctx.Type)) {
+	case courier.WAHandoverContextSummary:
+		if text, ok := wacHandoverSummaryText(ctx); ok {
+			return courier.WAHandoverContextSummary, text, true
 		}
+		return "", "", false
+	case courier.WAHandoverContextHistory:
+		if text, ok := wacHandoverHistoryText(ctx); ok {
+			return courier.WAHandoverContextHistory, text, true
+		}
+		return "", "", false
 	}
 
-	if ctx.History != nil && len(ctx.History.Items) > 0 {
-		lines := make([]string, 0, len(ctx.History.Items))
-		for _, item := range ctx.History.Items {
-			role := wacHistoryItemRole(item)
-			content := wacHistoryItemContent(item)
-			if content == "" {
-				continue
-			}
-			lines = append(lines, fmt.Sprintf("[%s] %s", role, content))
-		}
-		if len(lines) > 0 {
-			return courier.WAHandoverContextHistory, truncateWAHandoverContextText(strings.Join(lines, "\n")), true
-		}
+	if text, ok := wacHandoverSummaryText(ctx); ok {
+		return courier.WAHandoverContextSummary, text, true
+	}
+	if text, ok := wacHandoverHistoryText(ctx); ok {
+		return courier.WAHandoverContextHistory, text, true
 	}
 
 	return "", "", false
 }
 
+func wacHandoverSummaryText(ctx *wacConversationContext) (string, bool) {
+	if ctx.Summary == nil {
+		return "", false
+	}
+	text := strings.TrimSpace(ctx.Summary.Text)
+	if text == "" {
+		return "", false
+	}
+	return truncateWAHandoverContextText(text), true
+}
+
+func wacHandoverHistoryText(ctx *wacConversationContext) (string, bool) {
+	if ctx.History == nil || len(ctx.History.Items) == 0 {
+		return "", false
+	}
+
+	lines := make([]string, 0, len(ctx.History.Items))
+	for _, item := range ctx.History.Items {
+		role := wacHistoryItemRole(item)
+		content := wacHistoryItemContent(item)
+		if content == "" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("[%s] %s", role, content))
+	}
+	if len(lines) == 0 {
+		return "", false
+	}
+	return truncateWAHandoverContextText(strings.Join(lines, "\n")), true
+}
+
 func wacHistoryItemRole(item wacHistoryItem) string {
+	if role := strings.TrimSpace(item.SenderType); role != "" {
+		return role
+	}
 	if role := strings.TrimSpace(item.From); role != "" {
 		return role
 	}
@@ -197,6 +234,34 @@ func parseWAHandoverOccurredOn(value wacHandoverValue, entryTime int64) (time.Ti
 	return time.Unix(ts, 0).UTC(), nil
 }
 
+func applyWAHandoverPreviousOwner(event *courier.WAConversationHandoverEvent, controlPassed *wacHandoverControlPassed) {
+	if controlPassed == nil {
+		return
+	}
+
+	event.HandoverMetadata = controlPassed.Metadata
+
+	if controlPassed.PreviousOwner != nil {
+		event.PreviousOwnerAppID = controlPassed.PreviousOwner.AppID
+		event.PreviousOwnerAppRole = controlPassed.PreviousOwner.AppRole
+		event.PreviousOwnerBusinessID = controlPassed.PreviousOwner.BusinessID
+	}
+	if event.PreviousOwnerAppID == "" {
+		event.PreviousOwnerAppID = controlPassed.PreviousOwnerAppID
+	}
+	if event.PreviousOwnerAppRole == "" {
+		switch {
+		case controlPassed.PreviousOwnerAppRole != "":
+			event.PreviousOwnerAppRole = controlPassed.PreviousOwnerAppRole
+		case controlPassed.PreviousOwnerRole != "":
+			event.PreviousOwnerAppRole = controlPassed.PreviousOwnerRole
+		}
+	}
+	if event.PreviousOwnerBusinessID == "" {
+		event.PreviousOwnerBusinessID = controlPassed.PreviousOwnerBusinessID
+	}
+}
+
 func messagingHandoverLogFields(value wacHandoverValue, occurredOn time.Time, contactURN string, contactName string, contextType string, outcome string) logrus.Fields {
 	fields := logrus.Fields{
 		"handover_type": value.Type,
@@ -232,16 +297,30 @@ func messagingHandoverLogFields(value wacHandoverValue, occurredOn time.Time, co
 		if value.ControlPassed.Metadata != "" {
 			fields["handover_metadata"] = value.ControlPassed.Metadata
 		}
-		if value.ControlPassed.PreviousOwnerRole != "" {
-			fields["previous_owner_role"] = value.ControlPassed.PreviousOwnerRole
+		if value.ControlPassed.PreviousOwnerAppID != "" {
+			fields["previous_owner_app_id"] = value.ControlPassed.PreviousOwnerAppID
+		}
+		if value.ControlPassed.PreviousOwnerAppRole != "" {
+			fields["previous_owner_app_role"] = value.ControlPassed.PreviousOwnerAppRole
+		} else if value.ControlPassed.PreviousOwnerRole != "" {
+			fields["previous_owner_app_role"] = value.ControlPassed.PreviousOwnerRole
+		}
+		if value.ControlPassed.PreviousOwnerBusinessID != "" {
+			fields["previous_owner_business_id"] = value.ControlPassed.PreviousOwnerBusinessID
 		}
 		if value.ControlPassed.NewOwnerRole != "" {
 			fields["new_owner_role"] = value.ControlPassed.NewOwnerRole
 		}
 		if value.ControlPassed.PreviousOwner != nil {
-			fields["previous_owner_app_id"] = value.ControlPassed.PreviousOwner.AppID
-			fields["previous_owner_app_role"] = value.ControlPassed.PreviousOwner.AppRole
-			fields["previous_owner_business_id"] = value.ControlPassed.PreviousOwner.BusinessID
+			if _, ok := fields["previous_owner_app_id"]; !ok && value.ControlPassed.PreviousOwner.AppID != "" {
+				fields["previous_owner_app_id"] = value.ControlPassed.PreviousOwner.AppID
+			}
+			if _, ok := fields["previous_owner_app_role"]; !ok && value.ControlPassed.PreviousOwner.AppRole != "" {
+				fields["previous_owner_app_role"] = value.ControlPassed.PreviousOwner.AppRole
+			}
+			if _, ok := fields["previous_owner_business_id"]; !ok && value.ControlPassed.PreviousOwner.BusinessID != "" {
+				fields["previous_owner_business_id"] = value.ControlPassed.PreviousOwner.BusinessID
+			}
 		}
 	}
 
@@ -323,14 +402,7 @@ func (h *handler) processMessagingHandover(
 	}
 
 	if value.ControlPassed != nil {
-		event.HandoverMetadata = value.ControlPassed.Metadata
-		if value.ControlPassed.PreviousOwner != nil {
-			event.PreviousOwnerAppID = value.ControlPassed.PreviousOwner.AppID
-			event.PreviousOwnerAppRole = value.ControlPassed.PreviousOwner.AppRole
-			event.PreviousOwnerBusinessID = value.ControlPassed.PreviousOwner.BusinessID
-		} else if value.ControlPassed.PreviousOwnerRole != "" {
-			event.PreviousOwnerAppRole = value.ControlPassed.PreviousOwnerRole
-		}
+		applyWAHandoverPreviousOwner(&event, value.ControlPassed)
 	}
 
 	logMessagingHandoverReceived(channel, messagingHandoverLogFields(value, occurredOn, string(urn.Identity()), contactName, contextType, "persisted"))

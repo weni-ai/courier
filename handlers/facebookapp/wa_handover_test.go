@@ -54,6 +54,41 @@ func TestRenderWAHandoverContextText(t *testing.T) {
 			},
 			ok: false,
 		},
+		{
+			label: "summary selected by type",
+			ctx: &wacConversationContext{
+				Type: courier.WAHandoverContextSummary,
+				Summary: &struct {
+					Text string `json:"text"`
+				}{Text: "Summary text"},
+				History: &struct {
+					Items []wacHistoryItem `json:"items"`
+				}{
+					Items: []wacHistoryItem{
+						{SenderType: "user", Type: "text", Text: &struct{ Body string `json:"body"` }{Body: "ignored"}},
+					},
+				},
+			},
+			contextType: courier.WAHandoverContextSummary,
+			contextText: "Summary text",
+			ok:          true,
+		},
+		{
+			label: "history item sender_type",
+			ctx: &wacConversationContext{
+				Type: courier.WAHandoverContextHistory,
+				History: &struct {
+					Items []wacHistoryItem `json:"items"`
+				}{
+					Items: []wacHistoryItem{
+						{SenderType: "business", Type: "text", Text: &struct{ Body string `json:"body"` }{Body: "Hello"}},
+					},
+				},
+			},
+			contextType: courier.WAHandoverContextHistory,
+			contextText: "[business] Hello",
+			ok:          true,
+		},
 	}
 
 	for _, tc := range tcs {
@@ -153,6 +188,27 @@ func TestResolveWAHandoverSenderURN(t *testing.T) {
 
 	_, err = resolveWAHandoverSenderURN(&wacHandoverSender{})
 	assert.Error(t, err)
+}
+
+func TestApplyWAHandoverPreviousOwner(t *testing.T) {
+	event := courier.WAConversationHandoverEvent{}
+	applyWAHandoverPreviousOwner(&event, &wacHandoverControlPassed{
+		Metadata:                "handover reason",
+		PreviousOwnerAppID:      "app-1",
+		PreviousOwnerAppRole:    "META_AI",
+		PreviousOwnerBusinessID: "biz-1",
+	})
+
+	assert.Equal(t, "handover reason", event.HandoverMetadata)
+	assert.Equal(t, "app-1", event.PreviousOwnerAppID)
+	assert.Equal(t, "META_AI", event.PreviousOwnerAppRole)
+	assert.Equal(t, "biz-1", event.PreviousOwnerBusinessID)
+
+	event = courier.WAConversationHandoverEvent{}
+	applyWAHandoverPreviousOwner(&event, &wacHandoverControlPassed{
+		PreviousOwnerRole: "utility",
+	})
+	assert.Equal(t, "utility", event.PreviousOwnerAppRole)
 }
 
 func TestWACPhoneNumberID(t *testing.T) {

@@ -1,3 +1,7 @@
+1.69.0
+----------
+ * feat: emit named WhatsApp Cloud API template parameters and refuse named templates on on-premises/360dialog
+
 1.68.0
 ----------
  * Add conversation orchestration support for WhatsApp Multi-Partner
@@ -5,7 +9,6 @@
 1.67.0
 ----------
  * feat: add support for interactive carousel with WebP images in WhatsApp
- * feat: emit named WhatsApp Cloud API template parameters and refuse named templates on on-premises/360dialog
 
 1.66.1
 ----------

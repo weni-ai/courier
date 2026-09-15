@@ -2391,6 +2391,16 @@ type wacMTContext struct {
 	MessageID string `json:"message_id"`
 }
 
+// wacQuotedMessageID returns the WhatsApp message id to quote as a contextual reply.
+// Prefer metadata.response_to_external_id (e.g. ticket replies from Wenichats); fall back
+// to ResponseToExternalID for flow-session replies that only set the top-level field.
+func wacQuotedMessageID(msg courier.Msg) string {
+	if id, err := jsonparser.GetString(msg.Metadata(), "response_to_external_id"); err == nil && id != "" {
+		return id
+	}
+	return msg.ResponseToExternalID()
+}
+
 type wacMTPayload[P wacInteractiveActionParams] struct {
 	MessagingProduct string `json:"messaging_product"`
 	RecipientType    string `json:"recipient_type"`
@@ -2770,8 +2780,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 		// Contextual reply (quote bubble). Meta does not support context on template messages;
 		// only attach to the first part when the message is split.
-		if templating == nil && i == 0 && msg.ResponseToExternalID() != "" {
-			payload.Context = &wacMTContext{MessageID: msg.ResponseToExternalID()}
+		if templating == nil && i == 0 {
+			if quotedID := wacQuotedMessageID(msg); quotedID != "" {
+				payload.Context = &wacMTContext{MessageID: quotedID}
+			}
 		}
 
 		// do we have a template?
@@ -3069,8 +3081,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							} else {
 								payloadAudio.Recipient = urnPath
 							}
-							if i == 0 && msg.ResponseToExternalID() != "" {
-								payloadAudio.Context = &wacMTContext{MessageID: msg.ResponseToExternalID()}
+							if i == 0 {
+								if quotedID := wacQuotedMessageID(msg); quotedID != "" {
+									payloadAudio.Context = &wacMTContext{MessageID: quotedID}
+								}
 							}
 							status, _, err := requestWAC(payloadAudio, token, msg, status, wacPhoneURL, zeroIndex, isMarketingTemplate)
 							if err != nil {

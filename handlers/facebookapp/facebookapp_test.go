@@ -375,6 +375,7 @@ func TestReceiveWACHandover(t *testing.T) {
 		contextType string
 		contextText string
 		contactName string
+		contactURN  string
 	}{
 		{
 			label:       "Summary handover with recipient phone_number_id",
@@ -400,6 +401,15 @@ func TestReceiveWACHandover(t *testing.T) {
 			response:   "control_passed without conversation context",
 			eventCount: 0,
 		},
+		{
+			label:       "Summary handover nested in control_passed with phone_number sender",
+			fixture:     "./testdata/wac/handoverSummaryNestedWAC.json",
+			response:    "wa conversation handover persisted",
+			eventCount:  1,
+			contextType: courier.WAHandoverContextSummary,
+			contextText: "* The business sent a template and the customer tapped a button.\n* The business acknowledged the response by saying \"ok\".",
+			contactURN:  "whatsapp:558893565901",
+		},
 	}
 
 	for _, tc := range tcs {
@@ -423,7 +433,11 @@ func TestReceiveWACHandover(t *testing.T) {
 
 			assert.Equal(t, tc.contextType, events[0].ContextType)
 			assert.Equal(t, tc.contextText, events[0].ContextText)
-			assert.Equal(t, "whatsapp:5678", events[0].ContactURN.String())
+			expectedURN := tc.contactURN
+			if expectedURN == "" {
+				expectedURN = "whatsapp:5678"
+			}
+			assert.Equal(t, expectedURN, events[0].ContactURN.String())
 			assert.Equal(t, tc.contactName, events[0].ContactName)
 		})
 	}

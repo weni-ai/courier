@@ -44,8 +44,9 @@ type wacHistoryItem struct {
 }
 
 type wacHandoverSender struct {
-	WaID   string `json:"wa_id"`
-	UserID string `json:"user_id"`
+	WaID        string `json:"wa_id"`
+	UserID      string `json:"user_id"`
+	PhoneNumber string `json:"phone_number"`
 }
 
 type wacHandoverRecipient struct {
@@ -58,7 +59,10 @@ type wacHandoverControlPassed struct {
 		AppRole    string `json:"app_role"`
 		BusinessID string `json:"business_id"`
 	} `json:"previous_owner"`
-	Metadata string `json:"metadata"`
+	PreviousOwnerRole string                   `json:"previous_owner_role"`
+	NewOwnerRole      string                   `json:"new_owner_role"`
+	Metadata          string                   `json:"metadata"`
+	ConversationContext *wacConversationContext `json:"conversation_context"`
 }
 
 type wacHandoverContact struct {
@@ -89,6 +93,33 @@ func wacPhoneNumberID(metadata *struct {
 		return recipient.PhoneNumberID
 	}
 	return ""
+}
+
+func resolveWAHandoverConversationContext(value wacHandoverValue) *wacConversationContext {
+	if value.ConversationContext != nil {
+		return value.ConversationContext
+	}
+	if value.ControlPassed != nil && value.ControlPassed.ConversationContext != nil {
+		return value.ControlPassed.ConversationContext
+	}
+	return nil
+}
+
+func resolveWAHandoverSenderURN(sender *wacHandoverSender) (urns.URN, error) {
+	if sender == nil {
+		return urns.NilURN, errors.New("no sender identifier in handover")
+	}
+
+	switch {
+	case sender.WaID != "":
+		return urns.NewWhatsAppURN(sender.WaID)
+	case sender.UserID != "":
+		return urns.NewWhatsAppURN(sender.UserID)
+	case sender.PhoneNumber != "":
+		return urns.NewWhatsAppURN(strings.TrimPrefix(sender.PhoneNumber, "+"))
+	default:
+		return urns.NilURN, errors.New("no sender identifier in handover")
+	}
 }
 
 func renderWAHandoverContextText(ctx *wacConversationContext) (contextType string, contextText string, ok bool) {
@@ -180,6 +211,9 @@ func messagingHandoverLogFields(value wacHandoverValue, occurredOn time.Time, co
 		if value.Sender.UserID != "" {
 			fields["sender_user_id"] = value.Sender.UserID
 		}
+		if value.Sender.PhoneNumber != "" {
+			fields["sender_phone_number"] = value.Sender.PhoneNumber
+		}
 	}
 	if contactURN != "" {
 		fields["contact_urn"] = contactURN
@@ -190,12 +224,19 @@ func messagingHandoverLogFields(value wacHandoverValue, occurredOn time.Time, co
 	if contextType != "" {
 		fields["context_type"] = contextType
 	}
-	if value.ConversationContext != nil && value.ConversationContext.History != nil {
-		fields["history_item_count"] = len(value.ConversationContext.History.Items)
+	conversationContext := resolveWAHandoverConversationContext(value)
+	if conversationContext != nil && conversationContext.History != nil {
+		fields["history_item_count"] = len(conversationContext.History.Items)
 	}
 	if value.ControlPassed != nil {
 		if value.ControlPassed.Metadata != "" {
 			fields["handover_metadata"] = value.ControlPassed.Metadata
+		}
+		if value.ControlPassed.PreviousOwnerRole != "" {
+			fields["previous_owner_role"] = value.ControlPassed.PreviousOwnerRole
+		}
+		if value.ControlPassed.NewOwnerRole != "" {
+			fields["new_owner_role"] = value.ControlPassed.NewOwnerRole
 		}
 		if value.ControlPassed.PreviousOwner != nil {
 			fields["previous_owner_app_id"] = value.ControlPassed.PreviousOwner.AppID
@@ -247,20 +288,13 @@ func (h *handler) processMessagingHandover(
 		return fmt.Sprintf("ignoring handover type %s", value.Type), nil
 	}
 
-	contextType, contextText, ok := renderWAHandoverContextText(value.ConversationContext)
+	contextType, contextText, ok := renderWAHandoverContextText(resolveWAHandoverConversationContext(value))
 	if !ok {
 		logMessagingHandoverReceived(channel, messagingHandoverLogFields(value, occurredOn, "", "", "", "skipped_no_context"))
 		return "control_passed without conversation context", nil
 	}
 
-	var urn urns.URN
-	if value.Sender != nil && value.Sender.WaID != "" {
-		urn, err = urns.NewWhatsAppURN(value.Sender.WaID)
-	} else if value.Sender != nil && value.Sender.UserID != "" {
-		urn, err = urns.NewWhatsAppURN(value.Sender.UserID)
-	} else {
-		return "", handlers.WriteAndLogRequestError(ctx, h, channel, nil, r, errors.New("no sender identifier in handover"))
-	}
+	urn, err := resolveWAHandoverSenderURN(value.Sender)
 	if err != nil {
 		return "", handlers.WriteAndLogRequestError(ctx, h, channel, nil, r, err)
 	}
@@ -273,6 +307,8 @@ func (h *handler) processMessagingHandover(
 		}
 	}
 
+	conversationContext := resolveWAHandoverConversationContext(value)
+
 	event := courier.WAConversationHandoverEvent{
 		ChannelUUID: channel.UUID(),
 		ContactURN:  urn,
@@ -282,8 +318,8 @@ func (h *handler) processMessagingHandover(
 		OccurredOn:  occurredOn,
 	}
 
-	if value.ConversationContext != nil {
-		event.ContextPayload, _ = json.Marshal(value.ConversationContext)
+	if conversationContext != nil {
+		event.ContextPayload, _ = json.Marshal(conversationContext)
 	}
 
 	if value.ControlPassed != nil {
@@ -292,6 +328,8 @@ func (h *handler) processMessagingHandover(
 			event.PreviousOwnerAppID = value.ControlPassed.PreviousOwner.AppID
 			event.PreviousOwnerAppRole = value.ControlPassed.PreviousOwner.AppRole
 			event.PreviousOwnerBusinessID = value.ControlPassed.PreviousOwner.BusinessID
+		} else if value.ControlPassed.PreviousOwnerRole != "" {
+			event.PreviousOwnerAppRole = value.ControlPassed.PreviousOwnerRole
 		}
 	}
 

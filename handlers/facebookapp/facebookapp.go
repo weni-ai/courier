@@ -1068,6 +1068,10 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 			}
 
 			if change.Field == wacMessagingHandoversField {
+				if handoverJSON, err := json.Marshal(change); err == nil {
+					fmt.Println("[messaging_handovers] webhook payload:", string(handoverJSON))
+				}
+
 				handoverContacts := make([]wacHandoverContact, 0, len(change.Value.Contacts))
 				for _, contact := range change.Value.Contacts {
 					handoverContacts = append(handoverContacts, wacHandoverContact{

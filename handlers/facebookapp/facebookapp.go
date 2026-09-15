@@ -1043,12 +1043,12 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 	var contactUsernames = make(map[string]string)
 
 	// for each entry
-	for _, entry := range payload.Entry {
+	for entryIdx, entry := range payload.Entry {
 		if len(entry.Changes) == 0 {
 			continue
 		}
 
-		for _, change := range entry.Changes {
+		for changeIdx, change := range entry.Changes {
 
 			if change.Field == wacBusinessUsernameUpdatesField {
 				info, err := h.processBusinessUsernameUpdate(ctx, channel, change.Value.Username, change.Value.Status)
@@ -1068,9 +1068,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 			}
 
 			if change.Field == wacMessagingHandoversField {
-				if handoverJSON, err := json.Marshal(change); err == nil {
-					fmt.Println("[messaging_handovers] webhook payload:", string(handoverJSON))
-				}
+				printRawMessagingHandoverChange(r, entryIdx, changeIdx)
 
 				handoverContacts := make([]wacHandoverContact, 0, len(change.Value.Contacts))
 				for _, contact := range change.Value.Contacts {

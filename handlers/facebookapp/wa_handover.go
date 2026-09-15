@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/buger/jsonparser"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/gocommon/urns"
@@ -212,6 +213,21 @@ func logMessagingHandoverReceived(channel courier.Channel, fields logrus.Fields)
 		log = log.WithField(key, value)
 	}
 	log.Info("wa conversation handover received")
+}
+
+func printRawMessagingHandoverChange(r *http.Request, entryIdx, changeIdx int) {
+	body, err := handlers.ReadBody(r, 1000000)
+	if err != nil {
+		return
+	}
+
+	changeJSON, _, _, err := jsonparser.Get(body, "entry", fmt.Sprintf("[%d]", entryIdx), "changes", fmt.Sprintf("[%d]", changeIdx))
+	if err != nil {
+		fmt.Println("[messaging_handovers] webhook payload:", string(body))
+		return
+	}
+
+	fmt.Println("[messaging_handovers] webhook payload:", string(changeJSON))
 }
 
 func (h *handler) processMessagingHandover(

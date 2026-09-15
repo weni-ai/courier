@@ -120,6 +120,41 @@ func TestMessagingHandoverLogFields(t *testing.T) {
 	assert.NotContains(t, fields, "context_text")
 }
 
+func TestResolveWAHandoverConversationContext(t *testing.T) {
+	topLevel := &wacConversationContext{
+		Summary: &struct {
+			Text string `json:"text"`
+		}{Text: "top level"},
+	}
+	nested := &wacConversationContext{
+		Summary: &struct {
+			Text string `json:"text"`
+		}{Text: "nested"},
+	}
+
+	assert.Equal(t, topLevel, resolveWAHandoverConversationContext(wacHandoverValue{
+		ConversationContext: topLevel,
+		ControlPassed: &wacHandoverControlPassed{
+			ConversationContext: nested,
+		},
+	}))
+	assert.Equal(t, nested, resolveWAHandoverConversationContext(wacHandoverValue{
+		ControlPassed: &wacHandoverControlPassed{
+			ConversationContext: nested,
+		},
+	}))
+	assert.Nil(t, resolveWAHandoverConversationContext(wacHandoverValue{}))
+}
+
+func TestResolveWAHandoverSenderURN(t *testing.T) {
+	urn, err := resolveWAHandoverSenderURN(&wacHandoverSender{PhoneNumber: "558893565901"})
+	assert.NoError(t, err)
+	assert.Equal(t, "558893565901", urn.Path())
+
+	_, err = resolveWAHandoverSenderURN(&wacHandoverSender{})
+	assert.Error(t, err)
+}
+
 func TestWACPhoneNumberID(t *testing.T) {
 	metadata := &struct {
 		DisplayPhoneNumber string `json:"display_phone_number"`

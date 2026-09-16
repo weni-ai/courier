@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -104,8 +103,10 @@ func (b *backend) flushWAConversationHandoverFile(filename string, contents []by
 	event := courier.WAConversationHandoverEvent{}
 	err := json.Unmarshal(contents, &event)
 	if err != nil {
-		log.Printf("ERROR unmarshalling spool file '%s', renaming: %s\n", filename, err)
-		os.Rename(filename, fmt.Sprintf("%s.error", filename))
+		logrus.WithError(err).WithField("filename", filename).Error("error unmarshalling spool file, renaming")
+		if renameErr := os.Rename(filename, fmt.Sprintf("%s.error", filename)); renameErr != nil {
+			return renameErr
+		}
 		return nil
 	}
 

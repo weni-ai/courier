@@ -190,6 +190,52 @@ func TestResolveWAHandoverSenderURN(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestResolveControlPassedOwner(t *testing.T) {
+	owner := resolveControlPassedOwner(&wacHandoverControlPassed{
+		Metadata:           "handover reason",
+		PreviousOwnerAppID: "flat-app",
+		PreviousOwner: &struct {
+			AppID      string `json:"app_id"`
+			AppRole    string `json:"app_role"`
+			BusinessID string `json:"business_id"`
+		}{
+			AppID:      "nested-app",
+			AppRole:    "nested-role",
+			BusinessID: "nested-biz",
+		},
+		NewOwnerRole: "primary",
+	})
+
+	assert.Equal(t, "handover reason", owner.Metadata)
+	assert.Equal(t, "nested-app", owner.AppID)
+	assert.Equal(t, "nested-role", owner.AppRole)
+	assert.Equal(t, "nested-biz", owner.BusinessID)
+	assert.Equal(t, "primary", owner.NewOwnerRole)
+
+	event := courier.WAConversationHandoverEvent{}
+	applyWAHandoverPreviousOwner(&event, &wacHandoverControlPassed{
+		PreviousOwnerAppID: "flat-app",
+		PreviousOwner: &struct {
+			AppID      string `json:"app_id"`
+			AppRole    string `json:"app_role"`
+			BusinessID string `json:"business_id"`
+		}{AppID: "nested-app"},
+	})
+	fields := messagingHandoverLogFields(wacHandoverValue{
+		ControlPassed: &wacHandoverControlPassed{
+			PreviousOwnerAppID: "flat-app",
+			PreviousOwner: &struct {
+				AppID      string `json:"app_id"`
+				AppRole    string `json:"app_role"`
+				BusinessID string `json:"business_id"`
+			}{AppID: "nested-app"},
+		},
+	}, time.Now(), "", "", "", "persisted")
+
+	assert.Equal(t, "nested-app", event.PreviousOwnerAppID)
+	assert.Equal(t, "nested-app", fields["previous_owner_app_id"])
+}
+
 func TestApplyWAHandoverPreviousOwner(t *testing.T) {
 	event := courier.WAConversationHandoverEvent{}
 	applyWAHandoverPreviousOwner(&event, &wacHandoverControlPassed{

@@ -233,32 +233,42 @@ func parseWAHandoverOccurredOn(value wacHandoverValue, entryTime int64) (time.Ti
 	return time.Unix(ts, 0).UTC(), nil
 }
 
-func applyWAHandoverPreviousOwner(event *courier.WAConversationHandoverEvent, controlPassed *wacHandoverControlPassed) {
-	if controlPassed == nil {
-		return
+type resolvedPreviousOwner struct {
+	AppID, AppRole, BusinessID, Metadata, NewOwnerRole string
+}
+
+func resolveControlPassedOwner(cp *wacHandoverControlPassed) resolvedPreviousOwner {
+	if cp == nil {
+		return resolvedPreviousOwner{}
 	}
 
-	event.HandoverMetadata = controlPassed.Metadata
-
-	if controlPassed.PreviousOwner != nil {
-		event.PreviousOwnerAppID = controlPassed.PreviousOwner.AppID
-		event.PreviousOwnerAppRole = controlPassed.PreviousOwner.AppRole
-		event.PreviousOwnerBusinessID = controlPassed.PreviousOwner.BusinessID
+	r := resolvedPreviousOwner{Metadata: cp.Metadata, NewOwnerRole: cp.NewOwnerRole}
+	if cp.PreviousOwner != nil {
+		r.AppID = cp.PreviousOwner.AppID
+		r.AppRole = cp.PreviousOwner.AppRole
+		r.BusinessID = cp.PreviousOwner.BusinessID
 	}
-	if event.PreviousOwnerAppID == "" {
-		event.PreviousOwnerAppID = controlPassed.PreviousOwnerAppID
+	if r.AppID == "" {
+		r.AppID = cp.PreviousOwnerAppID
 	}
-	if event.PreviousOwnerAppRole == "" {
-		switch {
-		case controlPassed.PreviousOwnerAppRole != "":
-			event.PreviousOwnerAppRole = controlPassed.PreviousOwnerAppRole
-		case controlPassed.PreviousOwnerRole != "":
-			event.PreviousOwnerAppRole = controlPassed.PreviousOwnerRole
+	if r.AppRole == "" {
+		r.AppRole = cp.PreviousOwnerAppRole
+		if r.AppRole == "" {
+			r.AppRole = cp.PreviousOwnerRole
 		}
 	}
-	if event.PreviousOwnerBusinessID == "" {
-		event.PreviousOwnerBusinessID = controlPassed.PreviousOwnerBusinessID
+	if r.BusinessID == "" {
+		r.BusinessID = cp.PreviousOwnerBusinessID
 	}
+	return r
+}
+
+func applyWAHandoverPreviousOwner(event *courier.WAConversationHandoverEvent, controlPassed *wacHandoverControlPassed) {
+	owner := resolveControlPassedOwner(controlPassed)
+	event.HandoverMetadata = owner.Metadata
+	event.PreviousOwnerAppID = owner.AppID
+	event.PreviousOwnerAppRole = owner.AppRole
+	event.PreviousOwnerBusinessID = owner.BusinessID
 }
 
 func messagingHandoverLogFields(value wacHandoverValue, occurredOn time.Time, contactURN string, contactName string, contextType string, outcome string) logrus.Fields {
@@ -293,33 +303,21 @@ func messagingHandoverLogFields(value wacHandoverValue, occurredOn time.Time, co
 		fields["history_item_count"] = len(conversationContext.History.Items)
 	}
 	if value.ControlPassed != nil {
-		if value.ControlPassed.Metadata != "" {
-			fields["handover_metadata"] = value.ControlPassed.Metadata
+		owner := resolveControlPassedOwner(value.ControlPassed)
+		if owner.Metadata != "" {
+			fields["handover_metadata"] = owner.Metadata
 		}
-		if value.ControlPassed.PreviousOwnerAppID != "" {
-			fields["previous_owner_app_id"] = value.ControlPassed.PreviousOwnerAppID
+		if owner.AppID != "" {
+			fields["previous_owner_app_id"] = owner.AppID
 		}
-		if value.ControlPassed.PreviousOwnerAppRole != "" {
-			fields["previous_owner_app_role"] = value.ControlPassed.PreviousOwnerAppRole
-		} else if value.ControlPassed.PreviousOwnerRole != "" {
-			fields["previous_owner_app_role"] = value.ControlPassed.PreviousOwnerRole
+		if owner.AppRole != "" {
+			fields["previous_owner_app_role"] = owner.AppRole
 		}
-		if value.ControlPassed.PreviousOwnerBusinessID != "" {
-			fields["previous_owner_business_id"] = value.ControlPassed.PreviousOwnerBusinessID
+		if owner.BusinessID != "" {
+			fields["previous_owner_business_id"] = owner.BusinessID
 		}
-		if value.ControlPassed.NewOwnerRole != "" {
-			fields["new_owner_role"] = value.ControlPassed.NewOwnerRole
-		}
-		if value.ControlPassed.PreviousOwner != nil {
-			if _, ok := fields["previous_owner_app_id"]; !ok && value.ControlPassed.PreviousOwner.AppID != "" {
-				fields["previous_owner_app_id"] = value.ControlPassed.PreviousOwner.AppID
-			}
-			if _, ok := fields["previous_owner_app_role"]; !ok && value.ControlPassed.PreviousOwner.AppRole != "" {
-				fields["previous_owner_app_role"] = value.ControlPassed.PreviousOwner.AppRole
-			}
-			if _, ok := fields["previous_owner_business_id"]; !ok && value.ControlPassed.PreviousOwner.BusinessID != "" {
-				fields["previous_owner_business_id"] = value.ControlPassed.PreviousOwner.BusinessID
-			}
+		if owner.NewOwnerRole != "" {
+			fields["new_owner_role"] = owner.NewOwnerRole
 		}
 	}
 

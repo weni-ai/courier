@@ -19,22 +19,24 @@ const (
 
 // TemplateMessage representa os dados de um template enviado
 type TemplateMessage struct {
-	ContactURN        string   `json:"contact_urn,omitempty"`
-	ContactUUID       string   `json:"contact_uuid,omitempty"`
-	ChannelUUID       string   `json:"channel_uuid,omitempty"`
-	MessageID         string   `json:"message_id,omitempty"`
-	MessageDate       string   `json:"message_date,omitempty"`
-	Direction         string   `json:"direction,omitempty"`
-	ChannelType       string   `json:"channel_type,omitempty"`
-	Text              string   `json:"text,omitempty"`
-	TemplateName      string   `json:"template_name,omitempty"`
-	TemplateUUID      string   `json:"template_uuid,omitempty"`
-	TemplateLanguage  string   `json:"template_language,omitempty"`
-	TemplateNamespace string   `json:"template_namespace,omitempty"`
-	TemplateVariables []string `json:"template_variables,omitempty"`
-	Status            string   `json:"status,omitempty"`
-	TemplateType      string   `json:"template_type,omitempty"`
-	BroadcastID       int64    `json:"broadcast_id,omitempty"`
+	ContactURN             string            `json:"contact_urn,omitempty"`
+	ContactUUID            string            `json:"contact_uuid,omitempty"`
+	ChannelUUID            string            `json:"channel_uuid,omitempty"`
+	MessageID              string            `json:"message_id,omitempty"`
+	MessageDate            string            `json:"message_date,omitempty"`
+	Direction              string            `json:"direction,omitempty"`
+	ChannelType            string            `json:"channel_type,omitempty"`
+	Text                   string            `json:"text,omitempty"`
+	TemplateName           string            `json:"template_name,omitempty"`
+	TemplateUUID           string            `json:"template_uuid,omitempty"`
+	TemplateLanguage       string            `json:"template_language,omitempty"`
+	TemplateNamespace      string            `json:"template_namespace,omitempty"`
+	TemplateVariables      []string          `json:"template_variables,omitempty"`
+	TemplateNamedVariables map[string]string `json:"template_named_variables,omitempty"`
+	ParameterFormat        string            `json:"parameter_format,omitempty"`
+	Status                 string            `json:"status,omitempty"`
+	TemplateType           string            `json:"template_type,omitempty"`
+	BroadcastID            int64             `json:"broadcast_id,omitempty"`
 }
 
 // NewTemplateMessage cria uma nova mensagem de template
@@ -102,10 +104,12 @@ type MsgTemplating struct {
 		UUID string `json:"uuid" validate:"required"`
 		ID   string `json:"id"`
 	} `json:"template" validate:"required,dive"`
-	Language  string   `json:"language" validate:"required"`
-	Country   string   `json:"country"`
-	Namespace string   `json:"namespace"`
-	Variables []string `json:"variables"`
+	Language        string            `json:"language" validate:"required"`
+	Country         string            `json:"country"`
+	Namespace       string            `json:"namespace"`
+	Variables       []string          `json:"variables"`
+	NamedVariables  map[string]string `json:"named_variables,omitempty"`
+	ParameterFormat string            `json:"parameter_format,omitempty"`
 }
 
 // NewRMQTemplateClient cria um novo cliente para o serviço de templates usando RabbitMQ

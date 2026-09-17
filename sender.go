@@ -335,6 +335,8 @@ func (w *Sender) sendMessage(msg Msg) {
 				templateVariables,
 				msg.BroadcastID(),
 			)
+			templateMsg.TemplateNamedVariables = templatingData.NamedVariables
+			templateMsg.ParameterFormat = templatingData.ParameterFormat
 			w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
 		}
 

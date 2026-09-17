@@ -1,3 +1,7 @@
+1.68.0
+----------
+ * Add conversation orchestration support for WhatsApp Multi-Partner
+
 1.67.0
 ----------
  * feat: add support for interactive carousel with WebP images in WhatsApp

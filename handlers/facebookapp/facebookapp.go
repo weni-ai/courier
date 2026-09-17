@@ -1569,8 +1569,14 @@ func (h *handler) handleInstagramComment(
 	ev := h.Backend().NewIncomingMsg(channel, urn, commentText).WithExternalID(commentID).WithReceivedOn(time.Unix(0, entryTime*1000000).UTC())
 	event := h.Backend().CheckExternalIDSeen(ev)
 
+	igResponseType := "comment"
+	if channel.BoolConfigForKey(courier.ConfigForwardComments, false) {
+		igResponseType = "dm_comment"
+	}
+
 	igCommentMetadata := map[string]interface{}{
-		"ig_comment": igComment,
+		"ig_comment":       igComment,
+		"ig_response_type": igResponseType,
 	}
 	if err := addMetadataWithOverwrite(event, igCommentMetadata); err != nil {
 		courier.LogRequestError(r, channel, err)

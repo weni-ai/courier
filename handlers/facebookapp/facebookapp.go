@@ -1614,6 +1614,9 @@ func (h *handler) handleInstagramComment(
 		igResponseType = "dm_comment"
 	}
 
+	fmt.Printf("[ig comment receive] channel=%s comment_id=%s ig_response_type=%s forward_comments=%v\n",
+		channel.UUID(), commentID, igResponseType, channel.BoolConfigForKey(courier.ConfigForwardComments, false))
+
 	igCommentMetadata := map[string]interface{}{
 		"ig_comment":       igComment,
 		"ig_response_type": igResponseType,
@@ -1993,6 +1996,9 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 }
 
 func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
+	fmt.Printf("[ig comment send] msg_id=%d ig_comment_id=%q ig_response_type=%q metadata=%s\n",
+		msg.ID(), msg.IGCommentID(), msg.IGResponseType(), string(msg.Metadata()))
+
 	// can't do anything without an access token
 	accessToken := msg.Channel().StringConfigForKey(courier.ConfigAuthToken, "")
 	if accessToken == "" {

@@ -164,6 +164,7 @@ var testCasesIGComments = []ChannelHandleTestCase{
 					"original_media_id":  "179908467",
 				},
 			},
+			"ig_response_type": "dm_comment",
 			"overwrite_message": map[string]interface{}{
 				"ig_comment": map[string]interface{}{
 					"id": "30065218",
@@ -174,6 +175,7 @@ var testCasesIGComments = []ChannelHandleTestCase{
 						"original_media_id":  "179908467",
 					},
 				},
+				"ig_response_type": "dm_comment",
 			},
 		}),
 		PrepRequest: addValidSignature},
@@ -191,6 +193,7 @@ var testCasesIGComments = []ChannelHandleTestCase{
 					"caption":            "Summer sale post",
 				},
 			},
+			"ig_response_type": "dm_comment",
 			"overwrite_message": map[string]interface{}{
 				"ig_comment": map[string]interface{}{
 					"id": "30065221",
@@ -202,6 +205,7 @@ var testCasesIGComments = []ChannelHandleTestCase{
 						"caption":            "Summer sale post",
 					},
 				},
+				"ig_response_type": "dm_comment",
 			},
 		}),
 		PrepRequest: addValidSignature},

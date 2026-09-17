@@ -177,6 +177,8 @@ func (s *server) Start() error {
 		"version": s.config.Version,
 	}).Info("server listening on ", s.config.Port)
 
+	s.startPprofServer()
+
 	// start our foreman for outgoing messages
 	s.foreman = NewForeman(s, s.config.MaxWorkers)
 	s.foreman.Start()
@@ -195,6 +197,12 @@ func (s *server) Stop() error {
 	// shut down our HTTP server
 	if err := s.httpServer.Shutdown(context.Background()); err != nil {
 		log.WithField("state", "stopping").WithError(err).Error("error shutting down server")
+	}
+
+	if s.pprofServer != nil {
+		if err := s.pprofServer.Shutdown(context.Background()); err != nil {
+			log.WithField("state", "stopping").WithError(err).Error("error shutting down pprof server")
+		}
 	}
 
 	// stop everything
@@ -248,9 +256,10 @@ func (s *server) SetTemplates(templates templates.Client) { s.templates = templa
 type server struct {
 	backend Backend
 
-	httpServer *http.Server
-	router     *chi.Mux
-	chanRouter *chi.Mux
+	httpServer  *http.Server
+	pprofServer *http.Server
+	router      *chi.Mux
+	chanRouter  *chi.Mux
 
 	foreman *Foreman
 
@@ -472,14 +481,8 @@ func (s *server) handle405(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	if s.config.StatusUsername != "" {
-		user, pass, ok := r.BasicAuth()
-		if !ok || user != s.config.StatusUsername || pass != s.config.StatusPassword {
-			w.Header().Set("WWW-Authenticate", `Basic realm="Authenticate"`)
-			w.WriteHeader(401)
-			w.Write([]byte("Unauthorised.\n"))
-			return
-		}
+	if !checkStatusAuth(s.config.StatusUsername, s.config.StatusPassword, w, r) {
+		return
 	}
 
 	var buf bytes.Buffer

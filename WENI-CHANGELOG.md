@@ -1,3 +1,19 @@
+1.67.0
+----------
+ * feat: add support for interactive carousel with WebP images in WhatsApp
+
+1.66.1
+----------
+ * feat: add conversation starter metadata handling in weniwebchat
+
+1.66.0
+----------
+ * feat: whatsapp context reply support
+
+1.65.0
+----------
+ * feat: add configurable pprof HTTP server with auth support
+
 1.64.0
 ----------
  * feat: implement CTWA referral source handling and testing

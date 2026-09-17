@@ -1538,6 +1538,11 @@ func ReadFile(path string) []byte {
 	return d
 }
 
+// PutMedia stores media contents and returns a deterministic public URL for tests.
+func (mb *MockBackend) PutMedia(ctx context.Context, channel Channel, filename, contentType string, contents []byte) (string, error) {
+	return fmt.Sprintf("https://localhost/media/%s", filename), nil
+}
+
 // UpdateChannelConfig updates the channel configuration
 func (mb *MockBackend) UpdateChannelConfig(ctx context.Context, channel Channel, config map[string]interface{}) error {
 	if mockChannel, ok := channel.(*MockChannel); ok {

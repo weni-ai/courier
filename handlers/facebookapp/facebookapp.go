@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -589,6 +590,7 @@ func processWACButtonMetadata(button *struct {
 		},
 	}
 }
+
 type bsuidUpdate struct {
 	Previous string
 	Current  string
@@ -2311,15 +2313,16 @@ type wacMTAction struct {
 }
 
 type wacParam struct {
-	Type        string       `json:"type"`
-	Text        string       `json:"text,omitempty"`
-	Payload     string       `json:"payload,omitempty"`
-	PhoneNumber string       `json:"phone_number,omitempty"`
-	URL         string       `json:"url,omitempty"`
-	Image       *wacMTMedia  `json:"image,omitempty"`
-	Document    *wacMTMedia  `json:"document,omitempty"`
-	Video       *wacMTMedia  `json:"video,omitempty"`
-	Action      *wacMTAction `json:"action,omitempty"`
+	Type          string       `json:"type"`
+	ParameterName string       `json:"parameter_name,omitempty"`
+	Text          string       `json:"text,omitempty"`
+	Payload       string       `json:"payload,omitempty"`
+	PhoneNumber   string       `json:"phone_number,omitempty"`
+	URL           string       `json:"url,omitempty"`
+	Image         *wacMTMedia  `json:"image,omitempty"`
+	Document      *wacMTMedia  `json:"document,omitempty"`
+	Video         *wacMTMedia  `json:"video,omitempty"`
+	Action        *wacMTAction `json:"action,omitempty"`
 }
 
 type wacComponent struct {
@@ -2392,11 +2395,11 @@ type wacMTContext struct {
 }
 
 type wacMTPayload[P wacInteractiveActionParams] struct {
-	MessagingProduct string `json:"messaging_product"`
-	RecipientType    string `json:"recipient_type"`
-	To               string `json:"to,omitempty"`
-	Recipient        string `json:"recipient,omitempty"`
-	Type             string `json:"type"`
+	MessagingProduct string        `json:"messaging_product"`
+	RecipientType    string        `json:"recipient_type"`
+	To               string        `json:"to,omitempty"`
+	Recipient        string        `json:"recipient,omitempty"`
+	Type             string        `json:"type"`
 	Context          *wacMTContext `json:"context,omitempty"`
 
 	Text *wacText `json:"text,omitempty"`
@@ -3766,17 +3769,50 @@ func fbCalculateSignature(appSecret string, body []byte) (string, error) {
 	return hex.EncodeToString(mac.Sum(nil)), nil
 }
 
+func isNamedTemplating(templating *MsgTemplating) bool {
+	return templating != nil && strings.EqualFold(templating.ParameterFormat, "named")
+}
+
+func buildBodyComponent(templating *MsgTemplating) *wacComponent {
+	if templating == nil {
+		return nil
+	}
+
+	bodyComponent := &wacComponent{Type: "body"}
+	if isNamedTemplating(templating) {
+		if len(templating.NamedVariables) == 0 {
+			return nil
+		}
+		names := make([]string, 0, len(templating.NamedVariables))
+		for name := range templating.NamedVariables {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			bodyComponent.Params = append(bodyComponent.Params, &wacParam{
+				Type:          "text",
+				ParameterName: name,
+				Text:          templating.NamedVariables[name],
+			})
+		}
+		return bodyComponent
+	}
+
+	if len(templating.Variables) == 0 {
+		return nil
+	}
+	for _, v := range templating.Variables {
+		bodyComponent.Params = append(bodyComponent.Params, &wacParam{Type: "text", Text: v})
+	}
+	return bodyComponent
+}
+
 // buildTemplateComponents builds all components for a WhatsApp template message
 // This includes: body variables, carousel/header, order details, and buttons
 func (h *handler) buildTemplateComponents(msg courier.Msg, templating *MsgTemplating, accessToken string, status courier.MsgStatus, start time.Time) ([]*wacComponent, error) {
 	var components []*wacComponent
 
-	// Build body component with variables
-	if len(templating.Variables) > 0 {
-		bodyComponent := &wacComponent{Type: "body"}
-		for _, v := range templating.Variables {
-			bodyComponent.Params = append(bodyComponent.Params, &wacParam{Type: "text", Text: v})
-		}
+	if bodyComponent := buildBodyComponent(templating); bodyComponent != nil {
 		components = append(components, bodyComponent)
 	}
 
@@ -4342,12 +4378,14 @@ type MsgTemplating struct {
 		UUID     string `json:"uuid" validate:"required"`
 		Category string `json:"category"`
 	} `json:"template" validate:"required,dive"`
-	Language      string         `json:"language" validate:"required"`
-	Country       string         `json:"country"`
-	Namespace     string         `json:"namespace"`
-	Variables     []string       `json:"variables"`
-	IsCarousel    bool           `json:"is_carousel,omitempty"`
-	CarouselCards []CarouselCard `json:"carousel_cards,omitempty"`
+	Language        string            `json:"language" validate:"required"`
+	Country         string            `json:"country"`
+	Namespace       string            `json:"namespace"`
+	Variables       []string          `json:"variables"`
+	NamedVariables  map[string]string `json:"named_variables,omitempty"`
+	ParameterFormat string            `json:"parameter_format,omitempty"`
+	IsCarousel      bool              `json:"is_carousel,omitempty"`
+	CarouselCards   []CarouselCard    `json:"carousel_cards,omitempty"`
 }
 
 // CarouselCard represents a single card in a carousel template

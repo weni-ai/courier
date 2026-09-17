@@ -1,3 +1,7 @@
+1.68.1
+----------
+ * fix: whatsapp context reply strategy
+
 1.68.0
 ----------
  * Add conversation orchestration support for WhatsApp Multi-Partner

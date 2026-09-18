@@ -4174,30 +4174,6 @@ func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg) (*wacInteract
 
 		media := wacMTMedia{Link: attURL}
 
-		var media wacMTMedia
-		if attType == "image" {
-			mediaID, mediaLogs, err := h.fetchWACMediaID(msg, mimeType, attURL, accessToken, true)
-			for _, log := range mediaLogs {
-				status.AddLog(log)
-			}
-			if err != nil {
-				status.AddLog(courier.NewChannelLogFromError("error on fetch media ID for carousel card", msg.Channel(), msg.ID(), time.Since(start), err))
-			} else if mediaID != "" {
-				attURL = ""
-			}
-			parsedURL, err := url.Parse(attURL)
-			if err != nil {
-				return nil, errors.Wrapf(err, "invalid attachment URL for card %d", cardIdx)
-			}
-			media = wacMTMedia{ID: mediaID, Link: parsedURL.String()}
-		} else {
-			parsedURL, err := url.Parse(attURL)
-			if err != nil {
-				return nil, errors.Wrapf(err, "invalid attachment URL for card %d", cardIdx)
-			}
-			media = wacMTMedia{Link: parsedURL.String()}
-		}
-
 		cardIdxPtr := cardIdx
 		card := wacCarouselCard{
 			Type:      "cta_url", // card type is always cta_url; button type (in action) can be cta_url or quick_reply

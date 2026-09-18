@@ -1,3 +1,7 @@
+1.68.2
+----------
+ * fix: remove fallback to ResponseToExternalID for whatsapp context reply
+
 1.68.1
 ----------
  * fix: whatsapp context reply strategy

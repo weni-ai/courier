@@ -265,13 +265,13 @@ type moPayload struct {
 					DisplayPhoneNumber string `json:"display_phone_number"`
 					PhoneNumberID      string `json:"phone_number_id"`
 				} `json:"metadata"`
-				Recipient           *wacHandoverRecipient      `json:"recipient"`
-				Sender              *wacHandoverSender         `json:"sender"`
-				Timestamp           string                     `json:"timestamp"`
-				Type                string                     `json:"type"`
-				ControlPassed       *wacHandoverControlPassed  `json:"control_passed"`
-				ConversationContext *wacConversationContext    `json:"conversation_context"`
-				Contacts []struct {
+				Recipient           *wacHandoverRecipient     `json:"recipient"`
+				Sender              *wacHandoverSender        `json:"sender"`
+				Timestamp           string                    `json:"timestamp"`
+				Type                string                    `json:"type"`
+				ControlPassed       *wacHandoverControlPassed `json:"control_passed"`
+				ConversationContext *wacConversationContext   `json:"conversation_context"`
+				Contacts            []struct {
 					Profile struct {
 						Name     string `json:"name"`
 						Username string `json:"username,omitempty"`
@@ -589,6 +589,7 @@ func processWACButtonMetadata(button *struct {
 		},
 	}
 }
+
 type bsuidUpdate struct {
 	Previous string
 	Current  string
@@ -2392,21 +2393,20 @@ type wacMTContext struct {
 }
 
 // wacQuotedMessageID returns the WhatsApp message id to quote as a contextual reply.
-// Prefer metadata.response_to_external_id (e.g. ticket replies from Wenichats); fall back
-// to ResponseToExternalID for flow-session replies that only set the top-level field.
+// Returns the value of metadata.response_to_external_id if present, otherwise returns empty string.
 func wacQuotedMessageID(msg courier.Msg) string {
 	if id, err := jsonparser.GetString(msg.Metadata(), "response_to_external_id"); err == nil && id != "" {
 		return id
 	}
-	return msg.ResponseToExternalID()
+	return ""
 }
 
 type wacMTPayload[P wacInteractiveActionParams] struct {
-	MessagingProduct string `json:"messaging_product"`
-	RecipientType    string `json:"recipient_type"`
-	To               string `json:"to,omitempty"`
-	Recipient        string `json:"recipient,omitempty"`
-	Type             string `json:"type"`
+	MessagingProduct string        `json:"messaging_product"`
+	RecipientType    string        `json:"recipient_type"`
+	To               string        `json:"to,omitempty"`
+	Recipient        string        `json:"recipient,omitempty"`
+	Type             string        `json:"type"`
 	Context          *wacMTContext `json:"context,omitempty"`
 
 	Text *wacText `json:"text,omitempty"`

@@ -72,6 +72,8 @@ type MockBackend struct {
 	contactFieldValues map[urns.URN]map[string]string
 
 	ctwaEvents []CtwaEvent
+
+	waHandoverEvents []WAConversationHandoverEvent
 }
 
 // NewMockBackend returns a new mock backend suitable for testing
@@ -355,6 +357,15 @@ func (mb *MockBackend) WriteCtwaToDB(ctx context.Context, event CtwaEvent) error
 	return nil
 }
 
+// WriteWAConversationHandover writes the passed in WA conversation handover to our backend (mock implementation)
+func (mb *MockBackend) WriteWAConversationHandover(ctx context.Context, event WAConversationHandoverEvent) error {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+
+	mb.waHandoverEvents = append(mb.waHandoverEvents, event)
+	return nil
+}
+
 // CtwaEvents returns CTWA events written through the mock backend.
 func (mb *MockBackend) CtwaEvents() []CtwaEvent {
 	mb.mutex.RLock()
@@ -362,6 +373,16 @@ func (mb *MockBackend) CtwaEvents() []CtwaEvent {
 
 	events := make([]CtwaEvent, len(mb.ctwaEvents))
 	copy(events, mb.ctwaEvents)
+	return events
+}
+
+// WAHandoverEvents returns WA conversation handover events written through the mock backend.
+func (mb *MockBackend) WAHandoverEvents() []WAConversationHandoverEvent {
+	mb.mutex.RLock()
+	defer mb.mutex.RUnlock()
+
+	events := make([]WAConversationHandoverEvent, len(mb.waHandoverEvents))
+	copy(events, mb.waHandoverEvents)
 	return events
 }
 
@@ -1515,6 +1536,11 @@ func ReadFile(path string) []byte {
 		panic(err)
 	}
 	return d
+}
+
+// PutMedia stores media contents and returns a deterministic public URL for tests.
+func (mb *MockBackend) PutMedia(ctx context.Context, channel Channel, filename, contentType string, contents []byte) (string, error) {
+	return fmt.Sprintf("https://localhost/media/%s", filename), nil
 }
 
 // UpdateChannelConfig updates the channel configuration

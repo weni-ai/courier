@@ -549,6 +549,14 @@ type mediaObject struct {
 	Filename string `json:"filename,omitempty"`
 }
 
+func newMediaObject(id, link string) (*mediaObject, error) {
+	encoded, err := utils.EncodeMediaURL(link)
+	if err != nil {
+		return nil, err
+	}
+	return &mediaObject{ID: id, Link: encoded}, nil
+}
+
 type LocalizableParam struct {
 	Default string `json:"default"`
 }
@@ -788,6 +796,10 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 						fileURL := mediaURL
 						if err != nil && mediaID != "" {
 							mediaURL = ""
+						}
+						mediaURL, err = utils.EncodeMediaURL(mediaURL)
+						if err != nil {
+							return nil, logs, err
 						}
 						if strings.HasPrefix(mimeType, "image") {
 							image := &mmtImage{
@@ -1058,7 +1070,10 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 				if err == nil && mediaID != "" {
 					mediaURL = ""
 				}
-				mediaPayload := &mediaObject{ID: mediaID, Link: mediaURL}
+				mediaPayload, err := newMediaObject(mediaID, mediaURL)
+				if err != nil {
+					return nil, logs, err
+				}
 				if strings.HasPrefix(mimeType, "audio") {
 					payload := mtAudioPayload{
 						To:   msg.URN().Path(),
@@ -1185,7 +1200,10 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 					if err == nil && mediaID != "" {
 						mediaURL = ""
 					}
-					mediaPayload := &mediaObject{ID: mediaID, Link: mediaURL}
+					mediaPayload, err := newMediaObject(mediaID, mediaURL)
+					if err != nil {
+						return nil, logs, err
+					}
 					if strings.HasPrefix(mimeType, "application") {
 						mediaPayload.Filename = filename
 						payload.Interactive.Header = &struct {
@@ -1521,6 +1539,11 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 // fetchMediaID tries to fetch the id for the uploaded media, setting the result in redis.
 func (h *handler) fetchMediaID(msg courier.Msg, mimeType, mediaURL string) (string, []*courier.ChannelLog, error) {
 	var logs []*courier.ChannelLog
+
+	mediaURL, err := utils.EncodeMediaURL(mediaURL)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "invalid media URL")
+	}
 
 	// check in cache first
 	rc := h.Backend().RedisPool().Get()

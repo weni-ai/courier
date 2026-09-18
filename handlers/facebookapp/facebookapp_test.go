@@ -370,6 +370,83 @@ func TestDescribeWAC(t *testing.T) {
 	}
 }
 
+func TestReceiveWACHandover(t *testing.T) {
+	tcs := []struct {
+		label       string
+		fixture     string
+		response    string
+		eventCount  int
+		contextType string
+		contextText string
+		contactName string
+		contactURN  string
+	}{
+		{
+			label:       "Summary handover with recipient phone_number_id",
+			fixture:     "./testdata/wac/handoverSummaryWAC.json",
+			response:    "wa conversation handover persisted",
+			eventCount:  1,
+			contextType: courier.WAHandoverContextSummary,
+			contextText: "Customer asked about pricing and delivery.",
+			contactName: "Kerry Fisher",
+		},
+		{
+			label:       "History handover",
+			fixture:     "./testdata/wac/handoverHistoryWAC.json",
+			response:    "wa conversation handover persisted",
+			eventCount:  1,
+			contextType: courier.WAHandoverContextHistory,
+			contextText: "[user] Hi\n[business] Hello, how can I help?\n[user] <image>",
+			contactName: "Kerry Fisher",
+		},
+		{
+			label:      "Control passed without context",
+			fixture:    "./testdata/wac/handoverNoContextWAC.json",
+			response:   "control_passed without conversation context",
+			eventCount: 0,
+		},
+		{
+			label:       "Summary handover nested in control_passed with phone_number sender",
+			fixture:     "./testdata/wac/handoverSummaryNestedWAC.json",
+			response:    "wa conversation handover persisted",
+			eventCount:  1,
+			contextType: courier.WAHandoverContextSummary,
+			contextText: "* The business sent a template and the customer tapped a button.\n* The business acknowledged the response by saying \"ok\".",
+			contactURN:  "whatsapp:558893565901",
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.label, func(t *testing.T) {
+			mb := courier.NewMockBackend()
+			s := handlers.NewTestServer(mb)
+			for _, ch := range testChannelsWAC {
+				mb.AddChannel(ch)
+			}
+			handler := newHandler("WAC", "Cloud API WhatsApp", false)
+			handler.Initialize(s)
+
+			handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, string(courier.ReadFile(tc.fixture)), nil, 200, Sp(tc.response), addValidSignatureWAC)
+
+			assert.Equal(t, 0, mb.LenQueuedMsgs())
+			events := mb.WAHandoverEvents()
+			assert.Len(t, events, tc.eventCount)
+			if tc.eventCount == 0 {
+				return
+			}
+
+			assert.Equal(t, tc.contextType, events[0].ContextType)
+			assert.Equal(t, tc.contextText, events[0].ContextText)
+			expectedURN := tc.contactURN
+			if expectedURN == "" {
+				expectedURN = "whatsapp:5678"
+			}
+			assert.Equal(t, expectedURN, events[0].ContactURN.String())
+			assert.Equal(t, tc.contactName, events[0].ContactName)
+		})
+	}
+}
+
 func TestResolveMediaURL(t *testing.T) {
 
 	tcs := []struct {
@@ -962,6 +1039,13 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		Status: "W", ExternalID: "157b5e14568e8",
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"Simple Message"}}`,
+		SendPrep:    setSendURL},
+	{Label: "Plain Send as Contextual Reply",
+		Text: "Simple Message", URN: "whatsapp:250788123123", Path: "/12345_ID/messages",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata: json.RawMessage(`{"response_to_external_id":"wamid.HBgLMTY0NjcwNDM1OTUVAgASGBQzQTdCNTg5RjY1MEMyRjlGMjRGNgA="}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"text","context":{"message_id":"wamid.HBgLMTY0NjcwNDM1OTUVAgASGBQzQTdCNTg5RjY1MEMyRjlGMjRGNgA="},"text":{"body":"Simple Message"}}`,
 		SendPrep:    setSendURL},
 	{Label: "Unicode Send",
 		Text: "☺", URN: "whatsapp:250788123123", Path: "/12345_ID/messages",
@@ -1600,11 +1684,29 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"carousel","body":{"text":"Choose an option"},"action":{"cards":[{"card_index":0,"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}},"body":{"text":"Option A"},"action":{"buttons":[{"type":"quick_reply","quick_reply":{"id":"opt_a","title":"opt_a"}}]}},{"card_index":1,"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/card2.jpg"}},"body":{"text":"Option B"},"action":{"buttons":[{"type":"quick_reply","quick_reply":{"id":"opt_b","title":"opt_b"}}]}}]}}}`,
 		SendPrep:    setSendURL},
-	{Label: "Interactive Carousel - Less than 2 attachments",
+	{Label: "Interactive Carousel - Single card with CTA URL",
 		Text: "Main text", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
 		Attachments: []string{"image/jpeg:https://foo.bar/card1.jpg"},
 		Metadata:    json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[{"sub_type":"url","parameters":{"display_text":"Link","url":"https://x.com"}}]}]}`),
-		Error:       "interactive carousel requires 2-10 media attachments, got 1",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}},"body":{"text":"Card 1"},"action":{"name":"cta_url","parameters":{"display_text":"Link","url":"https://x.com"}}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Interactive Carousel - Single card with quick replies",
+		Text: "Main text", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"image/jpeg:https://foo.bar/card1.jpg"},
+		Metadata:    json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Pick one","buttons":[{"sub_type":"quick_reply","parameters":{"id":"opt_a","title":"Option A"}}]}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"button","header":{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}},"body":{"text":"Pick one"},"action":{"buttons":[{"type":"reply","reply":{"id":"opt_a","title":"Option A"}}]}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Interactive Carousel - Single card without buttons",
+		Text: "Main text", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"image/jpeg:https://foo.bar/card1.jpg"},
+		Metadata:    json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1"}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"link":"https://foo.bar/card1.jpg","caption":"Card 1"}}`,
 		SendPrep:    setSendURL},
 	{Label: "Interactive Carousel - Missing body",
 		Text: "", URN: "whatsapp:250788123123",
@@ -1991,6 +2093,36 @@ func mockAttachmentURLs(mediaServer *httptest.Server, testCases []ChannelSendTes
 	return casesWithMockedUrls
 }
 
+func isCarouselSendTestCase(testCase ChannelSendTestCase) bool {
+	meta := string(testCase.Metadata)
+	return strings.Contains(meta, `"is_carousel": true`) || strings.Contains(meta, `"interaction_type":"carousel"`)
+}
+
+func mockCarouselAttachmentURLs(mediaServer *httptest.Server, testCases []ChannelSendTestCase) []ChannelSendTestCase {
+	casesWithMockedUrls := make([]ChannelSendTestCase, len(testCases))
+
+	for i, testCase := range testCases {
+		mockedCase := testCase
+		if !isCarouselSendTestCase(testCase) {
+			casesWithMockedUrls[i] = mockedCase
+			continue
+		}
+
+		for j, attachment := range testCase.Attachments {
+			mockedCase.Attachments[j] = strings.Replace(attachment, "https://foo.bar", mediaServer.URL, 1)
+		}
+		if testCase.RequestBody != "" {
+			mockedCase.RequestBody = strings.Replace(testCase.RequestBody, "https://foo.bar", mediaServer.URL, -1)
+		}
+		casesWithMockedUrls[i] = mockedCase
+	}
+	return casesWithMockedUrls
+}
+
+func mockPublicMediaURL(mediaURL string) string {
+	return "https://localhost/media/" + handlers.PngFilenameForURL(mediaURL)
+}
+
 func buildMockIGCommentReplyServer() *httptest.Server {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
@@ -2081,17 +2213,46 @@ func TestSending(t *testing.T) {
 	webpMediaServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 		defer req.Body.Close()
 		res.WriteHeader(200)
-		// Valid 1x1 pixel WebP lossy image
-		webpData := []byte{'R', 'I', 'F', 'F', 0x1A, 0x00, 0x00, 0x00, 'W', 'E', 'B', 'P', 'V', 'P', '8', ' ', 0x0E, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x2D, 0x01, 0x00, 0x00, 0x00, 0x00}
-		res.Write(webpData)
+		res.Write(handlers.MinimalWebPBytes())
 	}))
 
 	defer mediaServer.Close()
 	defer webpMediaServer.Close()
+	SendTestCasesWAC = mockCarouselAttachmentURLs(mediaServer, SendTestCasesWAC)
 	CachedSendTestCasesWAC := mockAttachmentURLs(mediaServer, CachedSendTestCasesWAC)
 	FailingCachedSendTestCasesWAC := mockAttachmentURLs(failingMediaServer, FailingCachedSendTestCasesWAC)
 
 	updateWebPTestCase(SendTestCasesWAC, webpMediaServer.URL)
+	card1URL := webpMediaServer.URL + "/card1.webp"
+	card2URL := webpMediaServer.URL + "/card2.webp"
+	SendTestCasesWAC = append(SendTestCasesWAC, ChannelSendTestCase{
+		Label: "Interactive Carousel Send - WebP images",
+		Text:  "Browse our collection",
+		URN:   "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{
+			"image/webp:" + card1URL,
+			"image/webp:" + card2URL,
+		},
+		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}]},{"body":"Card 2","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}]}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody:  fmt.Sprintf(`{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"carousel","body":{"text":"Browse our collection"},"action":{"cards":[{"card_index":0,"type":"cta_url","header":{"type":"image","image":{"link":"%s"}},"body":{"text":"Card 1"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}},{"card_index":1,"type":"cta_url","header":{"type":"image","image":{"link":"%s"}},"body":{"text":"Card 2"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}}]}}}`, mockPublicMediaURL(card1URL), mockPublicMediaURL(card2URL)),
+		SendPrep:     setSendURL,
+	})
+	SendTestCasesWAC = append(SendTestCasesWAC, ChannelSendTestCase{
+		Label: "Carousel Template Send - WebP images",
+		Text:  "Carousel with webp images",
+		URN:   "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{
+			"image/webp:" + card1URL,
+			"image/webp:" + card2URL,
+		},
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "webp_carousel", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "is_carousel": true}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody:  fmt.Sprintf(`{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"webp_carousel","language":{"policy":"deterministic","code":"en"},"components":[{"type":"carousel","cards":[{"card_index":0,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"%s"}}]}]},{"card_index":1,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"%s"}}]}]}]}]}}`, mockPublicMediaURL(card1URL), mockPublicMediaURL(card2URL)),
+		SendPrep:     setSendURL,
+	})
 	SendTestCasesWAC = append(SendTestCasesWAC, CachedSendTestCasesWAC...)
 	SendTestCasesWAC = append(SendTestCasesWAC, FailingCachedSendTestCasesWAC...)
 

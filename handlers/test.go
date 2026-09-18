@@ -149,6 +149,11 @@ func ensureTestServerUp(host string) {
 
 // utility method to make a request to a handler URL
 func testHandlerRequest(tb testing.TB, s courier.Server, path string, headers map[string]string, data string, multipartFormFields map[string]string, expectedStatus int, expectedBody *string, requestPrepFunc RequestPrepFunc) string {
+	return TestHandlerRequest(tb, s, path, headers, data, multipartFormFields, expectedStatus, expectedBody, requestPrepFunc)
+}
+
+// TestHandlerRequest posts to a handler URL and asserts the HTTP response.
+func TestHandlerRequest(tb testing.TB, s courier.Server, path string, headers map[string]string, data string, multipartFormFields map[string]string, expectedStatus int, expectedBody *string, requestPrepFunc RequestPrepFunc) string {
 	var req *http.Request
 	var err error
 	url := fmt.Sprintf("https://%s%s", s.Config().Domain, path)
@@ -211,6 +216,11 @@ func testHandlerRequest(tb testing.TB, s courier.Server, path string, headers ma
 }
 
 func newServer(backend courier.Backend) courier.Server {
+	return NewTestServer(backend)
+}
+
+// NewTestServer creates a courier server configured for handler tests.
+func NewTestServer(backend courier.Backend) courier.Server {
 	// for benchmarks, log to null
 	logger := logrus.New()
 	logger.Out = ioutil.Discard

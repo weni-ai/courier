@@ -3,6 +3,7 @@ package utils
 import (
 	"net/url"
 	"path"
+	"strings"
 )
 
 func AddURLPath(urlStr string, paths ...string) (string, error) {
@@ -33,7 +34,14 @@ func EncodeMediaURL(raw string) (string, error) {
 		return "", err
 	}
 
-	u.RawPath = ""
+	// Parse decodes %2F into u.Path as '/', so encoding from Path would
+	// turn a single segment into two. Re-encode the original raw path
+	// per segment to keep that distinction while still escaping IRIs.
+	pathToEncode := u.RawPath
+	if pathToEncode == "" {
+		pathToEncode = u.Path
+	}
+	u.RawPath = encodePath(pathToEncode)
 	u.RawFragment = ""
 
 	if u.RawQuery != "" {
@@ -45,4 +53,16 @@ func EncodeMediaURL(raw string) (string, error) {
 	}
 
 	return u.String(), nil
+}
+
+func encodePath(p string) string {
+	segments := strings.Split(p, "/")
+	for i, s := range segments {
+		decoded, err := url.PathUnescape(s)
+		if err != nil {
+			decoded = s
+		}
+		segments[i] = url.PathEscape(decoded)
+	}
+	return strings.Join(segments, "/")
 }

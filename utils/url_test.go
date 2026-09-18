@@ -54,6 +54,16 @@ func TestEncodeMediaURL(t *testing.T) {
 			input:    "https://cdn.example.com/file.jpg?name=edição",
 			expected: "https://cdn.example.com/file.jpg?name=edi%C3%A7%C3%A3o",
 		},
+		{
+			label:    "encoded slash in path segment is preserved",
+			input:    "https://foo.bar/foo%2Fbar.jpg",
+			expected: "https://foo.bar/foo%2Fbar.jpg",
+		},
+		{
+			label:    "encoded slash and unicode in same path",
+			input:    "https://foo.bar/foo%2F1ª-edicao.jpg",
+			expected: "https://foo.bar/foo%2F1%C2%AA-edicao.jpg",
+		},
 	}
 
 	for _, tc := range tcs {

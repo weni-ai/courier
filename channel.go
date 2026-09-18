@@ -56,6 +56,9 @@ const (
 
 	// ConfigPageID is a constant key for channel configs
 	ConfigPageID = "page_id"
+
+	// ConfigForwardComments is a constant key for forwarding Instagram feed comments to agents
+	ConfigForwardComments = "forward_comments"
 )
 
 // ChannelType is our typing of the two char channel types

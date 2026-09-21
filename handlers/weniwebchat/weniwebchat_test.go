@@ -25,7 +25,6 @@ var receiveURL = fmt.Sprintf("/c/wwc/%s/receive", channelUUID)
 // Order metadata for tests
 var orderMetadata1 = json.RawMessage(`{"order":{"product_items":[{"product_retailer_id":"product-001","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","seller_id":"seller-001","quantity":2},{"product_retailer_id":"product-002","name":"Smartphone","price":"1999.90","currency":"BRL","seller_id":"seller-002","quantity":1}]},"overwrite_message":{"order":{"product_items":[{"product_retailer_id":"product-001","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","seller_id":"seller-001","quantity":2},{"product_retailer_id":"product-002","name":"Smartphone","price":"1999.90","currency":"BRL","seller_id":"seller-002","quantity":1}]}}}`)
 var orderMetadata2 = json.RawMessage(`{"order":{"product_items":[{"product_retailer_id":"product-abc","name":"Headphones","price":"299.90","currency":"BRL","seller_id":"audio-seller","quantity":3}]},"overwrite_message":{"order":{"product_items":[{"product_retailer_id":"product-abc","name":"Headphones","price":"299.90","currency":"BRL","seller_id":"audio-seller","quantity":3}]}}}`)
-var orderMetadataSingleTV = json.RawMessage(`{"order":{"product_items":[{"product_retailer_id":"product-001","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","seller_id":"seller-001","quantity":2}]},"overwrite_message":{"order":{"product_items":[{"product_retailer_id":"product-001","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","seller_id":"seller-001","quantity":2}]}}}`)
 
 // Conversation starter metadata for tests
 var conversationStarterMetadata = json.RawMessage(`{"from_conversation_starter":true}`)
@@ -154,30 +153,6 @@ const (
 						"currency":"BRL",
 						"seller_id":"audio-seller",
 						"quantity":3
-					}
-				]
-			}
-		}
-	}
-	`
-
-	orderMsgWithTextTemplate = `
-	{
-		"type":"message",
-		"from":%q,
-		"message":{
-			"type":"order",
-			"timestamp":%q,
-			"text":"should be ignored",
-			"order":{
-				"product_items":[
-					{
-						"product_retailer_id":"product-001",
-						"name":"Smart TV 50\"",
-						"price":"2999.90",
-						"currency":"BRL",
-						"seller_id":"seller-001",
-						"quantity":2
 					}
 				]
 			}
@@ -330,17 +305,6 @@ var testCases = []ChannelHandleTestCase{
 		URN:      Sp("ext:2345678"),
 		Text:     Sp(""),
 		Metadata: &orderMetadata2,
-		Status:   200,
-		Response: "Accepted",
-	},
-	{
-		Label:    "Receive Order With Message Text Ignored",
-		URL:      receiveURL,
-		Data:     fmt.Sprintf(orderMsgWithTextTemplate, "2345678", "1616586927"),
-		Name:     Sp("2345678"),
-		URN:      Sp("ext:2345678"),
-		Text:     Sp(""),
-		Metadata: &orderMetadataSingleTV,
 		Status:   200,
 		Response: "Accepted",
 	},

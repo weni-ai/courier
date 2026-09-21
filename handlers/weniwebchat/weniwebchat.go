@@ -79,20 +79,10 @@ type miOrder struct {
 
 // buildOrderMetadata builds metadata with order and overwrite_message using webchat field names as-is.
 func buildOrderMetadata(order miOrder) (json.RawMessage, error) {
-	orderBytes, err := json.Marshal(order)
-	if err != nil {
-		return nil, err
-	}
-
-	var orderValue interface{}
-	if err := json.Unmarshal(orderBytes, &orderValue); err != nil {
-		return nil, err
-	}
-
 	metadata := map[string]interface{}{
-		"order": orderValue,
+		"order": order,
 		"overwrite_message": map[string]interface{}{
-			"order": orderValue,
+			"order": order,
 		},
 	}
 

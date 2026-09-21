@@ -1,6 +1,10 @@
-1.69.0
+1.68.2
 ----------
- * feat: emit named WhatsApp Cloud API template parameters and refuse named templates on on-premises/360dialog
+ * fix: remove fallback to ResponseToExternalID for whatsapp context reply
+
+1.68.1
+----------
+ * fix: whatsapp context reply strategy
 
 1.68.0
 ----------

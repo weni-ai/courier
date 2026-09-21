@@ -702,14 +702,14 @@ var testCasesWAC = []ChannelHandleTestCase{
 		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		ContactURNs: map[string]bool{
 			"whatsapp:US.13491208655302741918": true,
-			"whatsapp:5678":                   true,
+			"whatsapp:5678":                    true,
 		},
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Message Phone and BSUID Existing BSUID Contact", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUIDWithPhone.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		ContactURNs: map[string]bool{
 			"whatsapp:US.13491208655302741918": true,
-			"whatsapp:5678":                   true,
+			"whatsapp:5678":                    true,
 		},
 		PrepBackend: func(mb *courier.MockBackend) {
 			bsuidURN, _ := urns.NewWhatsAppURN("US.13491208655302741918")
@@ -720,7 +720,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		ContactURNs: map[string]bool{
 			"whatsapp:US.13491208655302741918": true,
-			"whatsapp:5678":                   true,
+			"whatsapp:5678":                    true,
 		},
 		PrepBackend: func(mb *courier.MockBackend) {
 			phoneURN, _ := urns.NewWhatsAppURN("5678")
@@ -731,7 +731,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 		Text: Sp("+250 788 123 456"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		ContactURNs: map[string]bool{
 			"whatsapp:US.13491208655302741918": true,
-			"whatsapp:5678":                   true,
+			"whatsapp:5678":                    true,
 		},
 		PrepBackend: func(mb *courier.MockBackend) {
 			// reproduces the reported incident: contact previously existed with only the BSUID
@@ -756,7 +756,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		ContactURNs: map[string]bool{
 			"whatsapp:US.98765432100000000001": true,
-			"whatsapp:5678":                   true,
+			"whatsapp:5678":                    true,
 			"whatsapp:US.13491208655302741918": false,
 		},
 		PrepBackend: func(mb *courier.MockBackend) {
@@ -770,7 +770,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		ContactURNs: map[string]bool{
 			"whatsapp:US.13491208655302741918": true,
-			"whatsapp:5678":                   true,
+			"whatsapp:5678":                    true,
 		},
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Message BSUID and Parent BSUID Only", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloParentBSUIDOnly.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
@@ -1042,7 +1042,8 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		SendPrep:    setSendURL},
 	{Label: "Plain Send as Contextual Reply",
 		Text: "Simple Message", URN: "whatsapp:250788123123", Path: "/12345_ID/messages",
-		Status: "W", ExternalID: "157b5e14568e8", ResponseToExternalID: "wamid.HBgLMTY0NjcwNDM1OTUVAgASGBQzQTdCNTg5RjY1MEMyRjlGMjRGNgA=",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{"response_to_external_id":"wamid.HBgLMTY0NjcwNDM1OTUVAgASGBQzQTdCNTg5RjY1MEMyRjlGMjRGNgA="}`),
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"text","context":{"message_id":"wamid.HBgLMTY0NjcwNDM1OTUVAgASGBQzQTdCNTg5RjY1MEMyRjlGMjRGNgA="},"text":{"body":"Simple Message"}}`,
 		SendPrep:    setSendURL},
@@ -1695,24 +1696,24 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 	{Label: "Interactive Carousel - Single card with CTA URL",
 		Text: "Main text", URN: "whatsapp:250788123123",
 		Status: "W", ExternalID: "157b5e14568e8",
-		Attachments: []string{"image/jpeg:https://foo.bar/card1.jpg"},
-		Metadata:    json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[{"sub_type":"url","parameters":{"display_text":"Link","url":"https://x.com"}}]}]}`),
+		Attachments:  []string{"image/jpeg:https://foo.bar/card1.jpg"},
+		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[{"sub_type":"url","parameters":{"display_text":"Link","url":"https://x.com"}}]}]}`),
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}},"body":{"text":"Card 1"},"action":{"name":"cta_url","parameters":{"display_text":"Link","url":"https://x.com"}}}}`,
 		SendPrep:    setSendURL},
 	{Label: "Interactive Carousel - Single card with quick replies",
 		Text: "Main text", URN: "whatsapp:250788123123",
 		Status: "W", ExternalID: "157b5e14568e8",
-		Attachments: []string{"image/jpeg:https://foo.bar/card1.jpg"},
-		Metadata:    json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Pick one","buttons":[{"sub_type":"quick_reply","parameters":{"id":"opt_a","title":"Option A"}}]}]}`),
+		Attachments:  []string{"image/jpeg:https://foo.bar/card1.jpg"},
+		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Pick one","buttons":[{"sub_type":"quick_reply","parameters":{"id":"opt_a","title":"Option A"}}]}]}`),
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"button","header":{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}},"body":{"text":"Pick one"},"action":{"buttons":[{"type":"reply","reply":{"id":"opt_a","title":"Option A"}}]}}}`,
 		SendPrep:    setSendURL},
 	{Label: "Interactive Carousel - Single card without buttons",
 		Text: "Main text", URN: "whatsapp:250788123123",
 		Status: "W", ExternalID: "157b5e14568e8",
-		Attachments: []string{"image/jpeg:https://foo.bar/card1.jpg"},
-		Metadata:    json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1"}]}`),
+		Attachments:  []string{"image/jpeg:https://foo.bar/card1.jpg"},
+		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1"}]}`),
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"link":"https://foo.bar/card1.jpg","caption":"Card 1"}}`,
 		SendPrep:    setSendURL},
@@ -1850,9 +1851,9 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		Status: "W", ExternalID: "157b5e14568e8",
 		ResponseBody: `{ "contacts":[{"input":"5678", "wa_id":"5678", "user_id":"US.98765432100000000001"}], "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"5678","type":"text","text":{"body":"Simple Message"}}`,
-		SendPrep: setSendURL,
+		SendPrep:    setSendURL,
 		ContactURNs: map[string]bool{
-			"whatsapp:5678":                   true,
+			"whatsapp:5678":                    true,
 			"whatsapp:US.98765432100000000001": true,
 			"whatsapp:US.13491208655302741918": false,
 		},
@@ -2234,9 +2235,9 @@ func TestSending(t *testing.T) {
 	card1URL := webpMediaServer.URL + "/card1.webp"
 	card2URL := webpMediaServer.URL + "/card2.webp"
 	SendTestCasesWAC = append(SendTestCasesWAC, ChannelSendTestCase{
-		Label: "Interactive Carousel Send - WebP images",
-		Text:  "Browse our collection",
-		URN:   "whatsapp:250788123123",
+		Label:  "Interactive Carousel Send - WebP images",
+		Text:   "Browse our collection",
+		URN:    "whatsapp:250788123123",
 		Status: "W", ExternalID: "157b5e14568e8",
 		Attachments: []string{
 			"image/webp:" + card1URL,
@@ -2244,13 +2245,13 @@ func TestSending(t *testing.T) {
 		},
 		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}]},{"body":"Card 2","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}]}]}`),
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
-		RequestBody:  fmt.Sprintf(`{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"carousel","body":{"text":"Browse our collection"},"action":{"cards":[{"card_index":0,"type":"cta_url","header":{"type":"image","image":{"link":"%s"}},"body":{"text":"Card 1"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}},{"card_index":1,"type":"cta_url","header":{"type":"image","image":{"link":"%s"}},"body":{"text":"Card 2"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}}]}}}`, mockPublicMediaURL(card1URL), mockPublicMediaURL(card2URL)),
-		SendPrep:     setSendURL,
+		RequestBody: fmt.Sprintf(`{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"carousel","body":{"text":"Browse our collection"},"action":{"cards":[{"card_index":0,"type":"cta_url","header":{"type":"image","image":{"link":"%s"}},"body":{"text":"Card 1"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}},{"card_index":1,"type":"cta_url","header":{"type":"image","image":{"link":"%s"}},"body":{"text":"Card 2"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}}]}}}`, mockPublicMediaURL(card1URL), mockPublicMediaURL(card2URL)),
+		SendPrep:    setSendURL,
 	})
 	SendTestCasesWAC = append(SendTestCasesWAC, ChannelSendTestCase{
-		Label: "Carousel Template Send - WebP images",
-		Text:  "Carousel with webp images",
-		URN:   "whatsapp:250788123123",
+		Label:  "Carousel Template Send - WebP images",
+		Text:   "Carousel with webp images",
+		URN:    "whatsapp:250788123123",
 		Status: "W", ExternalID: "157b5e14568e8",
 		Attachments: []string{
 			"image/webp:" + card1URL,
@@ -2258,8 +2259,8 @@ func TestSending(t *testing.T) {
 		},
 		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "webp_carousel", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "is_carousel": true}}`),
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
-		RequestBody:  fmt.Sprintf(`{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"webp_carousel","language":{"policy":"deterministic","code":"en"},"components":[{"type":"carousel","cards":[{"card_index":0,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"%s"}}]}]},{"card_index":1,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"%s"}}]}]}]}]}}`, mockPublicMediaURL(card1URL), mockPublicMediaURL(card2URL)),
-		SendPrep:     setSendURL,
+		RequestBody: fmt.Sprintf(`{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"webp_carousel","language":{"policy":"deterministic","code":"en"},"components":[{"type":"carousel","cards":[{"card_index":0,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"%s"}}]}]},{"card_index":1,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"%s"}}]}]}]}]}}`, mockPublicMediaURL(card1URL), mockPublicMediaURL(card2URL)),
+		SendPrep:    setSendURL,
 	})
 	SendTestCasesWAC = append(SendTestCasesWAC, CachedSendTestCasesWAC...)
 	SendTestCasesWAC = append(SendTestCasesWAC, FailingCachedSendTestCasesWAC...)
@@ -2396,6 +2397,171 @@ func TestWaTemplateTypeFromMetadata(t *testing.T) {
 			assert.Equal(t, c.expected, got)
 		})
 	}
+}
+
+func TestRouteWhatsAppChanges(t *testing.T) {
+	cases := []struct {
+		label              string
+		payload            string
+		wantHasChanges     bool
+		wantToIntegrations bool
+		wantToFlows        bool
+		wantChannelAddress string
+		wantMultipleAddrs  bool
+	}{
+		{
+			label: "template status update alone",
+			payload: `{
+				"entry":[{"changes":[{"field":"message_template_status_update","value":{}}]}]
+			}`,
+			wantHasChanges:     true,
+			wantToIntegrations: true,
+		},
+		{
+			label: "messages change alone",
+			payload: `{
+				"entry":[{"changes":[{"field":"messages","value":{"metadata":{"phone_number_id":"12345"}}}]}]
+			}`,
+			wantHasChanges:     true,
+			wantChannelAddress: "12345",
+		},
+		{
+			label: "messages then template status in same entry",
+			payload: `{
+				"entry":[{
+					"changes":[
+						{"field":"messages","value":{"metadata":{"phone_number_id":"12345"}}},
+						{"field":"message_template_status_update","value":{}}
+					]
+				}]
+			}`,
+			wantHasChanges:     true,
+			wantToIntegrations: true,
+			wantChannelAddress: "12345",
+		},
+		{
+			label: "template status in entry 0 and messages in entry 1",
+			payload: `{
+				"entry":[
+					{"changes":[{"field":"message_template_status_update","value":{}}]},
+					{"changes":[{"field":"messages","value":{"metadata":{"phone_number_id":"12345"}}}]}
+				]
+			}`,
+			wantHasChanges:     true,
+			wantToIntegrations: true,
+			wantChannelAddress: "12345",
+		},
+		{
+			label: "nil metadata does not panic",
+			payload: `{
+				"entry":[{"changes":[{"field":"messages","value":{}}]}]
+			}`,
+			wantHasChanges: true,
+		},
+		{
+			label: "handover uses recipient phone_number_id when metadata is absent",
+			payload: `{
+				"entry":[{"changes":[{"field":"messaging_handovers","value":{"recipient":{"phone_number_id":"12345"}}}]}]
+			}`,
+			wantHasChanges:     true,
+			wantChannelAddress: "12345",
+		},
+		{
+			label: "two different phone_number_ids",
+			payload: `{
+				"entry":[{
+					"changes":[
+						{"field":"messages","value":{"metadata":{"phone_number_id":"111"}}},
+						{"field":"messages","value":{"metadata":{"phone_number_id":"222"}}}
+					]
+				}]
+			}`,
+			wantHasChanges:     true,
+			wantChannelAddress: "111",
+			wantMultipleAddrs:  true,
+		},
+		{
+			label:          "empty entries",
+			payload:        `{"entry":[]}`,
+			wantHasChanges: false,
+		},
+		{
+			label: "entries with no changes",
+			payload: `{
+				"entry":[{"id":"1","changes":[]}]
+			}`,
+			wantHasChanges: false,
+		},
+		{
+			label: "flows mixed with template status update",
+			payload: `{
+				"entry":[{
+					"changes":[
+						{"field":"flows","value":{}},
+						{"field":"message_template_status_update","value":{}}
+					]
+				}]
+			}`,
+			wantHasChanges:     true,
+			wantToIntegrations: true,
+			wantToFlows:        true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.label, func(t *testing.T) {
+			payload := &moPayload{}
+			err := json.Unmarshal([]byte(c.payload), payload)
+			assert.NoError(t, err)
+
+			got := routeWhatsAppChanges(payload)
+			assert.Equal(t, c.wantHasChanges, got.hasChanges)
+			assert.Equal(t, c.wantToIntegrations, got.toIntegrations)
+			assert.Equal(t, c.wantToFlows, got.toFlows)
+			assert.Equal(t, c.wantChannelAddress, got.channelAddress)
+			assert.Equal(t, c.wantMultipleAddrs, got.multipleAddrs)
+		})
+	}
+}
+
+func TestHandleMMLiteTermsSignedContinuesAfterError(t *testing.T) {
+	payloadJSON := `{
+		"entry": [
+			{"changes": [{"field": "account_update", "value": {"event": "MM_LITE_TERMS_SIGNED", "waba_info": {"waba_id": "waba-fail"}}}]},
+			{"changes": [
+				{"field": "messages", "value": {}},
+				{"field": "account_update", "value": {"event": "MM_LITE_TERMS_SIGNED", "waba_info": {"waba_id": "waba-ok"}}}
+			]}
+		]
+	}`
+
+	t.Run("processes remaining waba ids after an update error", func(t *testing.T) {
+		mb := &courier.MockBackend{}
+		mb.FailUpdateChannelConfigByWabaID("waba-fail", fmt.Errorf("db down"))
+
+		h := newHandler("WAC", "WhatsApp Cloud", false).(*handler)
+		h.SetServer(courier.NewServer(&courier.Config{}, mb))
+
+		payload := &moPayload{}
+		assert.NoError(t, json.Unmarshal([]byte(payloadJSON), payload))
+
+		err := h.handleMMLiteTermsSigned(context.Background(), payload)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "waba-fail")
+		assert.Equal(t, []string{"waba-fail", "waba-ok"}, mb.UpdatedWabaIDs())
+	})
+
+	t.Run("returns nil when every update succeeds", func(t *testing.T) {
+		mb := &courier.MockBackend{}
+		h := newHandler("WAC", "WhatsApp Cloud", false).(*handler)
+		h.SetServer(courier.NewServer(&courier.Config{}, mb))
+
+		payload := &moPayload{}
+		assert.NoError(t, json.Unmarshal([]byte(payloadJSON), payload))
+
+		assert.NoError(t, h.handleMMLiteTermsSigned(context.Background(), payload))
+		assert.Equal(t, []string{"waba-fail", "waba-ok"}, mb.UpdatedWabaIDs())
+	})
 }
 
 func TestContactUsernameUpdate(t *testing.T) {

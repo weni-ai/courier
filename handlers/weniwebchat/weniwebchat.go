@@ -50,14 +50,15 @@ type miPayload struct {
 }
 
 type miMessage struct {
-	Type      string `json:"type"          validate:"required"`
-	TimeStamp string `json:"timestamp"     validate:"required"`
-	Text      string `json:"text,omitempty"`
-	MediaURL  string `json:"media_url,omitempty"`
-	Caption   string `json:"caption,omitempty"`
-	Latitude  string `json:"latitude,omitempty"`
-	Longitude string `json:"longitude,omitempty"`
-	Order miOrder `json:"order,omitempty"`
+	Type                    string  `json:"type"          validate:"required"`
+	TimeStamp               string  `json:"timestamp"     validate:"required"`
+	Text                    string  `json:"text,omitempty"`
+	MediaURL                string  `json:"media_url,omitempty"`
+	Caption                 string  `json:"caption,omitempty"`
+	Latitude                string  `json:"latitude,omitempty"`
+	Longitude               string  `json:"longitude,omitempty"`
+	FromConversationStarter bool    `json:"from_conversation_starter,omitempty"`
+	Order                   miOrder `json:"order,omitempty"`
 }
 
 type miProductItem struct {
@@ -157,15 +158,38 @@ func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w htt
 		msg.WithAttachment(mediaURL)
 	}
 
-	if hasOrder {
-		metadata, err := buildOrderMetadata(payload.Message.Order)
-		if err != nil {
-			return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, fmt.Errorf("unable to build order metadata: %w", err))
-		}
+	if metadata := incomingMsgMetadata(payload); metadata != nil {
 		msg.WithMetadata(metadata)
 	}
 
 	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
+}
+
+func incomingMsgMetadata(payload *miPayload) json.RawMessage {
+	metadata := map[string]interface{}{}
+
+	if payload.Message.Type == "order" && len(payload.Message.Order.ProductItems) > 0 {
+		orderMeta, err := buildOrderMetadata(payload.Message.Order)
+		if err == nil {
+			if err := json.Unmarshal(orderMeta, &metadata); err != nil {
+				metadata = map[string]interface{}{}
+			}
+		}
+	}
+
+	if payload.Message.FromConversationStarter {
+		metadata["from_conversation_starter"] = true
+	}
+
+	if len(metadata) == 0 {
+		return nil
+	}
+
+	raw, err := json.Marshal(metadata)
+	if err != nil {
+		return nil
+	}
+	return json.RawMessage(raw)
 }
 
 var timestamp = ""
@@ -206,8 +230,8 @@ type wwcInteractive struct {
 }
 
 type wwcAction struct {
-	Sections     []wwcSection    `json:"sections,omitempty"`
-	Name         string          `json:"name,omitempty"`
+	Sections     []wwcSection     `json:"sections,omitempty"`
+	Name         string           `json:"name,omitempty"`
 	ProductItems []wwcProductItem `json:"product_items,omitempty"`
 }
 

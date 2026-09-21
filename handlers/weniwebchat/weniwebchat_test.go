@@ -292,6 +292,7 @@ var testCases = []ChannelHandleTestCase{
 		Data:     fmt.Sprintf(orderMsgTemplate, "2345678", "1616586927"),
 		Name:     Sp("2345678"),
 		URN:      Sp("ext:2345678"),
+		Text:     Sp(""),
 		Metadata: &orderMetadata1,
 		Status:   200,
 		Response: "Accepted",
@@ -302,6 +303,7 @@ var testCases = []ChannelHandleTestCase{
 		Data:     fmt.Sprintf(orderMsgSingleItemTemplate, "2345678", "1616586927"),
 		Name:     Sp("2345678"),
 		URN:      Sp("ext:2345678"),
+		Text:     Sp(""),
 		Metadata: &orderMetadata2,
 		Status:   200,
 		Response: "Accepted",
@@ -333,6 +335,68 @@ var testCases = []ChannelHandleTestCase{
 		Status:   200,
 		Response: "ignoring request, unknown message type",
 	},
+}
+
+func TestBuildOrderMetadata(t *testing.T) {
+	order := miOrder{
+		ProductItems: []miProductItem{
+			{
+				ProductRetailerID: "product-001",
+				Name:              "Smart TV 50\"",
+				Price:             "2999.90",
+				SalePrice:         "2599.90",
+				Currency:          "BRL",
+				SellerID:          "seller-001",
+				Quantity:          2,
+				ProductURL:        "https://loja.com/tv",
+				Extra:             map[string]interface{}{"line_note": "gift wrap"},
+			},
+		},
+	}
+
+	metadata, err := buildOrderMetadata(order)
+	if err != nil {
+		t.Fatalf("buildOrderMetadata() error = %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(metadata, &parsed); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	orderRoot, ok := parsed["order"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected order at metadata root")
+	}
+	overwrite, ok := parsed["overwrite_message"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected overwrite_message at metadata root")
+	}
+	orderOverwrite, ok := overwrite["order"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected order inside overwrite_message")
+	}
+
+	orderRootJSON, _ := json.Marshal(orderRoot)
+	orderOverwriteJSON, _ := json.Marshal(orderOverwrite)
+	if string(orderRootJSON) != string(orderOverwriteJSON) {
+		t.Fatalf("overwrite_message.order differs from order: %s vs %s", orderRootJSON, orderOverwriteJSON)
+	}
+
+	items, ok := orderRoot["product_items"].([]interface{})
+	if !ok || len(items) != 1 {
+		t.Fatalf("expected one product item, got %#v", orderRoot["product_items"])
+	}
+	item, ok := items[0].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected product item map")
+	}
+	if item["price"] != "2999.90" {
+		t.Fatalf("expected webchat price field, got %#v", item["price"])
+	}
+	if _, hasItemPrice := item["item_price"]; hasItemPrice {
+		t.Fatal("did not expect WPP item_price field")
+	}
 }
 
 func TestHandler(t *testing.T) {

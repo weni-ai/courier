@@ -2265,6 +2265,14 @@ type wacMTMedia struct {
 	Filename string `json:"filename,omitempty"`
 }
 
+func newWACMedia(id, link string) (wacMTMedia, error) {
+	encoded, err := utils.EncodeMediaURL(link)
+	if err != nil {
+		return wacMTMedia{}, err
+	}
+	return wacMTMedia{ID: id, Link: encoded}, nil
+}
+
 type wacMTSection struct {
 	Title        string             `json:"title,omitempty"`
 	Rows         []wacMTSectionRow  `json:"rows,omitempty"`
@@ -2645,7 +2653,10 @@ func (h *handler) fillWACPayloadByInteractionType(i int, msg courier.Msg, msgPar
 			if len(msg.Attachments()) > 0 {
 				attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
 				attType = strings.Split(attType, "/")[0]
-				media := wacMTMedia{Link: attURL}
+				media, err := newWACMedia("", attURL)
+				if err != nil {
+					return false, err
+				}
 				if attType == "image" {
 					interactive.Header = &struct {
 						Type     string      "json:\"type\""
@@ -2970,16 +2981,15 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			} else if mediaID != "" {
 				attURL = ""
 			}
-			parsedURL, err := url.Parse(attURL)
-			if err != nil {
-				return status, err
-			}
 
 			if attType == "application" {
 				attType = "document"
 			}
 			payload.Type = attType
-			media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
+			media, err := newWACMedia(mediaID, attURL)
+			if err != nil {
+				return status, err
+			}
 			if len(msgParts) == 1 && (attType != "audio" && attFormat != "webp") && len(msg.Attachments()) == 1 && len(msg.QuickReplies()) == 0 && len(msg.ListMessage().ListItems) == 0 {
 				media.Caption = msgParts[i]
 				hasCaption = true
@@ -3039,7 +3049,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						if attType == "application" {
 							attType = "document"
 						}
-						media := wacMTMedia{ID: mediaID, Link: attURL}
+						media, err := newWACMedia(mediaID, attURL)
+						if err != nil {
+							return nil, err
+						}
 						switch attType {
 						case "image":
 							interactive.Header = &struct {
@@ -3075,7 +3088,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							if i == 0 {
 								zeroIndex = true
 							}
-							payloadAudio = wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", Type: "audio", Audio: &wacMTMedia{ID: mediaID, Link: attURL}, Category: msgCategory, TTLSeconds: msgTTLSeconds}
+							payloadAudio = wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", Type: "audio", Audio: &media, Category: msgCategory, TTLSeconds: msgTTLSeconds}
 							if isPhoneNumber.MatchString(urnPath) {
 								payloadAudio.To = urnPath
 							} else {
@@ -3878,15 +3891,14 @@ func (h *handler) buildHeaderComponent(msg courier.Msg, accessToken string, stat
 	}
 	attType = strings.Split(attType, "/")[0]
 
-	parsedURL, err := url.Parse(attURL)
-	if err != nil {
-		return nil, err
-	}
 	if attType == "application" {
 		attType = "document"
 	}
 
-	media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
+	media, err := newWACMedia(mediaID, attURL)
+	if err != nil {
+		return nil, err
+	}
 	switch attType {
 	case "image":
 		header.Params = append(header.Params, &wacParam{Type: "image", Image: &media})
@@ -3950,6 +3962,11 @@ func (h *handler) buildSingleCardCarouselPayload(msg courier.Msg, payload *wacMT
 		attURL = rewrittenURL
 	}
 
+	media, err := newWACMedia("", attURL)
+	if err != nil {
+		return err
+	}
+
 	bodyText := singleCardCarouselBodyText(msg, cardData)
 	if bodyText == "" {
 		return fmt.Errorf("interactive carousel requires body text")
@@ -3957,7 +3974,7 @@ func (h *handler) buildSingleCardCarouselPayload(msg courier.Msg, payload *wacMT
 
 	if len(cardData.Buttons) == 0 {
 		payload.Type = attType
-		media := wacMTMedia{Link: attURL, Caption: parseBacklashes(bodyText)}
+		media.Caption = parseBacklashes(bodyText)
 		if attType == "image" {
 			payload.Image = &media
 		} else {
@@ -3970,8 +3987,6 @@ func (h *handler) buildSingleCardCarouselPayload(msg courier.Msg, payload *wacMT
 	if firstBtn.SubType != "url" && firstBtn.SubType != "quick_reply" {
 		return fmt.Errorf("carousel card has unsupported button sub_type: %s", firstBtn.SubType)
 	}
-
-	media := wacMTMedia{Link: attURL}
 	header := &struct {
 		Type     string      `json:"type"`
 		Text     string      `json:"text,omitempty"`
@@ -4098,7 +4113,10 @@ func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg) (*wacInteract
 			attURL = rewrittenURL
 		}
 
-		media := wacMTMedia{Link: attURL}
+		media, err := newWACMedia("", attURL)
+		if err != nil {
+			return nil, errors.Wrapf(err, "invalid attachment URL for card %d", cardIdx)
+		}
 
 		cardIdxPtr := cardIdx
 		card := wacCarouselCard{
@@ -4250,8 +4268,10 @@ func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplat
 			attURL = rewrittenURL
 		}
 
-		media := wacMTMedia{Link: attURL}
-
+		media, err := newWACMedia("", attURL)
+		if err != nil {
+			return nil, err
+		}
 		switch attType {
 		case "image":
 			headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "image", Image: &media})
@@ -4514,6 +4534,11 @@ func convertWebPIfNeeded(data []byte, mimeType string, convertWebP bool, channel
 
 func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, accessToken string, convertWebP bool) (string, []*courier.ChannelLog, error) {
 	var logs []*courier.ChannelLog
+
+	mediaURL, err := utils.EncodeMediaURL(mediaURL)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "invalid media URL")
+	}
 
 	rc := h.Backend().RedisPool().Get()
 	defer rc.Close()

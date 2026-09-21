@@ -158,12 +158,13 @@ func routeWhatsAppChanges(payload *moPayload) wacWebhookRouting {
 				routing.toFlows = true
 				continue
 			}
-			if change.Value.Metadata == nil || change.Value.Metadata.PhoneNumberID == "" {
+			phoneNumberID := wacPhoneNumberID(change.Value.Metadata, change.Value.Recipient)
+			if phoneNumberID == "" {
 				continue
 			}
 			if routing.channelAddress == "" {
-				routing.channelAddress = change.Value.Metadata.PhoneNumberID
-			} else if routing.channelAddress != change.Value.Metadata.PhoneNumberID {
+				routing.channelAddress = phoneNumberID
+			} else if routing.channelAddress != phoneNumberID {
 				routing.multipleAddrs = true
 			}
 		}
@@ -306,7 +307,13 @@ type moPayload struct {
 					DisplayPhoneNumber string `json:"display_phone_number"`
 					PhoneNumberID      string `json:"phone_number_id"`
 				} `json:"metadata"`
-				Contacts []struct {
+				Recipient           *wacHandoverRecipient     `json:"recipient"`
+				Sender              *wacHandoverSender        `json:"sender"`
+				Timestamp           string                    `json:"timestamp"`
+				Type                string                    `json:"type"`
+				ControlPassed       *wacHandoverControlPassed `json:"control_passed"`
+				ConversationContext *wacConversationContext   `json:"conversation_context"`
+				Contacts            []struct {
 					Profile struct {
 						Name     string `json:"name"`
 						Username string `json:"username,omitempty"`
@@ -624,6 +631,7 @@ func processWACButtonMetadata(button *struct {
 		},
 	}
 }
+
 type bsuidUpdate struct {
 	Previous string
 	Current  string
@@ -1108,6 +1116,37 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				continue
 			}
 
+			if change.Field == wacStandbyField {
+				logrus.WithField("channel_uuid", channel.UUID()).Info("ignoring standby webhook")
+				data = append(data, courier.NewInfoData("ignoring standby webhook"))
+				continue
+			}
+
+			if change.Field == wacMessagingHandoversField {
+				handoverContacts := make([]wacHandoverContact, 0, len(change.Value.Contacts))
+				for _, contact := range change.Value.Contacts {
+					handoverContacts = append(handoverContacts, wacHandoverContact{
+						WaID:   contact.WaID,
+						UserID: contact.UserID,
+					})
+					handoverContacts[len(handoverContacts)-1].Profile.Name = contact.Profile.Name
+				}
+
+				info, err := h.processMessagingHandover(ctx, channel, wacHandoverValue{
+					Timestamp:           change.Value.Timestamp,
+					Type:                change.Value.Type,
+					Sender:              change.Value.Sender,
+					ControlPassed:       change.Value.ControlPassed,
+					ConversationContext: change.Value.ConversationContext,
+					Contacts:            handoverContacts,
+				}, entry.Time, r)
+				if err != nil {
+					return nil, nil, err
+				}
+				data = append(data, courier.NewInfoData(info))
+				continue
+			}
+
 			for _, contact := range change.Value.Contacts {
 				if contact.WaID != "" {
 					contactNames[contact.WaID] = contact.Profile.Name
@@ -1307,13 +1346,32 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					if err := addMetadataWithOverwrite(event, referralMetadata); err != nil {
 						courier.LogRequestError(r, channel, err)
 					}
+				}
 
-					if msg.Referral.CtwaClid != "" {
-						// Write ctwa data to database
-						err := h.Backend().WriteCtwaToDB(ctx, msg.Referral.CtwaClid, urn, date, channel.UUID(), entry.ID)
-						if err != nil {
-							courier.LogRequestError(r, channel, fmt.Errorf("error writing ctwa data: %v", err))
-						}
+				if msg.Referral.SourceID != "" && msg.Referral.SourceType != "" && msg.Referral.CtwaClid != "" {
+					phoneNumberID := ""
+					if change.Value.Metadata != nil {
+						phoneNumberID = change.Value.Metadata.PhoneNumberID
+					}
+
+					err := h.Backend().WriteCtwaToDB(ctx, courier.CtwaEvent{
+						CtwaClid:      msg.Referral.CtwaClid,
+						ContactUrn:    urn,
+						Timestamp:     date,
+						ChannelUUID:   channel.UUID(),
+						Waba:          entry.ID,
+						PhoneNumberID: phoneNumberID,
+						MessageID:     msg.ID,
+						Referral: courier.CtwaReferralSource{
+							SourceID:   msg.Referral.SourceID,
+							SourceType: msg.Referral.SourceType,
+							SourceURL:  msg.Referral.SourceURL,
+							Headline:   msg.Referral.Headline,
+							Body:       msg.Referral.Body,
+						},
+					})
+					if err != nil {
+						courier.LogRequestError(r, channel, fmt.Errorf("error writing ctwa data: %v", err))
 					}
 				}
 
@@ -2382,12 +2440,26 @@ type wacInteractive[P wacInteractiveActionParams] struct {
 	} `json:"action,omitempty"`
 }
 
+type wacMTContext struct {
+	MessageID string `json:"message_id"`
+}
+
+// wacQuotedMessageID returns the WhatsApp message id to quote as a contextual reply.
+// Returns the value of metadata.response_to_external_id if present, otherwise returns empty string.
+func wacQuotedMessageID(msg courier.Msg) string {
+	if id, err := jsonparser.GetString(msg.Metadata(), "response_to_external_id"); err == nil && id != "" {
+		return id
+	}
+	return ""
+}
+
 type wacMTPayload[P wacInteractiveActionParams] struct {
-	MessagingProduct string `json:"messaging_product"`
-	RecipientType    string `json:"recipient_type"`
-	To               string `json:"to,omitempty"`
-	Recipient        string `json:"recipient,omitempty"`
-	Type             string `json:"type"`
+	MessagingProduct string        `json:"messaging_product"`
+	RecipientType    string        `json:"recipient_type"`
+	To               string        `json:"to,omitempty"`
+	Recipient        string        `json:"recipient,omitempty"`
+	Type             string        `json:"type"`
+	Context          *wacMTContext `json:"context,omitempty"`
 
 	Text *wacText `json:"text,omitempty"`
 
@@ -2643,8 +2715,12 @@ func (h *handler) fillWACPayloadByInteractionType(i int, msg courier.Msg, msgPar
 	case "carousel":
 		if carousel := msg.Carousel(); carousel != nil {
 			hasCaption = true
-			payload.Type = "interactive"
-			payload.Interactive, err = h.buildInteractiveCarouselPayload(msg, accessToken, status, start)
+			if len(msg.Attachments()) == 1 {
+				err = h.buildSingleCardCarouselPayload(msg, payload)
+			} else {
+				payload.Type = "interactive"
+				payload.Interactive, err = h.buildInteractiveCarouselPayload(msg)
+			}
 			if err != nil {
 				return false, err
 			}
@@ -2752,6 +2828,14 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			payload.To = urnPath
 		} else {
 			payload.Recipient = urnPath
+		}
+
+		// Contextual reply (quote bubble). Meta does not support context on template messages;
+		// only attach to the first part when the message is split.
+		if templating == nil && i == 0 {
+			if quotedID := wacQuotedMessageID(msg); quotedID != "" {
+				payload.Context = &wacMTContext{MessageID: quotedID}
+			}
 		}
 
 		// do we have a template?
@@ -3048,6 +3132,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 								payloadAudio.To = urnPath
 							} else {
 								payloadAudio.Recipient = urnPath
+							}
+							if i == 0 {
+								if quotedID := wacQuotedMessageID(msg); quotedID != "" {
+									payloadAudio.Context = &wacMTContext{MessageID: quotedID}
+								}
 							}
 							status, _, err := requestWAC(payloadAudio, token, msg, status, wacPhoneURL, zeroIndex, isMarketingTemplate)
 							if err != nil {
@@ -3760,7 +3849,7 @@ func (h *handler) buildTemplateComponents(msg courier.Msg, templating *MsgTempla
 	// Handle carousel templates - identified by IsCarousel flag
 	// 2-10 cards required, media is mandatory per card, body and buttons are optional (max 2 buttons per card)
 	if templating.IsCarousel {
-		carouselComponent, err := h.buildCarouselComponent(msg, templating, accessToken, status, start)
+		carouselComponent, err := h.buildCarouselComponent(msg, templating)
 		if err != nil {
 			return nil, err
 		}
@@ -3891,9 +3980,126 @@ func buildOrderDetailsComponent(msg courier.Msg) (*wacComponent, error) {
 	return button, nil
 }
 
+// buildSingleCardCarouselPayload sends a single-card carousel as a normal interactive message with media and text.
+// When the card has no buttons, it falls back to a media message with caption.
+func (h *handler) buildSingleCardCarouselPayload(msg courier.Msg, payload *wacMTPayload[map[string]any]) error {
+	carousel := msg.Carousel()
+	if carousel == nil || len(carousel.Cards) == 0 {
+		return fmt.Errorf("carousel message is nil")
+	}
+
+	cardData := carousel.Cards[0]
+	mimeType, attURL := handlers.SplitAttachment(msg.Attachments()[0])
+	attType := strings.Split(mimeType, "/")[0]
+	if attType != "image" && attType != "video" {
+		return fmt.Errorf("carousel card has unsupported header type: %s (only image and video are supported)", attType)
+	}
+	if attType == "image" {
+		rewrittenURL, err := h.rewriteWebPImageURL(msg, attURL)
+		if err != nil {
+			return err
+		}
+		attURL = rewrittenURL
+	}
+
+	bodyText := singleCardCarouselBodyText(msg, cardData)
+	if bodyText == "" {
+		return fmt.Errorf("interactive carousel requires body text")
+	}
+
+	if len(cardData.Buttons) == 0 {
+		payload.Type = attType
+		media := wacMTMedia{Link: attURL, Caption: parseBacklashes(bodyText)}
+		if attType == "image" {
+			payload.Image = &media
+		} else {
+			payload.Video = &media
+		}
+		return nil
+	}
+
+	firstBtn := cardData.Buttons[0]
+	if firstBtn.SubType != "url" && firstBtn.SubType != "quick_reply" {
+		return fmt.Errorf("carousel card has unsupported button sub_type: %s", firstBtn.SubType)
+	}
+
+	media := wacMTMedia{Link: attURL}
+	header := &struct {
+		Type     string      `json:"type"`
+		Text     string      `json:"text,omitempty"`
+		Video    *wacMTMedia `json:"video,omitempty"`
+		Image    *wacMTMedia `json:"image,omitempty"`
+		Document *wacMTMedia `json:"document,omitempty"`
+	}{Type: attType}
+	if attType == "image" {
+		header.Image = &media
+	} else {
+		header.Video = &media
+	}
+
+	interactive := wacInteractive[map[string]any]{
+		Body: struct {
+			Text string `json:"text"`
+		}{Text: parseBacklashes(bodyText)},
+		Header: header,
+	}
+
+	if firstBtn.SubType == "url" {
+		displayText, urlVal := extractCarouselURLParams(firstBtn)
+		interactive.Type = "cta_url"
+		interactive.Action = &struct {
+			Button            string                 `json:"button,omitempty"`
+			Sections          []wacMTSection         `json:"sections,omitempty"`
+			Buttons           []wacMTButton          `json:"buttons,omitempty"`
+			CatalogID         string                 `json:"catalog_id,omitempty"`
+			ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
+			Name              string                 `json:"name,omitempty"`
+			Parameters        map[string]interface{} `json:"parameters,omitempty"`
+			Cards             []wacCarouselCard      `json:"cards,omitempty"`
+		}{
+			Name: "cta_url",
+			Parameters: map[string]interface{}{
+				"display_text": parseBacklashes(displayText),
+				"url":          urlVal,
+			},
+		}
+	} else {
+		btns := make([]wacMTButton, len(cardData.Buttons))
+		for i, btn := range cardData.Buttons {
+			id, title := extractCarouselQuickReplyParams(btn)
+			btns[i] = wacMTButton{
+				Type:  "reply",
+				Reply: &mtQuickReply{ID: id, Title: parseBacklashes(title)},
+			}
+		}
+		interactive.Type = "button"
+		interactive.Action = &struct {
+			Button            string                 `json:"button,omitempty"`
+			Sections          []wacMTSection         `json:"sections,omitempty"`
+			Buttons           []wacMTButton          `json:"buttons,omitempty"`
+			CatalogID         string                 `json:"catalog_id,omitempty"`
+			ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
+			Name              string                 `json:"name,omitempty"`
+			Parameters        map[string]interface{} `json:"parameters,omitempty"`
+			Cards             []wacCarouselCard      `json:"cards,omitempty"`
+		}{Buttons: btns}
+	}
+
+	payload.Type = "interactive"
+	payload.Interactive = &interactive
+	return nil
+}
+
+func singleCardCarouselBodyText(msg courier.Msg, card courier.CarouselCard) string {
+	if body := strings.TrimSpace(card.Body); body != "" {
+		return body
+	}
+	return strings.TrimSpace(msg.Text())
+}
+
 // buildInteractiveCarouselPayload builds the interactive payload for WhatsApp interactive media carousel messages.
 // Uses msg.Attachments() for card media, msg.Text() for main body, msg.Carousel() for per-card body and buttons.
-func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg, accessToken string, status courier.MsgStatus, start time.Time) (*wacInteractive[map[string]any], error) {
+func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg) (*wacInteractive[map[string]any], error) {
 	carousel := msg.Carousel()
 	if carousel == nil {
 		return nil, nil
@@ -3929,19 +4135,22 @@ func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg, accessToken s
 			}
 		}
 
-		attType, attURL := handlers.SplitAttachment(attachments[cardIdx])
+		mimeType, attURL := handlers.SplitAttachment(attachments[cardIdx])
 
-		parsedURL, err := url.Parse(attURL)
-		if err != nil {
-			return nil, errors.Wrapf(err, "invalid attachment URL for card %d", cardIdx)
-		}
-		media := wacMTMedia{Link: parsedURL.String()}
-
-		splitedAttType := strings.Split(attType, "/")
-		attType = splitedAttType[0]
+		splitedAttType := strings.Split(mimeType, "/")
+		attType := splitedAttType[0]
 		if attType != "image" && attType != "video" {
 			return nil, fmt.Errorf("carousel card %d has unsupported header type: %s (only image and video are supported)", cardIdx, attType)
 		}
+		if attType == "image" {
+			rewrittenURL, err := h.rewriteWebPImageURL(msg, attURL)
+			if err != nil {
+				return nil, err
+			}
+			attURL = rewrittenURL
+		}
+
+		media := wacMTMedia{Link: attURL}
 
 		cardIdxPtr := cardIdx
 		card := wacCarouselCard{
@@ -4061,7 +4270,7 @@ func extractCarouselQuickReplyParams(btn courier.CarouselCardButton) (id, title 
 // buildCarouselComponent builds the carousel component for WhatsApp template messages
 // Card count is based on attachments count - media is mandatory per card (min 2, max 10 cards), body and buttons are optional (max 2 buttons per card)
 // Media (header), body variables, and buttons are matched by index
-func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplating, accessToken string, status courier.MsgStatus, start time.Time) (*wacComponent, error) {
+func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplating) (*wacComponent, error) {
 	// Carousel requires 2-10 cards, each with mandatory media
 	numCards := len(msg.Attachments())
 	if numCards < 2 {
@@ -4078,32 +4287,28 @@ func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplat
 
 		// Build header component with media (mandatory for each card)
 		headerComponent := &wacComponent{Type: "header"}
-		attType, attURL := handlers.SplitAttachment(msg.Attachments()[cardIdx])
+		mimeType, attURL := handlers.SplitAttachment(msg.Attachments()[cardIdx])
 
-		mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, true)
-		for _, log := range mediaLogs {
-			status.AddLog(log)
-		}
-		if err != nil {
-			status.AddLog(courier.NewChannelLogFromError("error on fetch media ID for carousel card", msg.Channel(), msg.ID(), time.Since(start), err))
-		} else if mediaID != "" {
-			attURL = ""
-		}
-		attType = strings.Split(attType, "/")[0]
+		attType := strings.Split(mimeType, "/")[0]
 
-		parsedURL, err := url.Parse(attURL)
-		if err != nil {
-			return nil, err
+		if attType != "image" && attType != "video" {
+			return nil, fmt.Errorf("unsupported attachment type for carousel card header: %s (only image and video are supported)", attType)
+		}
+		if attType == "image" {
+			rewrittenURL, err := h.rewriteWebPImageURL(msg, attURL)
+			if err != nil {
+				return nil, err
+			}
+			attURL = rewrittenURL
 		}
 
-		media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
+		media := wacMTMedia{Link: attURL}
+
 		switch attType {
 		case "image":
 			headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "image", Image: &media})
 		case "video":
 			headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "video", Video: &media})
-		default:
-			return nil, fmt.Errorf("unsupported attachment type for carousel card header: %s (only image and video are supported)", attType)
 		}
 		card.Components = append(card.Components, headerComponent)
 
@@ -4334,15 +4539,14 @@ var languageMenuMap = map[string]string{
 
 // convertWebPIfNeeded converts WebP images to PNG for WhatsApp template uploads
 // Returns the converted image data, new mime type, and new file extension if conversion occurred
-// Only converts for WhatsApp channels (WAC/WCD) and only for templates
-func convertWebPIfNeeded(data []byte, mimeType string, isTemplate bool, channelType courier.ChannelType) ([]byte, string, string, error) {
+// Only converts for WhatsApp channels (WAC/WCD) when convertWebP is true
+func convertWebPIfNeeded(data []byte, mimeType string, convertWebP bool, channelType courier.ChannelType) ([]byte, string, string, error) {
 	// Only convert for WhatsApp channels (WAC or WCD)
 	if channelType != "WAC" && channelType != "WCD" {
 		return data, mimeType, "", nil
 	}
 
-	// Only convert for templates
-	if !isTemplate {
+	if !convertWebP {
 		return data, mimeType, "", nil
 	}
 
@@ -4360,7 +4564,7 @@ func convertWebPIfNeeded(data []byte, mimeType string, isTemplate bool, channelT
 	return convertedData, "image/png", ".png", nil
 }
 
-func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, accessToken string, isTemplate bool) (string, []*courier.ChannelLog, error) {
+func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, accessToken string, convertWebP bool) (string, []*courier.ChannelLog, error) {
 	var logs []*courier.ChannelLog
 
 	rc := h.Backend().RedisPool().Get()
@@ -4394,8 +4598,8 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 		return "", logs, nil
 	}
 
-	// Convert WebP to PNG if needed (only for WhatsApp templates)
-	convertedData, convertedMimeType, fileExt, err := convertWebPIfNeeded(rr.Body, mimeType, isTemplate, msg.Channel().ChannelType())
+	// Convert WebP to PNG if needed (templates and carousel image cards)
+	convertedData, convertedMimeType, fileExt, err := convertWebPIfNeeded(rr.Body, mimeType, convertWebP, msg.Channel().ChannelType())
 	if err != nil {
 		return "", logs, errors.Wrapf(err, "error converting WebP image")
 	}

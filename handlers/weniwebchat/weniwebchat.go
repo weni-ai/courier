@@ -50,14 +50,15 @@ type miPayload struct {
 }
 
 type miMessage struct {
-	Type      string `json:"type"          validate:"required"`
-	TimeStamp string `json:"timestamp"     validate:"required"`
-	Text      string `json:"text,omitempty"`
-	MediaURL  string `json:"media_url,omitempty"`
-	Caption   string `json:"caption,omitempty"`
-	Latitude  string `json:"latitude,omitempty"`
-	Longitude string `json:"longitude,omitempty"`
-	Order     struct {
+	Type                    string `json:"type"          validate:"required"`
+	TimeStamp               string `json:"timestamp"     validate:"required"`
+	Text                    string `json:"text,omitempty"`
+	MediaURL                string `json:"media_url,omitempty"`
+	Caption                 string `json:"caption,omitempty"`
+	Latitude                string `json:"latitude,omitempty"`
+	Longitude               string `json:"longitude,omitempty"`
+	FromConversationStarter bool   `json:"from_conversation_starter,omitempty"`
+	Order                   struct {
 		ProductItems []miProductItem `json:"product_items"`
 	} `json:"order,omitempty"`
 }
@@ -125,22 +126,36 @@ func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w htt
 		msg.WithAttachment(mediaURL)
 	}
 
-	// add order metadata if present
-	if payload.Message.Type == "order" && len(payload.Message.Order.ProductItems) > 0 {
-		orderM := map[string]interface{}{
-			"order": payload.Message.Order,
-			"overwrite_message": map[string]interface{}{
-				"order": payload.Message.Order,
-			},
-		}
-		orderJSON, err := json.Marshal(orderM)
-		if err == nil {
-			metadata := json.RawMessage(orderJSON)
-			msg.WithMetadata(metadata)
-		}
+	if metadata := incomingMsgMetadata(payload); metadata != nil {
+		msg.WithMetadata(metadata)
 	}
 
 	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
+}
+
+func incomingMsgMetadata(payload *miPayload) json.RawMessage {
+	metadata := map[string]interface{}{}
+
+	if payload.Message.Type == "order" && len(payload.Message.Order.ProductItems) > 0 {
+		metadata["order"] = payload.Message.Order
+		metadata["overwrite_message"] = map[string]interface{}{
+			"order": payload.Message.Order,
+		}
+	}
+
+	if payload.Message.FromConversationStarter {
+		metadata["from_conversation_starter"] = true
+	}
+
+	if len(metadata) == 0 {
+		return nil
+	}
+
+	raw, err := json.Marshal(metadata)
+	if err != nil {
+		return nil
+	}
+	return json.RawMessage(raw)
 }
 
 var timestamp = ""

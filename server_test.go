@@ -17,6 +17,7 @@ func TestServer(t *testing.T) {
 	config := NewConfig()
 	config.StatusUsername = "admin"
 	config.StatusPassword = "password123"
+	config.EnablePprof = false
 
 	server := NewServerWithLogger(config, NewMockBackend(), logger)
 	server.Start()

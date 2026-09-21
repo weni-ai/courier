@@ -25,8 +25,11 @@ type Config struct {
 	MaxWorkers                int    `help:"the maximum number of go routines that will be used for sending (set to 0 to disable sending)"`
 	LibratoUsername           string `help:"the username that will be used to authenticate to Librato"`
 	LibratoToken              string `help:"the token that will be used to authenticate to Librato"`
-	StatusUsername            string `help:"the username that is needed to authenticate against the /status endpoint"`
-	StatusPassword            string `help:"the password that is needed to authenticate against the /status endpoint"`
+	StatusUsername            string `help:"the username that is needed to authenticate against the /status and pprof endpoints"`
+	StatusPassword            string `help:"the password that is needed to authenticate against the /status and pprof endpoints"`
+	EnablePprof               bool   `help:"enable the internal pprof HTTP server (not the public webhook port)"`
+	PprofAddress              string `help:"address the pprof server binds to"`
+	PprofPort                 int    `help:"port the pprof server listens on"`
 	LogLevel                  string `help:"the logging level courier should use"`
 	Version                   string `help:"the version that will be used in request and response headers"`
 
@@ -77,6 +80,9 @@ type Config struct {
 
 	CallsWebhookURL   string `help:"the url where calls webhooks will be sent"`
 	CallsWebhookToken string `help:"the token for calls webhooks"`
+
+	ConversionEventsURL   string `help:"the Flows URL for POST /conversion/ events (conversation_started)"`
+	ConversionEventsToken string `help:"the fixed access token for Flows /conversion/ calls from Courier"`
 }
 
 // NewConfig returns a new default configuration object
@@ -101,6 +107,9 @@ func NewConfig() *Config {
 		FacebookWebhookSecret:        "missing_facebook_webhook_secret",
 		WhatsappAdminSystemUserToken: "missing_whatsapp_admin_system_user_token",
 		MaxWorkers:                   32,
+		EnablePprof:                  true,
+		PprofAddress:                 "0.0.0.0",
+		PprofPort:                    6060,
 		LogLevel:                     "error",
 		Version:                      "Dev",
 		WaitMediaCount:               10,
@@ -118,6 +127,7 @@ func NewConfig() *Config {
 		WhatsappCloudDemoAddress:     "1234567890",
 		WhatsappCloudDemoURL:         "http://localhost:3000/wacr/receive",
 		WhatsappCloudDemoToken:       "1234567890",
+		ConversionEventsURL:          "",
 	}
 }
 

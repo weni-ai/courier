@@ -1,3 +1,40 @@
+1.68.2
+----------
+ * fix: remove fallback to ResponseToExternalID for whatsapp context reply
+
+1.68.1
+----------
+ * fix: whatsapp context reply strategy
+
+1.68.0
+----------
+ * Add conversation orchestration support for WhatsApp Multi-Partner
+
+1.67.0
+----------
+ * feat: add support for interactive carousel with WebP images in WhatsApp
+
+1.66.1
+----------
+ * feat: add conversation starter metadata handling in weniwebchat
+
+1.66.0
+----------
+ * feat: whatsapp context reply support
+
+1.65.0
+----------
+ * feat: add configurable pprof HTTP server with auth support
+
+1.64.0
+----------
+ * feat: implement CTWA referral source handling and testing
+ * feat: add support for conversation_started events in Flows backend 
+
+1.63.0
+----------
+ * feat: enhance CTWA event handling in backend
+
 1.62.0
 ----------
  * feat: add GetContactFieldValue method to Backend interface and implement related functionality

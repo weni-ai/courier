@@ -936,6 +936,7 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 }
 
 func (h *handler) handleMMLiteTermsSigned(ctx context.Context, payload *moPayload) error {
+	var lastErr error
 	for _, entry := range payload.Entry {
 		for _, change := range entry.Changes {
 			if change.Field != "account_update" || change.Value.Event != "MM_LITE_TERMS_SIGNED" || change.Value.WabaInfo == nil {
@@ -944,12 +945,13 @@ func (h *handler) handleMMLiteTermsSigned(ctx context.Context, payload *moPayloa
 			wabaID := change.Value.WabaInfo.WabaID
 			if err := h.Backend().UpdateChannelConfigByWabaID(ctx, wabaID, map[string]interface{}{"mmlite": true}); err != nil {
 				logrus.WithError(err).WithField("waba_id", wabaID).Error("[mmlite] error updating channel config with waba_id")
-				return fmt.Errorf("error updating channel config with waba_id %s: %v", wabaID, err)
+				lastErr = errors.Wrapf(err, "error updating channel config with waba_id %s", wabaID)
+				continue
 			}
 			logrus.WithField("waba_id", wabaID).Info("[mmlite] channel config updated with waba_id")
 		}
 	}
-	return nil
+	return lastErr
 }
 
 // receiveVerify handles Facebook's webhook verification callback

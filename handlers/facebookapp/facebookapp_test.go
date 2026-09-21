@@ -2402,6 +2402,46 @@ func TestRouteWhatsAppChanges(t *testing.T) {
 	}
 }
 
+func TestHandleMMLiteTermsSignedContinuesAfterError(t *testing.T) {
+	payloadJSON := `{
+		"entry": [
+			{"changes": [{"field": "account_update", "value": {"event": "MM_LITE_TERMS_SIGNED", "waba_info": {"waba_id": "waba-fail"}}}]},
+			{"changes": [
+				{"field": "messages", "value": {}},
+				{"field": "account_update", "value": {"event": "MM_LITE_TERMS_SIGNED", "waba_info": {"waba_id": "waba-ok"}}}
+			]}
+		]
+	}`
+
+	t.Run("processes remaining waba ids after an update error", func(t *testing.T) {
+		mb := &courier.MockBackend{}
+		mb.FailUpdateChannelConfigByWabaID("waba-fail", fmt.Errorf("db down"))
+
+		h := newHandler("WAC", "WhatsApp Cloud", false).(*handler)
+		h.SetServer(courier.NewServer(&courier.Config{}, mb))
+
+		payload := &moPayload{}
+		assert.NoError(t, json.Unmarshal([]byte(payloadJSON), payload))
+
+		err := h.handleMMLiteTermsSigned(context.Background(), payload)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "waba-fail")
+		assert.Equal(t, []string{"waba-fail", "waba-ok"}, mb.UpdatedWabaIDs())
+	})
+
+	t.Run("returns nil when every update succeeds", func(t *testing.T) {
+		mb := &courier.MockBackend{}
+		h := newHandler("WAC", "WhatsApp Cloud", false).(*handler)
+		h.SetServer(courier.NewServer(&courier.Config{}, mb))
+
+		payload := &moPayload{}
+		assert.NoError(t, json.Unmarshal([]byte(payloadJSON), payload))
+
+		assert.NoError(t, h.handleMMLiteTermsSigned(context.Background(), payload))
+		assert.Equal(t, []string{"waba-fail", "waba-ok"}, mb.UpdatedWabaIDs())
+	})
+}
+
 func TestContactUsernameUpdate(t *testing.T) {
 	channel := courier.NewMockChannel(
 		"8eb23e93-5ecb-45ba-b726-3b064e0c568c",

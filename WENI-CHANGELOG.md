@@ -1,3 +1,9 @@
+1.69.0
+----------
+ * feat: Refactor WAC webhook routing to support batched multi-entry payloads
+ * feat: implement media URL encoding for WhatsApp and Facebook handlers
+ * feat: enhance order metadata handling in webchat- #316
+
 1.68.2
 ----------
  * fix: remove fallback to ResponseToExternalID for whatsapp context reply

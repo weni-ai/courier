@@ -57,9 +57,13 @@ const (
 	// ConfigPageID is a constant key for channel configs
 	ConfigPageID = "page_id"
 
-	// ConfigForwardComments controls how Instagram feed comment replies are sent:
-	// false (default) replies as a public comment; true replies as a private DM.
+	// ConfigForwardComments enables forwarding Instagram feed comments to agents.
 	ConfigForwardComments = "forward_comments"
+
+	// ConfigReplyOnComment controls how Instagram feed comment replies are sent when
+	// forwarding is enabled. false (default) replies as a private DM; true replies
+	// as a public comment on the post.
+	ConfigReplyOnComment = "reply_on_comment"
 )
 
 // ChannelType is our typing of the two char channel types

@@ -1615,10 +1615,6 @@ func (h *handler) handleInstagramComment(
 	entryTime int64,
 	r *http.Request,
 ) (courier.Event, interface{}, error) {
-	if !channel.BoolConfigForKey(courier.ConfigForwardComments, false) {
-		return nil, courier.NewInfoData("ignoring comment, forward_comments disabled"), nil
-	}
-
 	if commentID == "" {
 		err := fmt.Errorf("instagram comment missing identifier")
 		courier.LogRequestError(r, channel, err)
@@ -1658,14 +1654,15 @@ func (h *handler) handleInstagramComment(
 	ev := h.Backend().NewIncomingMsg(channel, urn, commentText).WithExternalID(commentID).WithReceivedOn(time.Unix(0, entryTime*1000000).UTC())
 	event := h.Backend().CheckExternalIDSeen(ev)
 
-	igResponseType := "dm_comment"
-	if channel.BoolConfigForKey(courier.ConfigReplyOnComment, false) {
-		igResponseType = "comment"
-	}
-
 	igCommentMetadata := map[string]interface{}{
-		"ig_comment":       igComment,
-		"ig_response_type": igResponseType,
+		"ig_comment": igComment,
+	}
+	if channel.BoolConfigForKey(courier.ConfigForwardComments, false) {
+		igResponseType := "dm_comment"
+		if channel.BoolConfigForKey(courier.ConfigReplyOnComment, false) {
+			igResponseType = "comment"
+		}
+		igCommentMetadata["ig_response_type"] = igResponseType
 	}
 	if err := addMetadataWithOverwrite(event, igCommentMetadata); err != nil {
 		courier.LogRequestError(r, channel, err)
@@ -2196,6 +2193,9 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 	} else if msg.IGCommentID() != "" && msg.Text() != "" {
 		commentID := msg.IGCommentID()
 		responseType := msg.IGResponseType()
+		if responseType == "" {
+			responseType = "comment"
+		}
 
 		var req *http.Request
 		switch responseType {

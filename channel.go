@@ -58,11 +58,12 @@ const (
 	ConfigPageID = "page_id"
 
 	// ConfigForwardComments enables forwarding Instagram feed comments to agents.
-	// When false, comments are ignored regardless of other comment-related settings.
+	// Comments are always ingested for flow triggers; this flag controls agent routing
+	// and whether incoming metadata includes ig_response_type for agent replies.
 	ConfigForwardComments = "forward_comments"
 
-	// ConfigReplyOnComment controls how Instagram feed comment replies are sent when
-	// forwarding is enabled. false (default) replies as a private DM; true replies
+	// ConfigReplyOnComment controls how agent replies to Instagram feed comments are sent
+	// when forwarding is enabled. false (default) replies as a private DM; true replies
 	// as a public comment on the post. Has no effect when ConfigForwardComments is false.
 	ConfigReplyOnComment = "reply_on_comment"
 )

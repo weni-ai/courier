@@ -50,26 +50,48 @@ type miPayload struct {
 }
 
 type miMessage struct {
-	Type                    string `json:"type"          validate:"required"`
-	TimeStamp               string `json:"timestamp"     validate:"required"`
-	Text                    string `json:"text,omitempty"`
-	MediaURL                string `json:"media_url,omitempty"`
-	Caption                 string `json:"caption,omitempty"`
-	Latitude                string `json:"latitude,omitempty"`
-	Longitude               string `json:"longitude,omitempty"`
-	FromConversationStarter bool   `json:"from_conversation_starter,omitempty"`
-	Order                   struct {
-		ProductItems []miProductItem `json:"product_items"`
-	} `json:"order,omitempty"`
+	Type                    string  `json:"type"          validate:"required"`
+	TimeStamp               string  `json:"timestamp"     validate:"required"`
+	Text                    string  `json:"text,omitempty"`
+	MediaURL                string  `json:"media_url,omitempty"`
+	Caption                 string  `json:"caption,omitempty"`
+	Latitude                string  `json:"latitude,omitempty"`
+	Longitude               string  `json:"longitude,omitempty"`
+	FromConversationStarter bool    `json:"from_conversation_starter,omitempty"`
+	Order                   miOrder `json:"order,omitempty"`
 }
 
 type miProductItem struct {
-	ProductRetailerID string `json:"product_retailer_id"`
-	Name              string `json:"name"`
-	Price             string `json:"price"`
-	Currency          string `json:"currency"`
-	SellerID          string `json:"seller_id"`
-	Quantity          int    `json:"quantity"`
+	ProductRetailerID string                 `json:"product_retailer_id"`
+	Name              string                 `json:"name"`
+	Price             string                 `json:"price"`
+	SalePrice         string                 `json:"sale_price,omitempty"`
+	Currency          string                 `json:"currency"`
+	SellerID          string                 `json:"seller_id"`
+	Quantity          int                    `json:"quantity"`
+	ProductURL        string                 `json:"product_url,omitempty"`
+	Extra             map[string]interface{} `json:"extra,omitempty"`
+}
+
+type miOrder struct {
+	ProductItems []miProductItem `json:"product_items"`
+}
+
+// buildOrderMetadata builds metadata with order and overwrite_message using webchat field names as-is.
+func buildOrderMetadata(order miOrder) (json.RawMessage, error) {
+	metadata := map[string]interface{}{
+		"order": order,
+		"overwrite_message": map[string]interface{}{
+			"order": order,
+		},
+	}
+
+	metadataBytes, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.RawMessage(metadataBytes), nil
 }
 
 func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
@@ -137,9 +159,11 @@ func incomingMsgMetadata(payload *miPayload) json.RawMessage {
 	metadata := map[string]interface{}{}
 
 	if payload.Message.Type == "order" && len(payload.Message.Order.ProductItems) > 0 {
-		metadata["order"] = payload.Message.Order
-		metadata["overwrite_message"] = map[string]interface{}{
-			"order": payload.Message.Order,
+		orderMeta, err := buildOrderMetadata(payload.Message.Order)
+		if err == nil {
+			if err := json.Unmarshal(orderMeta, &metadata); err != nil {
+				metadata = map[string]interface{}{}
+			}
 		}
 	}
 
@@ -196,8 +220,8 @@ type wwcInteractive struct {
 }
 
 type wwcAction struct {
-	Sections     []wwcSection    `json:"sections,omitempty"`
-	Name         string          `json:"name,omitempty"`
+	Sections     []wwcSection     `json:"sections,omitempty"`
+	Name         string           `json:"name,omitempty"`
 	ProductItems []wwcProductItem `json:"product_items,omitempty"`
 }
 

@@ -74,6 +74,13 @@ type MockBackend struct {
 	ctwaEvents []CtwaEvent
 
 	waHandoverEvents []WAConversationHandoverEvent
+
+	// updateChannelConfigByWabaIDErrors is seeded by tests so
+	// UpdateChannelConfigByWabaID fails for specific waba IDs.
+	updateChannelConfigByWabaIDErrors map[string]error
+
+	// updatedWabaIDs records every waba ID passed to UpdateChannelConfigByWabaID.
+	updatedWabaIDs []string
 }
 
 // NewMockBackend returns a new mock backend suitable for testing
@@ -917,7 +924,7 @@ func (m *mockMsg) WithNewContactFields(fields map[string]string) Msg {
 	m.newContactFields = fields
 	return m
 }
-func (m *mockMsg) WithURNAuth(auth string) Msg { m.urnAuth = auth; return m }
+func (m *mockMsg) WithURNAuth(auth string) Msg       { m.urnAuth = auth; return m }
 func (m *mockMsg) WithReceivedOn(date time.Time) Msg { m.receivedOn = &date; return m }
 func (m *mockMsg) WithExternalID(id string) Msg      { m.externalID = id; return m }
 func (m *mockMsg) WithID(id MsgID) Msg               { m.id = id; return m }
@@ -1551,8 +1558,24 @@ func (mb *MockBackend) UpdateChannelConfig(ctx context.Context, channel Channel,
 	return nil
 }
 
+// FailUpdateChannelConfigByWabaID makes UpdateChannelConfigByWabaID return err for wabaID.
+func (mb *MockBackend) FailUpdateChannelConfigByWabaID(wabaID string, err error) {
+	if mb.updateChannelConfigByWabaIDErrors == nil {
+		mb.updateChannelConfigByWabaIDErrors = map[string]error{}
+	}
+	mb.updateChannelConfigByWabaIDErrors[wabaID] = err
+}
+
+// UpdatedWabaIDs returns the waba IDs passed to UpdateChannelConfigByWabaID.
+func (mb *MockBackend) UpdatedWabaIDs() []string {
+	return append([]string(nil), mb.updatedWabaIDs...)
+}
+
 // UpdateChannelConfigByWabaID updates the channel configuration for all channels with matching waba_id
 func (mb *MockBackend) UpdateChannelConfigByWabaID(ctx context.Context, wabaID string, configUpdates map[string]interface{}) error {
-	// For mock implementation, we'll just return nil since we don't have a real database
+	mb.updatedWabaIDs = append(mb.updatedWabaIDs, wabaID)
+	if err := mb.updateChannelConfigByWabaIDErrors[wabaID]; err != nil {
+		return err
+	}
 	return nil
 }

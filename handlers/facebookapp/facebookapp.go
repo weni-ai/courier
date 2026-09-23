@@ -131,6 +131,48 @@ func waTemplateTypeFromMetadata(metadata json.RawMessage) (templateType string) 
 	return mapped
 }
 
+// wacWebhookRouting is the result of scanning every entry and change of a
+// whatsapp_business_account payload. Meta batches events, so a single request
+// can require forwarding to integrations and still carry message events that
+// belong to a channel.
+type wacWebhookRouting struct {
+	hasChanges     bool
+	toIntegrations bool
+	toFlows        bool
+	channelAddress string
+	multipleAddrs  bool
+}
+
+func routeWhatsAppChanges(payload *moPayload) wacWebhookRouting {
+	var routing wacWebhookRouting
+
+	for _, entry := range payload.Entry {
+		for _, change := range entry.Changes {
+			routing.hasChanges = true
+
+			if integrationWebhookFields[change.Field] {
+				routing.toIntegrations = true
+				continue
+			}
+			if change.Field == "flows" {
+				routing.toFlows = true
+				continue
+			}
+			phoneNumberID := wacPhoneNumberID(change.Value.Metadata, change.Value.Recipient)
+			if phoneNumberID == "" {
+				continue
+			}
+			if routing.channelAddress == "" {
+				routing.channelAddress = phoneNumberID
+			} else if routing.channelAddress != phoneNumberID {
+				routing.multipleAddrs = true
+			}
+		}
+	}
+
+	return routing
+}
+
 var waIgnoreStatuses = map[string]bool{
 	"deleted": true,
 }
@@ -844,47 +886,40 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 		channelAddress = payload.Entry[0].ID
 		return h.Backend().GetChannelByAddress(ctx, courier.ChannelType("IG"), courier.ChannelAddress(channelAddress))
 	} else {
-		if len(payload.Entry[0].Changes) == 0 {
+		routing := routeWhatsAppChanges(payload)
+		if !routing.hasChanges {
 			return nil, fmt.Errorf("no changes found")
 		}
-		if integrationWebhookFields[payload.Entry[0].Changes[0].Field] {
-			logrus.WithField("field", payload.Entry[0].Changes[0].Field).Info("[integration_webhook] receiving integration webhook")
-			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, "", true)
-			if er != nil {
+
+		if routing.toIntegrations {
+			logrus.Info("[integration_webhook] receiving integration webhook")
+			if er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, "", true); er != nil {
 				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
 			}
-
-			if payload.Entry[0].Changes[0].Field == "account_update" {
-				logrus.WithField("event", payload.Entry[0].Changes[0].Value.Event).WithField("waba_info", payload.Entry[0].Changes[0].Value.WabaInfo).Info("[account_update] receiving account_update webhook")
-				// Handle account_update webhook type
-				if payload.Entry[0].Changes[0].Value.Event == "MM_LITE_TERMS_SIGNED" && payload.Entry[0].Changes[0].Value.WabaInfo != nil {
-					logrus.WithField("waba_id", payload.Entry[0].Changes[0].Value.WabaInfo.WabaID).Info("[mmlite] MM_LITE_TERMS_SIGNED event detected for waba_id")
-					wabaID := payload.Entry[0].Changes[0].Value.WabaInfo.WabaID
-
-					// Update channel config with ad_account_id and mmlite for all channels with matching waba_id
-					err := h.Backend().UpdateChannelConfigByWabaID(ctx, wabaID, map[string]interface{}{
-						"mmlite": true,
-					})
-					if err != nil {
-						logrus.WithError(err).WithField("waba_id", wabaID).Error("[mmlite] error updating channel config with waba_id")
-						return nil, fmt.Errorf("error updating channel config with waba_id %s: %v", wabaID, err)
-					}
-					logrus.WithField("waba_id", wabaID).Info("[mmlite] channel config updated with waba_id")
-				}
+			if err := h.handleMMLiteTermsSigned(ctx, payload); err != nil {
+				return nil, err
 			}
-
-			return nil, fmt.Errorf("template update, so ignore")
-		} else if payload.Entry[0].Changes[0].Field == "flows" {
-			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrlFlows, h.Server().Config().WhatsappCloudWebhooksTokenFlows, false)
-			if er != nil {
-				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
-			}
-			return nil, fmt.Errorf("template update, so ignore")
 		}
-		channelAddress = wacPhoneNumberID(payload.Entry[0].Changes[0].Value.Metadata, payload.Entry[0].Changes[0].Value.Recipient)
-		if channelAddress == "" {
+
+		if routing.toFlows {
+			if er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrlFlows, h.Server().Config().WhatsappCloudWebhooksTokenFlows, false); er != nil {
+				courier.LogRequestError(r, nil, fmt.Errorf("could not send flows webhook: %s", er))
+			}
+		}
+
+		if routing.channelAddress == "" {
+			if routing.toIntegrations || routing.toFlows {
+				return nil, fmt.Errorf("template update, so ignore")
+			}
 			return nil, fmt.Errorf("no channel address found")
 		}
+
+		if routing.multipleAddrs {
+			logrus.WithField("phone_number_id", routing.channelAddress).
+				Warn("batched webhook carries more than one phone_number_id; resolving the first")
+		}
+
+		channelAddress = routing.channelAddress
 
 		// get a value if exists from request header to a variable routerToken
 		routerToken := r.Header.Get("X-Router-Token")
@@ -894,6 +929,25 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 
 		return h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WAC"), courier.ChannelAddress(channelAddress))
 	}
+}
+
+func (h *handler) handleMMLiteTermsSigned(ctx context.Context, payload *moPayload) error {
+	var lastErr error
+	for _, entry := range payload.Entry {
+		for _, change := range entry.Changes {
+			if change.Field != "account_update" || change.Value.Event != "MM_LITE_TERMS_SIGNED" || change.Value.WabaInfo == nil {
+				continue
+			}
+			wabaID := change.Value.WabaInfo.WabaID
+			if err := h.Backend().UpdateChannelConfigByWabaID(ctx, wabaID, map[string]interface{}{"mmlite": true}); err != nil {
+				logrus.WithError(err).WithField("waba_id", wabaID).Error("[mmlite] error updating channel config with waba_id")
+				lastErr = errors.Wrapf(err, "error updating channel config with waba_id %s", wabaID)
+				continue
+			}
+			logrus.WithField("waba_id", wabaID).Info("[mmlite] channel config updated with waba_id")
+		}
+	}
+	return lastErr
 }
 
 // receiveVerify handles Facebook's webhook verification callback
@@ -2335,6 +2389,14 @@ type wacMTMedia struct {
 	Filename string `json:"filename,omitempty"`
 }
 
+func newWACMedia(id, link string) (wacMTMedia, error) {
+	encoded, err := utils.EncodeMediaURL(link)
+	if err != nil {
+		return wacMTMedia{}, err
+	}
+	return wacMTMedia{ID: id, Link: encoded}, nil
+}
+
 type wacMTSection struct {
 	Title        string             `json:"title,omitempty"`
 	Rows         []wacMTSectionRow  `json:"rows,omitempty"`
@@ -2715,7 +2777,10 @@ func (h *handler) fillWACPayloadByInteractionType(i int, msg courier.Msg, msgPar
 			if len(msg.Attachments()) > 0 {
 				attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
 				attType = strings.Split(attType, "/")[0]
-				media := wacMTMedia{Link: attURL}
+				media, err := newWACMedia("", attURL)
+				if err != nil {
+					return false, err
+				}
 				if attType == "image" {
 					interactive.Header = &struct {
 						Type     string      "json:\"type\""
@@ -3040,16 +3105,15 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			} else if mediaID != "" {
 				attURL = ""
 			}
-			parsedURL, err := url.Parse(attURL)
-			if err != nil {
-				return status, err
-			}
 
 			if attType == "application" {
 				attType = "document"
 			}
 			payload.Type = attType
-			media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
+			media, err := newWACMedia(mediaID, attURL)
+			if err != nil {
+				return status, err
+			}
 			if len(msgParts) == 1 && (attType != "audio" && attFormat != "webp") && len(msg.Attachments()) == 1 && len(msg.QuickReplies()) == 0 && len(msg.ListMessage().ListItems) == 0 {
 				media.Caption = msgParts[i]
 				hasCaption = true
@@ -3109,7 +3173,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						if attType == "application" {
 							attType = "document"
 						}
-						media := wacMTMedia{ID: mediaID, Link: attURL}
+						media, err := newWACMedia(mediaID, attURL)
+						if err != nil {
+							return nil, err
+						}
 						switch attType {
 						case "image":
 							interactive.Header = &struct {
@@ -3145,7 +3212,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							if i == 0 {
 								zeroIndex = true
 							}
-							payloadAudio = wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", Type: "audio", Audio: &wacMTMedia{ID: mediaID, Link: attURL}, Category: msgCategory, TTLSeconds: msgTTLSeconds}
+							payloadAudio = wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", Type: "audio", Audio: &media, Category: msgCategory, TTLSeconds: msgTTLSeconds}
 							if isPhoneNumber.MatchString(urnPath) {
 								payloadAudio.To = urnPath
 							} else {
@@ -3948,15 +4015,14 @@ func (h *handler) buildHeaderComponent(msg courier.Msg, accessToken string, stat
 	}
 	attType = strings.Split(attType, "/")[0]
 
-	parsedURL, err := url.Parse(attURL)
-	if err != nil {
-		return nil, err
-	}
 	if attType == "application" {
 		attType = "document"
 	}
 
-	media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
+	media, err := newWACMedia(mediaID, attURL)
+	if err != nil {
+		return nil, err
+	}
 	switch attType {
 	case "image":
 		header.Params = append(header.Params, &wacParam{Type: "image", Image: &media})
@@ -4020,6 +4086,11 @@ func (h *handler) buildSingleCardCarouselPayload(msg courier.Msg, payload *wacMT
 		attURL = rewrittenURL
 	}
 
+	media, err := newWACMedia("", attURL)
+	if err != nil {
+		return err
+	}
+
 	bodyText := singleCardCarouselBodyText(msg, cardData)
 	if bodyText == "" {
 		return fmt.Errorf("interactive carousel requires body text")
@@ -4027,7 +4098,7 @@ func (h *handler) buildSingleCardCarouselPayload(msg courier.Msg, payload *wacMT
 
 	if len(cardData.Buttons) == 0 {
 		payload.Type = attType
-		media := wacMTMedia{Link: attURL, Caption: parseBacklashes(bodyText)}
+		media.Caption = parseBacklashes(bodyText)
 		if attType == "image" {
 			payload.Image = &media
 		} else {
@@ -4040,8 +4111,6 @@ func (h *handler) buildSingleCardCarouselPayload(msg courier.Msg, payload *wacMT
 	if firstBtn.SubType != "url" && firstBtn.SubType != "quick_reply" {
 		return fmt.Errorf("carousel card has unsupported button sub_type: %s", firstBtn.SubType)
 	}
-
-	media := wacMTMedia{Link: attURL}
 	header := &struct {
 		Type     string      `json:"type"`
 		Text     string      `json:"text,omitempty"`
@@ -4168,7 +4237,10 @@ func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg) (*wacInteract
 			attURL = rewrittenURL
 		}
 
-		media := wacMTMedia{Link: attURL}
+		media, err := newWACMedia("", attURL)
+		if err != nil {
+			return nil, errors.Wrapf(err, "invalid attachment URL for card %d", cardIdx)
+		}
 
 		cardIdxPtr := cardIdx
 		card := wacCarouselCard{
@@ -4320,8 +4392,10 @@ func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplat
 			attURL = rewrittenURL
 		}
 
-		media := wacMTMedia{Link: attURL}
-
+		media, err := newWACMedia("", attURL)
+		if err != nil {
+			return nil, err
+		}
 		switch attType {
 		case "image":
 			headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "image", Image: &media})
@@ -4584,6 +4658,11 @@ func convertWebPIfNeeded(data []byte, mimeType string, convertWebP bool, channel
 
 func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, accessToken string, convertWebP bool) (string, []*courier.ChannelLog, error) {
 	var logs []*courier.ChannelLog
+
+	mediaURL, err := utils.EncodeMediaURL(mediaURL)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "invalid media URL")
+	}
 
 	rc := h.Backend().RedisPool().Get()
 	defer rc.Close()

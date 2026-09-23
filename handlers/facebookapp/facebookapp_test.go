@@ -41,6 +41,13 @@ var testChannelsIGReplyOnComment = []courier.Channel{
 	}),
 }
 
+var testChannelsIGReplyOnCommentOnly = []courier.Channel{
+	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "IG", "12345", "", map[string]interface{}{
+		courier.ConfigAuthToken:      "a123",
+		courier.ConfigReplyOnComment: true,
+	}),
+}
+
 var testChannelsWAC = []courier.Channel{
 	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "WAC", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123", "webhook": `{"url": "https://webhook.site", "method": "POST", "headers": {}}`}),
 }
@@ -246,30 +253,10 @@ var testCasesIGComments = []ChannelHandleTestCase{
 		}),
 		PrepRequest: addValidSignature},
 
-	{Label: "Receive Comment Without Forward Config", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
-		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("30065218"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
-		Metadata: Jp(map[string]interface{}{
-			"ig_comment": map[string]interface{}{
-				"id": "30065218",
-				"media": map[string]interface{}{
-					"ad_id":              "1280670063",
-					"id":                 "180615383",
-					"media_product_type": "AD",
-					"original_media_id":  "179908467",
-				},
-			},
-			"overwrite_message": map[string]interface{}{
-				"ig_comment": map[string]interface{}{
-					"id": "30065218",
-					"media": map[string]interface{}{
-						"ad_id":              "1280670063",
-						"id":                 "180615383",
-						"media_product_type": "AD",
-						"original_media_id":  "179908467",
-					},
-				},
-			},
-		}),
+	{Label: "Receive Comment Without Forward Config", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "ignoring comment, forward_comments disabled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Reply On Comment Without Forward", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "ignoring comment, forward_comments disabled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		PrepRequest: addValidSignature},
 
 	{Label: "Receive Comment Missing ID", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentMissingIDIG.json")), Status: 200, Response: "missing identifier", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
@@ -290,9 +277,9 @@ func TestInstagramComments(t *testing.T) {
 	RunChannelTestCases(t, testChannelsIGForwardComments, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
 		testCasesIGComments[0],
 		testCasesIGComments[1],
-		testCasesIGComments[5],
 		testCasesIGComments[6],
 		testCasesIGComments[7],
+		testCasesIGComments[8],
 	})
 
 	RunChannelTestCases(t, testChannelsIGReplyOnComment, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
@@ -303,8 +290,12 @@ func TestInstagramComments(t *testing.T) {
 		testCasesIGComments[3],
 	})
 
-	RunChannelTestCases(t, testChannelsIGForwardComments, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+	RunChannelTestCases(t, testChannelsIGReplyOnCommentOnly, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
 		testCasesIGComments[4],
+	})
+
+	RunChannelTestCases(t, testChannelsIGForwardComments, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+		testCasesIGComments[5],
 	})
 }
 

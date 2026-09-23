@@ -1,3 +1,7 @@
+1.70.1
+----------
+ * enhance Instagram comment handling with reply configuration
+
 1.70.0
 ----------
  * feat: add support for forwarding Instagram feed comments to agents

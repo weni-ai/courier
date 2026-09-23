@@ -57,7 +57,8 @@ const (
 	// ConfigPageID is a constant key for channel configs
 	ConfigPageID = "page_id"
 
-	// ConfigForwardComments is a constant key for forwarding Instagram feed comments to agents
+	// ConfigForwardComments controls how Instagram feed comment replies are sent:
+	// false (default) replies as a public comment; true replies as a private DM.
 	ConfigForwardComments = "forward_comments"
 )
 

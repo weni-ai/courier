@@ -1561,10 +1561,6 @@ func (h *handler) handleInstagramComment(
 	entryTime int64,
 	r *http.Request,
 ) (courier.Event, interface{}, error) {
-	if !channel.BoolConfigForKey(courier.ConfigForwardComments, false) {
-		return nil, courier.NewInfoData("ignoring comment, forward_comments disabled"), nil
-	}
-
 	if commentID == "" {
 		err := fmt.Errorf("instagram comment missing identifier")
 		courier.LogRequestError(r, channel, err)

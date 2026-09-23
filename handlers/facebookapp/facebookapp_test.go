@@ -210,7 +210,32 @@ var testCasesIGComments = []ChannelHandleTestCase{
 		}),
 		PrepRequest: addValidSignature},
 
-	{Label: "Receive Comment Disabled", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "forward_comments disabled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+	{Label: "Receive Comment As Comment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("30065218"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"ig_comment": map[string]interface{}{
+				"id": "30065218",
+				"media": map[string]interface{}{
+					"ad_id":              "1280670063",
+					"id":                 "180615383",
+					"media_product_type": "AD",
+					"original_media_id":  "179908467",
+				},
+			},
+			"ig_response_type": "comment",
+			"overwrite_message": map[string]interface{}{
+				"ig_comment": map[string]interface{}{
+					"id": "30065218",
+					"media": map[string]interface{}{
+						"ad_id":              "1280670063",
+						"id":                 "180615383",
+						"media_product_type": "AD",
+						"original_media_id":  "179908467",
+					},
+				},
+				"ig_response_type": "comment",
+			},
+		}),
 		PrepRequest: addValidSignature},
 
 	{Label: "Receive Comment Missing ID", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentMissingIDIG.json")), Status: 200, Response: "missing identifier", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,

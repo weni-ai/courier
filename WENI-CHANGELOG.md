@@ -1,3 +1,7 @@
+1.71.0
+----------
+ * refactor: improve Instagram comment handling and test cases
+
 1.70.1
 ----------
  * enhance Instagram comment handling with reply configuration

@@ -1,5 +1,9 @@
-1.69.0
+1.70.0
 ----------
+ * feat: add support for forwarding Instagram feed comments to agents
+
+1.69.0
+---------- 
  * feat: Refactor WAC webhook routing to support batched multi-entry payloads
  * feat: implement media URL encoding for WhatsApp and Facebook handlers
  * feat: enhance order metadata handling in webchat- #316

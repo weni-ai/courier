@@ -1,3 +1,7 @@
+1.69.0
+----------
+ * feat: add support for forwarding Instagram feed comments to agents
+
 1.68.2
 ----------
  * fix: remove fallback to ResponseToExternalID for whatsapp context reply

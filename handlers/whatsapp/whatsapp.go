@@ -741,6 +741,9 @@ func buildPayloads(msg courier.Msg, h *handler) ([]interface{}, []*courier.Chann
 			return nil, nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())
 		}
 		if templating != nil {
+			if strings.EqualFold(templating.ParameterFormat, "named") {
+				return nil, nil, errors.Errorf("named templates are not supported on channel: %s", msg.Channel().UUID())
+			}
 			namespace := templating.Namespace
 			if namespace == "" {
 				namespace = msg.Channel().StringConfigForKey(configNamespace, "")
@@ -1863,10 +1866,12 @@ type MsgTemplating struct {
 		Name string `json:"name" validate:"required"`
 		UUID string `json:"uuid" validate:"required"`
 	} `json:"template" validate:"required,dive"`
-	Language  string   `json:"language" validate:"required"`
-	Country   string   `json:"country"`
-	Namespace string   `json:"namespace"`
-	Variables []string `json:"variables"`
+	Language        string            `json:"language" validate:"required"`
+	Country         string            `json:"country"`
+	Namespace       string            `json:"namespace"`
+	Variables       []string          `json:"variables"`
+	NamedVariables  map[string]string `json:"named_variables,omitempty"`
+	ParameterFormat string            `json:"parameter_format,omitempty"`
 }
 
 // mapping from iso639-3_iso3166-2 to WA language code

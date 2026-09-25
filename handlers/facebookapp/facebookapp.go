@@ -2210,15 +2210,7 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 		case "dm_comment":
-			igUserID := msg.Channel().Address()
-			if igUserID == "" {
-				igUserID = strconv.Itoa(msg.Channel().IntConfigForKey(courier.ConfigPageID, 0))
-			}
-			if igUserID == "" {
-				return status, fmt.Errorf("missing instagram account id for private comment reply")
-			}
-
-			messagesURL, _ := url.Parse(fmt.Sprintf("%s%s/messages", graphURL, igUserID))
+			messagesURL, _ := url.Parse(sendURL)
 			payloadMap := map[string]interface{}{
 				"recipient": map[string]string{
 					"comment_id": commentID,

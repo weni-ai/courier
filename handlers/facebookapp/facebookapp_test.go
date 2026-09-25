@@ -1088,7 +1088,9 @@ var SendTestCasesIG = []ChannelSendTestCase{
 		Metadata:     json.RawMessage(`{"ig_comment_id": "30065218","ig_response_type": "dm_comment"}`),
 		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
 		SendPrep: func(server *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
-			graphURL = buildMockIGCommentReplyServer().URL + "/"
+			mockServer := buildMockIGCommentReplyServer()
+			sendURL = mockServer.URL
+			graphURL = mockServer.URL + "/"
 		},
 	},
 	{Label: "Quick Reply",
@@ -2266,7 +2268,7 @@ func buildMockIGCommentReplyServer() *httptest.Server {
 			return
 		}
 
-		if strings.Contains(r.URL.Path, "/messages") {
+		if strings.Contains(r.URL.Path, "/messages") || r.URL.Path == "/" {
 			var payload map[string]interface{}
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				http.Error(w, "Bad request", http.StatusBadRequest)

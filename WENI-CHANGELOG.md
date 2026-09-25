@@ -1,3 +1,7 @@
+1.72.1
+----------
+ * refactor: update Instagram comment handling and test cases
+
 1.72.0
 ----------
  * feat: emit named WhatsApp Cloud API template parameters and refuse named templates on on-premises/360dialog

@@ -10,7 +10,7 @@
 - **Product Spec**: Voice Mode for Telephony — `vtex-cx-engine-specs/specs/004-voice-mode-telephony/spec.md`
 - **Pinned version**: `004-voice-mode-telephony` (branch)
 - **Inherited binding decisions**: BD-001, BD-010 (PSTN as dedicated Courier channel type; `tel:` URN; DID→channel via channel config; Courier owns URN construction)
-- **Scope of this spec**: Courier-only — new `TPH` channel handler, DID-based channel resolution, inbound transcript ingestion, outbound agent text delivery to gateway
+- **Scope of this spec**: Courier-only — new `TPH` channel handler, DID-based channel resolution, inbound transcript ingestion. Outbound agent speech is delivered by Nexus gRPC to the voice gateway (same path as Weni Web Chat); Courier does not POST to a gateway `/send` URL.
 - **Divergences**: none
 
 ## User Scenarios & Testing
@@ -33,19 +33,19 @@ When the voice gateway forwards a committed caller transcript, Courier resolves 
 
 ---
 
-### User Story 2 - Deliver agent responses to the voice gateway (Priority: P1)
+### User Story 2 - Persist outbound agent replies without gateway REST (Priority: P1)
 
-When Mailroom sends an outbound message on a PSTN channel, Courier forwards the agent text to the configured gateway URL so it can be synthesized and played to the caller.
+When Mailroom queues an outbound message on a PSTN channel, Courier marks it sent without calling a gateway URL. Spoken replies are streamed by Nexus over gRPC to the voice gateway (same as Weni Web Chat).
 
-**Why this priority**: Voice conversations require spoken agent replies routed back through the gateway.
+**Why this priority**: A Courier REST `/send` duplicates the agent path, fails when `base_url` is a placeholder, and does not inject audio into the SIP call.
 
-**Independent Test**: Trigger `SendMsg` on a TPH channel with `base_url` configured; verify an HTTP POST to `{base_url}/send` with the caller URN and message text.
+**Independent Test**: Trigger `SendMsg` on a TPH channel with or without `base_url`; verify the message is marked sent and no HTTP request is made.
 
 **Acceptance Scenarios**:
 
-1. **Given** a channel with `base_url` configured, **When** an outbound text message is sent, **Then** Courier POSTs JSON to `{base_url}/send` and marks the message sent on success
-2. **Given** `base_url` is missing, **When** an outbound message is sent, **Then** Courier returns an error without calling the gateway
-3. **Given** the gateway returns a non-2xx response, **When** send is attempted, **Then** the message is marked errored with a channel log
+1. **Given** an outbound text on a TPH channel, **When** Courier `SendMsg` runs, **Then** the message is marked sent and no `POST {base_url}/send` is issued
+2. **Given** `base_url` is missing from channel config, **When** an outbound message is sent, **Then** Courier still marks the message sent
+3. **Given** a leftover `base_url` from an older claim, **When** an outbound message is sent, **Then** Courier ignores that config and does not call the URL
 
 ---
 
@@ -68,7 +68,7 @@ When caller ID is missing or withheld, Courier still attributes the call using a
 - Invalid JSON or schema validation failure → 400, no message written
 - Duplicate `message_id` external ID → handled by backend deduplication semantics
 - Non-text inbound message types → ignored with 200 for forward compatibility
-- Auth token configured on channel → gateway requests must include matching `Authorization` header on outbound (optional inbound validation deferred)
+- Auth token on channel config is unused for outbound (optional leftover from older claims)
 
 ## Requirements
 
@@ -79,20 +79,20 @@ When caller ID is missing or withheld, Courier still attributes the call using a
 - **FR-003**: Courier MUST accept only `origin=pstn` for this handler in v1
 - **FR-004**: Courier MUST construct contact URNs with scheme `tel:` from normalized caller ID
 - **FR-005**: Courier MUST reject blank inbound text messages
-- **FR-006**: Courier MUST forward outbound text to `{base_url}/send` using a JSON contract aligned with gateway expectations
-- **FR-007**: Courier MUST include `call_id` in outbound payloads when present in message metadata
+- **FR-006**: Courier MUST acknowledge outbound TPH messages as sent without HTTP to a voice gateway `/send` URL; agent audio is out of band (Nexus gRPC)
+- **FR-007**: Courier MUST NOT require `base_url` or `auth_token` on the TPH channel to complete outbound
 - **FR-008**: Courier MUST support withheld caller ID via synthetic `tel:` URNs tied to `call_id`
 
 ### Key Entities
 
-- **PSTN Channel**: Courier channel instance with type `TPH`, address = DID, config `base_url` (+ optional `auth_token`)
+- **PSTN Channel**: Courier channel instance with type `TPH`, address = DID
 - **Inbound voice turn**: JSON payload from gateway with `did`, `caller_id`, `call_id`, and committed transcript text
-- **Outbound voice response**: Agent text routed to gateway for TTS playback
+- **Outbound voice response**: Agent text persisted by Flows; live audio via Nexus gRPC to the voice gateway (not Courier REST)
 
 ## Success Criteria
 
 - **SC-001**: Valid inbound payloads create `tel:` URNs and inbound messages in 100% of happy-path tests
-- **SC-002**: Outbound messages reach the configured gateway URL with correct recipient and text in 100% of happy-path tests
+- **SC-002**: Outbound `SendMsg` marks messages sent without calling a gateway REST URL
 - **SC-003**: Unknown DID and invalid payloads never write messages to the backend
 - **SC-004**: Handler test suite passes in CI (`go test ./handlers/telephony/...`)
 

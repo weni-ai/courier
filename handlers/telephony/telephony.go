@@ -1,7 +1,6 @@
 package telephony
 
 import (
-	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
-	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/urns"
 )
 
@@ -56,21 +54,6 @@ type receiveMessage struct {
 	Timestamp string `json:"timestamp" validate:"required"`
 	Text      string `json:"text"`
 	MessageID string `json:"message_id,omitempty"`
-}
-
-type outboundPayload struct {
-	Type   string          `json:"type"`
-	Origin string          `json:"origin"`
-	To     string          `json:"to"`
-	From   string          `json:"from"`
-	CallID string          `json:"call_id,omitempty"`
-	Msg    outboundMessage `json:"message"`
-}
-
-type outboundMessage struct {
-	Type      string `json:"type"`
-	Timestamp string `json:"timestamp"`
-	Text      string `json:"text"`
 }
 
 type resolveResponse struct {
@@ -227,76 +210,9 @@ func callMetadata(callID string) (json.RawMessage, error) {
 	return raw, nil
 }
 
-func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
-	start := time.Now()
-	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgSent)
-
-	baseURL := strings.TrimRight(msg.Channel().StringConfigForKey(courier.ConfigBaseURL, ""), "/")
-	if baseURL == "" {
-		return nil, errors.New("blank base_url")
-	}
-
-	callID := extractCallID(msg.Metadata())
-	payload := outboundPayload{
-		Type:   "message",
-		Origin: originPSTN,
-		To:     msg.URN().Path(),
-		From:   msg.Channel().Address(),
-		CallID: callID,
-		Msg: outboundMessage{
-			Type:      "text",
-			Timestamp: strconv.FormatInt(time.Now().Unix(), 10),
-			Text:      msg.Text(),
-		},
-	}
-
-	body, err := json.Marshal(&payload)
-	if err != nil {
-		elapsed := time.Since(start)
-		status.AddLog(courier.NewChannelLogFromError("Error marshalling outbound payload", msg.Channel(), msg.ID(), elapsed, err))
-		return status, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/send", bytes.NewReader(body))
-	if err != nil {
-		elapsed := time.Since(start)
-		status.AddLog(courier.NewChannelLogFromError("Error creating outbound request", msg.Channel(), msg.ID(), elapsed, err))
-		return status, err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	authToken := msg.Channel().StringConfigForKey(courier.ConfigAuthToken, "")
-	if authToken != "" {
-		req.Header.Set("Authorization", "Bearer "+authToken)
-	}
-
-	resp, err := utils.MakeHTTPRequest(req)
-	elapsed := time.Since(start)
-	if resp != nil {
-		status.AddLog(courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), resp).WithError("Message Send Error", err))
-	}
-	if err != nil {
-		status.SetStatus(courier.MsgErrored)
-		return status, err
-	}
-
-	if resp.StatusCode/100 != 2 {
-		err = fmt.Errorf("received non-success response: %d", resp.StatusCode)
-		status.SetStatus(courier.MsgErrored)
-		status.AddLog(courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, err))
-		return status, err
-	}
-
-	return status, nil
-}
-
-func extractCallID(metadata json.RawMessage) string {
-	if len(metadata) == 0 {
-		return ""
-	}
-	var data map[string]string
-	if err := json.Unmarshal(metadata, &data); err != nil {
-		return ""
-	}
-	return data["call_id"]
+// SendMsg acknowledges outbound TPH messages without calling a gateway REST URL.
+// Agent replies reach the live call via Nexus gRPC to the voice gateway, the same
+// path as Weni Web Chat streaming — Flows persists the message; Courier must not POST /send.
+func (h *handler) SendMsg(_ context.Context, msg courier.Msg) (courier.MsgStatus, error) {
+	return h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgSent), nil
 }

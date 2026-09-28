@@ -30,9 +30,9 @@ curl -sS -X POST http://localhost:8080/c/tph/receive \
 
 - Channel type: `TPH`
 - Address: DID assigned to the tenant
-- Config: `base_url` pointing to the voice gateway HTTP endpoint
+- Config: DID as channel address; no gateway `base_url` required
 
 ## Coordination
 
 - Deploy Courier with this handler before enabling PSTN channels in Flows
-- Gateway must call `/c/tph/receive` and implement `/send` per [gateway-api.md](./contracts/gateway-api.md)
+- Gateway must call `/c/tph/receive`. Outbound speech is Nexus gRPC to the voice gateway, not Courier `/send`. See [gateway-api.md](./contracts/gateway-api.md)

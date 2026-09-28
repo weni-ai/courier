@@ -6,8 +6,6 @@
 | ----- | -------------- |
 | `channel_type` | `TPH` |
 | `address` | DID (E.164), e.g. `+15551234567` |
-| `config.base_url` | Voice gateway base URL for outbound send |
-| `config.auth_token` | Optional bearer token for gateway auth |
 | `schemes` | `["tel"]` |
 
 ## Inbound payload (`POST /c/tph/receive`)
@@ -24,18 +22,9 @@
 | `message.text` | string | yes | Committed transcript |
 | `message.message_id` | string | no | Idempotency key stored as external ID |
 
-## Outbound payload (`POST {base_url}/send`)
+## Outbound
 
-| Field | Type | Required | Description |
-| ----- | ---- | -------- | ----------- |
-| `type` | string | yes | `message` |
-| `origin` | string | yes | `pstn` |
-| `to` | string | yes | Caller `tel` path (URN path) |
-| `from` | string | yes | Channel DID |
-| `call_id` | string | no | From message metadata when available |
-| `message.type` | string | yes | `text` |
-| `message.timestamp` | string | yes | Unix epoch seconds |
-| `message.text` | string | yes | Agent text for TTS |
+Courier does not POST agent text to a gateway `/send` URL. Spoken replies use Nexus gRPC to the voice gateway.
 
 ## URN construction
 

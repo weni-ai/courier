@@ -2,7 +2,6 @@ package telephony
 
 import (
 	"fmt"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -129,39 +128,13 @@ func TestResolveHandler(t *testing.T) {
 
 var sendTestCases = []ChannelSendTestCase{
 	{
-		Label:   "Plain Send",
-		Text:    "Your order is on the way",
-		URN:     "tel:+15559876543",
-		Headers: map[string]string{"Authorization": "Bearer secret", "Content-Type": "application/json"},
-		Path:    "/send",
-		Responses: map[MockedRequest]MockedResponse{
-			{
-				Method:       "POST",
-				Path:         "/send",
-				BodyContains: `"text":"Your order is on the way"`,
-			}: {
-				Status: 200,
-				Body:   `{"status":"ok"}`,
-			},
-		},
-		Status:   string(courier.MsgSent),
-		SendPrep: prepareSendMsg,
-	},
-	{
-		Label: "Missing Base URL",
-		Text:  "Hello",
-		URN:   "tel:+15559876543",
-		Error: "blank base_url",
-		SendPrep: func(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
-			c.(*courier.MockChannel).SetConfig(courier.ConfigBaseURL, "")
-		},
+		Label:  "Outbound Acknowledged Without Gateway REST",
+		Text:   "Your order is on the way",
+		URN:    "tel:+15559876543",
+		Status: string(courier.MsgSent),
 	},
 }
 
 func TestSending(t *testing.T) {
 	RunChannelSendTestCases(t, testChannels[0], newHandler(), sendTestCases, nil)
-}
-
-func prepareSendMsg(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
-	c.(*courier.MockChannel).SetConfig(courier.ConfigBaseURL, s.URL)
 }

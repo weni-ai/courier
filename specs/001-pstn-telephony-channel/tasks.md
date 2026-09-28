@@ -31,7 +31,7 @@
 
 ## Phase 4: User Story 2 - Outbound agent text (P1)
 
-- [x] T008 [US2] Implement `SendMsg` posting to `{base_url}/send` in `handlers/telephony/telephony.go`
+- [x] T008 [US2] Implement `SendMsg` as no-op (no `{base_url}/send`) in `handlers/telephony/telephony.go`
 - [x] T009 [US2] Add outbound send tests in `handlers/telephony/telephony_test.go`
 
 ---

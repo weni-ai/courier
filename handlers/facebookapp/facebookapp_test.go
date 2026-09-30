@@ -28,8 +28,23 @@ var testChannelsIG = []courier.Channel{
 
 var testChannelsIGForwardComments = []courier.Channel{
 	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "IG", "12345", "", map[string]interface{}{
-		courier.ConfigAuthToken:      "a123",
+		courier.ConfigAuthToken:       "a123",
 		courier.ConfigForwardComments: true,
+	}),
+}
+
+var testChannelsIGReplyOnComment = []courier.Channel{
+	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "IG", "12345", "", map[string]interface{}{
+		courier.ConfigAuthToken:       "a123",
+		courier.ConfigForwardComments: true,
+		courier.ConfigReplyOnComment:  true,
+	}),
+}
+
+var testChannelsIGReplyOnCommentOnly = []courier.Channel{
+	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "IG", "12345", "", map[string]interface{}{
+		courier.ConfigAuthToken:      "a123",
+		courier.ConfigReplyOnComment: true,
 	}),
 }
 
@@ -210,7 +225,84 @@ var testCasesIGComments = []ChannelHandleTestCase{
 		}),
 		PrepRequest: addValidSignature},
 
-	{Label: "Receive Comment Disabled", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "forward_comments disabled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+	{Label: "Receive Comment Reply On Comment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("30065218"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"ig_comment": map[string]interface{}{
+				"id": "30065218",
+				"media": map[string]interface{}{
+					"ad_id":              "1280670063",
+					"id":                 "180615383",
+					"media_product_type": "AD",
+					"original_media_id":  "179908467",
+				},
+			},
+			"ig_response_type": "comment",
+			"overwrite_message": map[string]interface{}{
+				"ig_comment": map[string]interface{}{
+					"id": "30065218",
+					"media": map[string]interface{}{
+						"ad_id":              "1280670063",
+						"id":                 "180615383",
+						"media_product_type": "AD",
+						"original_media_id":  "179908467",
+					},
+				},
+				"ig_response_type": "comment",
+			},
+		}),
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Without Forward Config", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("30065218"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"ig_comment": map[string]interface{}{
+				"id": "30065218",
+				"media": map[string]interface{}{
+					"ad_id":              "1280670063",
+					"id":                 "180615383",
+					"media_product_type": "AD",
+					"original_media_id":  "179908467",
+				},
+			},
+			"overwrite_message": map[string]interface{}{
+				"ig_comment": map[string]interface{}{
+					"id": "30065218",
+					"media": map[string]interface{}{
+						"ad_id":              "1280670063",
+						"id":                 "180615383",
+						"media_product_type": "AD",
+						"original_media_id":  "179908467",
+					},
+				},
+			},
+		}),
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Reply On Comment Without Forward", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("30065218"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"ig_comment": map[string]interface{}{
+				"id": "30065218",
+				"media": map[string]interface{}{
+					"ad_id":              "1280670063",
+					"id":                 "180615383",
+					"media_product_type": "AD",
+					"original_media_id":  "179908467",
+				},
+			},
+			"overwrite_message": map[string]interface{}{
+				"ig_comment": map[string]interface{}{
+					"id": "30065218",
+					"media": map[string]interface{}{
+						"ad_id":              "1280670063",
+						"id":                 "180615383",
+						"media_product_type": "AD",
+						"original_media_id":  "179908467",
+					},
+				},
+			},
+		}),
 		PrepRequest: addValidSignature},
 
 	{Label: "Receive Comment Missing ID", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentMissingIDIG.json")), Status: 200, Response: "missing identifier", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
@@ -231,17 +323,25 @@ func TestInstagramComments(t *testing.T) {
 	RunChannelTestCases(t, testChannelsIGForwardComments, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
 		testCasesIGComments[0],
 		testCasesIGComments[1],
-		testCasesIGComments[4],
-		testCasesIGComments[5],
 		testCasesIGComments[6],
+		testCasesIGComments[7],
+		testCasesIGComments[8],
 	})
 
-	RunChannelTestCases(t, testChannelsIG, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+	RunChannelTestCases(t, testChannelsIGReplyOnComment, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
 		testCasesIGComments[2],
 	})
 
-	RunChannelTestCases(t, testChannelsIGForwardComments, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+	RunChannelTestCases(t, testChannelsIG, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
 		testCasesIGComments[3],
+	})
+
+	RunChannelTestCases(t, testChannelsIGReplyOnCommentOnly, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+		testCasesIGComments[4],
+	})
+
+	RunChannelTestCases(t, testChannelsIGForwardComments, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+		testCasesIGComments[5],
 	})
 }
 
@@ -973,13 +1073,24 @@ var SendTestCasesIG = []ChannelSendTestCase{
 			graphURL = buildMockIGCommentReplyServer().URL + "/"
 		},
 	},
+	{Label: "Instagram Comment Reply Legacy",
+		Text: "Reply to comment", URN: "instagram:12345",
+		Status: "W", ExternalID: "30065218",
+		Metadata:     json.RawMessage(`{"ig_comment_id": "30065218"}`),
+		ResponseBody: `{"id": "30065218"}`, ResponseStatus: 200,
+		SendPrep: func(server *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+			graphURL = buildMockIGCommentReplyServer().URL + "/"
+		},
+	},
 	{Label: "Instagram DM Comment Reply",
 		Text: "Reply to comment", URN: "instagram:12345",
 		Status: "W", ExternalID: "mid.133",
 		Metadata:     json.RawMessage(`{"ig_comment_id": "30065218","ig_response_type": "dm_comment"}`),
 		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
 		SendPrep: func(server *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
-			graphURL = buildMockIGCommentReplyServer().URL + "/"
+			mockServer := buildMockIGCommentReplyServer()
+			sendURL = mockServer.URL
+			graphURL = mockServer.URL + "/"
 		},
 	},
 	{Label: "Quick Reply",
@@ -1693,6 +1804,17 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"carousel","body":{"text":"Choose an option"},"action":{"cards":[{"card_index":0,"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}},"body":{"text":"Option A"},"action":{"buttons":[{"type":"quick_reply","quick_reply":{"id":"opt_a","title":"opt_a"}}]}},{"card_index":1,"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/card2.jpg"}},"body":{"text":"Option B"},"action":{"buttons":[{"type":"quick_reply","quick_reply":{"id":"opt_b","title":"opt_b"}}]}}]}}}`,
 		SendPrep:    setSendURL},
+	{Label: "Interactive Carousel Send - Encodes non-ASCII image URL",
+		Text: "Choose an option", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{
+			"image/jpeg:https://foo.bar/1ª-edicao.jpg",
+			"image/jpeg:https://foo.bar/card2.jpg",
+		},
+		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Option A","buttons":[{"sub_type":"quick_reply","parameter":"opt_a"}]},{"body":"Option B","buttons":[{"sub_type":"quick_reply","parameter":"opt_b"}]}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"carousel","body":{"text":"Choose an option"},"action":{"cards":[{"card_index":0,"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/1%C2%AA-edicao.jpg"}},"body":{"text":"Option A"},"action":{"buttons":[{"type":"quick_reply","quick_reply":{"id":"opt_a","title":"opt_a"}}]}},{"card_index":1,"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/card2.jpg"}},"body":{"text":"Option B"},"action":{"buttons":[{"type":"quick_reply","quick_reply":{"id":"opt_b","title":"opt_b"}}]}}]}}}`,
+		SendPrep:    setSendURL},
 	{Label: "Interactive Carousel - Single card with CTA URL",
 		Text: "Main text", URN: "whatsapp:250788123123",
 		Status: "W", ExternalID: "157b5e14568e8",
@@ -2146,7 +2268,7 @@ func buildMockIGCommentReplyServer() *httptest.Server {
 			return
 		}
 
-		if strings.Contains(r.URL.Path, "/messages") {
+		if strings.Contains(r.URL.Path, "/messages") || r.URL.Path == "/" {
 			var payload map[string]interface{}
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				http.Error(w, "Bad request", http.StatusBadRequest)

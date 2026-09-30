@@ -1,3 +1,29 @@
+1.72.1
+----------
+ * refactor: update Instagram comment handling and test cases
+
+1.72.0
+----------
+ * feat: emit named WhatsApp Cloud API template parameters and refuse named templates on on-premises/360dialog
+
+1.71.0
+----------
+ * refactor: improve Instagram comment handling and test cases
+
+1.70.1
+----------
+ * enhance Instagram comment handling with reply configuration
+
+1.70.0
+----------
+ * feat: add support for forwarding Instagram feed comments to agents
+
+1.69.0
+---------- 
+ * feat: Refactor WAC webhook routing to support batched multi-entry payloads
+ * feat: implement media URL encoding for WhatsApp and Facebook handlers
+ * feat: enhance order metadata handling in webchat- #316
+
 1.68.2
 ----------
  * fix: remove fallback to ResponseToExternalID for whatsapp context reply

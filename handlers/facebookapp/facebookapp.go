@@ -1622,10 +1622,6 @@ func (h *handler) handleInstagramComment(
 	entryTime int64,
 	r *http.Request,
 ) (courier.Event, interface{}, error) {
-	if !channel.BoolConfigForKey(courier.ConfigForwardComments, false) {
-		return nil, courier.NewInfoData("ignoring comment, forward_comments disabled"), nil
-	}
-
 	if commentID == "" {
 		err := fmt.Errorf("instagram comment missing identifier")
 		courier.LogRequestError(r, channel, err)
@@ -1665,17 +1661,15 @@ func (h *handler) handleInstagramComment(
 	ev := h.Backend().NewIncomingMsg(channel, urn, commentText).WithExternalID(commentID).WithReceivedOn(time.Unix(0, entryTime*1000000).UTC())
 	event := h.Backend().CheckExternalIDSeen(ev)
 
-	igResponseType := "comment"
-	if channel.BoolConfigForKey(courier.ConfigForwardComments, false) {
-		igResponseType = "dm_comment"
-	}
-
-	fmt.Printf("[ig comment receive] channel=%s comment_id=%s ig_response_type=%s forward_comments=%v\n",
-		channel.UUID(), commentID, igResponseType, channel.BoolConfigForKey(courier.ConfigForwardComments, false))
-
 	igCommentMetadata := map[string]interface{}{
-		"ig_comment":       igComment,
-		"ig_response_type": igResponseType,
+		"ig_comment": igComment,
+	}
+	if channel.BoolConfigForKey(courier.ConfigForwardComments, false) {
+		igResponseType := "dm_comment"
+		if channel.BoolConfigForKey(courier.ConfigReplyOnComment, false) {
+			igResponseType = "comment"
+		}
+		igCommentMetadata["ig_response_type"] = igResponseType
 	}
 	if err := addMetadataWithOverwrite(event, igCommentMetadata); err != nil {
 		courier.LogRequestError(r, channel, err)
@@ -2209,6 +2203,9 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 	} else if msg.IGCommentID() != "" && msg.Text() != "" {
 		commentID := msg.IGCommentID()
 		responseType := msg.IGResponseType()
+		if responseType == "" {
+			responseType = "comment"
+		}
 
 		var req *http.Request
 		switch responseType {
@@ -2222,15 +2219,7 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 		case "dm_comment":
-			igUserID := msg.Channel().Address()
-			if igUserID == "" {
-				igUserID = strconv.Itoa(msg.Channel().IntConfigForKey(courier.ConfigPageID, 0))
-			}
-			if igUserID == "" {
-				return status, fmt.Errorf("missing instagram account id for private comment reply")
-			}
-
-			messagesURL, _ := url.Parse(fmt.Sprintf("%s%s/messages", graphURL, igUserID))
+			messagesURL, _ := url.Parse(sendURL)
 			payloadMap := map[string]interface{}{
 				"recipient": map[string]string{
 					"comment_id": commentID,
@@ -2404,6 +2393,14 @@ type wacMTMedia struct {
 	Link     string `json:"link,omitempty"`
 	Caption  string `json:"caption,omitempty"`
 	Filename string `json:"filename,omitempty"`
+}
+
+func newWACMedia(id, link string) (wacMTMedia, error) {
+	encoded, err := utils.EncodeMediaURL(link)
+	if err != nil {
+		return wacMTMedia{}, err
+	}
+	return wacMTMedia{ID: id, Link: encoded}, nil
 }
 
 type wacMTSection struct {
@@ -2787,7 +2784,10 @@ func (h *handler) fillWACPayloadByInteractionType(i int, msg courier.Msg, msgPar
 			if len(msg.Attachments()) > 0 {
 				attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
 				attType = strings.Split(attType, "/")[0]
-				media := wacMTMedia{Link: attURL}
+				media, err := newWACMedia("", attURL)
+				if err != nil {
+					return false, err
+				}
 				if attType == "image" {
 					interactive.Header = &struct {
 						Type     string      "json:\"type\""
@@ -3112,16 +3112,15 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			} else if mediaID != "" {
 				attURL = ""
 			}
-			parsedURL, err := url.Parse(attURL)
-			if err != nil {
-				return status, err
-			}
 
 			if attType == "application" {
 				attType = "document"
 			}
 			payload.Type = attType
-			media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
+			media, err := newWACMedia(mediaID, attURL)
+			if err != nil {
+				return status, err
+			}
 			if len(msgParts) == 1 && (attType != "audio" && attFormat != "webp") && len(msg.Attachments()) == 1 && len(msg.QuickReplies()) == 0 && len(msg.ListMessage().ListItems) == 0 {
 				media.Caption = msgParts[i]
 				hasCaption = true
@@ -3181,7 +3180,10 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						if attType == "application" {
 							attType = "document"
 						}
-						media := wacMTMedia{ID: mediaID, Link: attURL}
+						media, err := newWACMedia(mediaID, attURL)
+						if err != nil {
+							return nil, err
+						}
 						switch attType {
 						case "image":
 							interactive.Header = &struct {
@@ -3217,7 +3219,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							if i == 0 {
 								zeroIndex = true
 							}
-							payloadAudio = wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", Type: "audio", Audio: &wacMTMedia{ID: mediaID, Link: attURL}, Category: msgCategory, TTLSeconds: msgTTLSeconds}
+							payloadAudio = wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", Type: "audio", Audio: &media, Category: msgCategory, TTLSeconds: msgTTLSeconds}
 							if isPhoneNumber.MatchString(urnPath) {
 								payloadAudio.To = urnPath
 							} else {
@@ -4053,15 +4055,14 @@ func (h *handler) buildHeaderComponent(msg courier.Msg, accessToken string, stat
 	}
 	attType = strings.Split(attType, "/")[0]
 
-	parsedURL, err := url.Parse(attURL)
-	if err != nil {
-		return nil, err
-	}
 	if attType == "application" {
 		attType = "document"
 	}
 
-	media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
+	media, err := newWACMedia(mediaID, attURL)
+	if err != nil {
+		return nil, err
+	}
 	switch attType {
 	case "image":
 		header.Params = append(header.Params, &wacParam{Type: "image", Image: &media})
@@ -4125,6 +4126,11 @@ func (h *handler) buildSingleCardCarouselPayload(msg courier.Msg, payload *wacMT
 		attURL = rewrittenURL
 	}
 
+	media, err := newWACMedia("", attURL)
+	if err != nil {
+		return err
+	}
+
 	bodyText := singleCardCarouselBodyText(msg, cardData)
 	if bodyText == "" {
 		return fmt.Errorf("interactive carousel requires body text")
@@ -4132,7 +4138,7 @@ func (h *handler) buildSingleCardCarouselPayload(msg courier.Msg, payload *wacMT
 
 	if len(cardData.Buttons) == 0 {
 		payload.Type = attType
-		media := wacMTMedia{Link: attURL, Caption: parseBacklashes(bodyText)}
+		media.Caption = parseBacklashes(bodyText)
 		if attType == "image" {
 			payload.Image = &media
 		} else {
@@ -4145,8 +4151,6 @@ func (h *handler) buildSingleCardCarouselPayload(msg courier.Msg, payload *wacMT
 	if firstBtn.SubType != "url" && firstBtn.SubType != "quick_reply" {
 		return fmt.Errorf("carousel card has unsupported button sub_type: %s", firstBtn.SubType)
 	}
-
-	media := wacMTMedia{Link: attURL}
 	header := &struct {
 		Type     string      `json:"type"`
 		Text     string      `json:"text,omitempty"`
@@ -4273,7 +4277,10 @@ func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg) (*wacInteract
 			attURL = rewrittenURL
 		}
 
-		media := wacMTMedia{Link: attURL}
+		media, err := newWACMedia("", attURL)
+		if err != nil {
+			return nil, errors.Wrapf(err, "invalid attachment URL for card %d", cardIdx)
+		}
 
 		cardIdxPtr := cardIdx
 		card := wacCarouselCard{
@@ -4425,8 +4432,10 @@ func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplat
 			attURL = rewrittenURL
 		}
 
-		media := wacMTMedia{Link: attURL}
-
+		media, err := newWACMedia("", attURL)
+		if err != nil {
+			return nil, err
+		}
 		switch attType {
 		case "image":
 			headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "image", Image: &media})
@@ -4691,6 +4700,11 @@ func convertWebPIfNeeded(data []byte, mimeType string, convertWebP bool, channel
 
 func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, accessToken string, convertWebP bool) (string, []*courier.ChannelLog, error) {
 	var logs []*courier.ChannelLog
+
+	mediaURL, err := utils.EncodeMediaURL(mediaURL)
+	if err != nil {
+		return "", logs, errors.Wrapf(err, "invalid media URL")
+	}
 
 	rc := h.Backend().RedisPool().Get()
 	defer rc.Close()

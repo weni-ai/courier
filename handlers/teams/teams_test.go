@@ -2,7 +2,6 @@ package teams
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -394,13 +393,16 @@ func buildMockOAuthServer() *httptest.Server {
 	}))
 }
 
+func overrideTeamsTokenURL(url string) func() {
+	orig := teamsTenantTokenURL
+	teamsTenantTokenURL = func(string) string { return url }
+	return func() { teamsTenantTokenURL = orig }
+}
+
 func TestSendMsgSingleTenantFallback(t *testing.T) {
 	oauthServer := buildMockOAuthServer()
 	defer oauthServer.Close()
-	teamsTenantTokenURL = func(tenantID string) string { return oauthServer.URL }
-	defer func() { teamsTenantTokenURL = func(tenantID string) string {
-		return fmt.Sprintf("https://login.microsoftonline.com/%s/oauth2/v2.0/token", tenantID)
-	} }()
+	defer overrideTeamsTokenURL(oauthServer.URL)()
 
 	teamsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tokenH := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -469,10 +471,7 @@ func TestSendMsgV2DoesNotRetryOAuthOn401(t *testing.T) {
 func TestConversationUpdateSingleTenantFallback(t *testing.T) {
 	oauthServer := buildMockOAuthServer()
 	defer oauthServer.Close()
-	teamsTenantTokenURL = func(tenantID string) string { return oauthServer.URL }
-	defer func() { teamsTenantTokenURL = func(tenantID string) string {
-		return fmt.Sprintf("https://login.microsoftonline.com/%s/oauth2/v2.0/token", tenantID)
-	} }()
+	defer overrideTeamsTokenURL(oauthServer.URL)()
 
 	teamsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tokenH := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")

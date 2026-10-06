@@ -1,3 +1,8 @@
+1.73.0
+----------
+ * refactor: enhance Teams handler with single-tenant token support
+ * fix: stop gzipping responses that retained flate writers
+
 1.72.1
 ----------
  * refactor: update Instagram comment handling and test cases

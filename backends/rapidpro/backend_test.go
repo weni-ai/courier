@@ -1577,7 +1577,7 @@ func (ts *BackendTestSuite) TestWriteMsg() {
 	err = json.Unmarshal(data, &body)
 	ts.NoError(err)
 	ts.Equal("msg_event", body["type"])
-	ts.Equal(map[string]interface{}{
+	task := map[string]interface{}{
 		"contact_id":         float64(contact.ID_),
 		"org_id":             float64(1),
 		"channel_id":         float64(10),
@@ -1592,7 +1592,11 @@ func (ts *BackendTestSuite) TestWriteMsg() {
 		"created_on":         msg.CreatedOn_.Format(time.RFC3339Nano),
 		"metadata":           nil,
 		"new_contact_fields": nil,
-	}, body["task"])
+	}
+	if msg.ProtocolID_ != nil {
+		task["protocol_id"] = float64(*msg.ProtocolID_)
+	}
+	ts.Equal(task, body["task"])
 }
 
 func (ts *BackendTestSuite) TestWriteMsgWithNewContactFields() {

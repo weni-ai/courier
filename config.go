@@ -83,6 +83,9 @@ type Config struct {
 
 	ConversionEventsURL   string `help:"the Flows URL for POST /conversion/ events (conversation_started)"`
 	ConversionEventsToken string `help:"the fixed access token for Flows /conversion/ calls from Courier"`
+
+	MailroomURL       string `help:"base URL of mailroom, used to resolve the protocol of an inbound message"`
+	MailroomAuthToken string `help:"token sent as Authorization: Token <value> when resolving a protocol"`
 }
 
 // NewConfig returns a new default configuration object

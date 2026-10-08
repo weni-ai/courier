@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/nyaruka/courier/utils"
 	"github.com/sirupsen/logrus"
 )
 
@@ -66,7 +67,7 @@ func resolveProtocol(ctx context.Context, b *backend, m *DBMsg) (int64, error) {
 	if b.config.MailroomAuthToken != "" {
 		req.Header.Set("Authorization", "Token "+b.config.MailroomAuthToken)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := utils.GetHTTPClient().Do(req)
 	if err != nil {
 		return 0, err
 	}

@@ -1878,7 +1878,9 @@ INSERT INTO msgs_protocol (
 ) VALUES ($1, $2, $3, $4, 'open', NOW(), 0, false) RETURNING id`,
 			fmt.Sprintf("33333333-3333-3333-3333-%012d", urnID), orgID, contactID, urnID))
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"protocol_id": id, "created": true, "predecessor_id": nil})
+		ts.NoError(json.NewEncoder(w).Encode(map[string]interface{}{
+			"protocol_id": id, "created": true, "predecessor_id": nil,
+		}))
 	}))
 	defer server.Close()
 	ts.b.config.MailroomURL = server.URL

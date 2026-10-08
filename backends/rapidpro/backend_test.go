@@ -1850,6 +1850,13 @@ func (ts *BackendTestSuite) TestInboundProtocolFailSafe() {
 	ts.NoError(ts.b.db.Get(&stored, `SELECT protocol_id FROM msgs_msg WHERE id = $1`, msg.ID()))
 	ts.Equal(*msg.ProtocolID_, stored)
 
+	var kind string
+	var deadline time.Time
+	ts.NoError(ts.b.db.QueryRow(`SELECT timer_kind, timer_deadline FROM msgs_protocol WHERE id = $1`, *msg.ProtocolID_).Scan(&kind, &deadline))
+	ts.Equal(failSafeTimerKind, kind)
+	remaining := time.Until(deadline)
+	ts.True(remaining > 55*time.Minute && remaining < 65*time.Minute)
+
 	again, err := insertFailSafeProtocol(ctx, ts.b, msg)
 	ts.NoError(err)
 	ts.Equal(*msg.ProtocolID_, again)

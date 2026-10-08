@@ -20,11 +20,19 @@ type protocolResolveResponse struct {
 	PredecessorID *int64 `json:"predecessor_id"`
 }
 
+// The fail-safe protocol uses the product default: an AI timer of one hour.
+const (
+	failSafeTimerKind     = "ai"
+	failSafeTimerInterval = "1 hour"
+)
+
 // bindInboundProtocol asks mailroom which protocol owns this message.
 // When mailroom cannot answer, Courier opens one protocol itself and still stores the message.
 func bindInboundProtocol(ctx context.Context, b *backend, m *DBMsg) error {
+	source := "mailroom"
 	protocolID, err := resolveProtocol(ctx, b, m)
 	if err != nil {
+		source = "failsafe"
 		protocolID, err = insertFailSafeProtocol(ctx, b, m)
 		if err != nil {
 			return err
@@ -35,6 +43,7 @@ func bindInboundProtocol(ctx context.Context, b *backend, m *DBMsg) error {
 		"org_id":      m.OrgID_,
 		"channel_id":  m.ChannelID_,
 		"protocol_id": protocolID,
+		"source":      source,
 	}).Info("inbound message bound to protocol")
 	return nil
 }
@@ -113,8 +122,8 @@ INSERT INTO msgs_protocol (
 	idle_accumulated, timer_paused, timer_kind, timer_deadline
 ) VALUES (
 	$1, $2, $3, $4, 'open', NOW(), $5,
-	0, false, 'ai', NOW() + interval '1 hour'
-) RETURNING id`, protocolUUID.String(), m.OrgID_, m.ContactID_, m.ContactURNID_, external)
+	0, false, $6, NOW() + $7::interval
+) RETURNING id`, protocolUUID.String(), m.OrgID_, m.ContactID_, m.ContactURNID_, external, failSafeTimerKind, failSafeTimerInterval)
 	if err != nil {
 		return 0, err
 	}

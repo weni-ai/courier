@@ -1083,7 +1083,6 @@ func (ts *BackendTestSuite) TestIsEmailMailboxBlocked() {
 	ts.True(blocked)
 }
 
-
 func (ts *BackendTestSuite) TestContactLastSeenWithoutName() {
 	ctx := context.Background()
 	channel := ts.getChannel("TG", "dbc126ed-66bc-4e28-b67b-81dc3327c98a")
@@ -1578,7 +1577,7 @@ func (ts *BackendTestSuite) TestWriteMsg() {
 	err = json.Unmarshal(data, &body)
 	ts.NoError(err)
 	ts.Equal("msg_event", body["type"])
-	ts.Equal(map[string]interface{}{
+	task := map[string]interface{}{
 		"contact_id":         float64(contact.ID_),
 		"org_id":             float64(1),
 		"channel_id":         float64(10),
@@ -1593,7 +1592,11 @@ func (ts *BackendTestSuite) TestWriteMsg() {
 		"created_on":         msg.CreatedOn_.Format(time.RFC3339Nano),
 		"metadata":           nil,
 		"new_contact_fields": nil,
-	}, body["task"])
+	}
+	if msg.ProtocolID_ != nil {
+		task["protocol_id"] = float64(*msg.ProtocolID_)
+	}
+	ts.Equal(task, body["task"])
 }
 
 func (ts *BackendTestSuite) TestWriteMsgWithNewContactFields() {
@@ -1828,4 +1831,76 @@ func (ts *BackendTestSuite) TestGetProjectUUIDFromChannelUUID() {
 	projectUUID, err := ts.b.GetProjectUUIDFromChannelUUID(ctx, channelUUID)
 	ts.NoError(err)
 	ts.Equal("9bab7353-561c-42f7-860e-e24c86cfb8e6", projectUUID)
+}
+
+func (ts *BackendTestSuite) TestInboundProtocolFailSafe() {
+	ctx := context.Background()
+	ts.b.config.MailroomURL = ""
+	channel := ts.getChannel("KN", "dbc126ed-66bc-4e28-b67b-81dc3327c95d")
+	urn, err := urns.NewTelURNForCountry("12065551999", channel.Country())
+	ts.NoError(err)
+	msg := ts.b.NewIncomingMsg(channel, urn, "protocol please").WithExternalID("proto-ext-1").(*DBMsg)
+
+	err = ts.b.WriteMsg(ctx, msg)
+	ts.NoError(err)
+	ts.NotNil(msg.ProtocolID_)
+	ts.NotZero(*msg.ProtocolID_)
+
+	var stored int64
+	ts.NoError(ts.b.db.Get(&stored, `SELECT protocol_id FROM msgs_msg WHERE id = $1`, msg.ID()))
+	ts.Equal(*msg.ProtocolID_, stored)
+
+	var kind string
+	var deadline time.Time
+	ts.NoError(ts.b.db.QueryRow(`SELECT timer_kind, timer_deadline FROM msgs_protocol WHERE id = $1`, *msg.ProtocolID_).Scan(&kind, &deadline))
+	ts.Equal(failSafeTimerKind, kind)
+	remaining := time.Until(deadline)
+	ts.True(remaining > 55*time.Minute && remaining < 65*time.Minute)
+
+	again, err := insertFailSafeProtocol(ctx, ts.b, msg)
+	ts.NoError(err)
+	ts.Equal(*msg.ProtocolID_, again)
+}
+
+func (ts *BackendTestSuite) TestInboundProtocolResolve() {
+	ctx := context.Background()
+	channel := ts.getChannel("KN", "dbc126ed-66bc-4e28-b67b-81dc3327c95d")
+	var sawAttach bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/mr/protocol/resolve" {
+			sawAttach = true
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]interface{}
+		ts.NoError(json.NewDecoder(r.Body).Decode(&body))
+		contactID := int64(body["contact_id"].(float64))
+		urnID := int64(body["urn_id"].(float64))
+		var orgID int64
+		ts.NoError(ts.b.db.Get(&orgID, `SELECT org_id FROM contacts_contact WHERE id = $1`, contactID))
+		var id int64
+		ts.NoError(ts.b.db.Get(&id, `
+INSERT INTO msgs_protocol (
+	uuid, org_id, contact_id, urn_id, state, opened_on, idle_accumulated, timer_paused
+) VALUES ($1, $2, $3, $4, 'open', NOW(), 0, false) RETURNING id`,
+			fmt.Sprintf("33333333-3333-3333-3333-%012d", urnID), orgID, contactID, urnID))
+		w.Header().Set("Content-Type", "application/json")
+		ts.NoError(json.NewEncoder(w).Encode(map[string]interface{}{
+			"protocol_id": id, "created": true, "predecessor_id": nil,
+		}))
+	}))
+	defer server.Close()
+	ts.b.config.MailroomURL = server.URL
+	defer func() { ts.b.config.MailroomURL = "" }()
+
+	urn, err := urns.NewTelURNForCountry("12065551888", channel.Country())
+	ts.NoError(err)
+	msg := ts.b.NewIncomingMsg(channel, urn, "resolved").WithExternalID("proto-ext-2").(*DBMsg)
+	ts.NoError(ts.b.WriteMsg(ctx, msg))
+	ts.False(sawAttach)
+	ts.NotNil(msg.ProtocolID_)
+
+	var stored int64
+	ts.NoError(ts.b.db.Get(&stored, `SELECT protocol_id FROM msgs_msg WHERE id = $1`, msg.ID()))
+	ts.Equal(*msg.ProtocolID_, stored)
 }

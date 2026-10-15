@@ -1703,6 +1703,52 @@ func (ts *BackendTestSuite) TestWriteMsgWithNewContactFields() {
 	ts.Equal("test@example.com", newContactFields["email"])
 }
 
+func (ts *BackendTestSuite) lookupChannelByAddressConcurrently(channelType courier.ChannelType, address courier.ChannelAddress) ([]courier.Channel, []error) {
+	const lookups = 20
+	channels := make([]courier.Channel, lookups)
+	errs := make([]error, lookups)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(lookups)
+	for i := 0; i < lookups; i++ {
+		go func(i int) {
+			defer wg.Done()
+			channels[i], errs[i] = ts.b.GetChannelByAddress(ctx, channelType, address)
+		}(i)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		ts.FailNow("concurrent channel lookups never returned")
+	}
+
+	return channels, errs
+}
+
+func (ts *BackendTestSuite) TestConcurrentGetChannelByAddress() {
+	_, errs := ts.lookupChannelByAddressConcurrently(courier.ChannelType("IG"), courier.ChannelAddress("17841400000000000"))
+	for _, err := range errs {
+		ts.EqualError(err, "unable to find channel with type: IG and address: 17841400000000000")
+	}
+
+	clearLocalChannelByAddress(courier.ChannelAddress("2500"))
+	channels, errs := ts.lookupChannelByAddressConcurrently(courier.ChannelType("KN"), courier.ChannelAddress("2500"))
+	for i, err := range errs {
+		ts.NoError(err)
+		ts.Equal("dbc126ed-66bc-4e28-b67b-81dc3327c95d", channels[i].UUID().String())
+	}
+}
+
 func (ts *BackendTestSuite) TestPreferredChannelCheckRole() {
 	exChannel := ts.getChannel("EX", "dbc126ed-66bc-4e28-b67b-81dc3327100a")
 	ctx := context.Background()

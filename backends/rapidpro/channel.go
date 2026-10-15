@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/utils"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/singleflight"
 )
 
 // getChannel will look up the channel with the passed in UUID and channel type.
@@ -29,31 +29,14 @@ func getChannel(ctx context.Context, db *sqlx.DB, channelType courier.ChannelTyp
 		return cachedChannel, nil
 	}
 
-	// check if channel any thread alread has a call loadChannelFromDB
-	loadThrottled, _ := getChannelLoadLock(channelUUID)
-	if loadThrottled != nil {
-		//already loading channel by address from db? so every 200ms try to get from cache until its get cached from first load or after lock expire
-		ticker := time.NewTicker(time.Millisecond * 200)
-		for {
-			<-ticker.C
-			cachedChannel, err := getCachedChannel(channelType, channelUUID)
-			if cachedChannel != nil {
-				if err != nil { // found and is expired? clear from cache
-					clearLocalChannel(channelUUID)
-				}
-				// already loaded and cached, return it
-				return cachedChannel, nil
-			}
+	// look in our database instead, sharing a single load with concurrent lookups of the same channel
+	channel, dbErr := loadChannelOnce(ctx, channelLoadKey(channelType, channelUUID.String()), func(loadCtx context.Context) (*DBChannel, error) {
+		channel, err := loadChannelFromDB(loadCtx, db, channelType, channelUUID)
+		if err == nil {
+			cacheChannel(channel)
 		}
-	}
-	// not loaded from db yet, so throttle next loads until first one completes
-	lockLoadChannel(channelUUID)
-
-	// look in our database instead
-	channel, dbErr := loadChannelFromDB(ctx, db, channelType, channelUUID)
-
-	// loaded, so unlock the next loads to allow expired cachs to retrieve again
-	unlockLoadChannel(channelUUID)
+		return channel, err
+	})
 
 	// if it wasn't found in the DB, clear our cache and return that it wasn't found
 	if dbErr == courier.ErrChannelNotFound {
@@ -71,9 +54,36 @@ func getChannel(ctx context.Context, db *sqlx.DB, channelType courier.ChannelTyp
 		return nil, dbErr
 	}
 
-	// we found it in the db, cache it locally
-	cacheChannel(channel)
 	return channel, nil
+}
+
+const channelLoadTimeout = backendTimeout
+
+var channelLoads singleflight.Group
+
+func channelLoadKey(channelType courier.ChannelType, lookupValue string) string {
+	return channelType.String() + ":" + lookupValue
+}
+
+// loadChannelOnce runs load at most once at a time per key: concurrent callers share its result, including errors.
+// The load is detached from the first caller's cancellation, and each caller stops waiting when its own ctx is done.
+func loadChannelOnce(ctx context.Context, key string, load func(context.Context) (*DBChannel, error)) (*DBChannel, error) {
+	results := channelLoads.DoChan(key, func() (any, error) {
+		loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), channelLoadTimeout)
+		defer cancel()
+		return load(loadCtx)
+	})
+
+	select {
+	case result := <-results:
+		if result.Err != nil {
+			return nil, result.Err
+		}
+		channel, _ := result.Val.(*DBChannel)
+		return channel, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 const lookupChannelFromUUIDSQL = `
@@ -166,38 +176,6 @@ const localTTL = 5 * time.Minute
 var cacheMutex sync.RWMutex
 var channelCache = make(map[courier.ChannelUUID]*DBChannel)
 
-type LoadLock struct {
-	expiration time.Time
-}
-
-var channelLoadLock = make(map[courier.ChannelUUID]*LoadLock)
-var channelLoadLockMutex sync.Mutex
-
-func getChannelLoadLock(channelUUID courier.ChannelUUID) (*LoadLock, error) {
-	channelLoadLockMutex.Lock()
-	defer channelLoadLockMutex.Unlock()
-	locked, found := channelLoadLock[channelUUID]
-	if found {
-		if locked.expiration.Before(time.Now()) {
-			return nil, errors.New("load lock expired")
-		}
-		return locked, nil
-	}
-	return nil, errors.New("not locked")
-}
-
-func lockLoadChannel(channelUUID courier.ChannelUUID) {
-	channelLoadLockMutex.Lock()
-	defer channelLoadLockMutex.Unlock()
-	channelLoadLock[channelUUID] = &LoadLock{expiration: time.Now().Add(time.Second * 10)}
-}
-
-func unlockLoadChannel(channelUUID courier.ChannelUUID) {
-	channelLoadLockMutex.Lock()
-	defer channelLoadLockMutex.Unlock()
-	delete(channelLoadLock, channelUUID)
-}
-
 // getChannelByAddress will look up the channel with the passed in address and channel type.
 // It will return an error if the channel does not exist or is not active.
 func getChannelByAddress(ctx context.Context, db *sqlx.DB, channelType courier.ChannelType, address courier.ChannelAddress) (*DBChannel, error) {
@@ -209,31 +187,14 @@ func getChannelByAddress(ctx context.Context, db *sqlx.DB, channelType courier.C
 		return cachedChannel, nil
 	}
 
-	// check if channel any thread alread has a call loadChannelByAddressFromDB
-	lockLoad, _ := getChannelLoadByAddressLock(address)
-	if lockLoad != nil {
-		//already loading channel by address from db? so every 200ms try to get from cache until it get cached from first load or after lock expire
-		ticker := time.NewTicker(time.Millisecond * 200)
-		for {
-			<-ticker.C
-			cachedChannel, err := getCachedChannelByAddress(channelType, address)
-			if cachedChannel != nil {
-				if err != nil { // found and is expired? clear from cache
-					clearLocalChannelByAddress(address)
-				}
-				// already loaded and cached, return it
-				return cachedChannel, err
-			}
+	// look in our database instead, sharing a single load with concurrent lookups of the same address
+	channel, dbErr := loadChannelOnce(ctx, channelLoadKey(channelType, address.String()), func(loadCtx context.Context) (*DBChannel, error) {
+		channel, err := loadChannelByAddressFromDB(loadCtx, db, channelType, address)
+		if err == nil {
+			cacheChannelByAddress(channel)
 		}
-	}
-	// not loaded from db yet, so lock next loads until first one completes
-	lockLoadChannelByAddress(address)
-
-	// look in our database instead
-	channel, dbErr := loadChannelByAddressFromDB(ctx, db, channelType, address)
-
-	// loaded, so unlock the next loads to allow expired cachs to retrieve again
-	unlockLoadChannelByAddress(address)
+		return channel, err
+	})
 
 	// if it wasn't found in the DB, clear our cache and return that it wasn't found
 	if dbErr == courier.ErrChannelNotFound {
@@ -251,8 +212,6 @@ func getChannelByAddress(ctx context.Context, db *sqlx.DB, channelType courier.C
 		return nil, dbErr
 	}
 
-	// we found it in the db, cache it locally
-	cacheChannelByAddress(channel)
 	return channel, nil
 }
 
@@ -266,31 +225,14 @@ func getChannelByAddressWithRouterToken(ctx context.Context, db *sqlx.DB, channe
 		return cachedChannel, nil
 	}
 
-	// check if channel any thread alread has a call loadChannelByAddressFromDB
-	lockLoad, _ := getChannelLoadByAddressWithRouterTokenLock(routerToken)
-	if lockLoad != nil {
-		//already loading channel by address from db? so every 200ms try to get from cache until it get cached from first load or after lock expire
-		ticker := time.NewTicker(time.Millisecond * 200)
-		for {
-			<-ticker.C
-			cachedChannel, err := getCachedChannelByAddressWithRouterToken(channelType, routerToken)
-			if cachedChannel != nil {
-				if err != nil { // found and is expired? clear from cache
-					clearLocalChannelByAddressWithRouterToken(routerToken)
-				}
-				// already loaded and cached, return it
-				return cachedChannel, err
-			}
+	// look in our database instead, sharing a single load with concurrent lookups of the same address and router token
+	channel, dbErr := loadChannelOnce(ctx, channelLoadKey(channelType, address.String()+":"+routerToken), func(loadCtx context.Context) (*DBChannel, error) {
+		channel, err := loadChannelByAddressWithRouterTokenFromDB(loadCtx, db, channelType, address, routerToken)
+		if err == nil {
+			cacheChannelByAddressWithRouterToken(channel, routerToken)
 		}
-	}
-	// not loaded from db yet, so lock next loads until first one completes
-	lockLoadChannelByAddressWithRouterToken(routerToken)
-
-	// look in our database instead
-	channel, dbErr := loadChannelByAddressWithRouterTokenFromDB(ctx, db, channelType, address, routerToken)
-
-	// loaded, so unlock the next loads to allow expired cachs to retrieve again
-	unlockLoadChannelByAddressWithRouterToken(routerToken)
+		return channel, err
+	})
 
 	// if it wasn't found in the DB, clear our cache and return that it wasn't found
 	if dbErr == courier.ErrChannelNotFound {
@@ -308,8 +250,6 @@ func getChannelByAddressWithRouterToken(ctx context.Context, db *sqlx.DB, channe
 		return nil, dbErr
 	}
 
-	// we found it in the db, cache it locally
-	cacheChannelByAddressWithRouterToken(channel, routerToken)
 	return channel, nil
 }
 
@@ -427,71 +367,8 @@ func clearLocalChannelByAddress(address courier.ChannelAddress) {
 var cacheByAddressMutex sync.RWMutex
 var channelByAddressCache = make(map[courier.ChannelAddress]*DBChannel)
 
-// logic for throttle the request to channels by address to avoid multiple queries to db
-var channelLoadByAddressLocks = make(map[courier.ChannelAddress]*LoadLock)
-var channelLoadByAddressLockMutex sync.Mutex
-
-func getChannelLoadByAddressLock(address courier.ChannelAddress) (*LoadLock, error) {
-	channelLoadByAddressLockMutex.Lock()
-	locked, found := channelLoadByAddressLocks[address]
-	channelLoadByAddressLockMutex.Unlock()
-	if found {
-		if locked.expiration.Before(time.Now()) {
-			return nil, errors.New("load lock expired")
-		}
-		return locked, nil
-	}
-	return nil, errors.New("not locked")
-}
-
-func lockLoadChannelByAddress(address courier.ChannelAddress) {
-	if address == courier.NilChannelAddress {
-		return
-	}
-	channelLoadByAddressLockMutex.Lock()
-	channelLoadByAddressLocks[address] = &LoadLock{expiration: time.Now().Add(time.Second * 10)}
-	channelLoadByAddressLockMutex.Unlock()
-}
-
-func unlockLoadChannelByAddress(address courier.ChannelAddress) {
-	channelLoadByAddressLockMutex.Lock()
-	delete(channelLoadByAddressLocks, address)
-	channelLoadByAddressLockMutex.Unlock()
-}
-
 var cacheByAddressWithRouterTokenMutex sync.RWMutex
 var channelByAddressWithRouterTokenCache = make(map[string]*DBChannel)
-
-var channelLoadByAddressWithRouterTokenLocks = make(map[string]*LoadLock)
-var channelLoadByAddressWithRouterTokenLockMutex sync.Mutex
-
-func getChannelLoadByAddressWithRouterTokenLock(routerToken string) (*LoadLock, error) {
-	channelLoadByAddressWithRouterTokenLockMutex.Lock()
-	locked, found := channelLoadByAddressWithRouterTokenLocks[routerToken]
-	channelLoadByAddressWithRouterTokenLockMutex.Unlock()
-	if found {
-		if locked.expiration.Before(time.Now()) {
-			return nil, errors.New("load lock expired")
-		}
-		return locked, nil
-	}
-	return nil, errors.New("not locked")
-}
-
-func lockLoadChannelByAddressWithRouterToken(routerToken string) {
-	if routerToken == "" {
-		return
-	}
-	channelLoadByAddressWithRouterTokenLockMutex.Lock()
-	channelLoadByAddressWithRouterTokenLocks[routerToken] = &LoadLock{expiration: time.Now().Add(time.Second * 10)}
-	channelLoadByAddressWithRouterTokenLockMutex.Unlock()
-}
-
-func unlockLoadChannelByAddressWithRouterToken(routerToken string) {
-	channelLoadByAddressWithRouterTokenLockMutex.Lock()
-	delete(channelLoadByAddressWithRouterTokenLocks, routerToken)
-	channelLoadByAddressWithRouterTokenLockMutex.Unlock()
-}
 
 func getCachedChannelByAddressWithRouterToken(channelType courier.ChannelType, routerToken string) (*DBChannel, error) {
 	cacheByAddressWithRouterTokenMutex.RLock()

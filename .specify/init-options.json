@@ -5,5 +5,5 @@
   "here": true,
   "integration": "cursor-agent",
   "script": "sh",
-  "speckit_version": "0.11.1"
+  "speckit_version": "1.0.13"
 }

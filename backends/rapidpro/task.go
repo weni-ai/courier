@@ -29,6 +29,9 @@ func queueMsgHandling(rc redis.Conn, c *DBContact, m *DBMsg) error {
 		"metadata":           m.Metadata(),
 		"new_contact_fields": m.NewContactFields(),
 	}
+	if m.ProtocolID_ != nil {
+		body["protocol_id"] = *m.ProtocolID_
+	}
 
 	return queueMailroomTask(rc, "msg_event", m.OrgID_, m.ContactID_, body)
 }

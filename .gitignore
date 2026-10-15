@@ -39,3 +39,5 @@ _storage
 *-env.sh
 *.out
 *.rdb
+
+vendor/

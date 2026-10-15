@@ -1,3 +1,7 @@
+1.73.1
+----------
+ * fix: stop channel lookups from waiting forever on concurrent cache misses
+
 1.73.0
 ----------
  * refactor: enhance Teams handler with single-tenant token support

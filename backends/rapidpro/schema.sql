@@ -54,6 +54,7 @@ CREATE TABLE contacts_contacturn (
     contact_id integer references contacts_contact(id) on delete cascade,
     org_id integer NOT NULL references orgs_org(id) on delete cascade,
     auth text,
+    attachment_status character varying(16) NOT NULL DEFAULT 'not-attached',
     UNIQUE (org_id, identity)
 );
 

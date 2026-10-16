@@ -125,9 +125,9 @@ func newMsg(direction MsgDirection, channel courier.Channel, urn urns.URN, text 
 const insertMsgSQL = `
 INSERT INTO
 	msgs_msg(org_id, uuid, direction, text, attachments, msg_count, error_count, high_priority, status,
-             visibility, external_id, channel_id, contact_id, contact_urn_id, created_on, modified_on, next_attempt, queued_on, sent_on, metadata)
+             visibility, external_id, channel_id, contact_id, contact_urn_id, created_on, modified_on, next_attempt, queued_on, sent_on, metadata, protocol_id)
     VALUES(:org_id, :uuid, :direction, :text, :attachments, :msg_count, :error_count, :high_priority, :status,
-           :visibility, :external_id, :channel_id, :contact_id, :contact_urn_id, :created_on, :modified_on, :next_attempt, :queued_on, :sent_on, :metadata)
+           :visibility, :external_id, :channel_id, :contact_id, :contact_urn_id, :created_on, :modified_on, :next_attempt, :queued_on, :sent_on, :metadata, :protocol_id)
 RETURNING id
 `
 
@@ -143,6 +143,12 @@ func writeMsgToDB(ctx context.Context, b *backend, m *DBMsg) error {
 	// set our contact and urn ids from our contact
 	m.ContactID_ = contact.ID_
 	m.ContactURNID_ = contact.URNID_
+
+	if m.Direction_ == MsgIncoming {
+		if err := bindInboundProtocol(ctx, b, m); err != nil {
+			return err
+		}
+	}
 
 	rows, err := b.db.NamedQueryContext(ctx, insertMsgSQL, m)
 	if err != nil {
@@ -652,6 +658,7 @@ type DBMsg struct {
 	ChannelID_    courier.ChannelID `json:"channel_id"      db:"channel_id"`
 	ContactID_    ContactID         `json:"contact_id"      db:"contact_id"`
 	ContactURNID_ ContactURNID      `json:"contact_urn_id"  db:"contact_urn_id"`
+	ProtocolID_   *int64            `json:"protocol_id,omitempty" db:"protocol_id"`
 
 	MessageCount_ int `json:"msg_count"    db:"msg_count"`
 	ErrorCount_   int `json:"error_count"  db:"error_count"`

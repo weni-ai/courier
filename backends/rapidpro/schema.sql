@@ -69,10 +69,10 @@ CREATE TABLE msgs_protocol (
     predecessor_id bigint NULL,
     opened_on timestamp with time zone NOT NULL,
     closed_on timestamp with time zone NULL,
-    close_reason character varying(32) NULL,
+    close_reason character varying(32) NOT NULL DEFAULT '',
     idle_accumulated integer NOT NULL DEFAULT 0,
     timer_deadline timestamp with time zone NULL,
-    timer_kind character varying(8) NULL,
+    timer_kind character varying(8) NOT NULL DEFAULT '',
     timer_paused boolean NOT NULL DEFAULT false,
     external_id character varying(255) NULL,
     UNIQUE (org_id, urn_id, external_id)

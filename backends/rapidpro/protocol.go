@@ -119,10 +119,10 @@ WHERE org_id = $1 AND urn_id = $2 AND external_id = $3`, m.OrgID_, m.ContactURNI
 	err = b.db.GetContext(ctx, &id, `
 INSERT INTO msgs_protocol (
 	uuid, org_id, contact_id, urn_id, state, opened_on, external_id,
-	idle_accumulated, timer_paused, timer_kind, timer_deadline
+	idle_accumulated, timer_paused, timer_kind, timer_deadline, close_reason
 ) VALUES (
 	$1, $2, $3, $4, 'open', NOW(), $5,
-	0, false, $6, NOW() + $7::interval
+	0, false, $6, NOW() + $7::interval, ''
 ) RETURNING id`, protocolUUID.String(), m.OrgID_, m.ContactID_, m.ContactURNID_, external, failSafeTimerKind, failSafeTimerInterval)
 	if err != nil {
 		return 0, err

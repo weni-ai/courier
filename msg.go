@@ -105,6 +105,7 @@ type Msg interface {
 	QuickReplies() []string
 	Topic() string
 	Metadata() json.RawMessage
+	NewContactFields() map[string]string
 	ResponseToID() MsgID
 	ResponseToExternalID() string
 	IsResend() bool
@@ -117,6 +118,7 @@ type Msg interface {
 	HighPriority() bool
 
 	WithContactName(name string) Msg
+	WithNewContactFields(fields map[string]string) Msg
 	WithReceivedOn(date time.Time) Msg
 	WithExternalID(id string) Msg
 	WithID(id MsgID) Msg
@@ -139,13 +141,18 @@ type Msg interface {
 	Footer() string
 	Action() string
 	SendCatalog() bool
+	ProductCarousel() bool
 	HeaderType() string
 	HeaderText() string
 	ListMessage() ListMessage
 	InteractionType() string
+	DirectSend() bool
+	TTLSeconds() int
+	DirectSendTemplateName() string
 	CTAMessage() *CTAMessage
 	FlowMessage() *FlowMessage
 	OrderDetailsMessage() *OrderDetailsMessage
+	Carousel() *Carousel
 	Buttons() []ButtonComponent
 
 	IGCommentID() string
@@ -154,6 +161,8 @@ type Msg interface {
 
 	ActionType() MsgActionType
 	ActionExternalID() string
+
+	BroadcastID() int64
 }
 
 type ButtonComponent struct {
@@ -182,6 +191,7 @@ type FlowMessage struct {
 	FlowData   map[string]interface{} `json:"flow_data"`
 	FlowCTA    string                 `json:"flow_cta"`
 	FlowMode   string                 `json:"flow_mode"`
+	FlowToken  string                 `json:"flow_token"`
 }
 
 type ListItems struct {
@@ -260,4 +270,23 @@ type OrderDetailsMessage struct {
 	PaymentSettings OrderPaymentSettings `json:"payment_settings"`
 	TotalAmount     int                  `json:"total_amount"`
 	Order           Order                `json:"order"`
+}
+
+// Carousel holds the cards array for interactive media carousel messages.
+// Media (image/video) comes from msg.Attachments(); body from msg.Text().
+type Carousel struct {
+	Cards []CarouselCard `json:"carousel"`
+}
+
+// CarouselCard represents a single card with optional body and buttons.
+type CarouselCard struct {
+	Body    string               `json:"body,omitempty"`
+	Buttons []CarouselCardButton `json:"buttons"`
+}
+
+// CarouselCardButton represents a button in a carousel card.
+// For url: use Parameters with display_text and url. For quick_reply: use Parameters with id and title.
+type CarouselCardButton struct {
+	SubType    string                 `json:"sub_type"`             // "url" or "quick_reply"
+	Parameters map[string]interface{} `json:"parameters,omitempty"` // for url: display_text, url; for quick_reply: id, title
 }

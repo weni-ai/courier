@@ -42,10 +42,11 @@ type Message struct {
 	ChatsUUID    string   `json:"chats_uuid,omitempty"`
 	Status       string   `json:"status,omitempty"`
 	TemplateUUID string   `json:"template_uuid,omitempty"`
+	BroadcastID  int64    `json:"broadcast_id,omitempty"`
 }
 
 // Create a new message
-func NewMessage(contactURN, contactUUID, name, channelUUID, messageID, messageDate, direction, channelType, text string, attachments, quickreplies []string, fromTicketer bool, chatsUUID string, status string) Message {
+func NewMessage(contactURN, contactUUID, name, channelUUID, messageID, messageDate, direction, channelType, text string, attachments, quickreplies []string, fromTicketer bool, chatsUUID string, status string, broadcastID int64) Message {
 	return Message{
 		ContactURN:   contactURN,
 		ContactUUID:  contactUUID,
@@ -61,6 +62,7 @@ func NewMessage(contactURN, contactUUID, name, channelUUID, messageID, messageDa
 		FromTicketer: fromTicketer,
 		ChatsUUID:    chatsUUID,
 		Status:       status,
+		BroadcastID:  broadcastID,
 	}
 }
 
@@ -148,6 +150,13 @@ func (c *rabbitmqRetryClient) Send(msg Message, routingKey string) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to publish msg to billing")
 	}
+	logrus.WithFields(logrus.Fields{
+		"exchange_name": c.exchangeName,
+		"routing_key":   routingKey,
+		"msg":           string(msgMarshalled),
+		"contact_urn":   msg.ContactURN,
+		"status":        msg.Status,
+	}).Info("message published to billing")
 	return nil
 }
 
@@ -169,4 +178,66 @@ func (c *rabbitmqRetryClient) SendAsync(msg Message, routingKey string, pre func
 			post()
 		}
 	}()
+}
+
+// MultiBillingClient sends messages to multiple billing backends simultaneously.
+// rabbitMQ (if non-nil) is the only one that receives RoutingKeyWAC; defaultBackends (e.g. AmazonMQ) do not receive WAC.
+type MultiBillingClient struct {
+	rabbitMQ        Client
+	defaultBackends []Client
+}
+
+// NewMultiBillingClient creates a new client that sends to multiple backends.
+// rabbitMQ (may be nil) is the backend that receives RoutingKeyWAC; defaultBackends only receive other routing keys.
+// If rabbitMQ is nil, WAC messages are not sent to any backend.
+func NewMultiBillingClient(rabbitMQ Client, defaultBackends ...Client) Client {
+	defaults := make([]Client, 0, len(defaultBackends))
+	for _, c := range defaultBackends {
+		if c != nil {
+			defaults = append(defaults, c)
+		}
+	}
+	return &MultiBillingClient{rabbitMQ: rabbitMQ, defaultBackends: defaults}
+}
+
+func (m *MultiBillingClient) Send(msg Message, routingKey string) error {
+	var lastErr error
+	if routingKey == RoutingKeyWAC {
+		if m.rabbitMQ != nil {
+			if err := m.rabbitMQ.Send(msg, routingKey); err != nil {
+				logrus.WithError(err).WithField("routing_key", routingKey).Error("failed to send to billing client")
+				lastErr = err
+			}
+		}
+		return lastErr
+	}
+	// Other routing keys: send to RabbitMQ (if present) and to the other backends
+	if m.rabbitMQ != nil {
+		if err := m.rabbitMQ.Send(msg, routingKey); err != nil {
+			logrus.WithError(err).WithField("routing_key", routingKey).Error("failed to send to billing client")
+			lastErr = err
+		}
+	}
+	for _, client := range m.defaultBackends {
+		if err := client.Send(msg, routingKey); err != nil {
+			logrus.WithError(err).WithField("routing_key", routingKey).Error("failed to send to billing client")
+			lastErr = err
+		}
+	}
+	return lastErr
+}
+
+func (m *MultiBillingClient) SendAsync(msg Message, routingKey string, pre func(), post func()) {
+	if routingKey == RoutingKeyWAC {
+		if m.rabbitMQ != nil {
+			m.rabbitMQ.SendAsync(msg, routingKey, pre, post)
+		}
+		return
+	}
+	if m.rabbitMQ != nil {
+		m.rabbitMQ.SendAsync(msg, routingKey, pre, post)
+	}
+	for _, client := range m.defaultBackends {
+		client.SendAsync(msg, routingKey, pre, post)
+	}
 }

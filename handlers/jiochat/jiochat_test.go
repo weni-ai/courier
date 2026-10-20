@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -24,6 +25,13 @@ import (
 	"github.com/nyaruka/courier"
 	. "github.com/nyaruka/courier/handlers"
 )
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
 
 var testChannels = []courier.Channel{
 	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "JC", "2020", "US", map[string]interface{}{configAppSecret: "secret", configAppID: "app-id"}),
@@ -249,8 +257,8 @@ func newServer(backend courier.Backend) courier.Server {
 	logger.Out = ioutil.Discard
 	logrus.SetOutput(ioutil.Discard)
 	config := courier.NewConfig()
-	config.DB = "postgres://courier:courier@localhost:5432/courier_test?sslmode=disable"
-	config.Redis = "redis://localhost:6379/0"
+	config.DB = "postgres://courier:courier@" + envOr("POSTGRES_HOST", "localhost") + ":5432/courier_test?sslmode=disable"
+	config.Redis = "redis://" + envOr("REDIS_HOST", "localhost") + ":6379/0"
 	return courier.NewServerWithLogger(config, backend, logger)
 }
 

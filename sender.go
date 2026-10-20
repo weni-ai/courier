@@ -10,9 +10,7 @@ import (
 	"github.com/nyaruka/courier/billing"
 	"github.com/nyaruka/courier/metrics"
 	"github.com/nyaruka/courier/templates"
-	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/librato"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -175,7 +173,7 @@ func (w *Sender) Stop() {
 }
 
 func (w *Sender) sendMessage(msg Msg) {
-	// --- HANDLE MESSAGE ACTION ---
+	// --- HANDLE MESSAGE ACTION (non-blocking) ---
 	if msg.ActionType() == MsgActionTypingIndicator {
 		actionCallCtx, actionCallCancel := context.WithTimeout(context.Background(), time.Second*20)
 		defer actionCallCancel()
@@ -185,7 +183,14 @@ func (w *Sender) sendMessage(msg Msg) {
 
 		_, err := w.foreman.server.SendMsgAction(actionCallCtx, msg)
 		if err != nil {
-			fmt.Printf("Error processing message action: %v\n", err)
+			// Log the error but don't interrupt the flow - typing indicator is non-critical
+			logrus.WithFields(logrus.Fields{
+				"comp":        "sender",
+				"sender_id":   w.id,
+				"action_type": msg.ActionType(),
+				"external_id": msg.ActionExternalID(),
+				"error":       err.Error(),
+			}).Warn("typing indicator action failed (non-critical, continuing flow)")
 		}
 		return
 	}
@@ -266,63 +271,6 @@ func (w *Sender) sendMessage(msg Msg) {
 		log.Error("message loop detected, failing message")
 	} else {
 
-		waitMediaChannels := w.foreman.server.Config().WaitMediaChannels
-		msgChannel := msg.Channel().ChannelType().String()
-		mustWait := utils.StringArrayContains(waitMediaChannels, msgChannel)
-
-		if mustWait {
-			// check if previous message is already Delivered
-			msgUUID := msg.UUID().String()
-
-			if msgUUID != "" {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Second*35)
-				defer cancel()
-
-				msgEvents, err := server.Backend().GetRunEventsByMsgUUIDFromDB(ctx, msgUUID)
-
-				if err != nil {
-					log.Error(errors.Wrap(err, "unable to get events"))
-				}
-
-				if msgEvents != nil {
-
-					msgIndex := func(slice []RunEvent, item string) int {
-						for i := range slice {
-							if slice[i].Msg.UUID == item {
-								return i
-							}
-						}
-						return -1
-					}(msgEvents, msg.UUID().String())
-
-					if msgIndex > 0 {
-						ctx, cancel := context.WithTimeout(context.Background(), time.Second*35)
-						defer cancel()
-						previousEventMsgUUID := msgEvents[msgIndex-1].Msg.UUID
-						tries := 0
-						tryLimit := w.foreman.server.Config().WaitMediaCount
-						for tries < tryLimit {
-							tries++
-							prevMsg, err := server.Backend().GetMessage(ctx, previousEventMsgUUID)
-							if err != nil {
-								log.Error(errors.Wrap(err, "GetMessage for previous message failed"))
-								break
-							}
-							if prevMsg != nil {
-								if prevMsg.Status() != MsgDelivered &&
-									prevMsg.Status() != MsgRead {
-									sleepDuration := time.Duration(w.foreman.server.Config().WaitMediaSleepDuration)
-									time.Sleep(time.Millisecond * sleepDuration)
-									continue
-								}
-							}
-							break
-						}
-					}
-				}
-			}
-		}
-
 		nsendCTX, ncancel := context.WithTimeout(context.Background(), time.Second*35)
 		defer ncancel()
 		// send our message
@@ -353,70 +301,43 @@ func (w *Sender) sendMessage(msg Msg) {
 		}
 
 		sentOk := status.Status() != MsgErrored && status.Status() != MsgFailed
-		if sentOk {
-			isTemplateMessage, metadata := isTemplateMessage(msg)
+		isMultiAgentsConf := msg.Channel().OrgConfigForKey("is_multi_agents", false)
+		isMultiAgents, _ := isMultiAgentsConf.(bool)
+		isTemplateMessage, metadata := isTemplateMessage(msg)
 
-			if w.foreman.server.Billing() != nil {
-				chatsUUID, _ := jsonparser.GetString(msg.Metadata(), "chats_msg_uuid")
-				ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
-				fromTicketer := ticketerType != ""
+		publishOutgoingMsgEvents(w.foreman.server.Billing(), msg, status, sentOk, isMultiAgents, isTemplateMessage, metadata)
 
-				billingMsg := billing.NewMessage(
-					string(msg.URN().Identity()),
-					"",
-					msg.ContactName(),
-					msg.Channel().UUID().String(),
-					status.ExternalID(),
-					time.Now().Format(time.RFC3339),
-					"O",
-					msg.Channel().ChannelType().String(),
-					msg.Text(),
-					msg.Attachments(),
-					msg.QuickReplies(),
-					fromTicketer,
-					chatsUUID,
-					string(msg.Status()),
-				)
+		if w.foreman.server.Templates() != nil && isTemplateMessage {
+			templatingData := metadata.Templating
+			templateName := templatingData.Template.Name
+			templateUUID := templatingData.Template.UUID
+			templateLanguage := templatingData.Language
+			templateNamespace := templatingData.Namespace
 
-				if isTemplateMessage {
-					billingMsg.TemplateUUID = metadata.Templating.Template.UUID
-				}
-
-				if msg.Channel().ChannelType() == "WAC" {
-					w.foreman.server.Billing().SendAsync(billingMsg, billing.RoutingKeyWAC, nil, nil)
-				}
-				w.foreman.server.Billing().SendAsync(billingMsg, billing.RoutingKeyCreate, nil, nil)
+			var templateVariables []string
+			if templatingData.Variables != nil {
+				templateVariables = templatingData.Variables
 			}
 
-			if w.foreman.server.Templates() != nil && isTemplateMessage {
-				templatingData := metadata.Templating
-				templateName := templatingData.Template.Name
-				templateUUID := templatingData.Template.UUID
-				templateLanguage := templatingData.Language
-				templateNamespace := templatingData.Namespace
-
-				var templateVariables []string
-				if templatingData.Variables != nil {
-					templateVariables = templatingData.Variables
-				}
-
-				templateMsg := templates.NewTemplateMessage(
-					string(msg.URN().Identity()),
-					"",
-					msg.Channel().UUID().String(),
-					status.ExternalID(),
-					time.Now().Format(time.RFC3339),
-					"O",
-					msg.Channel().ChannelType().String(),
-					msg.Text(),
-					templateName,
-					templateUUID,
-					templateLanguage,
-					templateNamespace,
-					templateVariables,
-				)
-				w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
-			}
+			templateMsg := templates.NewTemplateMessage(
+				string(msg.URN().Identity()),
+				"",
+				msg.Channel().UUID().String(),
+				status.ExternalID(),
+				time.Now().Format(time.RFC3339),
+				"O",
+				msg.Channel().ChannelType().String(),
+				msg.Text(),
+				templateName,
+				templateUUID,
+				templateLanguage,
+				templateNamespace,
+				templateVariables,
+				msg.BroadcastID(),
+			)
+			templateMsg.TemplateNamedVariables = templatingData.NamedVariables
+			templateMsg.ParameterFormat = templatingData.ParameterFormat
+			w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
 		}
 	}
 
@@ -437,6 +358,64 @@ func (w *Sender) sendMessage(msg Msg) {
 
 	// mark our send task as complete
 	backend.MarkOutgoingMsgComplete(writeCTX, msg, status)
+}
+
+// publishOutgoingMsgEvents publishes post-send events for chats-engine and billing.
+//
+// RoutingKeyWAC (whatsapp-cloud-token) carries the Meta WAMID back to chats-engine so
+// agent messages get their external_id set (required for reply indexing). It must be
+// published for every successful WAC send, including AB2 (is_multi_agents) projects.
+//
+// RoutingKeyCreate is the billing create event and remains suppressed for AB2 projects
+// (Courier v1.50.1 behaviour).
+func publishOutgoingMsgEvents(
+	client billing.Client,
+	msg Msg,
+	status MsgStatus,
+	sentOk bool,
+	isMultiAgents bool,
+	isTemplateMessage bool,
+	templateMetadata *templates.TemplateMetadata,
+) {
+	if !sentOk || client == nil {
+		return
+	}
+
+	chatsUUID, _ := jsonparser.GetString(msg.Metadata(), "chats_msg_uuid")
+	ticketerType, _ := jsonparser.GetString(msg.Metadata(), "ticketer_type")
+	fromTicketer := ticketerType != ""
+
+	billingMsg := billing.NewMessage(
+		string(msg.URN().Identity()),
+		"",
+		msg.ContactName(),
+		msg.Channel().UUID().String(),
+		status.ExternalID(),
+		time.Now().Format(time.RFC3339),
+		"O",
+		msg.Channel().ChannelType().String(),
+		msg.Text(),
+		msg.Attachments(),
+		msg.QuickReplies(),
+		fromTicketer,
+		chatsUUID,
+		string(msg.Status()),
+		msg.BroadcastID(),
+	)
+
+	if isTemplateMessage && templateMetadata != nil && templateMetadata.Templating != nil {
+		billingMsg.TemplateUUID = templateMetadata.Templating.Template.UUID
+	}
+
+	// Always return WAMID to chats-engine for successful WAC sends (including AB2).
+	if msg.Channel().ChannelType() == "WAC" {
+		client.SendAsync(billingMsg, billing.RoutingKeyWAC, nil, nil)
+	}
+
+	// Billing create stays suppressed for AB2 (is_multi_agents) projects.
+	if !isMultiAgents {
+		client.SendAsync(billingMsg, billing.RoutingKeyCreate, nil, nil)
+	}
 }
 
 // isTemplateMessage checks if a message contains valid template metadata

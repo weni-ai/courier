@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -28,6 +29,17 @@ var (
 )
 
 const fetchTimeout = 20
+
+const (
+	teamsConfigVersionKey = "version"
+	teamsConfigVersionV2  = "v2"
+	teamsOAuthScope       = "https://api.botframework.com/.default"
+)
+
+// teamsTenantTokenURL builds the OAuth token endpoint for single-tenant bots (overridable in tests).
+var teamsTenantTokenURL = func(tenantID string) string {
+	return fmt.Sprintf("https://login.microsoftonline.com/%s/oauth2/v2.0/token", tenantID)
+}
 
 func init() {
 	courier.RegisterHandler(newHandler())
@@ -151,6 +163,98 @@ func validateToken(channel courier.Channel, w http.ResponseWriter, r *http.Reque
 	return nil
 }
 
+func isTeamsV2Channel(channel courier.Channel) bool {
+	return channel.StringConfigForKey(teamsConfigVersionKey, "") == teamsConfigVersionV2
+}
+
+func cloneChannelConfig(channel courier.Channel) map[string]interface{} {
+	existing := channel.Config()
+	cloned := make(map[string]interface{}, len(existing))
+	for k, v := range existing {
+		cloned[k] = v
+	}
+	return cloned
+}
+
+func fetchSingleTenantToken(channel courier.Channel) (string, error) {
+	tenantID := channel.StringConfigForKey("tenantID", "")
+	appID := channel.StringConfigForKey("appID", "")
+	appPassword := channel.StringConfigForKey("app_password", "")
+	if tenantID == "" || appID == "" || appPassword == "" {
+		return "", fmt.Errorf("missing Teams OAuth credentials in channel config")
+	}
+
+	tokenURL := teamsTenantTokenURL(tenantID)
+	form := url.Values{}
+	form.Set("client_id", appID)
+	form.Set("client_secret", appPassword)
+	form.Set("grant_type", "client_credentials")
+	form.Set("scope", teamsOAuthScope)
+
+	req, err := http.NewRequest(http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	rr, err := utils.MakeHTTPRequest(req)
+	if err != nil {
+		return "", err
+	}
+
+	accessToken, err := jsonparser.GetString(rr.Body, "access_token")
+	if err != nil {
+		return "", fmt.Errorf("missing access_token in tenant OAuth response")
+	}
+	return accessToken, nil
+}
+
+func (h *handler) persistTeamsV2Token(ctx context.Context, channel courier.Channel, token string) error {
+	config := cloneChannelConfig(channel)
+	config[courier.ConfigAuthToken] = token
+	config[teamsConfigVersionKey] = teamsConfigVersionV2
+	return h.Backend().UpdateChannelConfig(ctx, channel, config)
+}
+
+// doBearerRequest sends an HTTP request with the channel auth token. On 401 for non-v2 channels,
+// it fetches a single-tenant token, retries once, and persists version v2 on success.
+func (h *handler) doBearerRequest(ctx context.Context, channel courier.Channel, token string, buildReq func(token string) (*http.Request, error)) (*utils.RequestResponse, string, error) {
+	req, err := buildReq(token)
+	if err != nil {
+		return nil, token, err
+	}
+
+	rr, err := utils.MakeHTTPRequest(req)
+	if err == nil {
+		return rr, token, nil
+	}
+	if rr == nil || rr.StatusCode != http.StatusUnauthorized || isTeamsV2Channel(channel) {
+		return rr, token, err
+	}
+
+	singleToken, fetchErr := fetchSingleTenantToken(channel)
+	if fetchErr != nil {
+		logrus.WithField("channel_uuid", channel.UUID().String()).WithError(fetchErr).Error("Error fetching single-tenant Teams token")
+		return rr, token, err
+	}
+
+	retryReq, err := buildReq(singleToken)
+	if err != nil {
+		return rr, token, err
+	}
+
+	rr, err = utils.MakeHTTPRequest(retryReq)
+	if err != nil {
+		return rr, singleToken, err
+	}
+
+	if persistErr := h.persistTeamsV2Token(ctx, channel, singleToken); persistErr != nil {
+		logrus.WithField("channel_uuid", channel.UUID().String()).WithError(persistErr).Error("Error persisting Teams v2 channel config")
+	}
+
+	return rr, singleToken, nil
+}
+
 func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w http.ResponseWriter, r *http.Request) ([]courier.Event, error) {
 	payload := &Activity{}
 	err := handlers.DecodeAndValidateJSON(payload, r)
@@ -210,7 +314,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		ev := h.Backend().NewIncomingMsg(channel, urn, text).WithExternalID(payload.Id).WithReceivedOn(date)
 		event := h.Backend().CheckExternalIDSeen(ev)
 
-		email, err := getContactEmail(channel, urn)
+		email, err := h.getContactEmail(ctx, channel, urn)
 		if err != nil {
 			logrus.WithField("channel_uuid", event.Channel().UUID().String()).WithError(err).Error("Error getting contact email")
 		} else {
@@ -277,15 +381,19 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 			return nil, err
 		}
 		token := channel.StringConfigForKey(courier.ConfigAuthToken, "")
-		req, err := http.NewRequest(http.MethodPost, serviceURL+"/v3/conversations", bytes.NewReader(jsonBody))
-
-		if err != nil {
-			return nil, err
+		if token == "" {
+			return nil, fmt.Errorf("missing token for TM channel")
 		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+token)
 
-		rr, err := utils.MakeHTTPRequest(req)
+		rr, _, err := h.doBearerRequest(ctx, channel, token, func(bearer string) (*http.Request, error) {
+			req, err := http.NewRequest(http.MethodPost, serviceURL+"/v3/conversations", bytes.NewReader(jsonBody))
+			if err != nil {
+				return nil, err
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+bearer)
+			return req, nil
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -447,21 +555,25 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	payloadArray = append(payloadArray, textPayload)
 
+	var rr *utils.RequestResponse
+	var err error
+
 	for _, payload := range payloadArray {
-		jsonBody, err := json.Marshal(payload)
+		var jsonBody []byte
+		jsonBody, err = json.Marshal(payload)
 		if err != nil {
 			return status, err
 		}
 
-		req, err := http.NewRequest(http.MethodPost, msgURL, bytes.NewReader(jsonBody))
-
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+token)
-
-		rr, err := utils.MakeHTTPRequest(req)
+		rr, token, err = h.doBearerRequest(ctx, msg.Channel(), token, func(bearer string) (*http.Request, error) {
+			req, err := http.NewRequest(http.MethodPost, msgURL, bytes.NewReader(jsonBody))
+			if err != nil {
+				return nil, err
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+bearer)
+			return req, nil
+		})
 
 		// record our status and log
 		log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
@@ -493,9 +605,14 @@ func (h *handler) DescribeURN(ctx context.Context, channel courier.Channel, urn 
 	conversationID := pathSplit[1]
 	url := urn.TeamsServiceURL() + "v3/conversations/a:" + conversationID + "/members"
 
-	req, _ := http.NewRequest(http.MethodGet, url, nil)
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	rr, err := utils.MakeHTTPRequest(req)
+	rr, _, err := h.doBearerRequest(ctx, channel, accessToken, func(bearer string) (*http.Request, error) {
+		req, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+bearer)
+		return req, nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("unable to look up contact data:%s\n%s", err, rr.Response)
 	}
@@ -507,7 +624,7 @@ func (h *handler) DescribeURN(ctx context.Context, channel courier.Channel, urn 
 	return map[string]string{"name": utils.JoinNonEmpty(" ", givenName, surname)}, nil
 }
 
-func getContactEmail(channel courier.Channel, urn urns.URN) (string, error) {
+func (h *handler) getContactEmail(ctx context.Context, channel courier.Channel, urn urns.URN) (string, error) {
 	accessToken := channel.StringConfigForKey(courier.ConfigAuthToken, "")
 	if accessToken == "" {
 		return "", fmt.Errorf("missing access token")
@@ -518,9 +635,14 @@ func getContactEmail(channel courier.Channel, urn urns.URN) (string, error) {
 	conversationID := pathSplit[1]
 	url := urn.TeamsServiceURL() + "/v3/conversations/a:" + conversationID + "/members"
 
-	req, _ := http.NewRequest(http.MethodGet, url, nil)
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	rr, err := utils.MakeHTTPRequest(req)
+	rr, _, err := h.doBearerRequest(ctx, channel, accessToken, func(bearer string) (*http.Request, error) {
+		req, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+bearer)
+		return req, nil
+	})
 	if err != nil {
 		return "", fmt.Errorf("unable to look up contact data:%s\n%s", err, rr.Response)
 	}

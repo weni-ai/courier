@@ -26,6 +26,28 @@ var testChannelsIG = []courier.Channel{
 	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "IG", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"}),
 }
 
+var testChannelsIGForwardComments = []courier.Channel{
+	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "IG", "12345", "", map[string]interface{}{
+		courier.ConfigAuthToken:       "a123",
+		courier.ConfigForwardComments: true,
+	}),
+}
+
+var testChannelsIGReplyOnComment = []courier.Channel{
+	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "IG", "12345", "", map[string]interface{}{
+		courier.ConfigAuthToken:       "a123",
+		courier.ConfigForwardComments: true,
+		courier.ConfigReplyOnComment:  true,
+	}),
+}
+
+var testChannelsIGReplyOnCommentOnly = []courier.Channel{
+	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "IG", "12345", "", map[string]interface{}{
+		courier.ConfigAuthToken:      "a123",
+		courier.ConfigReplyOnComment: true,
+	}),
+}
+
 var testChannelsWAC = []courier.Channel{
 	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "WAC", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123", "webhook": `{"url": "https://webhook.site", "method": "POST", "headers": {}}`}),
 }
@@ -101,10 +123,6 @@ var testCasesIG = []ChannelHandleTestCase{
 		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		PrepRequest: addValidSignature},
 
-	{Label: "Receive Comment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "Handled",
-		Text: Sp("Hello World"), URN: Sp("instagram:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
-		PrepRequest: addValidSignature},
-
 	{Label: "Receive Attachment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/attachmentIG.json")), Status: 200, Response: "Handled",
 		Text: Sp(""), Attachments: []string{"https://image-url/foo.png"}, URN: Sp("instagram:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		PrepRequest: addValidSignature},
@@ -127,6 +145,214 @@ var testCasesIG = []ChannelHandleTestCase{
 	{Label: "Invalid URN", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/invalidURNIG.json")), Status: 400, Response: "invalid instagram id", PrepRequest: addValidSignature},
 	{Label: "Story Mention", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/storyMentionIG.json")), Status: 200, Response: `ignoring story_mention`, PrepRequest: addValidSignature},
 	{Label: "Message unsent", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/unsentMsgIG.json")), Status: 200, Response: `msg deleted`, PrepRequest: addValidSignature},
+	{Label: "Story Reply", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/storyReplyIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Nice story!"), URN: Sp("instagram:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"reply_to": map[string]interface{}{
+				"story": map[string]interface{}{
+					"url": "https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=story123",
+					"id":  "story-id-123",
+				},
+			},
+			"overwrite_message": map[string]interface{}{
+				"reply_to": map[string]interface{}{
+					"story": map[string]interface{}{
+						"url": "https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=story123",
+						"id":  "story-id-123",
+					},
+				},
+			},
+		}),
+		PrepRequest: addValidSignature},
+}
+
+var testCasesIGComments = []ChannelHandleTestCase{
+	{Label: "Receive Comment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("30065218"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"ig_comment": map[string]interface{}{
+				"id": "30065218",
+				"media": map[string]interface{}{
+					"ad_id":              "1280670063",
+					"id":                 "180615383",
+					"media_product_type": "AD",
+					"original_media_id":  "179908467",
+				},
+			},
+			"ig_response_type": "dm_comment",
+			"overwrite_message": map[string]interface{}{
+				"ig_comment": map[string]interface{}{
+					"id": "30065218",
+					"media": map[string]interface{}{
+						"ad_id":              "1280670063",
+						"id":                 "180615383",
+						"media_product_type": "AD",
+						"original_media_id":  "179908467",
+					},
+				},
+				"ig_response_type": "dm_comment",
+			},
+		}),
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment With Caption", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentCaptionIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Nice post!"), URN: Sp("instagram:5678"), ExternalID: Sp("30065221"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"ig_comment": map[string]interface{}{
+				"id": "30065221",
+				"media": map[string]interface{}{
+					"ad_id":              "1280670063",
+					"id":                 "180615383",
+					"media_product_type": "FEED",
+					"original_media_id":  "179908467",
+					"caption":            "Summer sale post",
+				},
+			},
+			"ig_response_type": "dm_comment",
+			"overwrite_message": map[string]interface{}{
+				"ig_comment": map[string]interface{}{
+					"id": "30065221",
+					"media": map[string]interface{}{
+						"ad_id":              "1280670063",
+						"id":                 "180615383",
+						"media_product_type": "FEED",
+						"original_media_id":  "179908467",
+						"caption":            "Summer sale post",
+					},
+				},
+				"ig_response_type": "dm_comment",
+			},
+		}),
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Reply On Comment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("30065218"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"ig_comment": map[string]interface{}{
+				"id": "30065218",
+				"media": map[string]interface{}{
+					"ad_id":              "1280670063",
+					"id":                 "180615383",
+					"media_product_type": "AD",
+					"original_media_id":  "179908467",
+				},
+			},
+			"ig_response_type": "comment",
+			"overwrite_message": map[string]interface{}{
+				"ig_comment": map[string]interface{}{
+					"id": "30065218",
+					"media": map[string]interface{}{
+						"ad_id":              "1280670063",
+						"id":                 "180615383",
+						"media_product_type": "AD",
+						"original_media_id":  "179908467",
+					},
+				},
+				"ig_response_type": "comment",
+			},
+		}),
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Without Forward Config", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("30065218"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"ig_comment": map[string]interface{}{
+				"id": "30065218",
+				"media": map[string]interface{}{
+					"ad_id":              "1280670063",
+					"id":                 "180615383",
+					"media_product_type": "AD",
+					"original_media_id":  "179908467",
+				},
+			},
+			"overwrite_message": map[string]interface{}{
+				"ig_comment": map[string]interface{}{
+					"id": "30065218",
+					"media": map[string]interface{}{
+						"ad_id":              "1280670063",
+						"id":                 "180615383",
+						"media_product_type": "AD",
+						"original_media_id":  "179908467",
+					},
+				},
+			},
+		}),
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Reply On Comment Without Forward", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("30065218"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"ig_comment": map[string]interface{}{
+				"id": "30065218",
+				"media": map[string]interface{}{
+					"ad_id":              "1280670063",
+					"id":                 "180615383",
+					"media_product_type": "AD",
+					"original_media_id":  "179908467",
+				},
+			},
+			"overwrite_message": map[string]interface{}{
+				"ig_comment": map[string]interface{}{
+					"id": "30065218",
+					"media": map[string]interface{}{
+						"ad_id":              "1280670063",
+						"id":                 "180615383",
+						"media_product_type": "AD",
+						"original_media_id":  "179908467",
+					},
+				},
+			},
+		}),
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Missing ID", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentMissingIDIG.json")), Status: 200, Response: "missing identifier", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Story Skip", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentStoryIG.json")), Status: 200, Response: "ignoring story/live comment", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Self Skip", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentSelfIG.json")), Status: 200, Response: "ignoring comment from our own channel", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		PrepRequest: addValidSignature},
+
+	{Label: "No Duplicate Receive Comment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentDuplicateIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("30065218"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		PrepRequest: addValidSignature},
+}
+
+func TestInstagramComments(t *testing.T) {
+	RunChannelTestCases(t, testChannelsIGForwardComments, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+		testCasesIGComments[0],
+		testCasesIGComments[1],
+		testCasesIGComments[6],
+		testCasesIGComments[7],
+		testCasesIGComments[8],
+	})
+
+	RunChannelTestCases(t, testChannelsIGReplyOnComment, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+		testCasesIGComments[2],
+	})
+
+	RunChannelTestCases(t, testChannelsIG, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+		testCasesIGComments[3],
+	})
+
+	RunChannelTestCases(t, testChannelsIGReplyOnCommentOnly, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+		testCasesIGComments[4],
+	})
+
+	RunChannelTestCases(t, testChannelsIGForwardComments, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+		testCasesIGComments[5],
+	})
+}
+
+func TestIsSkippedInstagramCommentMediaType(t *testing.T) {
+	assert.True(t, isSkippedInstagramCommentMediaType("STORY"))
+	assert.True(t, isSkippedInstagramCommentMediaType("story"))
+	assert.True(t, isSkippedInstagramCommentMediaType("LIVE"))
+	assert.True(t, isSkippedInstagramCommentMediaType("live"))
+	assert.False(t, isSkippedInstagramCommentMediaType("FEED"))
+	assert.False(t, isSkippedInstagramCommentMediaType("AD"))
+	assert.False(t, isSkippedInstagramCommentMediaType("REELS"))
 }
 
 func addValidSignature(r *http.Request) {
@@ -244,6 +470,83 @@ func TestDescribeWAC(t *testing.T) {
 	}
 }
 
+func TestReceiveWACHandover(t *testing.T) {
+	tcs := []struct {
+		label       string
+		fixture     string
+		response    string
+		eventCount  int
+		contextType string
+		contextText string
+		contactName string
+		contactURN  string
+	}{
+		{
+			label:       "Summary handover with recipient phone_number_id",
+			fixture:     "./testdata/wac/handoverSummaryWAC.json",
+			response:    "wa conversation handover persisted",
+			eventCount:  1,
+			contextType: courier.WAHandoverContextSummary,
+			contextText: "Customer asked about pricing and delivery.",
+			contactName: "Kerry Fisher",
+		},
+		{
+			label:       "History handover",
+			fixture:     "./testdata/wac/handoverHistoryWAC.json",
+			response:    "wa conversation handover persisted",
+			eventCount:  1,
+			contextType: courier.WAHandoverContextHistory,
+			contextText: "[user] Hi\n[business] Hello, how can I help?\n[user] <image>",
+			contactName: "Kerry Fisher",
+		},
+		{
+			label:      "Control passed without context",
+			fixture:    "./testdata/wac/handoverNoContextWAC.json",
+			response:   "control_passed without conversation context",
+			eventCount: 0,
+		},
+		{
+			label:       "Summary handover nested in control_passed with phone_number sender",
+			fixture:     "./testdata/wac/handoverSummaryNestedWAC.json",
+			response:    "wa conversation handover persisted",
+			eventCount:  1,
+			contextType: courier.WAHandoverContextSummary,
+			contextText: "* The business sent a template and the customer tapped a button.\n* The business acknowledged the response by saying \"ok\".",
+			contactURN:  "whatsapp:558893565901",
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.label, func(t *testing.T) {
+			mb := courier.NewMockBackend()
+			s := handlers.NewTestServer(mb)
+			for _, ch := range testChannelsWAC {
+				mb.AddChannel(ch)
+			}
+			handler := newHandler("WAC", "Cloud API WhatsApp", false)
+			handler.Initialize(s)
+
+			handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, string(courier.ReadFile(tc.fixture)), nil, 200, Sp(tc.response), addValidSignatureWAC)
+
+			assert.Equal(t, 0, mb.LenQueuedMsgs())
+			events := mb.WAHandoverEvents()
+			assert.Len(t, events, tc.eventCount)
+			if tc.eventCount == 0 {
+				return
+			}
+
+			assert.Equal(t, tc.contextType, events[0].ContextType)
+			assert.Equal(t, tc.contextText, events[0].ContextText)
+			expectedURN := tc.contactURN
+			if expectedURN == "" {
+				expectedURN = "whatsapp:5678"
+			}
+			assert.Equal(t, expectedURN, events[0].ContactURN.String())
+			assert.Equal(t, tc.contactName, events[0].ContactName)
+		})
+	}
+}
+
 func TestResolveMediaURL(t *testing.T) {
 
 	tcs := []struct {
@@ -278,38 +581,57 @@ var testCasesWAC = []ChannelHandleTestCase{
 
 	{Label: "Receive Valid Button Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/buttonWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("No"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"button": map[string]interface{}{
+				"payload": "No-Button-Payload",
+				"text":    "No",
+			},
+			"context": map[string]interface{}{
+				"from":                 "5678",
+				"id":                   "gBGGFmkiWVVPAgkgQkwi7IORac0",
+				"forwarded":            false,
+				"frequently_forwarded": false,
+			},
+			"overwrite_message": map[string]interface{}{
+				"button": map[string]interface{}{
+					"payload": "No-Button-Payload",
+					"text":    "No",
+				},
+			},
+		}),
 		PrepRequest: addValidSignatureWAC},
 
 	{Label: "Receive Referral WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/referralWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
-		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(&struct {
-			Headline   string `json:"headline"`
-			Body       string `json:"body"`
-			SourceType string `json:"source_type"`
-			SourceID   string `json:"source_id"`
-			SourceURL  string `json:"source_url"`
-			CtwaClid   string `json:"ctwa_clid"`
-			Image      *struct {
-				Caption  string `json:"caption"`
-				Filename string `json:"filename"`
-				ID       string `json:"id"`
-				Mimetype string `json:"mime_type"`
-				SHA256   string `json:"sha256"`
-			} `json:"image"`
-			Video *struct {
-				Caption  string `json:"caption"`
-				Filename string `json:"filename"`
-				ID       string `json:"id"`
-				Mimetype string `json:"mime_type"`
-				SHA256   string `json:"sha256"`
-			} `json:"video"`
-		}{Headline: "Our new product", Body: "This is a great product", SourceType: "SOURCE_TYPE", SourceID: "SOURCE_ID", SourceURL: "SOURCE_URL", Image: nil, Video: nil, CtwaClid: ""}),
+		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{
+			"referral": map[string]interface{}{
+				"headline":    "Our new product",
+				"body":        "This is a great product",
+				"source_type": "SOURCE_TYPE",
+				"source_id":   "SOURCE_ID",
+				"source_url":  "SOURCE_URL",
+				"ctwa_clid":   "",
+				"image":       nil,
+				"video":       nil,
+			},
+			"overwrite_message": map[string]interface{}{
+				"referral": map[string]interface{}{
+					"headline":    "Our new product",
+					"body":        "This is a great product",
+					"source_type": "SOURCE_TYPE",
+					"source_id":   "SOURCE_ID",
+					"source_url":  "SOURCE_URL",
+					"ctwa_clid":   "",
+					"image":       nil,
+					"video":       nil,
+				},
+			},
+		}),
 		PrepRequest: addValidSignatureWAC},
 
 	{Label: "Receive Order WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/orderWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{
 			"order": map[string]interface{}{
-				"catalog_id": "800683284849775",
-				"text":       "",
+				"text": "",
 				"product_items": []map[string]interface{}{
 					{
 						"product_retailer_id": "1031",
@@ -325,13 +647,40 @@ var testCasesWAC = []ChannelHandleTestCase{
 					},
 				},
 			},
+			"overwrite_message": map[string]interface{}{
+				"order": map[string]interface{}{
+					"text": "",
+					"product_items": []map[string]interface{}{
+						{
+							"product_retailer_id": "1031",
+							"quantity":            1,
+							"item_price":          599.9,
+							"currency":            "BRL",
+						},
+						{
+							"product_retailer_id": "10320",
+							"quantity":            1,
+							"item_price":          2399,
+							"currency":            "BRL",
+						},
+					},
+				},
+			},
 		}),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive NFM Reply WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/flowWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
-		URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{"nfm_reply": map[string]interface{}{
-			"name":          "Flow Wpp",
-			"response_json": map[string]interface{}{"flow_token": "<FLOW_TOKEN>", "optional_param1": "<value1>", "optional_param2": "<value2>"},
-		}}),
+		URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{
+			"nfm_reply": map[string]interface{}{
+				"name":          "Flow Wpp",
+				"response_json": map[string]interface{}{"flow_token": "<FLOW_TOKEN>", "optional_param1": "<value1>", "optional_param2": "<value2>"},
+			},
+			"overwrite_message": map[string]interface{}{
+				"nfm_reply": map[string]interface{}{
+					"name":          "Flow Wpp",
+					"response_json": map[string]interface{}{"flow_token": "<FLOW_TOKEN>", "optional_param1": "<value1>", "optional_param2": "<value2>"},
+				},
+			},
+		}),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Valid Document Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/documentWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("80skaraokesonglistartist"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Attachment: Sp("https://foo.bar/attachmentURL_Document"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
@@ -376,24 +725,34 @@ var testCasesWAC = []ChannelHandleTestCase{
 	{Label: "Receive Empty Contacts", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/emptyContactsWAC.json")), Status: 400, Response: `"no shared contact"`, PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Unsupported Message Type", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/invalidTypeMsgWAC.json")), Status: 200, Response: `"Events Handled"`, PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Message WAC with Context", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloWithContextWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
-		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{"context": map[string]interface{}{
-			"forwarded":            false,
-			"frequently_forwarded": false,
-			"from":                 "5678",
-			"id":                   "9876",
-		}}),
+		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{
+			"context": map[string]interface{}{
+				"forwarded":            false,
+				"frequently_forwarded": false,
+				"from":                 "5678",
+				"id":                   "9876",
+			},
+		}),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive NFM Reply With Context WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/flowWithContextWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
-		URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{"context": map[string]interface{}{
-			"forwarded":            false,
-			"frequently_forwarded": false,
-			"from":                 "5678",
-			"id":                   "9876",
-		},
+		URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{
+			"context": map[string]interface{}{
+				"forwarded":            false,
+				"frequently_forwarded": false,
+				"from":                 "5678",
+				"id":                   "9876",
+			},
 			"nfm_reply": map[string]interface{}{
 				"name":          "Flow Wpp",
 				"response_json": map[string]interface{}{"flow_token": "<FLOW_TOKEN>", "optional_param1": "<value1>", "optional_param2": "<value2>"},
-			}}),
+			},
+			"overwrite_message": map[string]interface{}{
+				"nfm_reply": map[string]interface{}{
+					"name":          "Flow Wpp",
+					"response_json": map[string]interface{}{"flow_token": "<FLOW_TOKEN>", "optional_param1": "<value1>", "optional_param2": "<value2>"},
+				},
+			},
+		}),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Unsupported Message Type", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/unsupportedMessageWAC.json")), Status: 200, Response: `"Events Handled"`, PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Payment Method WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/paymentMethodWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
@@ -404,9 +763,127 @@ var testCasesWAC = []ChannelHandleTestCase{
 				"reference_id":      "ref_987654321",
 				"payment_timestamp": int64(1640995200),
 				"payment_method":    "credit_card",
-			}}),
+			},
+			"overwrite_message": map[string]interface{}{
+				"payment_method": map[string]interface{}{
+					"credential_id":     "cred_123456789",
+					"last_four_digits":  "1234",
+					"reference_id":      "ref_987654321",
+					"payment_timestamp": int64(1640995200),
+					"payment_method":    "credit_card",
+				},
+			},
+		}),
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Payment Notification WAC", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/paymentNotificationWAC.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)), Metadata: Jp(map[string]interface{}{
+			"payment_notification": map[string]interface{}{
+				"reference_id":   "ref_123456",
+				"transaction_id": "txn_abc789",
+				"payment_status": "captured",
+				"payer_name":     "Kerry Fisher",
+			},
+			"overwrite_message": map[string]interface{}{
+				"payment_notification": map[string]interface{}{
+					"reference_id":   "ref_123456",
+					"transaction_id": "txn_abc789",
+					"payment_status": "captured",
+					"payer_name":     "Kerry Fisher",
+				},
+			},
+		}),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Reaction Message", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/reactionWAC.json")), Status: 200, Response: `"ignoring echo reaction message"`, PrepRequest: addValidSignatureWAC},
+
+	{Label: "Receive Message BSUID Only", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUID.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:US.13491208655302741918"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Message Phone and BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUIDWithPhone.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		ContactURNs: map[string]bool{
+			"whatsapp:US.13491208655302741918": true,
+			"whatsapp:5678":                    true,
+		},
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Message Phone and BSUID Existing BSUID Contact", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUIDWithPhone.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		ContactURNs: map[string]bool{
+			"whatsapp:US.13491208655302741918": true,
+			"whatsapp:5678":                    true,
+		},
+		PrepBackend: func(mb *courier.MockBackend) {
+			bsuidURN, _ := urns.NewWhatsAppURN("US.13491208655302741918")
+			mb.GetContact(context.Background(), testChannelsWAC[0], bsuidURN, "", "")
+		},
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Message Phone and BSUID Existing Phone Contact", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUIDWithPhone.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		ContactURNs: map[string]bool{
+			"whatsapp:US.13491208655302741918": true,
+			"whatsapp:5678":                    true,
+		},
+		PrepBackend: func(mb *courier.MockBackend) {
+			phoneURN, _ := urns.NewWhatsAppURN("5678")
+			mb.GetContact(context.Background(), testChannelsWAC[0], phoneURN, "", "")
+		},
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Contact Request Response Phone and BSUID Existing BSUID Contact", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUIDWithPhoneContactRequest.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("+250 788 123 456"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		ContactURNs: map[string]bool{
+			"whatsapp:US.13491208655302741918": true,
+			"whatsapp:5678":                    true,
+		},
+		PrepBackend: func(mb *courier.MockBackend) {
+			// reproduces the reported incident: contact previously existed with only the BSUID
+			// (no phone number known yet), then the user responds to a request_contact_info
+			// message by sharing their own contact, revealing the phone number for the first time.
+			bsuidURN, _ := urns.NewWhatsAppURN("US.13491208655302741918")
+			mb.GetContact(context.Background(), testChannelsWAC[0], bsuidURN, "", "")
+		},
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Message BSUID with Username", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUIDUsername.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:US.13491208655302741918"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Status BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/statusBSUID.json")), Status: 200, Response: `"type":"status"`,
+		MsgStatus: Sp("S"), ExternalID: Sp("external_id"), PrepRequest: addValidSignatureWAC},
+	{Label: "Receive User ID Update", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/userIDUpdateWAC.json")), Status: 200, Response: `"user_id_update: BSUID updated from US.13491208655302741918 to US.98765432100000000001"`,
+		PrepBackend: func(mb *courier.MockBackend) {
+			oldBSUID, _ := urns.NewWhatsAppURN("US.13491208655302741918")
+			mb.GetContact(context.Background(), testChannelsWAC[0], oldBSUID, "", "")
+		},
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Message Phone and BSUID Replaces Old BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUIDWithPhoneNewBSUID.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		ContactURNs: map[string]bool{
+			"whatsapp:US.98765432100000000001": true,
+			"whatsapp:5678":                    true,
+			"whatsapp:US.13491208655302741918": false,
+		},
+		PrepBackend: func(mb *courier.MockBackend) {
+			phoneURN, _ := urns.NewWhatsAppURN("5678")
+			oldBSUID, _ := urns.NewWhatsAppURN("US.13491208655302741918")
+			contact, _ := mb.GetContact(context.Background(), testChannelsWAC[0], phoneURN, "", "")
+			mb.AddURNtoContact(context.Background(), testChannelsWAC[0], contact, oldBSUID)
+		},
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Message Phone BSUID and Parent BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloParentBSUID.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		ContactURNs: map[string]bool{
+			"whatsapp:US.13491208655302741918": true,
+			"whatsapp:5678":                    true,
+		},
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Message BSUID and Parent BSUID Only", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloParentBSUIDOnly.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:US.13491208655302741918"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive User ID Update with Parent BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/userIDUpdateParentBSUID.json")), Status: 200, Response: `"user_id_update: parent BSUID updated from US.ENT.11815799212886844830 to US.ENT.99999999999999999999"`,
+		PrepBackend: func(mb *courier.MockBackend) {
+			oldBSUID, _ := urns.NewWhatsAppURN("US.13491208655302741918")
+			oldParentBSUID, _ := urns.NewWhatsAppURN("US.ENT.11815799212886844830")
+			contact, _ := mb.GetContact(context.Background(), testChannelsWAC[0], oldBSUID, "", "")
+			mb.AddURNtoContact(context.Background(), testChannelsWAC[0], contact, oldParentBSUID)
+		},
+		PrepRequest: addValidSignatureWAC},
 }
 
 func TestHandler(t *testing.T) {
@@ -596,13 +1073,24 @@ var SendTestCasesIG = []ChannelSendTestCase{
 			graphURL = buildMockIGCommentReplyServer().URL + "/"
 		},
 	},
+	{Label: "Instagram Comment Reply Legacy",
+		Text: "Reply to comment", URN: "instagram:12345",
+		Status: "W", ExternalID: "30065218",
+		Metadata:     json.RawMessage(`{"ig_comment_id": "30065218"}`),
+		ResponseBody: `{"id": "30065218"}`, ResponseStatus: 200,
+		SendPrep: func(server *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+			graphURL = buildMockIGCommentReplyServer().URL + "/"
+		},
+	},
 	{Label: "Instagram DM Comment Reply",
 		Text: "Reply to comment", URN: "instagram:12345",
 		Status: "W", ExternalID: "mid.133",
 		Metadata:     json.RawMessage(`{"ig_comment_id": "30065218","ig_response_type": "dm_comment"}`),
 		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
 		SendPrep: func(server *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
-			graphURL = buildMockIGCommentReplyServer().URL + "/"
+			mockServer := buildMockIGCommentReplyServer()
+			sendURL = mockServer.URL
+			graphURL = mockServer.URL + "/"
 		},
 	},
 	{Label: "Quick Reply",
@@ -662,6 +1150,13 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		Status: "W", ExternalID: "157b5e14568e8",
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"Simple Message"}}`,
+		SendPrep:    setSendURL},
+	{Label: "Plain Send as Contextual Reply",
+		Text: "Simple Message", URN: "whatsapp:250788123123", Path: "/12345_ID/messages",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{"response_to_external_id":"wamid.HBgLMTY0NjcwNDM1OTUVAgASGBQzQTdCNTg5RjY1MEMyRjlGMjRGNgA="}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"text","context":{"message_id":"wamid.HBgLMTY0NjcwNDM1OTUVAgASGBQzQTdCNTg5RjY1MEMyRjlGMjRGNgA="},"text":{"body":"Simple Message"}}`,
 		SendPrep:    setSendURL},
 	{Label: "Unicode Send",
 		Text: "☺", URN: "whatsapp:250788123123", Path: "/12345_ID/messages",
@@ -748,6 +1243,15 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "variables": ["Chef", "tomorrow"]}}`),
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"revive_issue","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]}]}}`,
+		SendPrep:    setSendURL,
+	},
+	{Label: "Named Template Send",
+		Text:   "templated message",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "cobranca_bf4", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "parameter_format": "named", "named_variables": {"nome": "João", "cota": "045"}}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"cobranca_bf4","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","parameter_name":"cota","text":"045"},{"type":"text","parameter_name":"nome","text":"João"}]}]}}`,
 		SendPrep:    setSendURL,
 	},
 	{Label: "Template Country Language",
@@ -859,6 +1363,78 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"revive_issue","language":{"policy":"deterministic","code":"en_US"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]},{"type":"header","parameters":[{"type":"document","document":{"link":"https://foo.bar/document.pdf","filename":"document.pdf"}}]}]}}`,
 		SendPrep:    setSendURL},
+	{Label: "Carousel Template Send",
+		Text: "Carousel template message", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments:  []string{"image/jpeg:https://foo.bar/card1.jpg", "image/jpeg:https://foo.bar/card2.jpg"},
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "carousel_promo", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "is_carousel": true, "variables": ["Welcome", "Summer Sale"], "carousel_cards": [{"body": ["Card 1 Text"], "buttons": [{"sub_type": "quick_reply", "index": 0, "parameter": "card1_qr"}, {"sub_type": "url", "index": 1, "parameter": "promo1"}]}, {"body": ["Card 2 Text"], "buttons": [{"sub_type": "quick_reply", "index": 0, "parameter": "card2_qr"}, {"sub_type": "url", "index": 1, "parameter": "promo2"}]}]}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"carousel_promo","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","text":"Welcome"},{"type":"text","text":"Summer Sale"}]},{"type":"carousel","cards":[{"card_index":0,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}}]},{"type":"body","parameters":[{"type":"text","text":"Card 1 Text"}]},{"type":"button","sub_type":"quick_reply","index":0,"parameters":[{"type":"payload","payload":"card1_qr"}]},{"type":"button","sub_type":"url","index":1,"parameters":[{"type":"text","text":"promo1"}]}]},{"card_index":1,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"https://foo.bar/card2.jpg"}}]},{"type":"body","parameters":[{"type":"text","text":"Card 2 Text"}]},{"type":"button","sub_type":"quick_reply","index":0,"parameters":[{"type":"payload","payload":"card2_qr"}]},{"type":"button","sub_type":"url","index":1,"parameters":[{"type":"text","text":"promo2"}]}]}]}]}}`,
+		SendPrep:    setSendURL},
+	{Label: "Carousel Template Send - Video Cards",
+		Text: "Carousel with videos", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments:  []string{"video/mp4:https://foo.bar/card1.mp4", "video/mp4:https://foo.bar/card2.mp4"},
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "video_carousel", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "is_carousel": true, "carousel_cards": [{"body": ["Video 1 Desc"], "buttons": [{"sub_type": "quick_reply", "index": 0, "parameter": "video1_qr"}]}, {"body": ["Video 2 Desc"], "buttons": [{"sub_type": "quick_reply", "index": 0, "parameter": "video2_qr"}]}]}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"video_carousel","language":{"policy":"deterministic","code":"en"},"components":[{"type":"carousel","cards":[{"card_index":0,"components":[{"type":"header","parameters":[{"type":"video","video":{"link":"https://foo.bar/card1.mp4"}}]},{"type":"body","parameters":[{"type":"text","text":"Video 1 Desc"}]},{"type":"button","sub_type":"quick_reply","index":0,"parameters":[{"type":"payload","payload":"video1_qr"}]}]},{"card_index":1,"components":[{"type":"header","parameters":[{"type":"video","video":{"link":"https://foo.bar/card2.mp4"}}]},{"type":"body","parameters":[{"type":"text","text":"Video 2 Desc"}]},{"type":"button","sub_type":"quick_reply","index":0,"parameters":[{"type":"payload","payload":"video2_qr"}]}]}]}]}}`,
+		SendPrep:    setSendURL},
+	{Label: "Carousel Template Send - Without Body Variables",
+		Text: "Carousel without body", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments:  []string{"image/jpeg:https://foo.bar/card1.jpg", "image/jpeg:https://foo.bar/card2.jpg"},
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "simple_carousel", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "is_carousel": true, "carousel_cards": [{"buttons": [{"sub_type": "url", "index": 0, "parameter": "link1"}]}, {"buttons": [{"sub_type": "url", "index": 0, "parameter": "link2"}]}]}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"simple_carousel","language":{"policy":"deterministic","code":"en"},"components":[{"type":"carousel","cards":[{"card_index":0,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}}]},{"type":"button","sub_type":"url","index":0,"parameters":[{"type":"text","text":"link1"}]}]},{"card_index":1,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"https://foo.bar/card2.jpg"}}]},{"type":"button","sub_type":"url","index":0,"parameters":[{"type":"text","text":"link2"}]}]}]}]}}`,
+		SendPrep:    setSendURL},
+	{Label: "Carousel Template Send - Without Buttons",
+		Text: "Carousel without buttons", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments:  []string{"image/jpeg:https://foo.bar/card1.jpg", "image/jpeg:https://foo.bar/card2.jpg"},
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "info_carousel", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "is_carousel": true, "carousel_cards": [{"body": ["Product info"]}]}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"info_carousel","language":{"policy":"deterministic","code":"en"},"components":[{"type":"carousel","cards":[{"card_index":0,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}}]},{"type":"body","parameters":[{"type":"text","text":"Product info"}]}]},{"card_index":1,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"https://foo.bar/card2.jpg"}}]}]}]}]}}`,
+		SendPrep:    setSendURL},
+	{Label: "Template Send - No Variables",
+		Text:   "templated message without variables",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "simple_greeting", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng"}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"simple_greeting","language":{"policy":"deterministic","code":"en"},"components":null}}`,
+		SendPrep:    setSendURL},
+	{Label: "Template Send - Multiple Buttons",
+		Text:   "templated message with multiple buttons",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "multi_button", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "variables": ["John"]},"buttons":[{"sub_type":"url","parameters":[{"type":"text","text":"btn1_param"}]},{"sub_type":"url","parameters":[{"type":"text","text":"btn2_param"}]}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"multi_button","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","text":"John"}]},{"type":"button","sub_type":"url","index":0,"parameters":[{"type":"text","text":"btn1_param"}]},{"type":"button","sub_type":"url","index":1,"parameters":[{"type":"text","text":"btn2_param"}]}]}}`,
+		SendPrep:    setSendURL},
+	{Label: "Template Send - Payment Request PIX",
+		Text:   "pix payment template",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{"templating":{"template":{"name":"payment_pix","uuid":"171f8a4d-f725-46d7-85a6-11aceff0bfe3"},"language":"por_BR","variables":["Robi"]},"buttons":[{"sub_type":"payment_request","parameters":[{"type":"pix_dynamic_code","text":"00020126360014BR.GOV.BCB.PIX"}]}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"payment_pix","language":{"policy":"deterministic","code":"pt_BR"},"components":[{"type":"body","parameters":[{"type":"text","text":"Robi"}]},{"type":"button","sub_type":"payment_request","index":0,"parameters":[{"type":"action","action":{"payment_request":{"payment_setting":{"type":"pix_dynamic_code","pix_dynamic_code":{"code":"00020126360014BR.GOV.BCB.PIX"}}}}}]}]}}`,
+		SendPrep:    setSendURL},
+	{Label: "Template Send - Payment Request Boleto",
+		Text:   "boleto payment template",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{"templating":{"template":{"name":"payment_boleto","uuid":"171f8a4d-f725-46d7-85a6-11aceff0bfe3"},"language":"por_BR","variables":["Robi"]},"buttons":[{"sub_type":"payment_request","parameters":[{"type":"boleto","text":"03399026944140000002628346101018898510000008848"}]}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"payment_boleto","language":{"policy":"deterministic","code":"pt_BR"},"components":[{"type":"body","parameters":[{"type":"text","text":"Robi"}]},{"type":"button","sub_type":"payment_request","index":0,"parameters":[{"type":"action","action":{"payment_request":{"payment_setting":{"type":"boleto","boleto":{"digitable_line":"03399026944140000002628346101018898510000008848"}}}}}]}]}}`,
+		SendPrep:    setSendURL},
+	{Label: "Template Send - Payment Request Multiple",
+		Text:   "multiple payment template",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{"templating":{"template":{"name":"payment_recovery_2","uuid":"171f8a4d-f725-46d7-85a6-11aceff0bfe3"},"language":"por_BR","variables":["Robi"]},"buttons":[{"sub_type":"payment_request","parameters":[{"type":"pix_dynamic_code","text":"00020126360014BR.GOV.BCB.PIX"}]},{"sub_type":"payment_request","parameters":[{"type":"boleto","text":"03399026944140000002628346101018898510000008848"}]},{"sub_type":"payment_request","parameters":[{"type":"payment_link","text":"http://weni.ai"}]}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"payment_recovery_2","language":{"policy":"deterministic","code":"pt_BR"},"components":[{"type":"body","parameters":[{"type":"text","text":"Robi"}]},{"type":"button","sub_type":"payment_request","index":0,"parameters":[{"type":"action","action":{"payment_request":{"payment_setting":{"type":"pix_dynamic_code","pix_dynamic_code":{"code":"00020126360014BR.GOV.BCB.PIX"}}}}}]},{"type":"button","sub_type":"payment_request","index":1,"parameters":[{"type":"action","action":{"payment_request":{"payment_setting":{"type":"boleto","boleto":{"digitable_line":"03399026944140000002628346101018898510000008848"}}}}}]},{"type":"button","sub_type":"payment_request","index":2,"parameters":[{"type":"action","action":{"payment_request":{"payment_setting":{"type":"payment_link","payment_link":{"uri":"http://weni.ai"}}}}}]}]}}`,
+		SendPrep:    setSendURL},
 	{Label: "Link Sending",
 		Text: "Link Sending https://link.com", URN: "whatsapp:250788123123", Path: "/12345_ID/messages",
 		Status: "W", ExternalID: "157b5e14568e8",
@@ -885,6 +1461,13 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		Status: "W", ExternalID: "157b5e14568e8",
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"product_list","body":{"text":"Catalog Body Msg"},"action":{"sections":[{"title":"product1","product_items":[{"product_retailer_id":"p1"}]},{"title":"long product name greate","product_items":[{"product_retailer_id":"p2"}]}],"catalog_id":"c4t4l0g-1D","name":"View Products"}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Catalog Message Send 2 products - With slashes",
+		Metadata: json.RawMessage(`{"body":"Catalog Body Msg \\\\slashes1, /slashes2, \\/slashes3", "products": [{"product": "product1","product_retailer_ids":["p1"]},{"product": "long product name greate than 24","product_retailer_ids":["p2"]}], "action": "View Products", "send_catalog":false}`),
+		Text:     "Catalog Msg", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"product_list","body":{"text":"Catalog Body Msg slashes1, /slashes2, /slashes3"},"action":{"sections":[{"title":"product1","product_items":[{"product_retailer_id":"p1"}]},{"title":"long product name greate","product_items":[{"product_retailer_id":"p2"}]}],"catalog_id":"c4t4l0g-1D","name":"View Products"}}}`,
 		SendPrep:    setSendURL},
 	{Label: "Catalog Message Send 2 products - With Header - With Footer",
 		Metadata: json.RawMessage(`{"header": "header text", "footer": "footer text", "body":"Catalog Body Msg", "products": [{"product": "product1","product_retailer_ids":["p1"]},{"product": "long product name greate than 24","product_retailer_ids":["p2"]}], "action": "View Products", "send_catalog":false}`),
@@ -921,6 +1504,13 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"flow","header":{"type":"text","text":"header text"},"body":{"text":"msg text"},"footer":{"text":"footer text"},"action":{"name":"flow","parameters":{"flow_action":"navigate","flow_action_payload":{"screen":"WELCOME_SCREEN"},"flow_cta":"Start Flow","flow_id":"29287124123","flow_message_version":"3","flow_token":"37c5fddb-8512-4a80-8c21-38b6e22ef940","mode":"published"}}}}`,
 		SendPrep:    setSendURL},
+	{Label: "Send Flow Message with flow_token provided",
+		Metadata: json.RawMessage(`{"flow_message":{"flow_id": "29287124123", "flow_screen": "WELCOME_SCREEN", "flow_cta": "Start Flow", "flow_data": {"name": "John Doe", "list": [1, 2]},"flow_mode":"published","flow_token":"my-custom-flow-token-123"},"footer":"footer text","header_text":"header text","header_type":"text","interaction_type":"flow_msg","text":"msgs text"}`),
+		Text:     "msg text", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"flow","header":{"type":"text","text":"header text"},"body":{"text":"msg text"},"footer":{"text":"footer text"},"action":{"name":"flow","parameters":{"flow_action":"navigate","flow_action_payload":{"data":{"list":[1,2],"name":"John Doe"},"screen":"WELCOME_SCREEN"},"flow_cta":"Start Flow","flow_id":"29287124123","flow_message_version":"3","flow_token":"my-custom-flow-token-123","mode":"published"}}}}`,
+		SendPrep:    setSendURL},
 	{Label: "Send Order Details Message - With Attachment",
 		Metadata: json.RawMessage(`{"order_details_message":{"reference_id":"220788123125","total_amount":18200,"order":{"catalog_id":"14578923723","items":[{"retailer_id":"789236789","name":"item 1","amount":{"offset":100,"value":200},"quantity":2},{"retailer_id":"59016733","name":"item 2","amount":{"offset":100,"value":4000},"quantity":9,"sale_amount":{"offset":100,"value":2000}}],"subtotal":36400,"tax":{"value":500,"description":"tax description"},"shipping":{"value":900,"description":"shipping description"},"discount":{"value":1000,"description":"discount description","program_name":"discount program name"}},"payment_settings":{"type":"digital-goods","payment_link":"https://foo.bar","pix_config":{"key":"pix-key","key_type":"EMAIL","merchant_name":"merchant name","code":"pix-code"}}},"footer":"footer text","header_type":"media","interaction_type":"order_details","text":"msgs text"}`),
 		Text:     "msg text", URN: "whatsapp:250788123123",
@@ -952,6 +1542,22 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"revive_issue","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]},{"type":"button","sub_type":"url","index":0,"parameters":[{"type":"text","text":"first param"}]}]}}`,
 		SendPrep:    setSendURL},
+	{Label: "Media Message Template Send - Image with WebP attachment",
+		Text: "Media Message Msg", URN: "whatsapp:250788123123",
+		Status:      "W",
+		Metadata:    json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "namespace": "wa_template_namespace", "language": "eng", "country": "US", "variables": ["Chef", "tomorrow"]}}`),
+		Attachments: []string{"image/webp:https://foo.bar/image.webp"},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method:       "POST",
+				Path:         "/12345_ID/messages",
+				BodyContains: `"type":"template"`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
 	{Label: "Plain Send - Link preview on a long message",
 		Text: "https://link.com Lorem ipsum dolor sit amet, consectetuer adipiscing elit. Aenean commodo ligula eget dolor. Aenean m",
 		URN:  "whatsapp:250788123123", Path: "/12345_ID/messages",
@@ -1067,6 +1673,13 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"location_request_message","body":{"text":"Interactive Location Request"},"action":{"name":"send_location"}}}`,
 		SendPrep:    setSendURL},
+	{Label: "Interactive Request Contact Info",
+		Metadata: json.RawMessage(`{"interaction_type":"request_contact_info"}`),
+		Text:     "Share your contact info", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"request_contact_info","body":{"text":"Share your contact info"},"action":{"name":"request_contact_info"}}}`,
+		SendPrep:    setSendURL},
 	{Label: "[VERIFY] Interactive Location Request - With attachment - Sending only the attachment (is this ok? shouldn't the location request be a priority?)", // TODO: Verify, is Location + Attachment a valid combination? I believe that the Send WhatsApp Message card does not allow this
 		Metadata: json.RawMessage(`{"interaction_type":"location"}`),
 		Text:     "Interactive Location Request With Attachment", URN: "whatsapp:250788123123",
@@ -1121,6 +1734,123 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		Attachments: []string{"unknown/unknown:https://foo.bar/unknown.unknown"},
 		Error:       "unknown attachment mime type: unknown",
 		SendPrep:    setSendURL},
+	{Label: "Carousel Template Send - Unknown attachment type",
+		Text: "Carousel with unknown attachment", URN: "whatsapp:250788123123",
+		Attachments: []string{"unknown/unknown:https://foo.bar/unknown.file", "unknown/unknown:https://foo.bar/unknown.file2"},
+		Metadata:    json.RawMessage(`{ "templating": { "template": { "name": "carousel_promo", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "is_carousel": true, "carousel_cards": [{"body": ["Test Body"]}]}}`),
+		Error:       "unsupported attachment type for carousel card header: unknown (only image and video are supported)",
+		SendPrep:    setSendURL},
+	{Label: "Carousel Template Send - Document Cards (unsupported)",
+		Text: "Carousel with documents", URN: "whatsapp:250788123123",
+		Attachments: []string{"application/pdf:https://foo.bar/card1.pdf", "application/pdf:https://foo.bar/card2.pdf"},
+		Metadata:    json.RawMessage(`{ "templating": { "template": { "name": "doc_carousel", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "is_carousel": true, "carousel_cards": [{"body": ["Doc 1 Info"]}]}}`),
+		Error:       "unsupported attachment type for carousel card header: application (only image and video are supported)",
+		SendPrep:    setSendURL},
+	{Label: "Carousel Template Send - Less than 2 cards",
+		Text: "Carousel with only 1 attachment", URN: "whatsapp:250788123123",
+		Attachments: []string{"image/jpeg:https://foo.bar/card1.jpg"},
+		Metadata:    json.RawMessage(`{ "templating": { "template": { "name": "carousel_promo", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "is_carousel": true, "carousel_cards": [{"body": ["Card 1 Text"]}]}}`),
+		Error:       "carousel templates require at least 2 media attachments, got 1",
+		SendPrep:    setSendURL},
+	{Label: "Carousel Template Send - More than 10 cards",
+		Text: "Carousel with 11 attachments", URN: "whatsapp:250788123123",
+		Attachments: []string{"image/jpeg:https://foo.bar/card1.jpg", "image/jpeg:https://foo.bar/card2.jpg", "image/jpeg:https://foo.bar/card3.jpg", "image/jpeg:https://foo.bar/card4.jpg", "image/jpeg:https://foo.bar/card5.jpg", "image/jpeg:https://foo.bar/card6.jpg", "image/jpeg:https://foo.bar/card7.jpg", "image/jpeg:https://foo.bar/card8.jpg", "image/jpeg:https://foo.bar/card9.jpg", "image/jpeg:https://foo.bar/card10.jpg", "image/jpeg:https://foo.bar/card11.jpg"},
+		Metadata:    json.RawMessage(`{ "templating": { "template": { "name": "carousel_promo", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "is_carousel": true}}`),
+		Error:       "carousel templates allow at most 10 media attachments, got 11",
+		SendPrep:    setSendURL},
+	{Label: "Carousel Template Send - More than 2 buttons per card",
+		Text: "Carousel with 3 buttons on card", URN: "whatsapp:250788123123",
+		Attachments: []string{"image/jpeg:https://foo.bar/card1.jpg", "image/jpeg:https://foo.bar/card2.jpg"},
+		Metadata:    json.RawMessage(`{ "templating": { "template": { "name": "carousel_promo", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "is_carousel": true, "carousel_cards": [{"buttons": [{"sub_type": "quick_reply", "index": 0, "parameter": "btn1"}, {"sub_type": "quick_reply", "index": 1, "parameter": "btn2"}, {"sub_type": "url", "index": 2, "parameter": "btn3"}]}]}}`),
+		Error:       "carousel card 0 has 3 buttons, maximum allowed is 2",
+		SendPrep:    setSendURL},
+	{Label: "Carousel Template Send - Only URL Buttons",
+		Text: "Carousel with only url buttons", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments:  []string{"image/jpeg:https://foo.bar/card1.jpg", "image/jpeg:https://foo.bar/card2.jpg"},
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "url_carousel", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "is_carousel": true, "carousel_cards": [{"buttons": [{"sub_type": "url", "index": 0, "parameter": "url1"}, {"sub_type": "url", "index": 1, "parameter": "url2"}]}]}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"url_carousel","language":{"policy":"deterministic","code":"en"},"components":[{"type":"carousel","cards":[{"card_index":0,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}}]},{"type":"button","sub_type":"url","index":0,"parameters":[{"type":"text","text":"url1"}]},{"type":"button","sub_type":"url","index":1,"parameters":[{"type":"text","text":"url2"}]}]},{"card_index":1,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"https://foo.bar/card2.jpg"}}]}]}]}]}}`,
+		SendPrep:    setSendURL},
+	{Label: "Carousel Template Send - Only Quick Reply Buttons",
+		Text: "Carousel with only quick reply buttons", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments:  []string{"image/jpeg:https://foo.bar/card1.jpg", "image/jpeg:https://foo.bar/card2.jpg"},
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "qr_carousel", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "is_carousel": true, "carousel_cards": [{"buttons": [{"sub_type": "quick_reply", "index": 0, "parameter": "qr1"}, {"sub_type": "quick_reply", "index": 1, "parameter": "qr2"}]},{"buttons": [{"sub_type": "quick_reply", "index": 0, "parameter": "qr1"}, {"sub_type": "quick_reply", "index": 1, "parameter": "qr2"}]}]}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"qr_carousel","language":{"policy":"deterministic","code":"en"},"components":[{"type":"carousel","cards":[{"card_index":0,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}}]},{"type":"button","sub_type":"quick_reply","index":0,"parameters":[{"type":"payload","payload":"qr1"}]},{"type":"button","sub_type":"quick_reply","index":1,"parameters":[{"type":"payload","payload":"qr2"}]}]},{"card_index":1,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"https://foo.bar/card2.jpg"}}]},{"type":"button","sub_type":"quick_reply","index":0,"parameters":[{"type":"payload","payload":"qr1"}]},{"type":"button","sub_type":"quick_reply","index":1,"parameters":[{"type":"payload","payload":"qr2"}]}]}]}]}}`,
+		SendPrep:    setSendURL},
+	{Label: "Carousel Template Send - Only Media (No Body/Buttons)",
+		Text: "Carousel with only media", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments:  []string{"image/jpeg:https://foo.bar/card1.jpg", "image/jpeg:https://foo.bar/card2.jpg"},
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "media_carousel", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "is_carousel": true}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"media_carousel","language":{"policy":"deterministic","code":"en"},"components":[{"type":"carousel","cards":[{"card_index":0,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}}]}]},{"card_index":1,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"https://foo.bar/card2.jpg"}}]}]}]}]}}`,
+		SendPrep:    setSendURL},
+	{Label: "Interactive Carousel Send - CTA URL buttons",
+		Text: "Browse our collection", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments:  []string{"image/jpeg:https://foo.bar/card1.jpg", "image/jpeg:https://foo.bar/card2.jpg"},
+		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}]},{"body":"Card 2","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}]}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"carousel","body":{"text":"Browse our collection"},"action":{"cards":[{"card_index":0,"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}},"body":{"text":"Card 1"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}},{"card_index":1,"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/card2.jpg"}},"body":{"text":"Card 2"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}}]}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Interactive Carousel Send - Quick reply buttons",
+		Text: "Choose an option", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments:  []string{"image/jpeg:https://foo.bar/card1.jpg", "image/jpeg:https://foo.bar/card2.jpg"},
+		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Option A","buttons":[{"sub_type":"quick_reply","parameter":"opt_a"}]},{"body":"Option B","buttons":[{"sub_type":"quick_reply","parameter":"opt_b"}]}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"carousel","body":{"text":"Choose an option"},"action":{"cards":[{"card_index":0,"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}},"body":{"text":"Option A"},"action":{"buttons":[{"type":"quick_reply","quick_reply":{"id":"opt_a","title":"opt_a"}}]}},{"card_index":1,"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/card2.jpg"}},"body":{"text":"Option B"},"action":{"buttons":[{"type":"quick_reply","quick_reply":{"id":"opt_b","title":"opt_b"}}]}}]}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Interactive Carousel Send - Encodes non-ASCII image URL",
+		Text: "Choose an option", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{
+			"image/jpeg:https://foo.bar/1ª-edicao.jpg",
+			"image/jpeg:https://foo.bar/card2.jpg",
+		},
+		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Option A","buttons":[{"sub_type":"quick_reply","parameter":"opt_a"}]},{"body":"Option B","buttons":[{"sub_type":"quick_reply","parameter":"opt_b"}]}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"carousel","body":{"text":"Choose an option"},"action":{"cards":[{"card_index":0,"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/1%C2%AA-edicao.jpg"}},"body":{"text":"Option A"},"action":{"buttons":[{"type":"quick_reply","quick_reply":{"id":"opt_a","title":"opt_a"}}]}},{"card_index":1,"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/card2.jpg"}},"body":{"text":"Option B"},"action":{"buttons":[{"type":"quick_reply","quick_reply":{"id":"opt_b","title":"opt_b"}}]}}]}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Interactive Carousel - Single card with CTA URL",
+		Text: "Main text", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments:  []string{"image/jpeg:https://foo.bar/card1.jpg"},
+		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[{"sub_type":"url","parameters":{"display_text":"Link","url":"https://x.com"}}]}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}},"body":{"text":"Card 1"},"action":{"name":"cta_url","parameters":{"display_text":"Link","url":"https://x.com"}}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Interactive Carousel - Single card with quick replies",
+		Text: "Main text", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments:  []string{"image/jpeg:https://foo.bar/card1.jpg"},
+		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Pick one","buttons":[{"sub_type":"quick_reply","parameters":{"id":"opt_a","title":"Option A"}}]}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"button","header":{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}},"body":{"text":"Pick one"},"action":{"buttons":[{"type":"reply","reply":{"id":"opt_a","title":"Option A"}}]}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Interactive Carousel - Single card without buttons",
+		Text: "Main text", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments:  []string{"image/jpeg:https://foo.bar/card1.jpg"},
+		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1"}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"link":"https://foo.bar/card1.jpg","caption":"Card 1"}}`,
+		SendPrep:    setSendURL},
+	{Label: "Interactive Carousel - Missing body",
+		Text: "", URN: "whatsapp:250788123123",
+		Attachments: []string{"image/jpeg:https://foo.bar/card1.jpg", "image/jpeg:https://foo.bar/card2.jpg"},
+		Metadata:    json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[{"sub_type":"url","parameters":{"display_text":"Link","url":"https://x.com"}}]},{"body":"Card 2","buttons":[{"sub_type":"url","parameters":{"display_text":"Link","url":"https://x.com"}}]}]}`),
+		Error:       "interactive carousel requires main body text",
+		SendPrep:    setSendURL},
+	{Label: "Interactive Carousel - Card without buttons",
+		Text: "Main", URN: "whatsapp:250788123123",
+		Attachments: []string{"image/jpeg:https://foo.bar/card1.jpg", "image/jpeg:https://foo.bar/card2.jpg"},
+		Metadata:    json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[]},{"body":"Card 2","buttons":[{"sub_type":"url","parameters":{"display_text":"Link","url":"https://x.com"}}]}]}`),
+		Error:       "carousel card 0 must have at least one button",
+		SendPrep:    setSendURL},
 	{Label: "Interactive Button Message Send with too many replies",
 		Text: "Interactive Button Msg", URN: "whatsapp:250788123123", QuickReplies: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"},
 		Error:    "too many quick replies WAC supports only up to 10 quick replies",
@@ -1146,6 +1876,90 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		Attachments:  []string{"video/mp4:https://foo.bar/video.mp4"},
 		Error:        `message body cannot be empty`,
 	},
+	{Label: "Plain Send with Direct Send and TTL",
+		Text: "Simple Message", URN: "whatsapp:250788123123", Path: "/12345_ID/messages",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{"direct_send":true,"ttl_seconds":3600}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"Simple Message"},"category":"utility","ttl_seconds":3600}`,
+		SendPrep:    setSendURL},
+	{Label: "Plain Send with Direct Send without TTL",
+		Text: "Simple Message", URN: "whatsapp:250788123123", Path: "/12345_ID/messages",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{"direct_send":true}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"Simple Message"},"category":"utility"}`,
+		SendPrep:    setSendURL},
+	{Label: "Plain Send with Direct Send and Template Name",
+		Text: "Simple Message", URN: "whatsapp:250788123123", Path: "/12345_ID/messages",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{"direct_send":true,"direct_send_template_name":"template_name"}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"Simple Message"},"category":"utility","direct_send_config":{"template_name":"template_name"}}`,
+		SendPrep:    setSendURL},
+	{Label: "Plain Send with Direct Send and Template Name and TTL",
+		Text: "Simple Message", URN: "whatsapp:250788123123", Path: "/12345_ID/messages",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{"direct_send":true,"direct_send_template_name":"template_name","ttl_seconds":3600}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"Simple Message"},"category":"utility","ttl_seconds":3600,"direct_send_config":{"template_name":"template_name"}}`,
+		SendPrep:    setSendURL},
+	{Label: "Plain Send with TTL only should not include category and ttl",
+		Text: "Simple Message", URN: "whatsapp:250788123123", Path: "/12345_ID/messages",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{"ttl_seconds":3600}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"Simple Message"}}`,
+		SendPrep:    setSendURL},
+	{Label: "Template Send should not include Direct Send fields",
+		Text:   "templated message",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "variables": ["Chef", "tomorrow"]}, "direct_send": true, "ttl_seconds": 3600}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"revive_issue","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]}]}}`,
+		SendPrep:    setSendURL},
+	{Label: "Interactive Button Message Send with Direct Send and TTL",
+		Text: "Interactive Button Msg", URN: "whatsapp:250788123123", QuickReplies: []string{"BUTTON1"},
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{"direct_send":true,"ttl_seconds":3600}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"button","body":{"text":"Interactive Button Msg"},"action":{"buttons":[{"type":"reply","reply":{"id":"0","title":"BUTTON1"}}]}},"category":"utility","ttl_seconds":3600}`,
+		SendPrep:    setSendURL},
+	{Label: "Image Send with Direct Send and TTL",
+		Text:   "image caption",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{"direct_send":true,"ttl_seconds":3600}`),
+		Attachments:  []string{"image/jpeg:https://foo.bar/image.jpg"},
+		ResponseBody: `{ "contacts":[{"input":"5511987654321", "wa_id":"551187654321"}], "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"link":"https://foo.bar/image.jpg","caption":"image caption"},"category":"utility","ttl_seconds":3600}`,
+		SendPrep:    setSendURL},
+	{Label: "Audio Send with Direct Send and TTL",
+		Text:   "audio caption",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:    json.RawMessage(`{"direct_send":true,"ttl_seconds":3600}`),
+		Attachments: []string{"audio/mpeg:https://foo.bar/audio.mp3"},
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"audio","audio":{"link":"https://foo.bar/audio.mp3"},"category":"utility","ttl_seconds":3600}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"audio caption"},"category":"utility","ttl_seconds":3600}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
 	{Label: "Add additional URN from wa_id returned",
 		Text: "Simple Message", URN: "whatsapp:5511987654321", Path: "/12345_ID/messages",
 		Status: "W", ExternalID: "157b5e14568e8",
@@ -1154,13 +1968,31 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		SendPrep:    setSendURL,
 		ContactURNs: map[string]bool{"whatsapp:5511987654321": true, "whatsapp:551187654321": true},
 	},
+	{Label: "Replace BSUID from send response",
+		Text: "Simple Message", URN: "whatsapp:5678", Path: "/12345_ID/messages",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "contacts":[{"input":"5678", "wa_id":"5678", "user_id":"US.98765432100000000001"}], "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"5678","type":"text","text":{"body":"Simple Message"}}`,
+		SendPrep:    setSendURL,
+		ContactURNs: map[string]bool{
+			"whatsapp:5678":                    true,
+			"whatsapp:US.98765432100000000001": true,
+			"whatsapp:US.13491208655302741918": false,
+		},
+		PrepBackend: func(mb *courier.MockBackend) {
+			phoneURN, _ := urns.NewWhatsAppURN("5678")
+			oldBSUID, _ := urns.NewWhatsAppURN("US.13491208655302741918")
+			contact, _ := mb.GetContact(context.Background(), testChannelsWAC[0], phoneURN, "", "")
+			mb.AddURNtoContact(context.Background(), testChannelsWAC[0], contact, oldBSUID)
+		},
+	},
 	{Label: "Marketing Template Send - mmlite disabled",
 		Text:   "marketing template message",
 		URN:    "whatsapp:250788123123",
 		Status: "W", ExternalID: "157b5e14568e8",
 		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "marketing_promo", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3", "category": "MARKETING" }, "language": "eng", "variables": ["Customer", "50%"]}}`),
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
-		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"marketing_promo","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","text":"Customer"},{"type":"text","text":"50%"}]}]}}`,
+		RequestBody: `{"message_activity_sharing":true,"messaging_product":"whatsapp","recipient_type":"individual","template":{"components":[{"parameters":[{"text":"Customer","type":"text"},{"text":"50%","type":"text"}],"type":"body"}],"language":{"code":"en","policy":"deterministic"},"name":"marketing_promo"},"to":"250788123123","type":"template"}`,
 		SendPrep:    setSendURL,
 	},
 	{
@@ -1207,6 +2039,42 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		},
 		SendPrep: setSendURL,
 	},
+	{Label: "Plain Send BSUID",
+		Text: "Simple Message", URN: "whatsapp:US.13491208655302741918", Path: "/12345_ID/messages",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","recipient":"US.13491208655302741918","type":"text","text":{"body":"Simple Message"}}`,
+		SendPrep:    setSendURL},
+	{Label: "Plain Send Phone Number Regression",
+		Text: "Simple Message", URN: "whatsapp:250788123123", Path: "/12345_ID/messages",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"Simple Message"}}`,
+		SendPrep:    setSendURL},
+	{Label: "Audio Send BSUID",
+		Text:   "audio caption",
+		URN:    "whatsapp:US.13491208655302741918",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"audio/mpeg:https://foo.bar/audio.mp3"},
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","recipient":"US.13491208655302741918","type":"audio","audio":{"link":"https://foo.bar/audio.mp3"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+			MockedRequest{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","recipient":"US.13491208655302741918","type":"text","text":{"body":"audio caption"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
 }
 
 var CachedSendTestCasesWAC = []ChannelSendTestCase{
@@ -1297,6 +2165,30 @@ var CachedSendTestCasesWAC = []ChannelSendTestCase{
 			},
 		},
 		SendPrep: setSendURL},
+	{Label: "Image Send with URL query params - filename should not contain params",
+		Text:   "image caption",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"image/jpeg:https://foo.bar/image.jpg?token=abc123&expires=9999"},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method:       "POST",
+				Path:         "/12345_ID/media",
+				BodyContains: `filename="image.jpg"`,
+			}: {
+				Status: 201,
+				Body:   `{"id":"157b5e14568e8"}`,
+			},
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"id":"157b5e14568e8","caption":"image caption"}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL},
 }
 
 var FailingCachedSendTestCasesWAC = []ChannelSendTestCase{
@@ -1332,6 +2224,36 @@ func mockAttachmentURLs(mediaServer *httptest.Server, testCases []ChannelSendTes
 	return casesWithMockedUrls
 }
 
+func isCarouselSendTestCase(testCase ChannelSendTestCase) bool {
+	meta := string(testCase.Metadata)
+	return strings.Contains(meta, `"is_carousel": true`) || strings.Contains(meta, `"interaction_type":"carousel"`)
+}
+
+func mockCarouselAttachmentURLs(mediaServer *httptest.Server, testCases []ChannelSendTestCase) []ChannelSendTestCase {
+	casesWithMockedUrls := make([]ChannelSendTestCase, len(testCases))
+
+	for i, testCase := range testCases {
+		mockedCase := testCase
+		if !isCarouselSendTestCase(testCase) {
+			casesWithMockedUrls[i] = mockedCase
+			continue
+		}
+
+		for j, attachment := range testCase.Attachments {
+			mockedCase.Attachments[j] = strings.Replace(attachment, "https://foo.bar", mediaServer.URL, 1)
+		}
+		if testCase.RequestBody != "" {
+			mockedCase.RequestBody = strings.Replace(testCase.RequestBody, "https://foo.bar", mediaServer.URL, -1)
+		}
+		casesWithMockedUrls[i] = mockedCase
+	}
+	return casesWithMockedUrls
+}
+
+func mockPublicMediaURL(mediaURL string) string {
+	return "https://localhost/media/" + handlers.PngFilenameForURL(mediaURL)
+}
+
 func buildMockIGCommentReplyServer() *httptest.Server {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
@@ -1346,14 +2268,20 @@ func buildMockIGCommentReplyServer() *httptest.Server {
 			return
 		}
 
-		if strings.Contains(r.URL.Path, "/messages") {
-			err := r.ParseForm()
-			if err != nil {
+		if strings.Contains(r.URL.Path, "/messages") || r.URL.Path == "/" {
+			var payload map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				http.Error(w, "Bad request", http.StatusBadRequest)
 				return
 			}
 
-			w.Write([]byte(`{ "id": "mid.133" }`))
+			recipient, ok := payload["recipient"].(map[string]interface{})
+			if !ok || recipient["comment_id"] == nil {
+				http.Error(w, "missing recipient.comment_id", http.StatusBadRequest)
+				return
+			}
+
+			w.Write([]byte(`{ "message_id": "mid.133" }`))
 			return
 		}
 
@@ -1382,6 +2310,20 @@ func buildMockWACActionServer() *httptest.Server {
 	return server
 }
 
+func updateWebPTestCase(sendTestCases []ChannelSendTestCase, webpServerURL string) {
+	for i, testCase := range sendTestCases {
+		if testCase.Label == "Media Message Template Send - Image with WebP attachment" {
+			for j, att := range testCase.Attachments {
+				if strings.Contains(att, "https://foo.bar") {
+					testCase.Attachments[j] = strings.Replace(att, "https://foo.bar", webpServerURL, 1)
+				}
+			}
+			sendTestCases[i] = testCase
+			break
+		}
+	}
+}
+
 func TestSending(t *testing.T) {
 	uuids.SetGenerator(uuids.NewSeededGenerator(1234))
 	defer uuids.SetGenerator(uuids.DefaultGenerator)
@@ -1397,9 +2339,51 @@ func TestSending(t *testing.T) {
 		res.WriteHeader(400)
 		res.Write([]byte("error"))
 	}))
+
+	// WebP media server - returns valid WebP image data
+	webpMediaServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		defer req.Body.Close()
+		res.WriteHeader(200)
+		res.Write(handlers.MinimalWebPBytes())
+	}))
+
 	defer mediaServer.Close()
+	defer webpMediaServer.Close()
+	SendTestCasesWAC = mockCarouselAttachmentURLs(mediaServer, SendTestCasesWAC)
 	CachedSendTestCasesWAC := mockAttachmentURLs(mediaServer, CachedSendTestCasesWAC)
 	FailingCachedSendTestCasesWAC := mockAttachmentURLs(failingMediaServer, FailingCachedSendTestCasesWAC)
+
+	updateWebPTestCase(SendTestCasesWAC, webpMediaServer.URL)
+	card1URL := webpMediaServer.URL + "/card1.webp"
+	card2URL := webpMediaServer.URL + "/card2.webp"
+	SendTestCasesWAC = append(SendTestCasesWAC, ChannelSendTestCase{
+		Label:  "Interactive Carousel Send - WebP images",
+		Text:   "Browse our collection",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{
+			"image/webp:" + card1URL,
+			"image/webp:" + card2URL,
+		},
+		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}]},{"body":"Card 2","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}]}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: fmt.Sprintf(`{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"carousel","body":{"text":"Browse our collection"},"action":{"cards":[{"card_index":0,"type":"cta_url","header":{"type":"image","image":{"link":"%s"}},"body":{"text":"Card 1"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}},{"card_index":1,"type":"cta_url","header":{"type":"image","image":{"link":"%s"}},"body":{"text":"Card 2"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}}]}}}`, mockPublicMediaURL(card1URL), mockPublicMediaURL(card2URL)),
+		SendPrep:    setSendURL,
+	})
+	SendTestCasesWAC = append(SendTestCasesWAC, ChannelSendTestCase{
+		Label:  "Carousel Template Send - WebP images",
+		Text:   "Carousel with webp images",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{
+			"image/webp:" + card1URL,
+			"image/webp:" + card2URL,
+		},
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "webp_carousel", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "is_carousel": true}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: fmt.Sprintf(`{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"webp_carousel","language":{"policy":"deterministic","code":"en"},"components":[{"type":"carousel","cards":[{"card_index":0,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"%s"}}]}]},{"card_index":1,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"%s"}}]}]}]}]}}`, mockPublicMediaURL(card1URL), mockPublicMediaURL(card2URL)),
+		SendPrep:    setSendURL,
+	})
 	SendTestCasesWAC = append(SendTestCasesWAC, CachedSendTestCasesWAC...)
 	SendTestCasesWAC = append(SendTestCasesWAC, FailingCachedSendTestCasesWAC...)
 
@@ -1472,4 +2456,317 @@ var ActionTestCasesWAC = []ChannelSendTestCase{
 			graphURL = buildMockWACActionServer().URL + "/"
 		},
 	},
+}
+
+// Test cases for WCD (WhatsApp Cloud Demo) channel - offsite_card_pay without catalog_id
+var SendTestCasesWCD = []ChannelSendTestCase{
+	{Label: "Send Order Details Message - Offsite Card Pay without Catalog ID",
+		Metadata: json.RawMessage(`{"order_details_message":{"reference_id":"220788123125","total_amount":18200,"order":{"items":[{"retailer_id":"789236789","name":"item 1","amount":{"offset":100,"value":200},"quantity":2},{"retailer_id":"59016733","name":"item 2","amount":{"offset":100,"value":4000},"quantity":9,"sale_amount":{"offset":100,"value":2000}}],"subtotal":36400,"tax":{"value":500,"description":"tax description"},"shipping":{"value":900,"description":"shipping description"},"discount":{"value":1000,"description":"discount description","program_name":"discount program name"}},"payment_settings":{"type":"digital-goods","offsite_card_pay":{"credential_id":"cred123","last_four_digits":"1234"}}},"footer":"footer text","interaction_type":"order_details","text":"msg text"}`),
+		Text:     "msg text", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"order_details","body":{"text":"msg text"},"footer":{"text":"footer text"},"action":{"name":"review_and_pay","parameters":{"currency":"BRL","order":{"discount":{"description":"discount description","discount_program_name":"discount program name","offset":100,"value":1000},"items":[{"amount":{"offset":100,"value":200},"name":"item 1","quantity":2,"retailer_id":"789236789"},{"amount":{"offset":100,"value":4000},"name":"item 2","quantity":9,"retailer_id":"59016733","sale_amount":{"offset":100,"value":2000}}],"shipping":{"description":"shipping description","offset":100,"value":900},"status":"pending","subtotal":{"offset":100,"value":36400},"tax":{"description":"tax description","offset":100,"value":500}},"payment_settings":[{"offsite_card_pay":{"credential_id":"cred123","last_four_digits":"1234"},"type":"offsite_card_pay"}],"payment_type":"br","reference_id":"220788123125","total_amount":{"offset":100,"value":18200},"type":"digital-goods"}}}}`,
+		SendPrep:    setSendURL},
+}
+
+func TestSendingWCD(t *testing.T) {
+	// WCD channel without catalog_id - for testing offsite_card_pay
+	// Note: setSendURL sets graphURL to the test server URL, so we don't need demo_url here
+	var ChannelWCD = courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WCD", "12345_ID", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
+
+	RunChannelSendTestCases(t, ChannelWCD, newWACDemoHandler("WCD", "WhatsApp Cloud Demo"), SendTestCasesWCD, nil)
+}
+
+func TestWaTemplateTypeFromMetadata(t *testing.T) {
+	cases := []struct {
+		label    string
+		metadata string
+		expected string
+	}{
+		// happy paths
+		{"category MARKETING", `{"templating":{"template":{"name":"hi","uuid":"abc","category":"MARKETING"},"language":"eng"}}`, "marketing"},
+		{"category Utility mixed-case", `{"templating":{"template":{"name":"hi","uuid":"abc","category":"Utility"}}}`, "utility"},
+		{"category authentication lowercase", `{"templating":{"template":{"name":"otp","uuid":"abc","category":"authentication"}}}`, "authentication"},
+		{"object with leading whitespace", "  \t\n{\"templating\":{\"template\":{\"name\":\"hi\",\"uuid\":\"abc\",\"category\":\"MARKETING\"}}}", "marketing"},
+
+		// known no-publish cases
+		{"non-template metadata", `{"topic":"event","text_language":"eng"}`, ""},
+		{"templating without category", `{"templating":{"template":{"name":"hi","uuid":"abc"},"language":"eng"}}`, ""},
+		{"unknown category", `{"templating":{"template":{"name":"hi","uuid":"abc","category":"SERVICE"}}}`, ""},
+		{"empty category string", `{"templating":{"template":{"name":"hi","uuid":"abc","category":""}}}`, ""},
+
+		// metadata column that isn't a JSON object — must skip without error
+		{"empty metadata", ``, ""},
+		{"whitespace only", `   `, ""},
+		{"literal null", `null`, ""},
+		{"literal true", `true`, ""},
+		{"literal number", `42`, ""},
+		{"json string", `"hello"`, ""},
+		{"json array", `[{"templating":{"template":{"category":"MARKETING"}}}]`, ""},
+		{"raw plain text", `hello world`, ""},
+
+		// malformed json inside an object — must not panic, must skip
+		{"malformed JSON truncated", `{"templating":`, ""},
+		{"malformed JSON unbalanced", `{"templating":{"template":{}`, ""},
+		{"malformed JSON garbage after object", `{} not json`, ""},
+		{"category not a string", `{"templating":{"template":{"category":123}}}`, ""},
+		{"category as object", `{"templating":{"template":{"category":{"name":"MARKETING"}}}}`, ""},
+	}
+
+	for _, c := range cases {
+		t.Run(c.label, func(t *testing.T) {
+			got := waTemplateTypeFromMetadata(json.RawMessage(c.metadata))
+			assert.Equal(t, c.expected, got)
+		})
+	}
+}
+
+func TestRouteWhatsAppChanges(t *testing.T) {
+	cases := []struct {
+		label              string
+		payload            string
+		wantHasChanges     bool
+		wantToIntegrations bool
+		wantToFlows        bool
+		wantChannelAddress string
+		wantMultipleAddrs  bool
+	}{
+		{
+			label: "template status update alone",
+			payload: `{
+				"entry":[{"changes":[{"field":"message_template_status_update","value":{}}]}]
+			}`,
+			wantHasChanges:     true,
+			wantToIntegrations: true,
+		},
+		{
+			label: "messages change alone",
+			payload: `{
+				"entry":[{"changes":[{"field":"messages","value":{"metadata":{"phone_number_id":"12345"}}}]}]
+			}`,
+			wantHasChanges:     true,
+			wantChannelAddress: "12345",
+		},
+		{
+			label: "messages then template status in same entry",
+			payload: `{
+				"entry":[{
+					"changes":[
+						{"field":"messages","value":{"metadata":{"phone_number_id":"12345"}}},
+						{"field":"message_template_status_update","value":{}}
+					]
+				}]
+			}`,
+			wantHasChanges:     true,
+			wantToIntegrations: true,
+			wantChannelAddress: "12345",
+		},
+		{
+			label: "template status in entry 0 and messages in entry 1",
+			payload: `{
+				"entry":[
+					{"changes":[{"field":"message_template_status_update","value":{}}]},
+					{"changes":[{"field":"messages","value":{"metadata":{"phone_number_id":"12345"}}}]}
+				]
+			}`,
+			wantHasChanges:     true,
+			wantToIntegrations: true,
+			wantChannelAddress: "12345",
+		},
+		{
+			label: "nil metadata does not panic",
+			payload: `{
+				"entry":[{"changes":[{"field":"messages","value":{}}]}]
+			}`,
+			wantHasChanges: true,
+		},
+		{
+			label: "handover uses recipient phone_number_id when metadata is absent",
+			payload: `{
+				"entry":[{"changes":[{"field":"messaging_handovers","value":{"recipient":{"phone_number_id":"12345"}}}]}]
+			}`,
+			wantHasChanges:     true,
+			wantChannelAddress: "12345",
+		},
+		{
+			label: "two different phone_number_ids",
+			payload: `{
+				"entry":[{
+					"changes":[
+						{"field":"messages","value":{"metadata":{"phone_number_id":"111"}}},
+						{"field":"messages","value":{"metadata":{"phone_number_id":"222"}}}
+					]
+				}]
+			}`,
+			wantHasChanges:     true,
+			wantChannelAddress: "111",
+			wantMultipleAddrs:  true,
+		},
+		{
+			label:          "empty entries",
+			payload:        `{"entry":[]}`,
+			wantHasChanges: false,
+		},
+		{
+			label: "entries with no changes",
+			payload: `{
+				"entry":[{"id":"1","changes":[]}]
+			}`,
+			wantHasChanges: false,
+		},
+		{
+			label: "flows mixed with template status update",
+			payload: `{
+				"entry":[{
+					"changes":[
+						{"field":"flows","value":{}},
+						{"field":"message_template_status_update","value":{}}
+					]
+				}]
+			}`,
+			wantHasChanges:     true,
+			wantToIntegrations: true,
+			wantToFlows:        true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.label, func(t *testing.T) {
+			payload := &moPayload{}
+			err := json.Unmarshal([]byte(c.payload), payload)
+			assert.NoError(t, err)
+
+			got := routeWhatsAppChanges(payload)
+			assert.Equal(t, c.wantHasChanges, got.hasChanges)
+			assert.Equal(t, c.wantToIntegrations, got.toIntegrations)
+			assert.Equal(t, c.wantToFlows, got.toFlows)
+			assert.Equal(t, c.wantChannelAddress, got.channelAddress)
+			assert.Equal(t, c.wantMultipleAddrs, got.multipleAddrs)
+		})
+	}
+}
+
+func TestHandleMMLiteTermsSignedContinuesAfterError(t *testing.T) {
+	payloadJSON := `{
+		"entry": [
+			{"changes": [{"field": "account_update", "value": {"event": "MM_LITE_TERMS_SIGNED", "waba_info": {"waba_id": "waba-fail"}}}]},
+			{"changes": [
+				{"field": "messages", "value": {}},
+				{"field": "account_update", "value": {"event": "MM_LITE_TERMS_SIGNED", "waba_info": {"waba_id": "waba-ok"}}}
+			]}
+		]
+	}`
+
+	t.Run("processes remaining waba ids after an update error", func(t *testing.T) {
+		mb := &courier.MockBackend{}
+		mb.FailUpdateChannelConfigByWabaID("waba-fail", fmt.Errorf("db down"))
+
+		h := newHandler("WAC", "WhatsApp Cloud", false).(*handler)
+		h.SetServer(courier.NewServer(&courier.Config{}, mb))
+
+		payload := &moPayload{}
+		assert.NoError(t, json.Unmarshal([]byte(payloadJSON), payload))
+
+		err := h.handleMMLiteTermsSigned(context.Background(), payload)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "waba-fail")
+		assert.Equal(t, []string{"waba-fail", "waba-ok"}, mb.UpdatedWabaIDs())
+	})
+
+	t.Run("returns nil when every update succeeds", func(t *testing.T) {
+		mb := &courier.MockBackend{}
+		h := newHandler("WAC", "WhatsApp Cloud", false).(*handler)
+		h.SetServer(courier.NewServer(&courier.Config{}, mb))
+
+		payload := &moPayload{}
+		assert.NoError(t, json.Unmarshal([]byte(payloadJSON), payload))
+
+		assert.NoError(t, h.handleMMLiteTermsSigned(context.Background(), payload))
+		assert.Equal(t, []string{"waba-fail", "waba-ok"}, mb.UpdatedWabaIDs())
+	})
+}
+
+func TestContactUsernameUpdate(t *testing.T) {
+	channel := courier.NewMockChannel(
+		"8eb23e93-5ecb-45ba-b726-3b064e0c568c",
+		"WAC",
+		"12345",
+		"",
+		map[string]interface{}{courier.ConfigAuthToken: "a123"},
+	)
+
+	RunChannelTestCases(t, []courier.Channel{channel}, newHandler("WAC", "WhatsApp Cloud", false), []ChannelHandleTestCase{
+		{
+			Label:                 "Receive Message BSUID Username Update",
+			URL:                   wacReceiveURL,
+			Data:                  string(courier.ReadFile("./testdata/wac/helloBSUIDUsername.json")),
+			Status:                200,
+			Response:              `"username_update: username updated from olduser to @kerryfisher"`,
+			NoQueueErrorCheck:     true,
+			NoInvalidChannelCheck: true,
+			PrepRequest:           addValidSignatureWAC,
+			PrepBackend: func(mb *courier.MockBackend) {
+				bsuidURN, err := urns.NewWhatsAppURN("US.13491208655302741918")
+				assert.NoError(t, err)
+				mb.GetContact(context.Background(), channel, bsuidURN, "", "")
+				mb.SetContactFieldValue(bsuidURN, "whatsapp_username", "olduser")
+			},
+		},
+	})
+}
+
+func TestBusinessUsernameUpdatesApproved(t *testing.T) {
+	channel := courier.NewMockChannel(
+		"8eb23e93-5ecb-45ba-b726-3b064e0c568c",
+		"WAC",
+		"12345",
+		"",
+		map[string]interface{}{
+			courier.ConfigAuthToken: "a123",
+			"wa_username":           "oldusername",
+		},
+	)
+
+	RunChannelTestCases(t, []courier.Channel{channel}, newHandler("WAC", "WhatsApp Cloud", false), []ChannelHandleTestCase{
+		{
+			Label:                 "Receive Business Username Update Approved",
+			URL:                   wacReceiveURL,
+			Data:                  string(courier.ReadFile("./testdata/wac/businessUsernameUpdatesWAC.json")),
+			Status:                200,
+			Response:              `"business_username_updates: username updated from oldusername to jaspersmarket"`,
+			NoQueueErrorCheck:     true,
+			NoInvalidChannelCheck: true,
+			PrepRequest:           addValidSignatureWAC,
+		},
+	})
+
+	assert.Equal(t, "jaspersmarket", channel.StringConfigForKey("wa_username", ""))
+}
+
+func TestBusinessUsernameUpdatesReserved(t *testing.T) {
+	channel := courier.NewMockChannel(
+		"8eb23e93-5ecb-45ba-b726-3b064e0c568c",
+		"WAC",
+		"12345",
+		"",
+		map[string]interface{}{
+			courier.ConfigAuthToken: "a123",
+			"wa_username":           "oldusername",
+		},
+	)
+
+	RunChannelTestCases(t, []courier.Channel{channel}, newHandler("WAC", "WhatsApp Cloud", false), []ChannelHandleTestCase{
+		{
+			Label:                 "Ignore Business Username Update Reserved",
+			URL:                   wacReceiveURL,
+			Data:                  string(courier.ReadFile("./testdata/wac/businessUsernameUpdatesReservedWAC.json")),
+			Status:                200,
+			Response:              `"business_username_updates: ignoring status \"reserved\""`,
+			NoQueueErrorCheck:     true,
+			NoInvalidChannelCheck: true,
+			PrepRequest:           addValidSignatureWAC,
+		},
+	})
+
+	assert.Equal(t, "oldusername", channel.StringConfigForKey("wa_username", ""))
 }

@@ -6,6 +6,7 @@ GET /handlers/dartmedia/received/uuid?userid=username&password=xxxxxxxx&original
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -198,7 +199,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			if responseText == "101" {
 				errorMessage = "Error 101: Account expired or invalid parameters"
 			}
-			log.WithError("Send Error", fmt.Errorf(errorMessage))
+			log.WithError("Send Error", errors.New(errorMessage))
 			return status, nil
 		}
 

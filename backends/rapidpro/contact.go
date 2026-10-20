@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -63,6 +65,10 @@ INSERT INTO
 	contacts_contact(org_id, is_active, status, uuid, created_on, modified_on, created_by_id, modified_by_id, name, ticket_count) 
               VALUES(:org_id, TRUE, 'A', :uuid, :created_on, :modified_on, :created_by_id, :modified_by_id, :name, 0)
 RETURNING id
+`
+
+const updateContactNameSQL = `
+UPDATE contacts_contact SET name = $1, modified_on = $2 WHERE id = $3 AND (name IS NULL OR name = '')
 `
 
 // insertContact inserts the passed in contact, the id field will be populated with the result on success
@@ -144,14 +150,111 @@ func contactForURNTeams(ctx context.Context, b *backend, urn urns.URN, org OrgID
 	return contact, nil
 }
 
-// contactForURN first tries to look up a contact for the passed in URN, if not finding one then creating one
-func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChannel, urn urns.URN, auth string, name string) (*DBContact, error) {
-	// try to look up our contact by URN
+// lookupContactByURN looks up a contact for the given URN, also trying any known
+// equivalent variation of it (currently: Brazilian WhatsApp numbers with/without the
+// extra leading 9). This is a pure read with no side effects, returning sql.ErrNoRows
+// if neither the URN nor its variation match an existing contact.
+func lookupContactByURN(ctx context.Context, b *backend, org OrgID, urn urns.URN) (*DBContact, error) {
 	contact := &DBContact{}
 
 	err := b.db.GetContext(ctx, contact, lookupContactFromURNSQL, urn.Identity(), org)
 	if err != nil && err != sql.ErrNoRows {
 		logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
+		return nil, err
+	}
+
+	if err == sql.ErrNoRows {
+		if urnVariation := newWhatsappURNVariation(urn); urnVariation != nil {
+			err = b.db.GetContext(ctx, contact, lookupContactFromURNSQL, urnVariation.Identity(), org)
+			if err != nil && err != sql.ErrNoRows {
+				logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
+				return nil, err
+			}
+		}
+	}
+
+	return contact, err
+}
+
+// findContactByURN looks up a contact by URN without creating one. Returns courier.ErrContactNotFound if none exists.
+func findContactByURN(ctx context.Context, b *backend, org OrgID, urn urns.URN) (*DBContact, error) {
+	contact, err := lookupContactByURN(ctx, b, org, urn)
+	if err == sql.ErrNoRows {
+		return nil, courier.ErrContactNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return contact, nil
+}
+
+const getContactFieldValueSQL = `
+SELECT c.fields->cf.uuid::text->>'text'
+FROM contacts_contact c
+JOIN contacts_contactfield cf ON cf.org_id = c.org_id AND cf.key = $3 AND cf.is_active = TRUE
+WHERE c.org_id = $1 AND c.id = $2
+`
+
+func getContactFieldValue(ctx context.Context, db *sqlx.DB, orgID OrgID, contactID ContactID, fieldKey string) (string, error) {
+	var value null.String
+	err := db.GetContext(ctx, &value, getContactFieldValueSQL, orgID, contactID, fieldKey)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return string(value), nil
+}
+
+const isEmailMailboxBlockedSQL = `
+SELECT EXISTS (
+	SELECT 1
+	FROM contacts_contact AS c
+	JOIN contacts_contacturn AS u ON u.contact_id = c.id
+	WHERE u.org_id = $1
+	  AND c.is_active = TRUE
+	  AND c.status = 'B'
+	  AND (u.identity = $2 OR u.identity ~ $3)
+)
+`
+
+// isEmailMailboxBlocked returns true when the org has any active blocked
+// contact whose URN is either the real mailbox (mailto:user@domain) or a
+// synthetic thread variant (mailto:user+wt-<8hex>@domain).
+func isEmailMailboxBlocked(ctx context.Context, b *backend, org OrgID, address string) (bool, error) {
+	address = strings.ToLower(strings.TrimSpace(address))
+	if address == "" {
+		return false, nil
+	}
+
+	at := strings.LastIndex(address, "@")
+	if at <= 0 || at == len(address)-1 {
+		return false, nil
+	}
+
+	local, domain := address[:at], address[at+1:]
+	exactIdentity := "mailto:" + address
+	// Match only our synthetic +wt-<8 hex> tag so a real plus-alias like
+	// person+work@gmail.com is not treated as a thread variant of person@.
+	variantRegex := fmt.Sprintf(`^mailto:%s\+wt-[0-9a-f]{8}@%s$`,
+		regexp.QuoteMeta(local), regexp.QuoteMeta(domain))
+
+	var blocked bool
+	err := b.db.GetContext(ctx, &blocked, isEmailMailboxBlockedSQL, org, exactIdentity, variantRegex)
+	if err != nil {
+		logrus.WithError(err).WithField("address", address).WithField("org_id", org).
+			Error("error checking blocked email mailbox")
+		return false, err
+	}
+	return blocked, nil
+}
+
+// contactForURN first tries to look up a contact for the passed in URN, if not finding one then creating one
+func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChannel, urn urns.URN, auth string, name string) (*DBContact, error) {
+	// try to look up our contact by URN (including known variations of it)
+	contact, err := lookupContactByURN(ctx, b, org, urn)
+	if err != nil && err != sql.ErrNoRows {
 		return nil, err
 	}
 
@@ -163,23 +266,8 @@ func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChanne
 		}
 	}
 
-	if err == sql.ErrNoRows {
-		// we not found a contact with the given urn, so try find one with another variation with or without extra 9
-		if urn.Scheme() == urns.WhatsAppScheme && strings.HasPrefix(urn.Path(), "55") {
-			urnVariation := newWhatsappURNVariation(urn)
-			if urnVariation != nil {
-				err = b.db.GetContext(ctx, contact, lookupContactFromURNSQL, urnVariation.Identity(), org)
-				if err != nil && err != sql.ErrNoRows {
-					logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
-					return nil, err
-				}
-			}
-		}
-	}
-
 	// we found it, return it
 	if err != sql.ErrNoRows {
-		// insert it
 		tx, err := b.db.BeginTxx(ctx, nil)
 		if err != nil {
 			logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error looking up contact")
@@ -192,6 +280,20 @@ func contactForURN(ctx context.Context, b *backend, org OrgID, channel *DBChanne
 			tx.Rollback()
 			return nil, err
 		}
+
+		if name != "" && !channel.OrgIsAnon() && string(contact.Name_) == "" {
+			if utf8.RuneCountInString(name) > 128 {
+				name = string([]rune(name)[:127])
+			}
+			_, err = tx.Exec(updateContactNameSQL, name, time.Now(), contact.ID_)
+			if err != nil {
+				logrus.WithError(err).WithField("urn", urn.Identity()).WithField("org_id", org).Error("error updating contact name")
+				tx.Rollback()
+				return nil, err
+			}
+			contact.Name_ = null.String(name)
+		}
+
 		return contact, tx.Commit()
 	}
 

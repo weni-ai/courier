@@ -22,6 +22,13 @@ var testChannels = []courier.Channel{
 
 var receiveURL = fmt.Sprintf("/c/wwc/%s/receive", channelUUID)
 
+// Order metadata for tests
+var orderMetadata1 = json.RawMessage(`{"order":{"product_items":[{"product_retailer_id":"product-001","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","seller_id":"seller-001","quantity":2},{"product_retailer_id":"product-002","name":"Smartphone","price":"1999.90","currency":"BRL","seller_id":"seller-002","quantity":1}]},"overwrite_message":{"order":{"product_items":[{"product_retailer_id":"product-001","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","seller_id":"seller-001","quantity":2},{"product_retailer_id":"product-002","name":"Smartphone","price":"1999.90","currency":"BRL","seller_id":"seller-002","quantity":1}]}}}`)
+var orderMetadata2 = json.RawMessage(`{"order":{"product_items":[{"product_retailer_id":"product-abc","name":"Headphones","price":"299.90","currency":"BRL","seller_id":"audio-seller","quantity":3}]},"overwrite_message":{"order":{"product_items":[{"product_retailer_id":"product-abc","name":"Headphones","price":"299.90","currency":"BRL","seller_id":"audio-seller","quantity":3}]}}}`)
+
+// Conversation starter metadata for tests
+var conversationStarterMetadata = json.RawMessage(`{"from_conversation_starter":true}`)
+
 const (
 	textMsgTemplate = `
 	{
@@ -32,6 +39,32 @@ const (
 			"timestamp":%q,
 			"text":%q
 		}
+	}
+	`
+
+	textMsgWithStarterTemplate = `
+	{
+		"type":"message",
+		"from":%q,
+		"message":{
+			"type":"text",
+			"timestamp":%q,
+			"text":%q,
+			"from_conversation_starter": %s
+		}
+	}
+	`
+
+	textMsgWithContactFieldsTemplate = `
+	{
+		"type":"message",
+		"from":%q,
+		"message":{
+			"type":"text",
+			"timestamp":%q,
+			"text":%q
+		},
+		"contact_fields":%s
 	}
 	`
 
@@ -48,6 +81,18 @@ const (
 	}
 	`
 
+	mediaMsgTemplate = `
+	{
+		"type":"message",
+		"from":%q,
+		"message":{
+			"type":%q,
+			"timestamp":%q,
+			"media_url":%q
+		}
+	}
+	`
+
 	locationMsgTemplate = `
 	{
 		"type":"message",
@@ -57,6 +102,60 @@ const (
 			"timestamp":%q,
 			"latitude":%q,
 			"longitude":%q
+		}
+	}
+	`
+
+	orderMsgTemplate = `
+	{
+		"type":"message",
+		"from":%q,
+		"message":{
+			"type":"order",
+			"timestamp":%q,
+			"order":{
+				"product_items":[
+					{
+						"product_retailer_id":"product-001",
+						"name":"Smart TV 50\"",
+						"price":"2999.90",
+						"currency":"BRL",
+						"seller_id":"seller-001",
+						"quantity":2
+					},
+					{
+						"product_retailer_id":"product-002",
+						"name":"Smartphone",
+						"price":"1999.90",
+						"currency":"BRL",
+						"seller_id":"seller-002",
+						"quantity":1
+					}
+				]
+			}
+		}
+	}
+	`
+
+	orderMsgSingleItemTemplate = `
+	{
+		"type":"message",
+		"from":%q,
+		"message":{
+			"type":"order",
+			"timestamp":%q,
+			"order":{
+				"product_items":[
+					{
+						"product_retailer_id":"product-abc",
+						"name":"Headphones",
+						"price":"299.90",
+						"currency":"BRL",
+						"seller_id":"audio-seller",
+						"quantity":3
+					}
+				]
+			}
 		}
 	}
 	`
@@ -86,13 +185,94 @@ var testCases = []ChannelHandleTestCase{
 		Response: "Accepted",
 	},
 	{
-		Label:      "Receive Valid Media",
+		Label:    "Receive Text Msg From Conversation Starter",
+		URL:      receiveURL,
+		Data:     fmt.Sprintf(textMsgWithStarterTemplate, "2345678", "1616586927", "Qual a diferença entre os modelos?", "true"),
+		Name:     Sp("2345678"),
+		URN:      Sp("ext:2345678"),
+		Text:     Sp("Qual a diferença entre os modelos?"),
+		Metadata: &conversationStarterMetadata,
+		Status:   200,
+		Response: "Accepted",
+	},
+	{
+		Label:    "Receive Text Msg With Conversation Starter False",
+		URL:      receiveURL,
+		Data:     fmt.Sprintf(textMsgWithStarterTemplate, "2345678", "1616586927", "Hello Test!", "false"),
+		Name:     Sp("2345678"),
+		URN:      Sp("ext:2345678"),
+		Text:     Sp("Hello Test!"),
+		Status:   200,
+		Response: "Accepted",
+	},
+	{
+		Label:    "Receive Valid Text Msg With Contact Fields",
+		URL:      receiveURL,
+		Data:     fmt.Sprintf(textMsgWithContactFieldsTemplate, "2345678", "1616586927", "Hello With Fields!", `{"name":"John Doe","email":"john@example.com"}`),
+		Name:     Sp("2345678"),
+		URN:      Sp("ext:2345678"),
+		Text:     Sp("Hello With Fields!"),
+		Status:   200,
+		Response: "Accepted",
+	},
+	{
+		Label:    "Receive Valid Text Msg With Empty Contact Fields",
+		URL:      receiveURL,
+		Data:     fmt.Sprintf(textMsgWithContactFieldsTemplate, "2345678", "1616586927", "Hello Empty Fields!", `{}`),
+		Name:     Sp("2345678"),
+		URN:      Sp("ext:2345678"),
+		Text:     Sp("Hello Empty Fields!"),
+		Status:   200,
+		Response: "Accepted",
+	},
+	{
+		Label:    "Receive Valid Text Msg With Null Contact Fields",
+		URL:      receiveURL,
+		Data:     fmt.Sprintf(textMsgWithContactFieldsTemplate, "2345678", "1616586927", "Hello Null Fields!", `null`),
+		Name:     Sp("2345678"),
+		URN:      Sp("ext:2345678"),
+		Text:     Sp("Hello Null Fields!"),
+		Status:   200,
+		Response: "Accepted",
+	},
+	{
+		Label:      "Receive Valid Image With Caption",
 		URL:        receiveURL,
 		Data:       fmt.Sprintf(imgMsgTemplate, "2345678", "1616586927", "https://link.to/image.png", "My Caption"),
 		Name:       Sp("2345678"),
 		URN:        Sp("ext:2345678"),
 		Text:       Sp("My Caption"),
 		Attachment: Sp("https://link.to/image.png"),
+		Status:     200,
+		Response:   "Accepted",
+	},
+	{
+		Label:      "Receive Valid Audio",
+		URL:        receiveURL,
+		Data:       fmt.Sprintf(mediaMsgTemplate, "2345678", "audio", "1616586927", "https://link.to/audio.mp3"),
+		Name:       Sp("2345678"),
+		URN:        Sp("ext:2345678"),
+		Attachment: Sp("https://link.to/audio.mp3"),
+		Status:     200,
+		Response:   "Accepted",
+	},
+	{
+		Label:      "Receive Valid Video",
+		URL:        receiveURL,
+		Data:       fmt.Sprintf(mediaMsgTemplate, "2345678", "video", "1616586927", "https://link.to/video.mp4"),
+		Name:       Sp("2345678"),
+		URN:        Sp("ext:2345678"),
+		Attachment: Sp("https://link.to/video.mp4"),
+		Status:     200,
+		Response:   "Accepted",
+	},
+	{
+		Label:      "Receive Valid File",
+		URL:        receiveURL,
+		Data:       fmt.Sprintf(mediaMsgTemplate, "2345678", "file", "1616586927", "https://link.to/document.pdf"),
+		Name:       Sp("2345678"),
+		URN:        Sp("ext:2345678"),
+		Attachment: Sp("https://link.to/document.pdf"),
 		Status:     200,
 		Response:   "Accepted",
 	},
@@ -107,6 +287,28 @@ var testCases = []ChannelHandleTestCase{
 		Response:   "Accepted",
 	},
 	{
+		Label:    "Receive Valid Order",
+		URL:      receiveURL,
+		Data:     fmt.Sprintf(orderMsgTemplate, "2345678", "1616586927"),
+		Name:     Sp("2345678"),
+		URN:      Sp("ext:2345678"),
+		Text:     Sp(""),
+		Metadata: &orderMetadata1,
+		Status:   200,
+		Response: "Accepted",
+	},
+	{
+		Label:    "Receive Order Single Item",
+		URL:      receiveURL,
+		Data:     fmt.Sprintf(orderMsgSingleItemTemplate, "2345678", "1616586927"),
+		Name:     Sp("2345678"),
+		URN:      Sp("ext:2345678"),
+		Text:     Sp(""),
+		Metadata: &orderMetadata2,
+		Status:   200,
+		Response: "Accepted",
+	},
+	{
 		Label:  "Receive Invalid JSON",
 		URL:    receiveURL,
 		Data:   "{}",
@@ -117,7 +319,7 @@ var testCases = []ChannelHandleTestCase{
 		URL:      receiveURL,
 		Data:     fmt.Sprintf(textMsgTemplate, "2345678", "1616586927", ""),
 		Status:   400,
-		Response: "blank message, media or location",
+		Response: "blank message, media, location or order",
 	},
 	{
 		Label:    "Receive Invalid Timestamp",
@@ -135,8 +337,133 @@ var testCases = []ChannelHandleTestCase{
 	},
 }
 
+func TestBuildOrderMetadata(t *testing.T) {
+	order := miOrder{
+		ProductItems: []miProductItem{
+			{
+				ProductRetailerID: "product-001",
+				Name:              "Smart TV 50\"",
+				Price:             "2999.90",
+				SalePrice:         "2599.90",
+				Currency:          "BRL",
+				SellerID:          "seller-001",
+				Quantity:          2,
+				ProductURL:        "https://loja.com/tv",
+				Extra:             map[string]interface{}{"line_note": "gift wrap"},
+			},
+		},
+	}
+
+	metadata, err := buildOrderMetadata(order)
+	if err != nil {
+		t.Fatalf("buildOrderMetadata() error = %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(metadata, &parsed); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	orderRoot, ok := parsed["order"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected order at metadata root")
+	}
+	overwrite, ok := parsed["overwrite_message"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected overwrite_message at metadata root")
+	}
+	orderOverwrite, ok := overwrite["order"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected order inside overwrite_message")
+	}
+
+	orderRootJSON, _ := json.Marshal(orderRoot)
+	orderOverwriteJSON, _ := json.Marshal(orderOverwrite)
+	if string(orderRootJSON) != string(orderOverwriteJSON) {
+		t.Fatalf("overwrite_message.order differs from order: %s vs %s", orderRootJSON, orderOverwriteJSON)
+	}
+
+	items, ok := orderRoot["product_items"].([]interface{})
+	if !ok || len(items) != 1 {
+		t.Fatalf("expected one product item, got %#v", orderRoot["product_items"])
+	}
+	item, ok := items[0].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected product item map")
+	}
+	if item["price"] != "2999.90" {
+		t.Fatalf("expected webchat price field, got %#v", item["price"])
+	}
+	if _, hasItemPrice := item["item_price"]; hasItemPrice {
+		t.Fatal("did not expect WPP item_price field")
+	}
+}
+
 func TestHandler(t *testing.T) {
 	RunChannelTestCases(t, testChannels, newHandler(), testCases)
+}
+
+func TestIncomingMsgMetadata(t *testing.T) {
+	tests := []struct {
+		name     string
+		payload  *miPayload
+		expected json.RawMessage
+	}{
+		{
+			name: "text without starter flag",
+			payload: &miPayload{Message: miMessage{
+				Type: "text",
+				Text: "Hello Test!",
+			}},
+			expected: nil,
+		},
+		{
+			name: "text with starter true",
+			payload: &miPayload{Message: miMessage{
+				Type:                    "text",
+				Text:                    "Qual a diferença entre os modelos?",
+				FromConversationStarter: true,
+			}},
+			expected: json.RawMessage(`{"from_conversation_starter":true}`),
+		},
+		{
+			name: "text with starter false",
+			payload: &miPayload{Message: miMessage{
+				Type:                    "text",
+				Text:                    "Hello Test!",
+				FromConversationStarter: false,
+			}},
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := incomingMsgMetadata(tt.payload)
+			if tt.expected == nil {
+				if got != nil {
+					t.Errorf("incomingMsgMetadata() = %s, want nil", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Errorf("incomingMsgMetadata() = nil, want %s", tt.expected)
+				return
+			}
+			var wantObj, gotObj interface{}
+			if err := json.Unmarshal(tt.expected, &wantObj); err != nil {
+				t.Fatalf("invalid expected JSON: %v", err)
+			}
+			if err := json.Unmarshal(got, &gotObj); err != nil {
+				t.Fatalf("invalid result JSON: %v", err)
+			}
+			wantJSON, _ := json.Marshal(wantObj)
+			gotJSON, _ := json.Marshal(gotObj)
+			if string(wantJSON) != string(gotJSON) {
+				t.Errorf("incomingMsgMetadata() = %s, want %s", gotJSON, wantJSON)
+			}
+		})
+	}
 }
 
 func BenchmarkHandler(b *testing.B) {
@@ -188,7 +515,7 @@ var sendTestCases = []ChannelSendTestCase{
 		SendPrep:       prepareSendMsg,
 	},
 	{
-		Label:       "invalid Text Send",
+		Label:       "Invalid Text Send",
 		Text:        "Error",
 		URN:         "ext:371298371241",
 		Status:      string(courier.MsgFailed),
@@ -210,6 +537,29 @@ var sendTestCases = []ChannelSendTestCase{
 		},
 		URN:            "ext:371298371241",
 		Status:         string(courier.MsgSent),
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+	},
+	{
+		Label:          "Single Image With Caption",
+		Text:           "This is the caption",
+		Attachments:    []string{"image/jpg:https://foo.bar/image.jpg"},
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+	},
+	{
+		Label:          "Attachment With Quick Replies",
+		Text:           "Choose an option",
+		Attachments:    []string{"image/jpg:https://foo.bar/image.jpg"},
+		QuickReplies:   []string{"Yes", "No"},
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
 		ResponseStatus: 200,
 		SendPrep:       prepareSendMsg,
 	},
@@ -255,6 +605,40 @@ var sendTestCases = []ChannelSendTestCase{
 		ResponseStatus: 200,
 		SendPrep:       prepareSendMsg,
 	},
+	{
+		Label:          "List Message Send",
+		Text:           "Please choose:",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"text","timestamp":"1616700878","text":"Please choose:","list_message":{"button_text":"Options","list_items":[{"uuid":"1","title":"Option 1","description":"First option"},{"uuid":"2","title":"Option 2","description":"Second option"}]}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		Metadata:       json.RawMessage(`{"interaction_type":"list","list_message":{"button_text":"Options","list_items":[{"uuid":"1","title":"Option 1","description":"First option"},{"uuid":"2","title":"Option 2","description":"Second option"}]}}`),
+		SendPrep:       prepareSendMsg,
+	},
+	{
+		Label:          "CTA Message Send",
+		Text:           "Click the button below:",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"text","timestamp":"1616700878","text":"Click the button below:","cta_message":{"url":"https://example.com","display_text":"Visit Website"}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		Metadata:       json.RawMessage(`{"interaction_type":"cta_url","cta_message":{"url":"https://example.com","display_text":"Visit Website"}}`),
+		SendPrep:       prepareSendMsg,
+	},
+	{
+		Label: "Blank Base URL",
+		Text:  "Hello",
+		URN:   "ext:371298371241",
+		Error: "blank base_url",
+		SendPrep: func(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+			c.(*courier.MockChannel).SetConfig(courier.ConfigBaseURL, "")
+			timestamp = "1616700878"
+		},
+	},
 }
 
 func TestSending(t *testing.T) {
@@ -276,14 +660,267 @@ func setSendURL(s *httptest.Server, h courier.ChannelHandler, c courier.Channel,
 }
 
 var ActionTestCases = []ChannelSendTestCase{
-	{Label: "Send Typing Indicator",
+	{
+		Label:          "Send Typing Indicator",
 		URN:            "ext:123",
 		Metadata:       json.RawMessage(`{"action_type":"typing_indicator"}`),
 		ResponseStatus: 200,
 		RequestBody:    `{"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c","from":"ai-assistant","to":"123","type":"typing_start"}`,
-		SendPrep:       setSendURL},
+		SendPrep:       setSendURL,
+	},
 }
 
 func TestActions(t *testing.T) {
 	RunChannelActionTestCases(t, testChannels[0], newHandler(), ActionTestCases, nil)
+}
+
+func TestMimeTypeToMessageType(t *testing.T) {
+	tests := []struct {
+		mimeType    string
+		expected    string
+		shouldMatch bool
+	}{
+		{"audio/mp3", "audio", true},
+		{"audio/wav", "audio", true},
+		{"audio/ogg", "audio", true},
+		{"application/pdf", "file", true},
+		{"application/json", "file", true},
+		{"application/octet-stream", "file", true},
+		{"image/png", "image", true},
+		{"image/jpeg", "image", true},
+		{"image/gif", "image", true},
+		{"video/mp4", "video", true},
+		{"video/quicktime", "video", true},
+		{"text/plain", "", false},
+		{"foo/bar", "", false},
+		{"", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.mimeType, func(t *testing.T) {
+			result, ok := mimeTypeToMessageType(tt.mimeType)
+			if ok != tt.shouldMatch {
+				t.Errorf("mimeTypeToMessageType(%q) match = %v, want %v", tt.mimeType, ok, tt.shouldMatch)
+			}
+			if result != tt.expected {
+				t.Errorf("mimeTypeToMessageType(%q) = %q, want %q", tt.mimeType, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestNormalizeQuickReplies(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []string
+		expected []string
+	}{
+		{
+			name:     "no transformation needed",
+			input:    []string{"Yes", "No", "Maybe"},
+			expected: []string{"Yes", "No", "Maybe"},
+		},
+		{
+			name:     "escaped forward slash",
+			input:    []string{"\\/option"},
+			expected: []string{"/option"},
+		},
+		{
+			name:     "escaped backslash",
+			input:    []string{"\\\\backslash"},
+			expected: []string{"\\backslash"},
+		},
+		{
+			name:     "mixed escapes",
+			input:    []string{"normal", "\\/slash", "\\\\backslash"},
+			expected: []string{"normal", "/slash", "\\backslash"},
+		},
+		{
+			name:     "empty input",
+			input:    []string{},
+			expected: nil,
+		},
+		{
+			name:     "nil input",
+			input:    nil,
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeQuickReplies(tt.input)
+			if len(result) != len(tt.expected) {
+				t.Errorf("normalizeQuickReplies(%v) length = %d, want %d", tt.input, len(result), len(tt.expected))
+				return
+			}
+			for i := range result {
+				if result[i] != tt.expected[i] {
+					t.Errorf("normalizeQuickReplies(%v)[%d] = %q, want %q", tt.input, i, result[i], tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+// Product message tests - all products are sent as product_list with sections
+var productSendTestCases = []ChannelSendTestCase{
+	{
+		Label:          "Single Product Send (as product_list)",
+		Text:           "Check out this product!",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Check out this product!","interactive":{"type":"product_list","action":{"sections":[{"title":"Product Name","product_items":[{"product_retailer_id":"product-123","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001"}]}],"name":"View Product"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+		Metadata:       json.RawMessage(`{"products":[{"product":"Product Name","product_retailer_info":[{"retailer_id":"product-123","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001"}]}],"action":"View Product"}`),
+	},
+	{
+		Label:          "Multiple Products in One Section",
+		Text:           "Here are some products!",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Here are some products!","interactive":{"type":"product_list","action":{"sections":[{"title":"Electronics","product_items":[{"product_retailer_id":"product-1","name":"TV 4K","price":"1999.00","currency":"BRL","image":"https://example.com/tv.jpg","description":"Smart TV 4K","seller_id":"seller-001"},{"product_retailer_id":"product-2","name":"Smartphone","price":"999.00","currency":"BRL","image":"https://example.com/phone.jpg","description":"Latest smartphone","seller_id":"seller-002"}]}],"name":"View Products"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+		Metadata:       json.RawMessage(`{"products":[{"product":"Electronics","product_retailer_info":[{"retailer_id":"product-1","name":"TV 4K","price":"1999.00","currency":"BRL","image":"https://example.com/tv.jpg","description":"Smart TV 4K","seller_id":"seller-001"},{"retailer_id":"product-2","name":"Smartphone","price":"999.00","currency":"BRL","image":"https://example.com/phone.jpg","description":"Latest smartphone","seller_id":"seller-002"}]}],"action":"View Products"}`),
+	},
+	{
+		Label:          "Multiple Sections Send",
+		Text:           "Browse our products!",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Browse our products!","interactive":{"type":"product_list","action":{"sections":[{"title":"Electronics","product_items":[{"product_retailer_id":"tv-001","name":"Smart TV","price":"2500.00","currency":"BRL","image":"https://example.com/tv.jpg","description":"55 inch Smart TV","seller_id":"electronics-seller"}]},{"title":"Clothing","product_items":[{"product_retailer_id":"shirt-001","name":"T-Shirt","price":"49.90","currency":"BRL","image":"https://example.com/shirt.jpg","description":"Cotton T-Shirt","seller_id":"clothing-seller"}]}],"name":"Shop Now"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+		Metadata:       json.RawMessage(`{"products":[{"product":"Electronics","product_retailer_info":[{"retailer_id":"tv-001","name":"Smart TV","price":"2500.00","currency":"BRL","image":"https://example.com/tv.jpg","description":"55 inch Smart TV","seller_id":"electronics-seller"}]},{"product":"Clothing","product_retailer_info":[{"retailer_id":"shirt-001","name":"T-Shirt","price":"49.90","currency":"BRL","image":"https://example.com/shirt.jpg","description":"Cotton T-Shirt","seller_id":"clothing-seller"}]}],"action":"Shop Now"}`),
+	},
+	{
+		Label:          "Products with Header and Footer",
+		Text:           "Check our catalog!",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Check our catalog!","interactive":{"type":"product_list","header":{"type":"text","text":"Special Offers"},"footer":{"text":"Limited time only!"},"action":{"sections":[{"title":"Deals","product_items":[{"product_retailer_id":"deal-001","name":"Headphones","price":"199.90","currency":"BRL","image":"https://example.com/headphones.jpg","description":"Wireless Headphones","seller_id":"audio-seller"}]}],"name":"View Deals"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+		Metadata:       json.RawMessage(`{"products":[{"product":"Deals","product_retailer_info":[{"retailer_id":"deal-001","name":"Headphones","price":"199.90","currency":"BRL","image":"https://example.com/headphones.jpg","description":"Wireless Headphones","seller_id":"audio-seller"}]}],"action":"View Deals","header_text":"Special Offers","footer":"Limited time only!"}`),
+	},
+	{
+		Label:          "Product with Sale Price",
+		Text:           "Special offer!",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Special offer!","interactive":{"type":"product_list","action":{"sections":[{"title":"On Sale","product_items":[{"product_retailer_id":"sale-001","name":"Laptop","price":"2999.90","sale_price":"1999.90","currency":"BRL","image":"https://example.com/laptop.jpg","description":"Gaming Laptop","seller_id":"tech-seller"}]}],"name":"View Sale"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+		Metadata:       json.RawMessage(`{"products":[{"product":"On Sale","product_retailer_info":[{"retailer_id":"sale-001","name":"Laptop","price":"2999.90","sale_price":"1999.90","currency":"BRL","image":"https://example.com/laptop.jpg","description":"Gaming Laptop","seller_id":"tech-seller"}]}],"action":"View Sale"}`),
+	},
+	{
+		Label:          "Single Product Send with Product URL",
+		Text:           "Check out this product!",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Check out this product!","interactive":{"type":"product_list","action":{"sections":[{"title":"Product Name","product_items":[{"product_retailer_id":"product-123","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001","product_url":"https://store.example.com/tv-50"}]}],"name":"View Product"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+		Metadata:       json.RawMessage(`{"products":[{"product":"Product Name","product_retailer_info":[{"retailer_id":"product-123","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001","product_url":"https://store.example.com/tv-50"}]}],"action":"View Product"}`),
+	},
+	{
+		Label:          "Product with extra metadata on retailer info",
+		Text:           "Product includes custom extra fields",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Product includes custom extra fields","interactive":{"type":"product_list","action":{"sections":[{"title":"Product Name","product_items":[{"product_retailer_id":"product-123","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001","extra":{"sku":"ABC123","variant_id":"v1"}}]}],"name":"View Product"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+		Metadata:       json.RawMessage(`{"products":[{"product":"Product Name","product_retailer_info":[{"retailer_id":"product-123","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","image":"https://example.com/tv.jpg","description":"Smart TV 4K 50 inches","seller_id":"seller-001","extra":{"sku":"ABC123","variant_id":"v1"}}]}],"action":"View Product"}`),
+	},
+	{
+		Label:          "Product Carousel Single Section",
+		Text:           "Check out our carousel!",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Check out our carousel!","interactive":{"type":"product_carousel","action":{"product_items":[{"product_retailer_id":"prod-1","name":"Wireless Headphones","price":"299.90","currency":"BRL","image":"https://example.com/headphones.jpg","description":"Bluetooth headphones","seller_id":"audio-seller"},{"product_retailer_id":"prod-2","name":"Smartwatch","price":"599.90","currency":"BRL","image":"https://example.com/watch.jpg","description":"Fitness smartwatch","seller_id":"tech-seller"}]}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+		Metadata:       json.RawMessage(`{"products":[{"product":"Featured","product_retailer_info":[{"retailer_id":"prod-1","name":"Wireless Headphones","price":"299.90","currency":"BRL","image":"https://example.com/headphones.jpg","description":"Bluetooth headphones","seller_id":"audio-seller"},{"retailer_id":"prod-2","name":"Smartwatch","price":"599.90","currency":"BRL","image":"https://example.com/watch.jpg","description":"Fitness smartwatch","seller_id":"tech-seller"}]}],"action":"Browse","product_carousel":true}`),
+	},
+	{
+		Label:          "Product Carousel Multiple Sections with Header and Footer",
+		Text:           "Our best picks!",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Our best picks!","interactive":{"type":"product_carousel","header":{"type":"text","text":"Hot Deals"},"footer":{"text":"While stocks last"},"action":{"product_items":[{"product_retailer_id":"elec-1","name":"Tablet","price":"1499.90","currency":"BRL","image":"https://example.com/tablet.jpg","description":"10 inch tablet","seller_id":"tech-seller"},{"product_retailer_id":"acc-1","name":"Case","price":"49.90","currency":"BRL","image":"https://example.com/case.jpg","description":"Protective case","seller_id":"acc-seller"}]}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+		Metadata:       json.RawMessage(`{"products":[{"product":"Electronics","product_retailer_info":[{"retailer_id":"elec-1","name":"Tablet","price":"1499.90","currency":"BRL","image":"https://example.com/tablet.jpg","description":"10 inch tablet","seller_id":"tech-seller"}]},{"product":"Accessories","product_retailer_info":[{"retailer_id":"acc-1","name":"Case","price":"49.90","currency":"BRL","image":"https://example.com/case.jpg","description":"Protective case","seller_id":"acc-seller"}]}],"action":"Shop Now","header_text":"Hot Deals","footer":"While stocks last","product_carousel":true}`),
+	},
+	{
+		Label:          "Product Carousel false falls back to product_list",
+		Text:           "Regular list!",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"interactive","timestamp":"1616700878","text":"Regular list!","interactive":{"type":"product_list","action":{"sections":[{"title":"Products","product_items":[{"product_retailer_id":"p-1","name":"Item","price":"10.00","currency":"BRL","image":"https://example.com/item.jpg","description":"An item","seller_id":"seller"}]}],"name":"View"}}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		SendPrep:       prepareSendMsg,
+		Metadata:       json.RawMessage(`{"products":[{"product":"Products","product_retailer_info":[{"retailer_id":"p-1","name":"Item","price":"10.00","currency":"BRL","image":"https://example.com/item.jpg","description":"An item","seller_id":"seller"}]}],"action":"View","product_carousel":false}`),
+	},
+}
+
+func TestProductSending(t *testing.T) {
+	RunChannelSendTestCases(t, testChannels[0], newHandler(), productSendTestCases, nil)
+}
+
+func TestExtractProductSectionsExtra(t *testing.T) {
+	products := []map[string]interface{}{
+		{
+			"product": "Electronics",
+			"product_retailer_info": []interface{}{
+				map[string]interface{}{
+					"retailer_id": "p-1",
+					"name":        "Item",
+					"price":       "10.00",
+					"currency":    "BRL",
+					"image":       "https://example.com/i.jpg",
+					"description": "Desc",
+					"seller_id":   "seller-1",
+					"extra": map[string]interface{}{
+						"sku":        "SKU-9",
+						"variant_id": "var-2",
+					},
+				},
+			},
+		},
+	}
+	sections := extractProductSections(products)
+	if len(sections) != 1 || len(sections[0].ProductItems) != 1 {
+		t.Fatalf("expected 1 section with 1 product, got %d sections", len(sections))
+	}
+	item := sections[0].ProductItems[0]
+	if item.Extra == nil {
+		t.Fatal("expected Extra to be set")
+	}
+	if item.Extra["sku"] != "SKU-9" || item.Extra["variant_id"] != "var-2" {
+		t.Errorf("Extra = %#v, want sku=SKU-9 variant_id=var-2", item.Extra)
+	}
 }

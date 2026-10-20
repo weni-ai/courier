@@ -3,6 +3,7 @@ package queue
 import (
 	"fmt"
 	"log"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +12,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 func getPool() *redis.Pool {
 	redisPool := &redis.Pool{
 		Wait:        true,              // makes callers wait for a connection
@@ -18,7 +26,7 @@ func getPool() *redis.Pool {
 		MaxIdle:     2,                 // only keep up to 2 idle
 		IdleTimeout: 240 * time.Second, // how long to wait before reaping a connection
 		Dial: func() (redis.Conn, error) {
-			conn, err := redis.Dial("tcp", "localhost:6379")
+			conn, err := redis.Dial("tcp", envOr("REDIS_HOST", "localhost")+":6379")
 			if err != nil {
 				return nil, err
 			}

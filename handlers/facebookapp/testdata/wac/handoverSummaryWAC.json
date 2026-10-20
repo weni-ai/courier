@@ -1,0 +1,46 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "8856996819413533",
+      "time": 1454119029,
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "recipient": {
+              "phone_number_id": "12345"
+            },
+            "sender": {
+              "wa_id": "5678"
+            },
+            "timestamp": "1454119029",
+            "type": "control_passed",
+            "control_passed": {
+              "previous_owner": {
+                "app_id": "prev-app",
+                "app_role": "partner",
+                "business_id": "biz-1"
+              },
+              "metadata": "customer requested agent"
+            },
+            "conversation_context": {
+              "summary": {
+                "text": "Customer asked about pricing and delivery."
+              }
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Kerry Fisher"
+                },
+                "wa_id": "5678"
+              }
+            ]
+          },
+          "field": "messaging_handovers"
+        }
+      ]
+    }
+  ]
+}

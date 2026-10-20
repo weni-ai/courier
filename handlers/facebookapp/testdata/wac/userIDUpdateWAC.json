@@ -1,0 +1,39 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "8856996819413533",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "+250 788 123 200",
+              "phone_number_id": "12345"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Kerry Fisher"
+                },
+                "wa_id": "5678"
+              }
+            ],
+            "user_id_update": [
+              {
+                "wa_id": "5678",
+                "detail": "User id for Kerry Fisher has been updated.",
+                "user_id": {
+                  "previous": "US.13491208655302741918",
+                  "current": "US.98765432100000000001"
+                },
+                "timestamp": "1454119029"
+              }
+            ]
+          },
+          "field": "user_id_update"
+        }
+      ]
+    }
+  ]
+}

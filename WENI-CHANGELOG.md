@@ -1,3 +1,220 @@
+1.73.0
+----------
+ * refactor: enhance Teams handler with single-tenant token support
+ * fix: stop gzipping responses that retained flate writers
+
+1.72.1
+----------
+ * refactor: update Instagram comment handling and test cases
+
+1.72.0
+----------
+ * feat: emit named WhatsApp Cloud API template parameters and refuse named templates on on-premises/360dialog
+
+1.71.0
+----------
+ * refactor: improve Instagram comment handling and test cases
+
+1.70.1
+----------
+ * enhance Instagram comment handling with reply configuration
+
+1.70.0
+----------
+ * feat: add support for forwarding Instagram feed comments to agents
+
+1.69.0
+---------- 
+ * feat: Refactor WAC webhook routing to support batched multi-entry payloads
+ * feat: implement media URL encoding for WhatsApp and Facebook handlers
+ * feat: enhance order metadata handling in webchat- #316
+
+1.68.2
+----------
+ * fix: remove fallback to ResponseToExternalID for whatsapp context reply
+
+1.68.1
+----------
+ * fix: whatsapp context reply strategy
+
+1.68.0
+----------
+ * Add conversation orchestration support for WhatsApp Multi-Partner
+
+1.67.0
+----------
+ * feat: add support for interactive carousel with WebP images in WhatsApp
+
+1.66.1
+----------
+ * feat: add conversation starter metadata handling in weniwebchat
+
+1.66.0
+----------
+ * feat: whatsapp context reply support
+
+1.65.0
+----------
+ * feat: add configurable pprof HTTP server with auth support
+
+1.64.0
+----------
+ * feat: implement CTWA referral source handling and testing
+ * feat: add support for conversation_started events in Flows backend 
+
+1.63.0
+----------
+ * feat: enhance CTWA event handling in backend
+
+1.62.0
+----------
+ * feat: add GetContactFieldValue method to Backend interface and implement related functionality
+ * feat: add ReplaceWhatsAppBSUIDOnContact method to manage WhatsApp BSUID URNs
+
+1.61.0
+----------
+ * feat: Persist email thread metadata on outbound sends so subsequent replies reuse subject and extend References instead of starting a new thread
+ * feat: Block inbound email by mailbox — blocking any virtual (+wt-) contact stops all future messages from that real address
+
+1.60.1
+----------
+ * fix: publish whatsapp-cloud-token (WAMID return) for AB2/is_multi_agents projects so agent messages get external_id in chats-engine; keep billing create suppressed for AB2
+
+1.60.0
+----------
+* feat: Enhance email channel thread, Each new email thread (by root Message-ID) creates a distinct Temba contact
+* feat: Replies now resolve correctly even without an active flow session, via a fallback chain: response_to_external_id → response_to_id → last contact message with external_id.
+
+1.59.1
+----------
+ * fix: Update WhatsApp message handling to improve URN assignment logic
+
+1.59.0
+----------
+ * feat: Add support for 'request_contact_info' interaction type in WhatsApp message handling and update related tests
+ * refactor: Refactor the parsing of the catalog message body and header to correctly handle backslashes
+
+1.58.0
+----------
+ * feat: Implement user ID and parent BSUID update handling in WhatsApp messages
+
+1.57.1
+----------
+ * fix: extract filename from URL path to avoid query params in media upload
+
+1.57.0
+----------
+ * refactor: Update wacOrderDetails structure to make Order field optional and adjust order handling logic for improved flexibility
+ * feat: Add button metadata processing for WhatsApp messages and update test cases to include button message handling
+
+1.56.0
+----------
+ * refactor: Simplify order structure in WhatsApp message handling by removing redundant catalog_id field
+ * feat: Add support for sending product carousel messages
+
+1.55.0
+----------
+ * refactor: Update WhatsApp message handling to align with new template structure and improve marketing message detection
+
+1.54.0
+----------
+ * feat: Add RFC 5322 threading headers support to email channel for inbound and outbound reply threading
+
+1.53.1
+----------
+ * fix: Update gocommon dependency to version 1.17.0
+
+1.53.0
+----------
+ * feat: Enhance WhatsApp message handling with support for BSUID and username, including new test cases for various message formats
+ * feat: Add support for story replies in Instagram message handling with metadata integration
+
+1.52.0
+----------
+ * feat: Add category and correct category fields to moTemplatesPayload
+ * feat: Add DirectSendTemplateName
+
+1.51.0
+----------
+ * feat: Add BroadcastID to TemplateMessage and related functions for improved message tracking
+
+1.50.1
+----------
+ * feat: check if org is not ab2(is_multi_agents) before publish billing message event
+
+1.50.0
+----------
+ * feat: Update contact handling to support name updates and truncation in backend tests
+
+1.49.1
+----------
+ * feat: Add Extra field to product for wwc-socket messages
+
+1.49.0
+----------
+ * feat: Add payment request templates for PIX, Boleto, and multiple payment options in WhatsApp handler
+ * feat: Implement payment notification handling for WhatsApp Cloud API
+ * feat: Add BroadcastID field to Msg interface and related implementations
+ * feat: Add FlowToken field to FlowMessage and update related handling in message processing
+
+1.48.0
+----------
+ * feat: Add DirectSend and TTLSeconds methods to Msg interface and implement in mockMsg and DBMsg types
+ * fix: Enhance MultiBillingClient to route messages correctly based on RoutingKeyWAC
+
+1.47.1
+----------
+ * feat: Add support for product URLs in WeniWebChat handler
+
+1.47.0
+----------
+ * feat: Support for sending interactive carousel messages to WAC
+ * feat: Enhance billing configuration and implement MultiBillingClient
+
+1.46.1
+----------
+ * feat: add currency field to product items in WeniWebChat handler
+
+1.46.0
+----------
+ * feat: Convert webp images to png for template messages
+
+1.45.0
+----------
+ * feat: Add product message handling and testing for catalog interactions to weniwebchat
+
+1.44.2
+----------
+ * refactor: Refactor the metadata handling of WAC, IG, and FBA to support adding metadata to root and overwrite message fields
+
+1.44.1
+----------
+ * fix: Update order details handling to make catalog_id optional
+
+1.44.0
+----------
+ * fix: Correct session limit error in product list
+
+1.43.0
+----------
+ * feat: Add support for sending carousel templates on WhatsApp
+
+1.42.0
+----------
+ * Feat: wwc handle new contact fields
+
+1.41.1
+----------
+ * Implement metadata handling for WhatsApp Cloud API messages with overwrite support
+
+1.41.0
+----------
+ * Add support for CTA Message on Weni Webchat
+
+1.40.1
+----------
+ * Add mmlite debug logs
+
 1.40.0
 ----------
  * Update MMLite event handler

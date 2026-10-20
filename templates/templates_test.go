@@ -3,6 +3,7 @@ package templates
 import (
 	"encoding/json"
 	"log"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +12,13 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
 )
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
 
 const (
 	templatesTestExchangeName = "test-templates-exchange"
@@ -56,7 +64,7 @@ func initializeRMQ(ch *amqp.Channel) {
 }
 
 func TestInitialization(t *testing.T) {
-	connURL := "amqp://localhost:5672/"
+	connURL := "amqp://" + envOr("RABBITMQ_HOST", "localhost") + ":5672/"
 	conn, err := amqp.Dial(connURL)
 	if err != nil {
 		log.Fatal(err)
@@ -75,7 +83,7 @@ func TestInitialization(t *testing.T) {
 }
 
 func TestTemplateResilientClient(t *testing.T) {
-	connURL := "amqp://localhost:5672/"
+	connURL := "amqp://" + envOr("RABBITMQ_HOST", "localhost") + ":5672/"
 	conn, err := amqp.Dial(connURL)
 	assert.NoError(t, err)
 	ch, err := conn.Channel()
@@ -103,6 +111,7 @@ func TestTemplateResilientClient(t *testing.T) {
 		"pt_BR",
 		"namespace-12345",
 		[]string{"João", "ativa"},
+		42,
 	)
 
 	templateClient, err := NewRMQTemplateClient(connURL, 3, 1000, templatesTestExchangeName)
@@ -146,10 +155,11 @@ func TestTemplateResilientClient(t *testing.T) {
 	assert.Equal(t, msg.TemplateUUID, receivedMsg.TemplateUUID)
 	assert.Equal(t, msg.TemplateLanguage, receivedMsg.TemplateLanguage)
 	assert.ElementsMatch(t, msg.TemplateVariables, receivedMsg.TemplateVariables)
+	assert.Equal(t, int64(42), receivedMsg.BroadcastID)
 }
 
 func TestTemplateResilientClientSendStatus(t *testing.T) {
-	connURL := "amqp://localhost:5672/"
+	connURL := "amqp://" + envOr("RABBITMQ_HOST", "localhost") + ":5672/"
 	conn, err := amqp.Dial(connURL)
 	assert.NoError(t, err)
 	ch, err := conn.Channel()
@@ -169,6 +179,7 @@ func TestTemplateResilientClientSendStatus(t *testing.T) {
 		"msg-123456",
 		"delivered",
 		"marketing",
+		99,
 	)
 
 	templateClient, err := NewRMQTemplateClient(connURL, 3, 1000, templatesTestExchangeName)
@@ -209,10 +220,11 @@ func TestTemplateResilientClientSendStatus(t *testing.T) {
 	wg.Wait()
 	assert.Equal(t, msg.MessageID, receivedMsg.MessageID)
 	assert.Equal(t, msg.Status, receivedMsg.Status)
+	assert.Equal(t, int64(99), receivedMsg.BroadcastID)
 }
 
 func TestTemplateResilientClientSendAsync(t *testing.T) {
-	connURL := "amqp://localhost:5672/"
+	connURL := "amqp://" + envOr("RABBITMQ_HOST", "localhost") + ":5672/"
 	conn, err := amqp.Dial(connURL)
 	assert.NoError(t, err)
 	ch, err := conn.Channel()
@@ -240,6 +252,7 @@ func TestTemplateResilientClientSendAsync(t *testing.T) {
 		"pt_BR",
 		"namespace-12345",
 		[]string{"João", "ativa"},
+		7,
 	)
 
 	templateClient, err := NewRMQTemplateClient(connURL, 3, 1000, templatesTestExchangeName)
@@ -293,7 +306,7 @@ func TestTemplateResilientClientSendAsync(t *testing.T) {
 }
 
 func TestTemplateResilientClientSendAsyncWithPanic(t *testing.T) {
-	connURL := "amqp://localhost:5672/"
+	connURL := "amqp://" + envOr("RABBITMQ_HOST", "localhost") + ":5672/"
 	conn, err := amqp.Dial(connURL)
 	assert.NoError(t, err)
 	ch, err := conn.Channel()
@@ -321,6 +334,7 @@ func TestTemplateResilientClientSendAsyncWithPanic(t *testing.T) {
 		"pt_BR",
 		"namespace-12345",
 		[]string{"João", "ativa"},
+		0,
 	)
 
 	templateClient, err := NewRMQTemplateClient(connURL, 3, 1000, templatesTestExchangeName)

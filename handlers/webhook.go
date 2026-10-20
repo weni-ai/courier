@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 
@@ -84,6 +83,8 @@ type moTemplatesPayload struct {
 				MessageTemplateID       int    `json:"message_template_id,omitempty"`
 				MessageTemplateName     string `json:"message_template_name,omitempty"`
 				MessageTemplateLanguage string `json:"message_template_language,omitempty"`
+				Category                string `json:"category,omitempty"`
+				CorrectCategory         string `json:"correct_category,omitempty"`
 				Message                 string `json:"message,omitempty"`
 				FlowID                  string `json:"flow_id,omitempty"`
 				OldStatus               string `json:"old_status,omitempty"`
@@ -116,11 +117,10 @@ func SendWebhooks(r *http.Request, url_ string, tokenFlows string, isIntegration
 		url_ = parsedURL.String()
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := ReadBody(r, 1000000)
 	if err != nil {
 		return err
 	}
-	defer r.Body.Close()
 
 	// try to decode our envelope
 	if err := json.Unmarshal(body, moTemplatesPayload); err != nil {

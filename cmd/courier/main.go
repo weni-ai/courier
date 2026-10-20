@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -124,14 +123,51 @@ func main() {
 		logrus.Fatalf("Error starting server: %s", err)
 	}
 
-	if config.RabbitmqURL != "" {
-		billingClient, err := billing.NewRMQBillingResilientClient(
-			config.RabbitmqURL, config.RabbitmqRetryPubAttempts, config.RabbitmqRetryPubDelay, config.BillingExchangeName)
-		if err != nil {
-			logrus.Fatalf("Error creating billing RabbitMQ client: %v", err)
-		}
-		server.SetBilling(billingClient)
+	// Initialize billing clients: RabbitMQ (only it receives WAC) and default backends (e.g. AmazonMQ)
+	var rabbitMQBilling billing.Client
+	var defaultBillingClients []billing.Client
 
+	// RabbitMQ billing client (current)
+	if config.EnableRabbitMQBilling && config.RabbitmqURL != "" {
+		client, err := billing.NewRMQBillingResilientClient(
+			config.RabbitmqURL,
+			config.RabbitmqRetryPubAttempts,
+			config.RabbitmqRetryPubDelay,
+			config.BillingExchangeName,
+		)
+		if err != nil {
+			logrus.WithError(err).Error("Error creating RabbitMQ billing client")
+		} else {
+			rabbitMQBilling = client
+			logrus.Info("RabbitMQ billing client initialized")
+		}
+	}
+
+	// AmazonMQ billing client (new) — does not receive RoutingKeyWAC
+	if config.EnableAmazonmqBilling && config.AmazonmqURL != "" {
+		client, err := billing.NewRMQBillingResilientClient(
+			config.AmazonmqURL,
+			config.RabbitmqRetryPubAttempts,
+			config.RabbitmqRetryPubDelay,
+			config.AmazonmqBillingExchange,
+		)
+		if err != nil {
+			logrus.WithError(err).Error("Error creating AmazonMQ billing client")
+		} else {
+			defaultBillingClients = append(defaultBillingClients, client)
+			logrus.Info("AmazonMQ billing client initialized")
+		}
+	}
+
+	// Set billing client(s) on server
+	if rabbitMQBilling != nil || len(defaultBillingClients) > 0 {
+		server.SetBilling(billing.NewMultiBillingClient(rabbitMQBilling, defaultBillingClients...))
+	} else {
+		logrus.Warn("No billing clients configured")
+	}
+
+	// Templates client (uses RabbitMQ)
+	if config.RabbitmqURL != "" {
 		templatesClient, err := templates.NewRMQTemplateClient(
 			config.RabbitmqURL,
 			config.RabbitmqRetryPubAttempts,
@@ -139,11 +175,12 @@ func main() {
 			config.TemplatesExchangeName,
 		)
 		if err != nil {
-			logrus.Fatalf("Error creating templates RabbitMQ client: %v", err)
+			logrus.WithError(err).Error("Error creating templates RabbitMQ client")
+		} else {
+			server.SetTemplates(templatesClient)
 		}
-		server.SetTemplates(templatesClient)
 	} else {
-		logrus.Error(errors.New("rabbitmq url is not configured"))
+		logrus.Warn("RabbitMQ URL not configured, templates client not initialized")
 	}
 
 	ch := make(chan os.Signal)

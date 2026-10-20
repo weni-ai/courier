@@ -58,6 +58,10 @@ type ChannelHandleTestCase struct {
 	NoInvalidChannelCheck bool
 
 	PrepRequest RequestPrepFunc
+	PrepBackend func(*courier.MockBackend)
+
+	// ContactURNs maps URN -> whether it should be present on the same contact as the message URN after handling
+	ContactURNs map[string]bool
 }
 
 // SendPrepFunc allows test cases to modify the channel, msg or server before a message is sent
@@ -106,10 +110,14 @@ type ChannelSendTestCase struct {
 	Error      string
 	Status     string
 	ExternalID string
+	// StatusMetadata, when set, is compared with require.JSONEq against the
+	// metadata attached to the MsgStatus returned by SendMsg.
+	StatusMetadata json.RawMessage
 
 	Stopped bool
 
 	ContactURNs map[string]bool
+	PrepBackend func(*courier.MockBackend)
 
 	SendPrep     SendPrepFunc
 	NewURN       string
@@ -141,6 +149,11 @@ func ensureTestServerUp(host string) {
 
 // utility method to make a request to a handler URL
 func testHandlerRequest(tb testing.TB, s courier.Server, path string, headers map[string]string, data string, multipartFormFields map[string]string, expectedStatus int, expectedBody *string, requestPrepFunc RequestPrepFunc) string {
+	return TestHandlerRequest(tb, s, path, headers, data, multipartFormFields, expectedStatus, expectedBody, requestPrepFunc)
+}
+
+// TestHandlerRequest posts to a handler URL and asserts the HTTP response.
+func TestHandlerRequest(tb testing.TB, s courier.Server, path string, headers map[string]string, data string, multipartFormFields map[string]string, expectedStatus int, expectedBody *string, requestPrepFunc RequestPrepFunc) string {
 	var req *http.Request
 	var err error
 	url := fmt.Sprintf("https://%s%s", s.Config().Domain, path)
@@ -203,6 +216,11 @@ func testHandlerRequest(tb testing.TB, s courier.Server, path string, headers ma
 }
 
 func newServer(backend courier.Backend) courier.Server {
+	return NewTestServer(backend)
+}
+
+// NewTestServer creates a courier server configured for handler tests.
+func NewTestServer(backend courier.Backend) courier.Server {
 	// for benchmarks, log to null
 	logger := logrus.New()
 	logger.Out = ioutil.Discard
@@ -214,6 +232,7 @@ func newServer(backend courier.Backend) courier.Server {
 	config.WhatsappCloudWebhookSecret = "wac_webhook_secret"
 	config.WhatsappCloudApplicationSecret = "wac_app_secret"
 	config.WhatsappAdminSystemUserToken = "wac_admin_system_user_token"
+	config.EmailProxyAuthToken = "email_proxy_auth_token"
 
 	return courier.NewServerWithLogger(config, backend, logger)
 
@@ -233,6 +252,13 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 		mockRRCount := 0
 		t.Run(testCase.Label, func(t *testing.T) {
 			require := require.New(t)
+
+			mb.ClearQueueMsgs()
+			mb.ClearSeenExternalIDs()
+
+			if testCase.PrepBackend != nil {
+				testCase.PrepBackend(mb)
+			}
 
 			msg := mb.NewOutgoingMsg(channel, courier.NewMsgID(10), urns.URN(testCase.URN), testCase.Text, testCase.HighPriority, testCase.QuickReplies, testCase.Topic, testCase.ResponseToID, testCase.ResponseToExternalID, testCase.TextLanguage)
 
@@ -258,8 +284,24 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 					require.Zero(testCase.ResponseStatus, "ResponseStatus should not be used when using testcase.Responses")
 					require.Zero(testCase.ResponseBody, "ResponseBody should not be used when using testcase.Responses")
 					for mockRequest, mockResponse := range testCase.Responses {
-						bodyStr := string(body)[:]
-						if mockRequest.Method == r.Method && mockRequest.Path == r.URL.Path && mockRequest.RawQuery == r.URL.RawQuery && (mockRequest.Body == bodyStr || (mockRequest.BodyContains != "" && strings.Contains(bodyStr, mockRequest.BodyContains))) {
+						bodyStr := string(body)
+						// Check method and path match
+						methodPathMatch := mockRequest.Method == r.Method && mockRequest.Path == r.URL.Path && mockRequest.RawQuery == r.URL.RawQuery
+						if !methodPathMatch {
+							continue
+						}
+						// For GET requests, no body comparison needed
+						if r.Method == "GET" {
+							w.WriteHeader(mockResponse.Status)
+							w.Write([]byte(mockResponse.Body))
+							mockRRCount++
+							break
+						}
+						// For POST/PUT/DELETE, check body match
+						bodyMatch := mockRequest.Body == bodyStr ||
+							(mockRequest.BodyContains != "" && strings.Contains(bodyStr, mockRequest.BodyContains)) ||
+							(mockRequest.Body == "" && mockRequest.BodyContains == "" && bodyStr == "")
+						if bodyMatch {
 							w.WriteHeader(mockResponse.Status)
 							w.Write([]byte(mockResponse.Body))
 							mockRRCount++
@@ -332,6 +374,11 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 				require.Equal(testCase.ExternalID, status.ExternalID())
 			}
 
+			if len(testCase.StatusMetadata) > 0 {
+				require.NotNil(status, "status should not be nil")
+				require.JSONEq(string(testCase.StatusMetadata), string(status.Metadata()))
+			}
+
 			if testCase.Status != "" {
 				require.NotNil(status, "status should not be nil")
 				require.Equal(testCase.Status, string(status.Status()))
@@ -385,6 +432,11 @@ func RunChannelTestCases(t *testing.T, channels []courier.Channel, handler couri
 
 			mb.ClearQueueMsgs()
 			mb.ClearSeenExternalIDs()
+			mb.ClearContacts()
+
+			if testCase.PrepBackend != nil {
+				testCase.PrepBackend(mb)
+			}
 
 			testHandlerRequest(t, s, testCase.URL, testCase.Headers, testCase.Data, testCase.MultipartFormFields, testCase.Status, &testCase.Response, testCase.PrepRequest)
 
@@ -462,6 +514,20 @@ func RunChannelTestCases(t *testing.T, channels []courier.Channel, handler couri
 					wants := *testCase.Metadata
 					have := msg.Metadata()
 					require.JSONEq(string(wants), string(have))
+				}
+				if testCase.ContactURNs != nil && msg != nil {
+					ctx := context.Background()
+					primaryContact, err := mb.FindContact(ctx, channels[0], msg.URN())
+					require.NoError(err)
+					for urn, shouldBePresent := range testCase.ContactURNs {
+						contact, findErr := mb.FindContact(ctx, channels[0], urns.URN(urn))
+						if shouldBePresent {
+							require.NoError(findErr, "expected URN %s to be present", urn)
+							require.Equal(primaryContact.UUID(), contact.UUID(), "URN %s should belong to the same contact", urn)
+						} else {
+							require.Equal(courier.ErrContactNotFound, findErr, "expected URN %s to be absent", urn)
+						}
+					}
 				}
 			}
 		})

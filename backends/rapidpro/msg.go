@@ -2,6 +2,7 @@ package rapidpro
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -220,6 +221,100 @@ FROM
 	msgs_msg
 WHERE
 	uuid = $1
+`
+
+const selectMsgByExternalIDSQL = `
+SELECT
+	id,
+	uuid,
+	org_id,
+	direction,
+	text,
+	attachments,
+	msg_count,
+	error_count,
+	high_priority,
+	status,
+	visibility,
+	external_id,
+	channel_id,
+	contact_id,
+	contact_urn_id,
+	created_on,
+	modified_on,
+	queued_on,
+	sent_on,
+	metadata
+FROM
+	msgs_msg
+WHERE
+	channel_id = $1 AND external_id = $2
+ORDER BY id DESC
+LIMIT 1
+`
+
+const selectMsgByIDWithMetadataSQL = `
+SELECT
+	id,
+	uuid,
+	org_id,
+	direction,
+	text,
+	attachments,
+	msg_count,
+	error_count,
+	high_priority,
+	status,
+	visibility,
+	external_id,
+	channel_id,
+	contact_id,
+	contact_urn_id,
+	created_on,
+	modified_on,
+	queued_on,
+	sent_on,
+	metadata
+FROM
+	msgs_msg
+WHERE
+	id = $1
+`
+
+const selectLastMsgWithExternalIDSQL = `
+SELECT
+	m.id,
+	m.uuid,
+	m.org_id,
+	m.direction,
+	m.text,
+	m.attachments,
+	m.msg_count,
+	m.error_count,
+	m.high_priority,
+	m.status,
+	m.visibility,
+	m.external_id,
+	m.channel_id,
+	m.contact_id,
+	m.contact_urn_id,
+	m.created_on,
+	m.modified_on,
+	m.queued_on,
+	m.sent_on,
+	m.metadata
+FROM
+	msgs_msg m
+INNER JOIN contacts_contacturn u ON m.contact_urn_id = u.id
+WHERE
+	m.channel_id = $1
+	AND u.identity = $2
+	AND m.external_id IS NOT NULL
+	AND m.external_id != ''
+	AND m.visibility = 'V'
+ORDER BY
+	m.id DESC
+LIMIT 1
 `
 
 const selectChannelSQL = `
@@ -557,6 +652,7 @@ type DBMsg struct {
 	ResponseToExternalID_ string                 `json:"response_to_external_id"`
 	IsResend_             bool                   `json:"is_resend,omitempty"`
 	Metadata_             *json.RawMessage       `json:"metadata,omitempty"        db:"metadata"`
+	NewContactFields_     *map[string]string     `json:"new_contact_fields,omitempty"`
 
 	ChannelID_    courier.ChannelID `json:"channel_id"      db:"channel_id"`
 	ContactID_    ContactID         `json:"contact_id"      db:"contact_id"`
@@ -579,6 +675,8 @@ type DBMsg struct {
 	SessionTimeout_       int        `json:"session_timeout,omitempty"`
 	SessionWaitStartedOn_ *time.Time `json:"session_wait_started_on,omitempty"`
 	SessionStatus_        string     `json:"session_status,omitempty"`
+
+	BroadcastID_ int64 `json:"broadcast_id,omitempty"`
 
 	channel        *DBChannel
 	workerToken    queue.WorkerToken
@@ -687,6 +785,18 @@ func (m *DBMsg) Metadata() json.RawMessage {
 	return *m.Metadata_
 }
 
+func (m *DBMsg) NewContactFields() map[string]string {
+	if m.NewContactFields_ == nil {
+		return nil
+	}
+
+	if *m.NewContactFields_ == nil {
+		return nil
+	}
+
+	return *m.NewContactFields_
+}
+
 // fingerprint returns a fingerprint for this msg, suitable for figuring out if this is a dupe
 func (m *DBMsg) urnFingerprint() string {
 	return fmt.Sprintf("%s:%s", m.ChannelUUID_, m.URN_.Identity())
@@ -694,6 +804,12 @@ func (m *DBMsg) urnFingerprint() string {
 
 // WithContactName can be used to set the contact name on a msg
 func (m *DBMsg) WithContactName(name string) courier.Msg { m.ContactName_ = name; return m }
+
+// WithNewContactFields can be used to set the new contact fields on a msg
+func (m *DBMsg) WithNewContactFields(fields map[string]string) courier.Msg {
+	m.NewContactFields_ = &fields
+	return m
+}
 
 // WithReceivedOn can be used to set sent_on on a msg in a chained call
 func (m *DBMsg) WithReceivedOn(date time.Time) courier.Msg { m.SentOn_ = &date; return m }
@@ -746,6 +862,90 @@ func GetMsgByUUID(b *backend, uuid string) (*DBMsg, error) {
 		return nil, err
 	}
 
+	return m, nil
+}
+
+// GetMsgByExternalID returns the most recent message on the passed channel
+// with the given external_id, or sql.ErrNoRows when none matches.
+func GetMsgByExternalID(ctx context.Context, b *backend, channelID courier.ChannelID, externalID string) (*DBMsg, error) {
+	row := b.db.QueryRowxContext(ctx, selectMsgByExternalIDSQL, channelID, externalID)
+	return scanDBMsgWithMetadata(row)
+}
+
+// GetMsgByIDWithMetadata returns the message row for the given id including
+// metadata, or sql.ErrNoRows when none matches.
+func GetMsgByIDWithMetadata(ctx context.Context, b *backend, id courier.MsgID) (*DBMsg, error) {
+	row := b.db.QueryRowxContext(ctx, selectMsgByIDWithMetadataSQL, id)
+	return scanDBMsgWithMetadata(row)
+}
+
+// GetLastMsgWithExternalID returns the most recent visible message on the
+// channel for the contact URN that has a non-empty external_id.
+func GetLastMsgWithExternalID(ctx context.Context, b *backend, channelID courier.ChannelID, urnIdentity string) (*DBMsg, error) {
+	row := b.db.QueryRowxContext(ctx, selectLastMsgWithExternalIDSQL, channelID, urnIdentity)
+	return scanDBMsgWithMetadata(row)
+}
+
+// msgRow is the Scan surface shared by sql.Row / sqlx.Row.
+type msgRow interface {
+	Scan(dest ...interface{}) error
+}
+
+// scanDBMsgWithMetadata scans a msgs_msg row that includes the metadata column.
+//
+// The scan is done manually (rather than via sqlx Get) because the production
+// msgs_msg schema differs from a naive struct mapping in two important ways:
+//   - metadata is "text" rather than jsonb, so the pq driver returns a
+//     string (not []byte) which can't be scanned into *json.RawMessage
+//     directly. Scanning into sql.NullString works for both text and jsonb
+//     (jsonb is accepted as string by database/sql).
+//   - several columns (high_priority, modified_on, queued_on, sent_on) are
+//     nullable, but the DBMsg fields are plain bool / time.Time, which fail
+//     the scan when the database delivers NULL.
+//
+// Both pitfalls cause db.Get to return an error, which in turn makes the
+// email reply-in-thread lookup degrade silently (parent treated as missing).
+// Reading into nullable holders and copying back keeps the lookup robust to
+// both schemas.
+func scanDBMsgWithMetadata(row msgRow) (*DBMsg, error) {
+	m := &DBMsg{}
+
+	var (
+		highPriority sql.NullBool
+		modifiedOn   sql.NullTime
+		queuedOn     sql.NullTime
+		sentOn       sql.NullTime
+		metadataStr  sql.NullString
+	)
+
+	err := row.Scan(
+		&m.ID_, &m.UUID_, &m.OrgID_, &m.Direction_, &m.Text_, &m.Attachments_,
+		&m.MessageCount_, &m.ErrorCount_, &highPriority, &m.Status_, &m.Visibility_,
+		&m.ExternalID_, &m.ChannelID_, &m.ContactID_, &m.ContactURNID_,
+		&m.CreatedOn_, &modifiedOn, &queuedOn, &sentOn,
+		&metadataStr,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if highPriority.Valid {
+		m.HighPriority_ = highPriority.Bool
+	}
+	if modifiedOn.Valid {
+		m.ModifiedOn_ = modifiedOn.Time
+	}
+	if queuedOn.Valid {
+		m.QueuedOn_ = queuedOn.Time
+	}
+	if sentOn.Valid {
+		t := sentOn.Time
+		m.SentOn_ = &t
+	}
+	if metadataStr.Valid && metadataStr.String != "" {
+		raw := json.RawMessage(metadataStr.String)
+		m.Metadata_ = &raw
+	}
 	return m, nil
 }
 
@@ -812,6 +1012,18 @@ func (m *DBMsg) SendCatalog() bool {
 	return sendCatalog
 }
 
+func (m *DBMsg) ProductCarousel() bool {
+	if m.Metadata_ == nil {
+		return false
+	}
+	byteValue, _, _, _ := jsonparser.Get(*m.Metadata_, "product_carousel")
+	v, err := strconv.ParseBool(string(byteValue))
+	if err != nil {
+		return false
+	}
+	return v
+}
+
 func (m *DBMsg) HeaderType() string {
 	if m.Metadata_ == nil {
 		return ""
@@ -834,6 +1046,38 @@ func (m *DBMsg) InteractionType() string {
 	}
 	byteValue, _, _, _ := jsonparser.Get(*m.Metadata_, "interaction_type")
 	return string(byteValue)
+}
+
+func (m *DBMsg) DirectSend() bool {
+	if m.Metadata_ == nil {
+		return false
+	}
+	byteValue, _, _, _ := jsonparser.Get(*m.Metadata_, "direct_send")
+	directSend, err := strconv.ParseBool(string(byteValue))
+	if err != nil {
+		return false
+	}
+	return directSend
+}
+
+func (m *DBMsg) DirectSendTemplateName() string {
+	if m.Metadata_ == nil {
+		return ""
+	}
+	byteValue, _, _, _ := jsonparser.Get(*m.Metadata_, "direct_send_template_name")
+	return string(byteValue)
+}
+
+func (m *DBMsg) TTLSeconds() int {
+	if m.Metadata_ == nil {
+		return 0
+	}
+	byteValue, _, _, _ := jsonparser.Get(*m.Metadata_, "ttl_seconds")
+	ttlSeconds, err := strconv.Atoi(string(byteValue))
+	if err != nil {
+		return 0
+	}
+	return ttlSeconds
 }
 
 func (m *DBMsg) ListMessage() courier.ListMessage {
@@ -946,6 +1190,9 @@ func (m *DBMsg) FlowMessage() *courier.FlowMessage {
 			}
 			if flowMode, ok := flowMessageData["flow_mode"].(string); ok {
 				flowMessage.FlowMode = strings.ToLower(flowMode)
+			}
+			if flowToken, ok := flowMessageData["flow_token"].(string); ok {
+				flowMessage.FlowToken = flowToken
 			}
 			return flowMessage
 		}
@@ -1078,6 +1325,55 @@ func (m *DBMsg) OrderDetailsMessage() *courier.OrderDetailsMessage {
 	return nil
 }
 
+func (m *DBMsg) Carousel() *courier.Carousel {
+	if m.Metadata_ == nil {
+		return nil
+	}
+
+	var metadata map[string]interface{}
+	err := json.Unmarshal(*m.Metadata_, &metadata)
+	if err != nil {
+		return nil
+	}
+
+	interactionType, _ := metadata["interaction_type"].(string)
+	if interactionType != "carousel" {
+		return nil
+	}
+
+	cardsData, ok := metadata["carousel"].([]interface{})
+	if !ok || len(cardsData) == 0 {
+		return nil
+	}
+
+	carousel := &courier.Carousel{Cards: make([]courier.CarouselCard, len(cardsData))}
+	for i, cardData := range cardsData {
+		if cardMap, ok := cardData.(map[string]interface{}); ok {
+			if body, ok := cardMap["body"].(string); ok {
+				carousel.Cards[i].Body = body
+			}
+			if buttonsData, ok := cardMap["buttons"].([]interface{}); ok {
+				carousel.Cards[i].Buttons = make([]courier.CarouselCardButton, len(buttonsData))
+				for j, btnData := range buttonsData {
+					if btnMap, ok := btnData.(map[string]interface{}); ok {
+						btn := courier.CarouselCardButton{}
+						if subType, ok := btnMap["sub_type"].(string); ok {
+							btn.SubType = subType
+						}
+						if paramsMap, ok := btnMap["parameters"].(map[string]interface{}); ok {
+							btn.Parameters = paramsMap
+						} else if param, ok := btnMap["parameter"].(string); ok {
+							btn.Parameters = map[string]interface{}{"id": param, "title": param}
+						}
+						carousel.Cards[i].Buttons[j] = btn
+					}
+				}
+			}
+		}
+	}
+	return carousel
+}
+
 func (m *DBMsg) Buttons() []courier.ButtonComponent {
 	if m.Metadata_ == nil {
 		return nil
@@ -1134,3 +1430,5 @@ func (m *DBMsg) ActionExternalID() string {
 	actionExternalID, _, _, _ := jsonparser.Get(*m.Metadata_, "action_external_id")
 	return string(actionExternalID)
 }
+
+func (m *DBMsg) BroadcastID() int64 { return m.BroadcastID_ }

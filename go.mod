@@ -84,4 +84,4 @@ require (
 
 go 1.24.0
 
-replace github.com/nyaruka/gocommon => github.com/weni-ai/gocommon v1.18.0-a0-staging
+replace github.com/nyaruka/gocommon => github.com/weni-ai/gocommon v1.18.0-a1-staging

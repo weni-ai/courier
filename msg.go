@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nyaruka/null"
@@ -126,7 +127,7 @@ type Msg interface {
 	WithAttachment(url string) Msg
 	WithURNAuth(auth string) Msg
 	WithMetadata(metadata json.RawMessage) Msg
-	WithPresignedURL(urls []string) Msg
+	WithAttachments(attachments []string) Msg
 
 	EventID() int64
 	SessionStatus() string
@@ -163,6 +164,15 @@ type Msg interface {
 	ActionExternalID() string
 
 	BroadcastID() int64
+}
+
+// SplitAttachment takes an attachment string and returns the media type and URL for the attachment
+func SplitAttachment(attachment string) (string, string) {
+	parts := strings.SplitN(attachment, ":", 2)
+	if len(parts) < 2 {
+		return "", parts[0]
+	}
+	return parts[0], parts[1]
 }
 
 type ButtonComponent struct {

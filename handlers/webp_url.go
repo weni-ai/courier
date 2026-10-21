@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 
+	"github.com/nyaruka/courier/utils"
 	"github.com/pkg/errors"
 )
 
@@ -13,9 +14,9 @@ type MediaGetter func(mediaURL string) ([]byte, error)
 // MediaPutter stores converted media and returns a public URL.
 type MediaPutter func(filename, contentType string, contents []byte) (string, error)
 
-// PngFilenameForURL returns a deterministic PNG filename derived from the source URL.
+// PngFilenameForURL returns a deterministic PNG filename derived from the source URL, ignoring any presign params.
 func PngFilenameForURL(mediaURL string) string {
-	sum := sha256.Sum256([]byte(mediaURL))
+	sum := sha256.Sum256([]byte(utils.StripPresignParams(mediaURL)))
 	return fmt.Sprintf("%x.png", sum)
 }
 

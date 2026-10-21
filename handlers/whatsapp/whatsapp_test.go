@@ -1022,6 +1022,48 @@ var mediaCacheSendTestCases = []ChannelSendTestCase{
 		},
 		SendPrep: setSendURL,
 	},
+	{Label: "Presigned Media Upload OK",
+		Text:   "video caption",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"video/mp4:https://foo.bar/presigned-video.mp4?X-Amz-Date=20261021T120000Z&X-Amz-Signature=aaa"},
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/v1/media",
+				Body:   "media bytes",
+			}: MockedResponse{
+				Status: 200,
+				Body:   `{ "media" : [{"id": "47d595e2-2394-4c05-a99e-8387cefd5ef4"}] }`,
+			},
+			MockedRequest{
+				Method: "POST",
+				Path:   "/v1/messages",
+				Body:   `{"to":"250788123123","type":"video","video":{"id":"47d595e2-2394-4c05-a99e-8387cefd5ef4","caption":"video caption"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL,
+	},
+	{Label: "Cached Media with a new signature",
+		Text:   "video caption",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{"video/mp4:https://foo.bar/presigned-video.mp4?X-Amz-Date=20261022T090000Z&X-Amz-Signature=bbb"},
+		Responses: map[MockedRequest]MockedResponse{
+			MockedRequest{
+				Method: "POST",
+				Path:   "/v1/messages",
+				Body:   `{"to":"250788123123","type":"video","video":{"id":"47d595e2-2394-4c05-a99e-8387cefd5ef4","caption":"video caption"}}`,
+			}: MockedResponse{
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL,
+	},
 }
 
 var hsmSupportSendTestCases = []ChannelSendTestCase{

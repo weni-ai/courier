@@ -39,7 +39,13 @@ func (h *handler) rewriteWebPImageURL(msg courier.Msg, attURL string) (string, e
 			return "", errors.New("media store not available")
 		}
 
-		return store.PutMedia(context.Background(), msg.Channel(), filename, contentType, contents)
+		ctx := context.Background()
+		storedURL, err := store.PutMedia(ctx, msg.Channel(), filename, contentType, contents)
+		if err != nil {
+			return "", err
+		}
+
+		return h.Backend().SignAttachmentURL(ctx, storedURL)
 	}
 
 	return handlers.RewriteWebPImageURL(attURL, get, put)

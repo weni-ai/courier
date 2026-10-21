@@ -15,7 +15,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/gomodule/redigo/redis"
 	"github.com/jmoiron/sqlx"
-	"github.com/lib/pq"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/batch"
 	"github.com/nyaruka/courier/metrics"
@@ -850,6 +849,11 @@ func (b *backend) Start() error {
 			return err
 		}
 		b.storage = storage.NewS3(s3Client, b.config.S3MediaBucket, b.config.S3Region, 32)
+
+		b.attachmentURLSigner, err = newAttachmentURLSigner(b.config, s3Opts)
+		if err != nil {
+			return err
+		}
 	} else {
 		b.storage = storage.NewFS("_storage")
 	}
@@ -1003,6 +1007,9 @@ type backend struct {
 	storage   storage.Storage
 	awsCreds  *credentials.Credentials
 
+	// nil when attachments are stored on the file system
+	attachmentURLSigner *storage.S3URLSigner
+
 	popScript *redis.Script
 
 	stopChan  chan bool
@@ -1067,23 +1074,23 @@ func (b *backend) GetProjectUUIDFromChannelUUID(ctx context.Context, channelUUID
 	return getProjectUUIDFromChannelUUID(ctx, b.db, channelUUID.String())
 }
 
-const updateMsgAttachmentsSQL = `
-UPDATE
-	msgs_msg
-SET
-	attachments = $2
-WHERE
-	id = $1
-`
-
-// UpdateMsgAttachments updates the attachments of an outgoing message with presigned URLs
-func (b *backend) UpdateMsgAttachments(ctx context.Context, msgID courier.MsgID, attachments []string) error {
-	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
-	defer cancel()
-
-	_, err := b.db.ExecContext(timeout, updateMsgAttachmentsSQL, msgID, pq.Array(attachments))
-	if err != nil {
-		return errors.Wrap(err, "error updating message attachments")
+// newAttachmentURLSigner creates a signer for our media bucket plus the extra buckets in S3SignedBuckets
+func newAttachmentURLSigner(config *courier.Config, s3Opts *storage.S3Options) (*storage.S3URLSigner, error) {
+	expiration := time.Duration(config.S3PresignedURLExpiration) * time.Hour
+	if expiration <= 0 || expiration > storage.MaxPresignExpiration {
+		return nil, fmt.Errorf("S3PresignedURLExpiration must be between 1 and %d hours, got %d", int(storage.MaxPresignExpiration.Hours()), config.S3PresignedURLExpiration)
 	}
-	return nil
+
+	buckets := append([]string{config.S3MediaBucket}, strings.Split(config.S3SignedBuckets, ",")...)
+	return storage.NewS3URLSigner(s3Opts, buckets)
+}
+
+// SignAttachmentURL returns a presigned URL for attachments stored in our S3 buckets, other URLs are returned unchanged
+func (b *backend) SignAttachmentURL(ctx context.Context, attachmentURL string) (string, error) {
+	if b.attachmentURLSigner == nil {
+		return attachmentURL, nil
+	}
+
+	signedURL, _, err := b.attachmentURLSigner.Sign(attachmentURL, time.Duration(b.config.S3PresignedURLExpiration)*time.Hour)
+	return signedURL, err
 }

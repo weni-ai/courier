@@ -55,6 +55,37 @@ func EncodeMediaURL(raw string) (string, error) {
 	return u.String(), nil
 }
 
+// StripPresignParams removes the X-Amz-* query parameters of an S3 presigned URL, keeping any other
+// parameter in its original order and encoding, so the result is stable across signatures.
+func StripPresignParams(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.RawQuery == "" {
+		return rawURL
+	}
+
+	params := strings.Split(u.RawQuery, "&")
+	kept := make([]string, 0, len(params))
+	for _, param := range params {
+		if !isPresignParam(param) {
+			kept = append(kept, param)
+		}
+	}
+	if len(kept) == len(params) {
+		return rawURL
+	}
+
+	u.RawQuery = strings.Join(kept, "&")
+	return u.String()
+}
+
+func isPresignParam(param string) bool {
+	key, _, _ := strings.Cut(param, "=")
+	if unescaped, err := url.QueryUnescape(key); err == nil {
+		key = unescaped
+	}
+	return strings.HasPrefix(strings.ToLower(key), "x-amz-")
+}
+
 func encodePath(p string) string {
 	segments := strings.Split(p, "/")
 	for i, s := range segments {

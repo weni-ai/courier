@@ -27,20 +27,11 @@ func (b *backend) PutMedia(ctx context.Context, channel courier.Channel, filenam
 		path = fmt.Sprintf("/%s", path)
 	}
 
-	s3URL, err := b.storage.Put(ctx, path, contentType, contents)
+	url, err := b.storage.Put(ctx, path, contentType, contents)
 	if err != nil {
 		return "", err
 	}
 
 	metrics.IncrementMediaUploadSize(len(contents))
-
-	if b.config.S3PresignUploadURLs {
-		presignedURL, err := courier.PresignedURL(s3URL, b.config.AWSAccessKeyID, b.config.AWSSecretAccessKey, b.config.S3Region, b.config.S3PresignedURLExpiration)
-		if err != nil {
-			return "", err
-		}
-		return presignedURL, nil
-	}
-
-	return s3URL, nil
+	return url, nil
 }

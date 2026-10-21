@@ -18,8 +18,8 @@ type Config struct {
 	S3MediaPrefix             string `help:"the prefix that will be added to attachment filenames"`
 	S3DisableSSL              bool   `help:"whether we disable SSL when accessing S3. Should always be set to False unless you're hosting an S3 compatible service within a secure internal network"`
 	S3ForcePathStyle          bool   `help:"whether we force S3 path style. Should generally need to default to False unless you're hosting an S3 compatible service"`
-	S3PresignedURLExpiration  int    `help:"the expiration time in hours for pre-signed URLs (default 168 hours / 7 days)"`
-	S3PresignUploadURLs       bool   `help:"whether to return pre-signed URLs when uploading media to S3 (enable when the bucket is private)"`
+	S3SignedBuckets           string `help:"comma separated list of S3 buckets, besides the media bucket, whose attachment URLs are presigned before sending"`
+	S3PresignedURLExpiration  int    `help:"the expiration time in hours (1 to 168) for presigned attachment URLs. When signing with an IAM role (no access key) a URL stops working once the role session expires"`
 	S3UseIamRole              bool   `help:"whether we use IAM role to authenticate to S3"`
 	AWSAccessKeyID            string `help:"the access key id to use when authenticating S3"`
 	AWSSecretAccessKey        string `help:"the secret access key id to use when authenticating S3"`
@@ -109,6 +109,7 @@ func NewConfig() *Config {
 		S3MediaPrefix:                "/media/",
 		S3DisableSSL:                 false,
 		S3ForcePathStyle:             false,
+		S3SignedBuckets:              "",
 		S3PresignedURLExpiration:     168, // 7 days in hours
 		S3UseIamRole:                 false,
 		AWSAccessKeyID:               "",

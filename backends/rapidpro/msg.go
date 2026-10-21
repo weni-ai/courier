@@ -448,16 +448,11 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 		return "", err
 	}
 
-	presignedURL, err := courier.PresignedURL(s3URL, b.config.AWSAccessKeyID, b.config.AWSSecretAccessKey, b.config.S3Region, b.config.S3PresignedURLExpiration)
-	if err != nil {
-		return "", err
-	}
-
 	// get the file size in bytes and increase our media upload size metric
 	metrics.IncrementMediaUploadSize(len(body))
 
 	// return our new media URL, which is prefixed by our content type
-	return fmt.Sprintf("%s:%s", mimeType, presignedURL), nil
+	return fmt.Sprintf("%s:%s", mimeType, s3URL), nil
 }
 
 //-----------------------------------------------------------------------------
@@ -845,8 +840,8 @@ func (m *DBMsg) WithURNAuth(auth string) courier.Msg {
 	return m
 }
 
-func (m *DBMsg) WithPresignedURL(urls []string) courier.Msg {
-	m.Attachments_ = urls
+func (m *DBMsg) WithAttachments(attachments []string) courier.Msg {
+	m.Attachments_ = attachments
 	return m
 }
 

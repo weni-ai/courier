@@ -172,6 +172,27 @@ func (w *Sender) Stop() {
 	close(w.job)
 }
 
+// signAttachments returns the attachments with their S3 URLs presigned, keeping the original URL of any that fails
+func signAttachments(ctx context.Context, backend Backend, attachments []string, log *logrus.Entry) []string {
+	signed := make([]string, len(attachments))
+	for i, attachment := range attachments {
+		signed[i] = attachment
+
+		attType, attURL := SplitAttachment(attachment)
+		if attType == "geo" {
+			continue
+		}
+
+		signedURL, err := backend.SignAttachmentURL(ctx, attURL)
+		if err != nil {
+			log.WithError(err).WithField("attachment", attachment).Error("error presigning attachment URL")
+			continue
+		}
+		signed[i] = attType + ":" + signedURL
+	}
+	return signed
+}
+
 func (w *Sender) sendMessage(msg Msg) {
 	// --- HANDLE MESSAGE ACTION (non-blocking) ---
 	if msg.ActionType() == MsgActionTypingIndicator {
@@ -207,27 +228,8 @@ func (w *Sender) sendMessage(msg Msg) {
 
 	log = log.WithField("msg_id", msg.ID().String()).WithField("msg_text", msg.Text()).WithField("msg_urn", msg.URN().Identity())
 	if len(msg.Attachments()) > 0 {
-		var attachments []string
 		log = log.WithField("attachments", msg.Attachments())
-		for _, att := range msg.Attachments() {
-			attType, attURL := SplitAttachment(att)
-			// only sign URLs that belong to our S3 bucket
-			if IsS3URL(attURL, server.Config().S3MediaBucket) {
-				signedURL, err := PresignedURL(attURL, server.Config().AWSAccessKeyID, server.Config().AWSSecretAccessKey, server.Config().S3Region, 168)
-				if err != nil {
-					log.WithError(err).Error("error converting attachment for pre-signed url")
-				} else {
-					attURL = signedURL
-				}
-			}
-			attachments = append(attachments, attType+":"+attURL)
-		}
-		msg = msg.WithPresignedURL(attachments)
-
-		// save the presigned URLs to the database
-		if err := backend.UpdateMsgAttachments(sendCTX, msg.ID(), attachments); err != nil {
-			log.WithError(err).Error("error saving presigned attachments to database")
-		}
+		msg = msg.WithAttachments(signAttachments(sendCTX, backend, msg.Attachments(), log))
 	}
 	if len(msg.QuickReplies()) > 0 {
 		log = log.WithField("quick_replies", msg.QuickReplies())

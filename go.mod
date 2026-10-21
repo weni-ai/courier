@@ -86,4 +86,4 @@ go 1.24.0
 
 toolchain go1.24.12
 
-replace github.com/nyaruka/gocommon => github.com/weni-ai/gocommon v1.17.0-staging
+replace github.com/nyaruka/gocommon => github.com/weni-ai/gocommon v1.18.0-a0-staging

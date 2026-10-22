@@ -4697,18 +4697,20 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 		return "", logs, errors.Wrapf(err, "invalid media URL")
 	}
 
+	canonicalMediaURL := utils.StripPresignParams(mediaURL)
+
 	rc := h.Backend().RedisPool().Get()
 	defer rc.Close()
 
 	cacheKey := fmt.Sprintf(mediaCacheKeyPatternWhatsapp, msg.Channel().UUID().String())
-	mediaID, err := rcache.Get(rc, cacheKey, mediaURL)
+	mediaID, err := rcache.Get(rc, cacheKey, canonicalMediaURL)
 	if err != nil {
-		return "", logs, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, mediaURL)
+		return "", logs, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, canonicalMediaURL)
 	} else if mediaID != "" {
 		return mediaID, logs, nil
 	}
 
-	failKey := fmt.Sprintf("%s-%s", msg.Channel().UUID().String(), mediaURL)
+	failKey := fmt.Sprintf("%s-%s", msg.Channel().UUID().String(), canonicalMediaURL)
 	found, _ := failedMediaCache.Get(failKey)
 
 	if found != nil {
@@ -4740,11 +4742,9 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 	if fileExt != "" {
 		finalMimeType = convertedMimeType
 		// Update file extension in URL for proper file naming
-		if strings.HasSuffix(mediaURL, ".webp") {
-			finalMediaURL = strings.TrimSuffix(mediaURL, ".webp") + fileExt
-		} else {
-			// If extension doesn't match, add the new extension
-			finalMediaURL = mediaURL + fileExt
+		finalMediaURL, err = replaceWebPExtension(mediaURL, fileExt)
+		if err != nil {
+			return "", logs, errors.Wrapf(err, "invalid media URL")
 		}
 	}
 
@@ -4758,12 +4758,27 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 	}
 
 	// put in cache
-	err = rcache.Set(rc, cacheKey, mediaURL, mediaID)
+	err = rcache.Set(rc, cacheKey, canonicalMediaURL, mediaID)
 	if err != nil {
 		return "", logs, errors.Wrapf(err, "error setting media id in cache")
 	}
 
 	return mediaID, logs, nil
+}
+
+// replaceWebPExtension swaps a trailing .webp in the URL path for ext, or appends ext when the path has
+// no .webp extension, leaving the query string untouched.
+func replaceWebPExtension(mediaURL, ext string) (string, error) {
+	u, err := url.Parse(mediaURL)
+	if err != nil {
+		return "", err
+	}
+
+	u.Path = strings.TrimSuffix(u.Path, ".webp") + ext
+	if u.RawPath != "" {
+		u.RawPath = strings.TrimSuffix(u.RawPath, ".webp") + ext
+	}
+	return u.String(), nil
 }
 
 func requestWACMediaUpload(file []byte, mediaURL string, requestUrl string, mimeType string, msg courier.Msg, accessToken string) (string, []*courier.ChannelLog, error) {

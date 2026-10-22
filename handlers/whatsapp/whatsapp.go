@@ -1548,20 +1548,22 @@ func (h *handler) fetchMediaID(msg courier.Msg, mimeType, mediaURL string) (stri
 		return "", logs, errors.Wrapf(err, "invalid media URL")
 	}
 
+	canonicalMediaURL := utils.StripPresignParams(mediaURL)
+
 	// check in cache first
 	rc := h.Backend().RedisPool().Get()
 	defer rc.Close()
 
 	cacheKey := fmt.Sprintf(mediaCacheKeyPattern, msg.Channel().UUID().String())
-	mediaID, err := rcache.Get(rc, cacheKey, mediaURL)
+	mediaID, err := rcache.Get(rc, cacheKey, canonicalMediaURL)
 	if err != nil {
-		return "", logs, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, mediaURL)
+		return "", logs, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, canonicalMediaURL)
 	} else if mediaID != "" {
 		return mediaID, logs, nil
 	}
 
 	// check in failure cache
-	failKey := fmt.Sprintf("%s-%s", msg.Channel().UUID().String(), mediaURL)
+	failKey := fmt.Sprintf("%s-%s", msg.Channel().UUID().String(), canonicalMediaURL)
 	found, _ := failedMediaCache.Get(failKey)
 
 	// any non nil value means we cached a failure, don't try again until our cache expires
@@ -1618,7 +1620,7 @@ func (h *handler) fetchMediaID(msg courier.Msg, mimeType, mediaURL string) (stri
 	}
 
 	// put in cache
-	err = rcache.Set(rc, cacheKey, mediaURL, mediaID)
+	err = rcache.Set(rc, cacheKey, canonicalMediaURL, mediaID)
 	if err != nil {
 		return "", logs, errors.Wrapf(err, "error setting media id in cache")
 	}

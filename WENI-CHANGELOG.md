@@ -1,3 +1,9 @@
+1.74.0
+----------
+ * feat: presign attachment URLs in memory at send time
+ * feat: add StripPresignParams to get a stable canonical media URL
+ * fix: handle presigned and private media in WhatsApp handlers
+
 1.73.1
 ----------
  * fix: stop channel lookups from waiting forever on concurrent cache misses

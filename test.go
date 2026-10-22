@@ -81,6 +81,10 @@ type MockBackend struct {
 
 	// updatedWabaIDs records every waba ID passed to UpdateChannelConfigByWabaID.
 	updatedWabaIDs []string
+
+	// attachmentURLSigner is seeded by tests to back SignAttachmentURL, when
+	// nil URLs are returned unchanged.
+	attachmentURLSigner func(string) (string, error)
 }
 
 // NewMockBackend returns a new mock backend suitable for testing
@@ -934,7 +938,11 @@ func (m *mockMsg) WithAttachment(url string) Msg {
 	return m
 }
 func (m *mockMsg) WithMetadata(metadata json.RawMessage) Msg { m.metadata = metadata; return m }
-func (m *mockMsg) Status() MsgStatusValue                    { return "" }
+func (m *mockMsg) WithAttachments(attachments []string) Msg {
+	m.attachments = attachments
+	return m
+}
+func (m *mockMsg) Status() MsgStatusValue { return "" }
 
 func (m *mockMsg) Header() string {
 	if m.metadata == nil {
@@ -1578,4 +1586,17 @@ func (mb *MockBackend) UpdateChannelConfigByWabaID(ctx context.Context, wabaID s
 		return err
 	}
 	return nil
+}
+
+// SetAttachmentURLSigner seeds the function used by SignAttachmentURL
+func (mb *MockBackend) SetAttachmentURLSigner(signer func(string) (string, error)) {
+	mb.attachmentURLSigner = signer
+}
+
+// SignAttachmentURL returns the URL signed by the seeded signer, or unchanged if there is none
+func (mb *MockBackend) SignAttachmentURL(ctx context.Context, url string) (string, error) {
+	if mb.attachmentURLSigner == nil {
+		return url, nil
+	}
+	return mb.attachmentURLSigner(url)
 }

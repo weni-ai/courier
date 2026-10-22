@@ -17,15 +17,15 @@ func TestRewriteWebPImageURL(t *testing.T) {
 	const disguisedURL = "https://example.com/card.jpg"
 
 	tests := []struct {
-		name            string
-		mediaURL        string
-		getBody         []byte
-		getErr          error
-		putErr          error
+		name             string
+		mediaURL         string
+		getBody          []byte
+		getErr           error
+		putErr           error
 		useRealConverter bool
-		wantURL         string
-		wantErr         string
-		wantPutCall     bool
+		wantURL          string
+		wantErr          string
+		wantPutCall      bool
 	}{
 		{
 			name:        "webp bytes are converted and stored",
@@ -119,4 +119,14 @@ func TestPngFilenameForURLIsDeterministic(t *testing.T) {
 	url := "https://example.com/media.webp"
 	assert.Equal(t, PngFilenameForURL(url), PngFilenameForURL(url))
 	assert.NotEqual(t, PngFilenameForURL(url), PngFilenameForURL(url+"x"))
+}
+
+func TestPngFilenameForURLIgnoresPresignParams(t *testing.T) {
+	canonical := "https://bucket.s3.amazonaws.com/media/card.webp"
+	firstSigned := canonical + "?X-Amz-Date=20261021T120000Z&X-Amz-Signature=aaa"
+	secondSigned := canonical + "?X-Amz-Date=20261022T090000Z&X-Amz-Signature=bbb"
+
+	assert.Equal(t, PngFilenameForURL(canonical), PngFilenameForURL(firstSigned))
+	assert.Equal(t, PngFilenameForURL(canonical), PngFilenameForURL(secondSigned))
+	assert.NotEqual(t, PngFilenameForURL(canonical), PngFilenameForURL(canonical+"?version=2"))
 }

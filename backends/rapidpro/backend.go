@@ -830,20 +830,30 @@ func (b *backend) Start() error {
 	}
 
 	// create our storage (S3 or file system)
-	if b.config.AWSAccessKeyID != "" {
-		s3Client, err := storage.NewS3Client(&storage.S3Options{
-			AWSAccessKeyID:     b.config.AWSAccessKeyID,
-			AWSSecretAccessKey: b.config.AWSSecretAccessKey,
-			Endpoint:           b.config.S3Endpoint,
+	if b.config.AWSAccessKeyID != "" || b.config.S3UseIamRole {
+		s3Opts := &storage.S3Options{
+			AWSAccessKeyID:     b.config.AWSAccessKeyID,     // can be empty for IAM role
+			AWSSecretAccessKey: b.config.AWSSecretAccessKey, // can be empty for IAM role
 			Region:             b.config.S3Region,
 			DisableSSL:         b.config.S3DisableSSL,
 			ForcePathStyle:     b.config.S3ForcePathStyle,
 			MaxRetries:         3,
-		})
+		}
+		// Only set endpoint if explicitly configured (non-empty)
+		// Empty endpoint allows SDK to auto-discover endpoints (required for IAM role/WebIdentity)
+		if b.config.S3Endpoint != "" {
+			s3Opts.Endpoint = b.config.S3Endpoint
+		}
+		s3Client, err := storage.NewS3Client(s3Opts)
 		if err != nil {
 			return err
 		}
 		b.storage = storage.NewS3(s3Client, b.config.S3MediaBucket, b.config.S3Region, 32)
+
+		b.attachmentURLSigner, err = newAttachmentURLSigner(b.config, s3Opts)
+		if err != nil {
+			return err
+		}
 	} else {
 		b.storage = storage.NewFS("_storage")
 	}
@@ -989,6 +999,9 @@ type backend struct {
 	storage   storage.Storage
 	awsCreds  *credentials.Credentials
 
+	// nil when attachments are stored on the file system
+	attachmentURLSigner *storage.S3URLSigner
+
 	popScript *redis.Script
 
 	stopChan  chan bool
@@ -1051,4 +1064,25 @@ func (b *backend) LookupLastMsgWithExternalID(ctx context.Context, channel couri
 
 func (b *backend) GetProjectUUIDFromChannelUUID(ctx context.Context, channelUUID courier.ChannelUUID) (string, error) {
 	return getProjectUUIDFromChannelUUID(ctx, b.db, channelUUID.String())
+}
+
+// newAttachmentURLSigner creates a signer for our media bucket plus the extra buckets in S3SignedBuckets
+func newAttachmentURLSigner(config *courier.Config, s3Opts *storage.S3Options) (*storage.S3URLSigner, error) {
+	expiration := time.Duration(config.S3PresignedURLExpiration) * time.Hour
+	if expiration <= 0 || expiration > storage.MaxPresignExpiration {
+		return nil, fmt.Errorf("S3PresignedURLExpiration must be between 1 and %d hours, got %d", int(storage.MaxPresignExpiration.Hours()), config.S3PresignedURLExpiration)
+	}
+
+	buckets := append([]string{config.S3MediaBucket}, strings.Split(config.S3SignedBuckets, ",")...)
+	return storage.NewS3URLSigner(s3Opts, buckets)
+}
+
+// SignAttachmentURL returns a presigned URL for attachments stored in our S3 buckets, other URLs are returned unchanged
+func (b *backend) SignAttachmentURL(ctx context.Context, attachmentURL string) (string, error) {
+	if b.attachmentURLSigner == nil {
+		return attachmentURL, nil
+	}
+
+	signedURL, _, err := b.attachmentURLSigner.Sign(attachmentURL, time.Duration(b.config.S3PresignedURLExpiration)*time.Hour)
+	return signedURL, err
 }

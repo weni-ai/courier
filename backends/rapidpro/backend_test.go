@@ -1083,7 +1083,6 @@ func (ts *BackendTestSuite) TestIsEmailMailboxBlocked() {
 	ts.True(blocked)
 }
 
-
 func (ts *BackendTestSuite) TestContactLastSeenWithoutName() {
 	ctx := context.Background()
 	channel := ts.getChannel("TG", "dbc126ed-66bc-4e28-b67b-81dc3327c98a")
@@ -1469,6 +1468,15 @@ func (ts *BackendTestSuite) TestWriteAttachment() {
 		ts.True(strings.HasPrefix(m.Attachments()[0], "image/png:"))
 		ts.True(strings.HasSuffix(m.Attachments()[0], ".png"))
 	}
+}
+
+func (ts *BackendTestSuite) TestSignAttachmentURLWithFileStorage() {
+	ts.Nil(ts.b.attachmentURLSigner)
+
+	rawURL := "https://courier-media.s3.sa-east-1.amazonaws.com/media/1/photo.jpg"
+	signedURL, err := ts.b.SignAttachmentURL(context.Background(), rawURL)
+	ts.NoError(err)
+	ts.Equal(rawURL, signedURL)
 }
 
 func (ts *BackendTestSuite) TestWriteMsg() {

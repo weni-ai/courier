@@ -159,6 +159,9 @@ type Backend interface {
 	UpdateChannelConfigByWabaID(context.Context, string, map[string]interface{}) error
 
 	GetProjectUUIDFromChannelUUID(context.Context, ChannelUUID) (string, error)
+
+	// SignAttachmentURL returns a presigned URL for attachments stored in our S3 buckets, other URLs are returned unchanged
+	SignAttachmentURL(context.Context, string) (string, error)
 }
 
 // NewBackend creates the type of backend passed in

@@ -8,6 +8,14 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestIsWhatsAppStickerWebP(t *testing.T) {
+	assert.False(t, IsWhatsAppStickerWebP(nil))
+	assert.False(t, IsWhatsAppStickerWebP([]byte("not webp")))
+	assert.False(t, IsWhatsAppStickerWebP(createValidWebPImage()))
+	assert.False(t, IsWhatsAppStickerWebP(MinimalWebPBytes()))
+	assert.True(t, IsWhatsAppStickerWebP(Sticker512WebPBytes()))
+}
+
 func TestIsWebPImage(t *testing.T) {
 	tests := []struct {
 		name     string

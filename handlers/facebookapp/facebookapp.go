@@ -3094,7 +3094,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				attFormat = splitedAttType[1]
 			}
 
-			mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, false)
+			mediaID, mediaLogs, webpConverted, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, false)
 			for _, log := range mediaLogs {
 				status.AddLog(log)
 			}
@@ -3112,14 +3112,15 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			if err != nil {
 				return status, err
 			}
-			if len(msgParts) == 1 && (attType != "audio" && attFormat != "webp") && len(msg.Attachments()) == 1 && len(msg.QuickReplies()) == 0 && len(msg.ListMessage().ListItems) == 0 {
+			sendAsSticker := attFormat == "webp" && !webpConverted
+			if len(msgParts) == 1 && (attType != "audio" && !sendAsSticker) && len(msg.Attachments()) == 1 && len(msg.QuickReplies()) == 0 && len(msg.ListMessage().ListItems) == 0 {
 				media.Caption = msgParts[i]
 				hasCaption = true
 			}
 
 			switch attType {
 			case "image":
-				if attFormat == "webp" {
+				if sendAsSticker {
 					payload.Sticker = &media
 					payload.Type = "sticker"
 				} else {
@@ -3158,7 +3159,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					if len(msg.Attachments()) > 0 {
 						attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
 						fileURL := attURL
-						mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, false)
+						mediaID, mediaLogs, _, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, true)
 						for _, log := range mediaLogs {
 							status.AddLog(log)
 						}
@@ -4035,7 +4036,7 @@ func (h *handler) buildHeaderComponent(msg courier.Msg, accessToken string, stat
 	attType, attURL := handlers.SplitAttachment(msg.Attachments()[0])
 	fileURL := attURL
 
-	mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, true)
+	mediaID, mediaLogs, _, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, true)
 	for _, log := range mediaLogs {
 		status.AddLog(log)
 	}
@@ -4662,76 +4663,92 @@ var languageMenuMap = map[string]string{
 	"ar-JO": "قائمة",
 }
 
-// convertWebPIfNeeded converts WebP images to PNG for WhatsApp template and carousel uploads
-// Returns the converted image data, new mime type, and new file extension if conversion occurred
-// Only converts for WhatsApp channels (WAC/WCD) when convertWebP is true
-func convertWebPIfNeeded(data []byte, mimeType string, convertWebP bool, channelType courier.ChannelType) ([]byte, string, string, error) {
+// convertWebPIfNeeded converts WebP images to PNG when they are used as WhatsApp image media.
+// When forceConvert is true, any WebP is converted. Otherwise WebP is kept only for sticker-sized files.
+// Returns the converted image data, new mime type, new file extension, and whether conversion occurred.
+func convertWebPIfNeeded(data []byte, mimeType string, forceConvert bool, channelType courier.ChannelType) ([]byte, string, string, bool, error) {
 	// Only convert for WhatsApp channels (WAC or WCD)
 	if channelType != "WAC" && channelType != "WCD" {
-		return data, mimeType, "", nil
+		return data, mimeType, "", false, nil
 	}
 
-	if !convertWebP {
-		return data, mimeType, "", nil
-	}
-
-	// Check if the image is actually WebP (regardless of mime type or extension)
 	if !handlers.IsWebPImage(data) {
-		return data, mimeType, "", nil
+		return data, mimeType, "", false, nil
+	}
+
+	if !forceConvert && handlers.IsWhatsAppStickerWebP(data) {
+		return data, mimeType, "", false, nil
 	}
 
 	// Convert WebP to PNG (lossless format, better quality preservation)
 	convertedData, err := handlers.ConvertWebPToPNG(data, handlers.MaxImageSizeBytes)
 	if err != nil {
-		return nil, "", "", errors.Wrapf(err, "failed to convert WebP image to PNG")
+		return nil, "", "", false, errors.Wrapf(err, "failed to convert WebP image to PNG")
 	}
 
-	return convertedData, "image/png", ".png", nil
+	return convertedData, "image/png", ".png", true, nil
 }
 
-func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, accessToken string, convertWebP bool) (string, []*courier.ChannelLog, error) {
+func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, accessToken string, forceConvertWebP bool) (string, []*courier.ChannelLog, bool, error) {
 	var logs []*courier.ChannelLog
 
 	mediaURL, err := utils.EncodeMediaURL(mediaURL)
 	if err != nil {
-		return "", logs, errors.Wrapf(err, "invalid media URL")
+		return "", logs, false, errors.Wrapf(err, "invalid media URL")
 	}
 
 	rc := h.Backend().RedisPool().Get()
 	defer rc.Close()
 
 	cacheKey := fmt.Sprintf(mediaCacheKeyPatternWhatsapp, msg.Channel().UUID().String())
+	convertedPNGKey := mediaURL + ":png"
+	if forceConvertWebP {
+		mediaID, err := rcache.Get(rc, cacheKey, convertedPNGKey)
+		if err != nil {
+			return "", logs, false, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, convertedPNGKey)
+		} else if mediaID != "" {
+			return mediaID, logs, true, nil
+		}
+	} else if strings.Contains(strings.ToLower(mimeType), "webp") || strings.HasSuffix(strings.ToLower(mediaURL), ".webp") {
+		mediaID, err := rcache.Get(rc, cacheKey, convertedPNGKey)
+		if err != nil {
+			return "", logs, false, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, convertedPNGKey)
+		} else if mediaID != "" {
+			return mediaID, logs, true, nil
+		}
+	}
+
 	mediaID, err := rcache.Get(rc, cacheKey, mediaURL)
 	if err != nil {
-		return "", logs, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, mediaURL)
+		return "", logs, false, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, mediaURL)
 	} else if mediaID != "" {
-		return mediaID, logs, nil
+		return mediaID, logs, false, nil
 	}
 
 	failKey := fmt.Sprintf("%s-%s", msg.Channel().UUID().String(), mediaURL)
 	found, _ := failedMediaCache.Get(failKey)
 
 	if found != nil {
-		return "", logs, nil
+		return "", logs, false, nil
 	}
 
 	// request to download media
 	req, err := http.NewRequest("GET", mediaURL, nil)
 	if err != nil {
-		return "", logs, errors.Wrapf(err, "error builing media request")
+		return "", logs, false, errors.Wrapf(err, "error builing media request")
 	}
 	rr, err := utils.MakeHTTPRequest(req)
 	log := courier.NewChannelLogFromRR("Fetching media", msg.Channel(), msg.ID(), rr).WithError("error fetching media", err)
 	logs = append(logs, log)
 	if err != nil {
 		failedMediaCache.Set(failKey, true, cache.DefaultExpiration)
-		return "", logs, nil
+		return "", logs, false, nil
 	}
 
-	// Convert WebP to PNG if needed (templates and carousel image cards)
-	convertedData, convertedMimeType, fileExt, err := convertWebPIfNeeded(rr.Body, mimeType, convertWebP, msg.Channel().ChannelType())
+	// Convert WebP to PNG if needed (templates, carousel, interactive headers, and non-sticker images)
+	convertedData, convertedMimeType, fileExt, converted, err := convertWebPIfNeeded(rr.Body, mimeType, forceConvertWebP, msg.Channel().ChannelType())
 	if err != nil {
-		return "", logs, errors.Wrapf(err, "error converting WebP image")
+		return "", logs, false, errors.Wrapf(err, "error converting WebP image")
 	}
 
 	// Update mime type and file URL if conversion occurred
@@ -4754,16 +4771,20 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 	wacPhoneURLMedia := base.ResolveReference(path)
 	mediaID, logs, err = requestWACMediaUpload(convertedData, finalMediaURL, wacPhoneURLMedia.String(), finalMimeType, msg, accessToken)
 	if err != nil {
-		return "", logs, err
+		return "", logs, converted, err
 	}
 
 	// put in cache
-	err = rcache.Set(rc, cacheKey, mediaURL, mediaID)
+	cacheMediaKey := mediaURL
+	if converted {
+		cacheMediaKey = convertedPNGKey
+	}
+	err = rcache.Set(rc, cacheKey, cacheMediaKey, mediaID)
 	if err != nil {
-		return "", logs, errors.Wrapf(err, "error setting media id in cache")
+		return "", logs, converted, errors.Wrapf(err, "error setting media id in cache")
 	}
 
-	return mediaID, logs, nil
+	return mediaID, logs, converted, nil
 }
 
 func requestWACMediaUpload(file []byte, mediaURL string, requestUrl string, mimeType string, msg courier.Msg, accessToken string) (string, []*courier.ChannelLog, error) {

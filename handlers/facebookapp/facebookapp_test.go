@@ -2340,20 +2340,120 @@ func TestSending(t *testing.T) {
 		res.Write([]byte("error"))
 	}))
 
-	// WebP media server - returns valid WebP image data
+	// WebP media server - returns valid WebP image data (non-sticker dimensions)
 	webpMediaServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 		defer req.Body.Close()
 		res.WriteHeader(200)
 		res.Write(handlers.MinimalWebPBytes())
 	}))
 
+	stickerMediaServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		defer req.Body.Close()
+		res.WriteHeader(200)
+		res.Write(handlers.Sticker512WebPBytes())
+	}))
+
 	defer mediaServer.Close()
 	defer webpMediaServer.Close()
+	defer stickerMediaServer.Close()
 	SendTestCasesWAC = mockCarouselAttachmentURLs(mediaServer, SendTestCasesWAC)
 	CachedSendTestCasesWAC := mockAttachmentURLs(mediaServer, CachedSendTestCasesWAC)
 	FailingCachedSendTestCasesWAC := mockAttachmentURLs(failingMediaServer, FailingCachedSendTestCasesWAC)
 
 	updateWebPTestCase(SendTestCasesWAC, webpMediaServer.URL)
+	webpProductURL := webpMediaServer.URL + "/product.webp"
+	webpProductCaptionURL := webpMediaServer.URL + "/product-caption.webp"
+	sticker512URL := stickerMediaServer.URL + "/sticker.webp"
+	SendTestCasesWAC = append(SendTestCasesWAC, ChannelSendTestCase{
+		Label:        "Interactive Button Message Send with WebP attachment",
+		Text:         "Product description",
+		URN:          "whatsapp:250788123123",
+		Status:       "W",
+		ExternalID:   "157b5e14568e8",
+		QuickReplies: []string{"Lo quiero"},
+		Attachments:  []string{"image/webp:" + webpProductURL},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method:       "POST",
+				Path:         "/12345_ID/media",
+				BodyContains: "product.png",
+			}: {
+				Status: 201,
+				Body:   `{"id":"157b5e14568e8"}`,
+			},
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"button","header":{"type":"image","image":{"id":"157b5e14568e8"}},"body":{"text":"Product description"},"action":{"buttons":[{"type":"reply","reply":{"id":"0","title":"Lo quiero"}}]}}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL,
+	})
+	SendTestCasesWAC = append(SendTestCasesWAC, ChannelSendTestCase{
+		Label:       "Image Send - WebP product photo",
+		Text:        "image caption",
+		URN:         "whatsapp:250788123123",
+		Status:      "W",
+		ExternalID:  "157b5e14568e8",
+		Attachments: []string{"image/webp:" + webpProductCaptionURL},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method:       "POST",
+				Path:         "/12345_ID/media",
+				BodyContains: "product-caption.png",
+			}: {
+				Status: 201,
+				Body:   `{"id":"157b5e14568e8"}`,
+			},
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"id":"157b5e14568e8","caption":"image caption"}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL,
+	})
+	SendTestCasesWAC = append(SendTestCasesWAC, ChannelSendTestCase{
+		Label:       "Sticker Send - 512 WebP with media upload",
+		Text:        "sticker caption",
+		URN:         "whatsapp:250788123123",
+		Status:      "W",
+		ExternalID:  "157b5e14568e8",
+		Attachments: []string{"image/webp:" + sticker512URL},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method:       "POST",
+				Path:         "/12345_ID/media",
+				BodyContains: "sticker.webp",
+			}: {
+				Status: 201,
+				Body:   `{"id":"268c6f24679f9"}`,
+			},
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"sticker","sticker":{"id":"268c6f24679f9"}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"sticker caption"}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL,
+	})
 	card1URL := webpMediaServer.URL + "/card1.webp"
 	card2URL := webpMediaServer.URL + "/card2.webp"
 	SendTestCasesWAC = append(SendTestCasesWAC, ChannelSendTestCase{

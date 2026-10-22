@@ -8,8 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"image"
-	_ "image/png"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -4712,7 +4710,7 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 	defer rc.Close()
 
 	cacheKey := fmt.Sprintf(mediaCacheKeyPatternWhatsapp, msg.Channel().UUID().String())
-	convertedPNGKey := mediaURL + ":png"
+	convertedPNGKey := canonicalMediaURL + ":png"
 	if forceConvertWebP {
 		mediaID, err := rcache.Get(rc, cacheKey, convertedPNGKey)
 		if err != nil {
@@ -4814,19 +4812,6 @@ func replaceWebPExtension(mediaURL, ext string) (string, error) {
 func requestWACMediaUpload(file []byte, mediaURL string, requestUrl string, mimeType string, msg courier.Msg, accessToken string) (string, []*courier.ChannelLog, error) {
 	var logs []*courier.ChannelLog
 
-	fmt.Println("mime recebido:", mimeType)
-	fmt.Println("mediaURL:", mediaURL)
-	fmt.Println("fileName:", path.Base(mediaURL))
-	fmt.Println("detect:", http.DetectContentType(file))
-	fmt.Println("magic:", mimetype.Detect(file).String())
-	fmt.Printf("% x\n", file[:16])
-
-	imgCfg, format, imgErr := image.DecodeConfig(bytes.NewReader(file))
-	fmt.Println(format)
-	fmt.Println(imgCfg.Width)
-	fmt.Println(imgCfg.Height)
-	fmt.Println(imgErr)
-
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
@@ -4846,7 +4831,6 @@ func requestWACMediaUpload(file []byte, mediaURL string, requestUrl string, mime
 		fmt.Sprintf(`form-data; name="%s"; filename="%s"`,
 			"file", fileName))
 	h.Set("Content-Type", fileType)
-	fmt.Printf("part headers: %#v\n", h)
 	fileField, err := writer.CreatePart(h)
 	if err != nil {
 		return "", logs, errors.Wrapf(err, "failed to create form field:")

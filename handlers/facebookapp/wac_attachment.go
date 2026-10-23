@@ -10,21 +10,20 @@ import (
 	"github.com/gabriel-vasile/mimetype"
 )
 
+// metaWACDocumentUploadMIME is accepted by WhatsApp Cloud POST /media for generic documents
+// (see Meta error #100 allowlist). text/xml and application/xml are not accepted on upload.
+const metaWACDocumentUploadMIME = "text/plain"
+
 // wacUploadContentType picks the Content-Type for WhatsApp Cloud media upload.
 // declaredMIME is the attachment prefix from RapidPro (e.g. text/plain, application/xml).
 func wacUploadContentType(declaredMIME, fileName string, body []byte) string {
+	if isXMLMedia(declaredMIME, fileName, body) {
+		return metaWACDocumentUploadMIME
+	}
+
 	declaredMIME = strings.TrimSpace(declaredMIME)
 	if base, _, err := mime.ParseMediaType(declaredMIME); err == nil {
 		declaredMIME = base
-	}
-
-	switch declaredMIME {
-	case "application/xml", "text/xml":
-		return declaredMIME
-	}
-
-	if declaredMIME == "text/plain" && isXMLFileName(fileName) {
-		return "application/xml"
 	}
 
 	fileType := http.DetectContentType(body)
@@ -41,12 +40,8 @@ func wacUploadContentType(declaredMIME, fileName string, body []byte) string {
 		}
 	}
 
-	if fileType == "text/plain" && (isXMLFileName(fileName) || looksLikeXML(body)) {
-		return "application/xml"
-	}
-
-	if fileType == "text/xml" {
-		return "application/xml"
+	if isXMLMedia(fileType, fileName, body) {
+		return metaWACDocumentUploadMIME
 	}
 
 	if declaredMIME != "" && declaredMIME != "text" && declaredMIME != "application" {
@@ -54,6 +49,22 @@ func wacUploadContentType(declaredMIME, fileName string, body []byte) string {
 	}
 
 	return fileType
+}
+
+// isXMLMedia reports whether the attachment should be treated as XML for routing (document message).
+func isXMLMedia(declaredMIME, fileName string, body []byte) bool {
+	declaredMIME = strings.TrimSpace(declaredMIME)
+	if base, _, err := mime.ParseMediaType(declaredMIME); err == nil {
+		declaredMIME = base
+	}
+	switch declaredMIME {
+	case "application/xml", "text/xml":
+		return true
+	}
+	if isXMLFileName(fileName) || looksLikeXML(body) {
+		return true
+	}
+	return false
 }
 
 // wacPayloadMediaType maps a declared attachment MIME and media URL to a WhatsApp Cloud message type

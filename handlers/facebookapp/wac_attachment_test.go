@@ -9,9 +9,10 @@ import (
 func TestWACUploadContentType_XML(t *testing.T) {
 	nfe := []byte(`<?xml version="1.0"?><nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><NFe></NFe></nfeProc>`)
 
-	assert.Equal(t, "application/xml", wacUploadContentType("text/plain", "nota.xml", nfe))
-	assert.Equal(t, "application/xml", wacUploadContentType("application/xml", "nota.xml", nfe))
-	assert.Equal(t, "text/xml", wacUploadContentType("text/xml", "nota.xml", nfe))
+	// Meta /media accepts text/plain for generic documents, not text/xml or application/xml.
+	assert.Equal(t, "text/plain", wacUploadContentType("text/plain", "nota.xml", nfe))
+	assert.Equal(t, "text/plain", wacUploadContentType("application/xml", "nota.xml", nfe))
+	assert.Equal(t, "text/plain", wacUploadContentType("text/xml", "nota.xml", nfe))
 }
 
 func TestWACPayloadMediaType_XML(t *testing.T) {

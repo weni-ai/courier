@@ -1,3 +1,7 @@
+1.75.0
+----------
+ * feat: implement WhatsApp sticker validation and handling
+
 1.74.0
 ----------
  * feat: presign attachment URLs in memory at send time

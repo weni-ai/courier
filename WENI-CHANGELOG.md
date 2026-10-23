@@ -1,3 +1,7 @@
+1.74.1
+----------
+ * feat: Enhanced the downloadMediaToS3 function to generate unique filenames for attachments, preventing collisions between files with the same extension.
+
 1.74.0
 ----------
  * feat: presign attachment URLs in memory at send time

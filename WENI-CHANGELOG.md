@@ -1,6 +1,11 @@
 1.75.0
 ----------
  * feat: implement WhatsApp sticker validation and handling
+ * fix: Correction for sending XML and text files on WhatsApp
+
+1.74.1
+----------
+ * feat: Enhanced the downloadMediaToS3 function to generate unique filenames for attachments, preventing collisions between files with the same extension.
 
 1.74.0
 ----------

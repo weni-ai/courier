@@ -17,63 +17,54 @@ const metaWACDocumentUploadMIME = "text/plain"
 // wacUploadContentType picks the Content-Type for WhatsApp Cloud media upload.
 // declaredMIME is the attachment prefix from RapidPro (e.g. text/plain, application/xml).
 func wacUploadContentType(declaredMIME, fileName string, body []byte) string {
-	if isXMLMedia(declaredMIME, fileName, body) {
-		return metaWACDocumentUploadMIME
-	}
+	declaredMIME = normalizedMIME(declaredMIME)
 
-	declaredMIME = strings.TrimSpace(declaredMIME)
-	if base, _, err := mime.ParseMediaType(declaredMIME); err == nil {
-		declaredMIME = base
-	}
-
-	fileType := http.DetectContentType(body)
-	if base, _, err := mime.ParseMediaType(fileType); err == nil {
-		fileType = base
-	}
+	fileType := normalizedMIME(http.DetectContentType(body))
 
 	if fileType != declaredMIME || fileType == "application/octet-stream" || fileType == "application/zip" {
-		detected := mimetype.Detect(body).String()
-		if base, _, err := mime.ParseMediaType(detected); err == nil {
-			fileType = base
-		} else {
+		if detected := normalizedMIME(mimetype.Detect(body).String()); detected != "" {
 			fileType = detected
 		}
 	}
 
-	if isXMLMedia(fileType, fileName, body) {
+	if isXMLForUpload(declaredMIME, fileType, fileName, body) {
 		return metaWACDocumentUploadMIME
 	}
 
-	if declaredMIME != "" && declaredMIME != "text" && declaredMIME != "application" {
+	// Prefer the attachment's declared type when it is a full type/subtype (e.g. image/png).
+	// Bare majors like "text" or "application" are ignored; use detected fileType instead.
+	if strings.Contains(declaredMIME, "/") {
 		return declaredMIME
 	}
 
 	return fileType
 }
 
-// isXMLMedia reports whether the attachment should be treated as XML for routing (document message).
-func isXMLMedia(declaredMIME, fileName string, body []byte) bool {
-	declaredMIME = strings.TrimSpace(declaredMIME)
-	if base, _, err := mime.ParseMediaType(declaredMIME); err == nil {
-		declaredMIME = base
+func normalizedMIME(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if base, _, err := mime.ParseMediaType(raw); err == nil {
+		return base
 	}
-	switch declaredMIME {
-	case "application/xml", "text/xml":
-		return true
-	}
-	if isXMLFileName(fileName) || looksLikeXML(body) {
-		return true
-	}
-	return false
+	return raw
+}
+
+// isXMLForUpload reports XML after declared and detected MIME types are known (single pass).
+func isXMLForUpload(declaredMIME, detectedMIME, fileName string, body []byte) bool {
+	return isXMLMimeType(declaredMIME) ||
+		isXMLMimeType(detectedMIME) ||
+		isXMLFileName(fileName) ||
+		looksLikeXML(body)
+}
+
+func isXMLMimeType(mimeType string) bool {
+	m := normalizedMIME(mimeType)
+	return m == "application/xml" || m == "text/xml"
 }
 
 // wacPayloadMediaType maps a declared attachment MIME and media URL to a WhatsApp Cloud message type
 // (image, video, audio, document, sticker, or text).
 func wacPayloadMediaType(declaredMIME, mediaURL string) (waType string, format string) {
-	declaredMIME = strings.TrimSpace(declaredMIME)
-	if base, _, err := mime.ParseMediaType(declaredMIME); err == nil {
-		declaredMIME = base
-	}
+	declaredMIME = normalizedMIME(declaredMIME)
 
 	parts := strings.SplitN(declaredMIME, "/", 2)
 	major := parts[0]

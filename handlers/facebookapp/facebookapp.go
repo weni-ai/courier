@@ -4704,14 +4704,10 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 
 	cacheKey := fmt.Sprintf(mediaCacheKeyPatternWhatsapp, msg.Channel().UUID().String())
 	convertedPNGKey := canonicalMediaURL + ":png"
-	if forceConvertWebP {
-		mediaID, err := rcache.Get(rc, cacheKey, convertedPNGKey)
-		if err != nil {
-			return "", logs, false, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, convertedPNGKey)
-		} else if mediaID != "" {
-			return mediaID, logs, true, nil
-		}
-	} else if strings.Contains(strings.ToLower(mimeType), "webp") || strings.HasSuffix(strings.ToLower(mediaURL), ".webp") {
+	needsPNGCache := forceConvertWebP ||
+		strings.Contains(strings.ToLower(mimeType), "webp") ||
+		strings.HasSuffix(strings.ToLower(mediaURL), ".webp")
+	if needsPNGCache {
 		mediaID, err := rcache.Get(rc, cacheKey, convertedPNGKey)
 		if err != nil {
 			return "", logs, false, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, convertedPNGKey)

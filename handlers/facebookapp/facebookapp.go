@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/buger/jsonparser"
-	"github.com/gabriel-vasile/mimetype"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/billing"
 	"github.com/nyaruka/courier/handlers"
@@ -3091,17 +3090,12 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		} else if (i < len(msg.Attachments()) && len(qrs) == 0 && len(msg.ListMessage().ListItems) == 0 && msg.InteractionType() != "order_details") && msg.InteractionType() != "carousel" ||
 			len(qrs) > 3 && i < len(msg.Attachments()) ||
 			len(msg.ListMessage().ListItems) > 0 && i < len(msg.Attachments()) {
-			attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
+			declaredMIME, attURL := handlers.SplitAttachment(msg.Attachments()[i])
 			fileURL := attURL
 
-			splitedAttType := strings.Split(attType, "/")
-			attType = splitedAttType[0]
-			attFormat := ""
-			if len(splitedAttType) > 1 {
-				attFormat = splitedAttType[1]
-			}
+			attType, attFormat := wacPayloadMediaType(declaredMIME, attURL)
 
-			mediaID, mediaLogs, webpConverted, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, false)
+			mediaID, mediaLogs, webpConverted, err := h.fetchWACMediaID(msg, declaredMIME, attURL, accessToken, false)
 			for _, log := range mediaLogs {
 				status.AddLog(log)
 			}
@@ -3111,9 +3105,6 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				attURL = ""
 			}
 
-			if attType == "application" {
-				attType = "document"
-			}
 			payload.Type = attType
 			media, err := newWACMedia(mediaID, attURL)
 			if err != nil {
@@ -3164,9 +3155,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					}
 
 					if len(msg.Attachments()) > 0 {
-						attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
+						declaredMIME, attURL := handlers.SplitAttachment(msg.Attachments()[i])
 						fileURL := attURL
-						mediaID, mediaLogs, _, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, true)
+						mediaID, mediaLogs, _, err := h.fetchWACMediaID(msg, declaredMIME, attURL, accessToken, true)
 						for _, log := range mediaLogs {
 							status.AddLog(log)
 						}
@@ -3175,10 +3166,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						} else if mediaID != "" {
 							attURL = ""
 						}
-						attType = strings.Split(attType, "/")[0]
-						if attType == "application" {
-							attType = "document"
-						}
+						attType, _ := wacPayloadMediaType(declaredMIME, fileURL)
 						media, err := newWACMedia(mediaID, attURL)
 						if err != nil {
 							return nil, err
@@ -4040,10 +4028,10 @@ func buildPaymentRequestParam(parameter courier.ButtonParam) *wacParam {
 func (h *handler) buildHeaderComponent(msg courier.Msg, accessToken string, status courier.MsgStatus, start time.Time) (*wacComponent, error) {
 	header := &wacComponent{Type: "header"}
 
-	attType, attURL := handlers.SplitAttachment(msg.Attachments()[0])
+	declaredMIME, attURL := handlers.SplitAttachment(msg.Attachments()[0])
 	fileURL := attURL
 
-	mediaID, mediaLogs, _, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, true)
+	mediaID, mediaLogs, _, err := h.fetchWACMediaID(msg, declaredMIME, attURL, accessToken, true)
 	for _, log := range mediaLogs {
 		status.AddLog(log)
 	}
@@ -4052,11 +4040,7 @@ func (h *handler) buildHeaderComponent(msg courier.Msg, accessToken string, stat
 	} else if mediaID != "" {
 		attURL = ""
 	}
-	attType = strings.Split(attType, "/")[0]
-
-	if attType == "application" {
-		attType = "document"
-	}
+	attType, _ := wacPayloadMediaType(declaredMIME, fileURL)
 
 	media, err := newWACMedia(mediaID, attURL)
 	if err != nil {
@@ -4815,16 +4799,12 @@ func requestWACMediaUpload(file []byte, mediaURL string, requestUrl string, mime
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	fileType := http.DetectContentType(file)
 	u, err := url.Parse(mediaURL)
 	if err != nil {
 		return "", logs, errors.Wrap(err, "invalid media URL")
 	}
 	fileName := path.Base(u.Path)
-
-	if fileType != mimeType || fileType == "application/octet-stream" || fileType == "application/zip" {
-		fileType = mimetype.Detect(file).String()
-	}
+	fileType := wacUploadContentType(mimeType, fileName, file)
 
 	h := make(textproto.MIMEHeader)
 	h.Set("Content-Disposition",

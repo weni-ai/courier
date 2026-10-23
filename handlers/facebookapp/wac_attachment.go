@@ -117,16 +117,11 @@ func isXMLFileURL(mediaURL string) bool {
 
 func looksLikeXML(body []byte) bool {
 	b := bytes.TrimSpace(body)
-	if len(b) == 0 {
+	if len(b) < 5 {
 		return false
 	}
-	if b[0] == '<' {
-		return true
+	if len(b) > 256 {
+		b = b[:256]
 	}
-	prefix := string(b)
-	if len(prefix) > 256 {
-		prefix = prefix[:256]
-	}
-	prefix = strings.TrimSpace(prefix)
-	return strings.HasPrefix(prefix, "<?xml")
+	return strings.HasPrefix(strings.ToLower(string(b)), "<?xml")
 }

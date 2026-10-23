@@ -15,6 +15,20 @@ func TestWACUploadContentType_XML(t *testing.T) {
 	assert.Equal(t, "text/plain", wacUploadContentType("text/xml", "nota.xml", nfe))
 }
 
+func TestLooksLikeXML(t *testing.T) {
+	assert.True(t, looksLikeXML([]byte(`<?xml version="1.0"?><root/>`)))
+	assert.True(t, looksLikeXML([]byte(`  <?XML version="1.0"?>`)))
+	assert.False(t, looksLikeXML([]byte(`<svg xmlns="http://www.w3.org/2000/svg"></svg>`)))
+	assert.False(t, looksLikeXML([]byte(`<!DOCTYPE html><html></html>`)))
+	assert.False(t, looksLikeXML([]byte(`<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"/>`)))
+}
+
+func TestWACUploadContentType_NFeWithoutXMLDeclaration(t *testing.T) {
+	// Filename still identifies XML when the declaration is omitted.
+	body := []byte(`<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><NFe></NFe></nfeProc>`)
+	assert.Equal(t, "text/plain", wacUploadContentType("text/plain", "nota.xml", body))
+}
+
 func TestWACPayloadMediaType_XML(t *testing.T) {
 	waType, _ := wacPayloadMediaType("text/plain", "https://s3.example.com/org/uuid.xml")
 	assert.Equal(t, "document", waType)

@@ -4703,12 +4703,13 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 	defer rc.Close()
 
 	cacheKey := fmt.Sprintf(mediaCacheKeyPatternWhatsapp, msg.Channel().UUID().String())
+	var mediaID string
 	convertedPNGKey := canonicalMediaURL + ":png"
-	needsPNGCache := forceConvertWebP ||
-		strings.Contains(strings.ToLower(mimeType), "webp") ||
+	webpLike := strings.Contains(strings.ToLower(mimeType), "webp") ||
 		strings.HasSuffix(strings.ToLower(mediaURL), ".webp")
+	needsPNGCache := forceConvertWebP || webpLike
 	if needsPNGCache {
-		mediaID, err := rcache.Get(rc, cacheKey, convertedPNGKey)
+		mediaID, err = rcache.Get(rc, cacheKey, convertedPNGKey)
 		if err != nil {
 			return "", logs, false, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, convertedPNGKey)
 		} else if mediaID != "" {
@@ -4716,11 +4717,14 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 		}
 	}
 
-	mediaID, err := rcache.Get(rc, cacheKey, canonicalMediaURL)
-	if err != nil {
-		return "", logs, false, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, canonicalMediaURL)
-	} else if mediaID != "" {
-		return mediaID, logs, false, nil
+	// Forced image headers must not reuse a plain-key entry from an earlier sticker WebP upload.
+	if !forceConvertWebP || !webpLike {
+		mediaID, err = rcache.Get(rc, cacheKey, canonicalMediaURL)
+		if err != nil {
+			return "", logs, false, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, canonicalMediaURL)
+		} else if mediaID != "" {
+			return mediaID, logs, false, nil
+		}
 	}
 
 	failKey := fmt.Sprintf("%s-%s", msg.Channel().UUID().String(), canonicalMediaURL)

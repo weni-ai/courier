@@ -4701,6 +4701,14 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 		} else if mediaID != "" {
 			return mediaID, logs, true, nil
 		}
+		if !webpLike {
+			mediaID, err = rcache.Get(rc, cacheKey, canonicalMediaURL)
+			if err != nil {
+				return "", logs, false, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, canonicalMediaURL)
+			} else if mediaID != "" {
+				return mediaID, logs, false, nil
+			}
+		}
 	} else if !webpLike {
 		mediaID, err = rcache.Get(rc, cacheKey, canonicalMediaURL)
 		if err != nil {

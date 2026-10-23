@@ -1,3 +1,9 @@
+1.74.0
+----------
+ * feat: presign attachment URLs in memory at send time
+ * feat: add StripPresignParams to get a stable canonical media URL
+ * fix: handle presigned and private media in WhatsApp handlers
+
 1.73.0
 ----------
  * refactor: enhance Teams handler with single-tenant token support

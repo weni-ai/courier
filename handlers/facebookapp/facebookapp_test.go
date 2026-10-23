@@ -2502,6 +2502,170 @@ func TestSending(t *testing.T) {
 	RunChannelActionTestCases(t, ChannelWAC, newHandler("WAC", "Cloud API WhatsApp", false), ActionTestCasesWAC, nil)
 }
 
+func TestSendingPresignedMedia(t *testing.T) {
+	mediaServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		defer req.Body.Close()
+		res.WriteHeader(200)
+		res.Write([]byte("media bytes"))
+	}))
+	defer mediaServer.Close()
+
+	webpMediaServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		defer req.Body.Close()
+		res.WriteHeader(200)
+		res.Write(handlers.MinimalWebPBytes())
+	}))
+	defer webpMediaServer.Close()
+
+	imageURL := mediaServer.URL + "/presigned-image.jpg"
+	headerURL := webpMediaServer.URL + "/presigned-header.webp"
+	card1URL := webpMediaServer.URL + "/presigned-card1.webp"
+	card2URL := webpMediaServer.URL + "/presigned-card2.webp"
+	firstSignature := "?X-Amz-Date=20261021T120000Z&X-Amz-Signature=aaa"
+	secondSignature := "?X-Amz-Date=20261022T090000Z&X-Amz-Signature=bbb"
+	templateMetadata := json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "namespace": "wa_template_namespace", "language": "eng", "country": "US", "variables": ["Chef", "tomorrow"]}}`)
+	signPublicMedia := func(mb *courier.MockBackend) {
+		mb.SetAttachmentURLSigner(func(url string) (string, error) {
+			return url + "?X-Amz-Signature=signed", nil
+		})
+	}
+
+	testCases := []ChannelSendTestCase{
+		{Label: "Image Send with presigned URL uploads media",
+			Text: "image caption", URN: "whatsapp:250788123123",
+			Status: "W", ExternalID: "157b5e14568e8",
+			Attachments: []string{"image/jpeg:" + imageURL + firstSignature},
+			Responses: map[MockedRequest]MockedResponse{
+				{
+					Method:       "POST",
+					Path:         "/12345_ID/media",
+					BodyContains: `filename="presigned-image.jpg"`,
+				}: {
+					Status: 201,
+					Body:   `{"id":"presigned-image-id"}`,
+				},
+				{
+					Method: "POST",
+					Path:   "/12345_ID/messages",
+					Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"id":"presigned-image-id","caption":"image caption"}}`,
+				}: {
+					Status: 201,
+					Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+				},
+			},
+			SendPrep: setSendURL},
+		{Label: "Image Send with a new signature for the same media uses the cached media id",
+			Text: "image caption", URN: "whatsapp:250788123123",
+			Status: "W", ExternalID: "157b5e14568e8",
+			Attachments: []string{"image/jpeg:" + imageURL + secondSignature},
+			Responses: map[MockedRequest]MockedResponse{
+				{
+					Method: "POST",
+					Path:   "/12345_ID/messages",
+					Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"id":"presigned-image-id","caption":"image caption"}}`,
+				}: {
+					Status: 201,
+					Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+				},
+			},
+			SendPrep: setSendURL},
+		{Label: "Template Send with presigned WebP header uploads it as PNG",
+			Text: "Media Message Msg", URN: "whatsapp:250788123123",
+			Status: "W", ExternalID: "157b5e14568e8",
+			Metadata:    templateMetadata,
+			Attachments: []string{"image/webp:" + headerURL + firstSignature},
+			Responses: map[MockedRequest]MockedResponse{
+				{
+					Method:       "POST",
+					Path:         "/12345_ID/media",
+					BodyContains: `filename="presigned-header.png"`,
+				}: {
+					Status: 201,
+					Body:   `{"id":"presigned-header-id"}`,
+				},
+				{
+					Method:       "POST",
+					Path:         "/12345_ID/messages",
+					BodyContains: `{"type":"header","parameters":[{"type":"image","image":{"id":"presigned-header-id"}}]}`,
+				}: {
+					Status: 201,
+					Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+				},
+			},
+			SendPrep: setSendURL},
+		{Label: "Template Send with a new signature for the same WebP header uses the cached media id",
+			Text: "Media Message Msg", URN: "whatsapp:250788123123",
+			Status: "W", ExternalID: "157b5e14568e8",
+			Metadata:    templateMetadata,
+			Attachments: []string{"image/webp:" + headerURL + secondSignature},
+			Responses: map[MockedRequest]MockedResponse{
+				{
+					Method:       "POST",
+					Path:         "/12345_ID/messages",
+					BodyContains: `{"type":"header","parameters":[{"type":"image","image":{"id":"presigned-header-id"}}]}`,
+				}: {
+					Status: 201,
+					Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+				},
+			},
+			SendPrep: setSendURL},
+		{Label: "Interactive Carousel Send with presigned WebP images links to the signed PNGs",
+			Text: "Browse our collection", URN: "whatsapp:250788123123",
+			Status: "W", ExternalID: "157b5e14568e8",
+			Attachments: []string{
+				"image/webp:" + card1URL + firstSignature,
+				"image/webp:" + card2URL + secondSignature,
+			},
+			Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}]},{"body":"Card 2","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}]}]}`),
+			ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+			RequestBody: fmt.Sprintf(`{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"carousel","body":{"text":"Browse our collection"},"action":{"cards":[{"card_index":0,"type":"cta_url","header":{"type":"image","image":{"link":"%s"}},"body":{"text":"Card 1"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}},{"card_index":1,"type":"cta_url","header":{"type":"image","image":{"link":"%s"}},"body":{"text":"Card 2"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}}]}}}`, mockPublicMediaURL(card1URL)+"?X-Amz-Signature=signed", mockPublicMediaURL(card2URL)+"?X-Amz-Signature=signed"),
+			SendPrep:    setSendURL},
+	}
+
+	channel := courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WAC", "12345_ID", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
+	RunChannelSendTestCases(t, channel, newHandler("WAC", "Cloud API WhatsApp", false), testCases, signPublicMedia)
+}
+
+func TestReplaceWebPExtension(t *testing.T) {
+	tcs := []struct {
+		label    string
+		mediaURL string
+		expected string
+	}{
+		{
+			label:    "webp extension is replaced",
+			mediaURL: "https://foo.bar/media/image.webp",
+			expected: "https://foo.bar/media/image.png",
+		},
+		{
+			label:    "missing extension is appended",
+			mediaURL: "https://foo.bar/media/image",
+			expected: "https://foo.bar/media/image.png",
+		},
+		{
+			label:    "presign query is kept after the new extension",
+			mediaURL: "https://bucket.s3.amazonaws.com/media/image.webp?X-Amz-Date=20261021T120000Z&X-Amz-Signature=aaa",
+			expected: "https://bucket.s3.amazonaws.com/media/image.png?X-Amz-Date=20261021T120000Z&X-Amz-Signature=aaa",
+		},
+		{
+			label:    "encoded path is kept",
+			mediaURL: "https://foo.bar/media/foo%2F1%C2%AA-edicao.webp?X-Amz-Signature=aaa",
+			expected: "https://foo.bar/media/foo%2F1%C2%AA-edicao.png?X-Amz-Signature=aaa",
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.label, func(t *testing.T) {
+			got, err := replaceWebPExtension(tc.mediaURL, ".png")
+			assert.NoError(t, err)
+			assert.Equal(t, tc.expected, got)
+		})
+	}
+
+	_, err := replaceWebPExtension("http://[::1", ".png")
+	assert.Error(t, err)
+}
+
 func TestSigning(t *testing.T) {
 	tcs := []struct {
 		Body      string

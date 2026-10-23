@@ -833,6 +833,11 @@ func (m *DBMsg) WithURNAuth(auth string) courier.Msg {
 	return m
 }
 
+func (m *DBMsg) WithAttachments(attachments []string) courier.Msg {
+	m.Attachments_ = attachments
+	return m
+}
+
 func GetMsg(b *backend, id courier.MsgID) (*DBMsg, error) {
 	m := &DBMsg{
 		ID_: id,

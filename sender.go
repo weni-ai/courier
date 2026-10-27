@@ -172,6 +172,27 @@ func (w *Sender) Stop() {
 	close(w.job)
 }
 
+// signAttachments returns the attachments with their S3 URLs presigned, keeping the original URL of any that fails
+func signAttachments(ctx context.Context, backend Backend, attachments []string, log *logrus.Entry) []string {
+	signed := make([]string, len(attachments))
+	for i, attachment := range attachments {
+		signed[i] = attachment
+
+		attType, attURL := SplitAttachment(attachment)
+		if attType == "geo" {
+			continue
+		}
+
+		signedURL, err := backend.SignAttachmentURL(ctx, attURL)
+		if err != nil {
+			log.WithError(err).WithField("attachment", attachment).Error("error presigning attachment URL")
+			continue
+		}
+		signed[i] = attType + ":" + signedURL
+	}
+	return signed
+}
+
 func (w *Sender) sendMessage(msg Msg) {
 	// --- HANDLE MESSAGE ACTION (non-blocking) ---
 	if msg.ActionType() == MsgActionTypingIndicator {
@@ -208,6 +229,7 @@ func (w *Sender) sendMessage(msg Msg) {
 	log = log.WithField("msg_id", msg.ID().String()).WithField("msg_text", msg.Text()).WithField("msg_urn", msg.URN().Identity())
 	if len(msg.Attachments()) > 0 {
 		log = log.WithField("attachments", msg.Attachments())
+		msg = msg.WithAttachments(signAttachments(sendCTX, backend, msg.Attachments(), log))
 	}
 	if len(msg.QuickReplies()) > 0 {
 		log = log.WithField("quick_replies", msg.QuickReplies())
@@ -315,6 +337,8 @@ func (w *Sender) sendMessage(msg Msg) {
 				templateVariables,
 				msg.BroadcastID(),
 			)
+			templateMsg.TemplateNamedVariables = templatingData.NamedVariables
+			templateMsg.ParameterFormat = templatingData.ParameterFormat
 			w.foreman.server.Templates().SendAsync(templateMsg, templates.RoutingKeySend, nil, nil)
 		}
 	}

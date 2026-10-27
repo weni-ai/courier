@@ -2,6 +2,7 @@ package courier
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ func TestServer(t *testing.T) {
 	config := NewConfig()
 	config.StatusUsername = "admin"
 	config.StatusPassword = "password123"
+	config.EnablePprof = false
 
 	server := NewServerWithLogger(config, NewMockBackend(), logger)
 	server.Start()
@@ -83,6 +85,20 @@ func TestServer(t *testing.T) {
 	rr, err = utils.MakeHTTPRequest(req)
 	assert.NoError(t, err)
 	assert.Equal(t, 200, rr.StatusCode)
+}
+
+func TestServerDoesNotCompressResponses(t *testing.T) {
+	server := NewServerWithLogger(NewConfig(), NewMockBackend(), logrus.New())
+
+	req := httptest.NewRequest(http.MethodGet, "/not-a-route", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	rr := httptest.NewRecorder()
+
+	server.Router().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+	assert.Empty(t, rr.Header().Get("Content-Encoding"))
+	assert.Contains(t, rr.Body.String(), "not found")
 }
 
 func TestSanitizeBody(t *testing.T) {

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 
@@ -118,11 +117,10 @@ func SendWebhooks(r *http.Request, url_ string, tokenFlows string, isIntegration
 		url_ = parsedURL.String()
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := ReadBody(r, 1000000)
 	if err != nil {
 		return err
 	}
-	defer r.Body.Close()
 
 	// try to decode our envelope
 	if err := json.Unmarshal(body, moTemplatesPayload); err != nil {

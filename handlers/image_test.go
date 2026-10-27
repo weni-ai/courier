@@ -1,12 +1,64 @@
 package handlers
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+// animated512WebPTestBytes builds a minimal extended WebP with VP8X 512x512 canvas and ANIM marker.
+// It is not a playable animation but matches what animated stickers look like at the container level.
+func animated512WebPTestBytes() []byte {
+	vp8xPayload := []byte{
+		0x10, 0, 0, 0, // animation flag
+		0xff, 0x01, 0x00, // canvas width - 1 (512)
+		0xff, 0x01, 0x00, // canvas height - 1 (512)
+	}
+	var buf bytes.Buffer
+	buf.WriteString("RIFF")
+	sizePos := buf.Len()
+	buf.Write([]byte{0, 0, 0, 0})
+	buf.WriteString("WEBP")
+	buf.WriteString("VP8X")
+	buf.Write([]byte{10, 0, 0, 0})
+	buf.Write(vp8xPayload)
+	buf.WriteString("ANIM")
+
+	data := buf.Bytes()
+	chunkSize := uint32(len(data) - 8)
+	data[sizePos] = byte(chunkSize)
+	data[sizePos+1] = byte(chunkSize >> 8)
+	data[sizePos+2] = byte(chunkSize >> 16)
+	data[sizePos+3] = byte(chunkSize >> 24)
+	return data
+}
+
+func TestWebpCanvasSize(t *testing.T) {
+	w, h, ok := webpCanvasSize(Sticker512WebPBytes())
+	assert.True(t, ok)
+	assert.Equal(t, 512, w)
+	assert.Equal(t, 512, h)
+
+	w, h, ok = webpCanvasSize(animated512WebPTestBytes())
+	assert.True(t, ok)
+	assert.Equal(t, 512, w)
+	assert.Equal(t, 512, h)
+
+	_, _, ok = webpCanvasSize([]byte("not webp"))
+	assert.False(t, ok)
+}
+
+func TestIsWhatsAppStickerWebP(t *testing.T) {
+	assert.False(t, IsWhatsAppStickerWebP(nil))
+	assert.False(t, IsWhatsAppStickerWebP([]byte("not webp")))
+	assert.False(t, IsWhatsAppStickerWebP(createValidWebPImage()))
+	assert.False(t, IsWhatsAppStickerWebP(MinimalWebPBytes()))
+	assert.True(t, IsWhatsAppStickerWebP(Sticker512WebPBytes()))
+	assert.True(t, IsWhatsAppStickerWebP(animated512WebPTestBytes()))
+}
 
 func TestIsWebPImage(t *testing.T) {
 	tests := []struct {

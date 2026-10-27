@@ -15,12 +15,12 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/buger/jsonparser"
-	"github.com/gabriel-vasile/mimetype"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/billing"
 	"github.com/nyaruka/courier/handlers"
@@ -131,6 +131,48 @@ func waTemplateTypeFromMetadata(metadata json.RawMessage) (templateType string) 
 	return mapped
 }
 
+// wacWebhookRouting is the result of scanning every entry and change of a
+// whatsapp_business_account payload. Meta batches events, so a single request
+// can require forwarding to integrations and still carry message events that
+// belong to a channel.
+type wacWebhookRouting struct {
+	hasChanges     bool
+	toIntegrations bool
+	toFlows        bool
+	channelAddress string
+	multipleAddrs  bool
+}
+
+func routeWhatsAppChanges(payload *moPayload) wacWebhookRouting {
+	var routing wacWebhookRouting
+
+	for _, entry := range payload.Entry {
+		for _, change := range entry.Changes {
+			routing.hasChanges = true
+
+			if integrationWebhookFields[change.Field] {
+				routing.toIntegrations = true
+				continue
+			}
+			if change.Field == "flows" {
+				routing.toFlows = true
+				continue
+			}
+			phoneNumberID := wacPhoneNumberID(change.Value.Metadata, change.Value.Recipient)
+			if phoneNumberID == "" {
+				continue
+			}
+			if routing.channelAddress == "" {
+				routing.channelAddress = phoneNumberID
+			} else if routing.channelAddress != phoneNumberID {
+				routing.multipleAddrs = true
+			}
+		}
+	}
+
+	return routing
+}
+
 var waIgnoreStatuses = map[string]bool{
 	"deleted": true,
 }
@@ -157,6 +199,13 @@ var integrationWebhookFields = map[string]bool{
 	"account_update":                      true,
 	"template_correct_category_detection": true,
 }
+
+const (
+	wacBusinessUsernameUpdatesField = "business_username_updates"
+	wacUsernameStatusApproved       = "approved"
+	configKeyWAUsername             = "wa_username"
+	contactFieldWAUsername          = "whatsapp_username"
+)
 
 func newHandler(channelType courier.ChannelType, name string, useUUIDRoutes bool) courier.ChannelHandler {
 	return &handler{handlers.NewBaseHandlerWithParams(channelType, name, useUUIDRoutes)}
@@ -251,6 +300,7 @@ type moPayload struct {
 					ID               string `json:"id"`
 					MediaProductType string `json:"media_product_type"`
 					OriginalMediaID  string `json:"original_media_id"`
+					Caption          string `json:"caption"`
 				}
 				Text             string `json:"text"`
 				MessagingProduct string `json:"messaging_product"`
@@ -258,7 +308,13 @@ type moPayload struct {
 					DisplayPhoneNumber string `json:"display_phone_number"`
 					PhoneNumberID      string `json:"phone_number_id"`
 				} `json:"metadata"`
-				Contacts []struct {
+				Recipient           *wacHandoverRecipient     `json:"recipient"`
+				Sender              *wacHandoverSender        `json:"sender"`
+				Timestamp           string                    `json:"timestamp"`
+				Type                string                    `json:"type"`
+				ControlPassed       *wacHandoverControlPassed `json:"control_passed"`
+				ConversationContext *wacConversationContext   `json:"conversation_context"`
+				Contacts            []struct {
 					Profile struct {
 						Name     string `json:"name"`
 						Username string `json:"username,omitempty"`
@@ -394,6 +450,8 @@ type moPayload struct {
 				CurrentLimit                 string `json:"current_limit"`
 				Decision                     string `json:"decision"`
 				DisplayPhoneNumber           string `json:"display_phone_number"`
+				Username                     string `json:"username"`
+				Status                       string `json:"status"`
 				Event                        string `json:"event"`
 				MaxDailyConversationPerPhone int    `json:"max_daily_conversation_per_phone"`
 				MaxPhoneNumbersPerBusiness   int    `json:"max_phone_numbers_per_business"`
@@ -575,24 +633,64 @@ func processWACButtonMetadata(button *struct {
 	}
 }
 
-// addSecondaryURN creates a WhatsApp URN from the given identifier and adds it
-// to the contact that owns primaryURN. Errors are silently ignored so that a
-// failure to attach a secondary URN never blocks message processing.
-func (h *handler) addSecondaryURN(ctx context.Context, channel courier.Channel, primaryURN urns.URN, identifier string) {
-	secondaryURN, err := urns.NewWhatsAppURN(identifier)
-	if err != nil {
-		return
-	}
-	contact, err := h.Backend().GetContact(ctx, channel, primaryURN, "", "")
-	if err != nil {
-		return
-	}
-	h.Backend().AddURNtoContact(ctx, channel, contact, secondaryURN)
-}
-
 type bsuidUpdate struct {
 	Previous string
 	Current  string
+}
+
+// replaceWhatsAppBSUIDOnContact swaps any existing WhatsApp BSUID on the contact for newBSUID.
+// Errors are silently ignored so that a failure never blocks message processing.
+func (h *handler) replaceWhatsAppBSUIDOnContact(ctx context.Context, channel courier.Channel, contact courier.Contact, newBSUID urns.URN) {
+	if !courier.IsWhatsAppBSUIDPath(newBSUID.Path()) {
+		return
+	}
+	_, _ = h.Backend().ReplaceWhatsAppBSUIDOnContact(ctx, channel, contact, newBSUID)
+}
+
+// applyWACSendResponseContactURNs syncs BSUID and wa_id URNs returned by the WhatsApp send API
+// onto the contact that received the message. waIDAdded is true when a corrected phone URN was
+// added. abortSend is true when the returned wa_id could not be parsed as a URN.
+func (h *handler) applyWACSendResponseContactURNs(ctx context.Context, msg courier.Msg, userID, waID string, status courier.MsgStatus, start time.Time) (waIDAdded, abortSend bool) {
+	sentPath := msg.URN().Path()
+	needsBSUID := userID != "" && userID != sentPath
+	needsWaID := waID != "" && waID != sentPath
+	if !needsBSUID && !needsWaID {
+		return false, false
+	}
+
+	contact, contactErr := h.Backend().GetContact(ctx, msg.Channel(), msg.URN(), "", "")
+	if contactErr != nil {
+		if needsBSUID {
+			status.AddLog(courier.NewChannelLogFromError("unable to get contact for BSUID URN", msg.Channel(), msg.ID(), time.Since(start), contactErr))
+		}
+		if needsWaID {
+			status.AddLog(courier.NewChannelLogFromError("unable to get contact for new URN", msg.Channel(), msg.ID(), time.Since(start), contactErr))
+		}
+		return false, false
+	}
+
+	if needsBSUID {
+		bsuidURN, err := urns.NewWhatsAppURN(userID)
+		if err == nil {
+			if _, err := h.Backend().ReplaceWhatsAppBSUIDOnContact(ctx, msg.Channel(), contact, bsuidURN); err != nil {
+				status.AddLog(courier.NewChannelLogFromError("unable to replace BSUID URN on contact", msg.Channel(), msg.ID(), time.Since(start), err))
+			}
+		}
+	}
+
+	if needsWaID {
+		toUpdateURN, err := urns.NewWhatsAppURN(waID)
+		if err != nil {
+			return false, true
+		}
+		if _, err := h.Backend().AddURNtoContact(ctx, msg.Channel(), contact, toUpdateURN); err != nil {
+			status.AddLog(courier.NewChannelLogFromError("unable to add new URN to contact", msg.Channel(), msg.ID(), time.Since(start), err))
+			return false, false
+		}
+		return true, false
+	}
+
+	return false, false
 }
 
 // processUserIDURNUpdate swaps an old BSUID URN for a new one on the contact
@@ -609,17 +707,13 @@ func (h *handler) processUserIDURNUpdate(ctx context.Context, channel courier.Ch
 		return "", fmt.Errorf("user_id_update: invalid new %s URN: %w", label, err)
 	}
 
-	contact, err := h.Backend().GetContact(ctx, channel, oldURN, "", "")
+	contact, err := h.Backend().FindContact(ctx, channel, oldURN)
 	if err != nil {
 		return "", fmt.Errorf("user_id_update: contact not found for old %s %s: %w", label, upd.Previous, err)
 	}
 
-	if _, err := h.Backend().AddURNtoContact(ctx, channel, contact, newURN); err != nil {
-		return "", fmt.Errorf("user_id_update: failed to add new %s URN: %w", label, err)
-	}
-
-	if _, err := h.Backend().RemoveURNfromContact(ctx, channel, contact, oldURN); err != nil {
-		logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Errorf("user_id_update: failed to remove old %s URN", label)
+	if _, err := h.Backend().ReplaceWhatsAppBSUIDOnContact(ctx, channel, contact, newURN); err != nil {
+		return "", fmt.Errorf("user_id_update: failed to replace %s URN: %w", label, err)
 	}
 
 	logrus.WithField("channel_uuid", channel.UUID()).
@@ -628,6 +722,66 @@ func (h *handler) processUserIDURNUpdate(ctx context.Context, channel courier.Ch
 		Infof("user_id_update: successfully updated %s URN", label)
 
 	return fmt.Sprintf("user_id_update: %s updated from %s to %s", label, upd.Previous, upd.Current), nil
+}
+
+// processBusinessUsernameUpdate stores the approved business username on the channel config.
+func (h *handler) processBusinessUsernameUpdate(ctx context.Context, channel courier.Channel, username, status string) (string, error) {
+	if status != wacUsernameStatusApproved {
+		return fmt.Sprintf("business_username_updates: ignoring status %q", status), nil
+	}
+
+	newUsername := username
+	if newUsername == "" {
+		return "", fmt.Errorf("business_username_updates: missing username")
+	}
+
+	oldUsername := channel.StringConfigForKey(configKeyWAUsername, "")
+
+	config := channel.Config()
+	mergedConfig := make(map[string]interface{}, len(config)+1)
+	for key, value := range config {
+		mergedConfig[key] = value
+	}
+	mergedConfig[configKeyWAUsername] = newUsername
+
+	if err := h.Backend().UpdateChannelConfig(ctx, channel, mergedConfig); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("business_username_updates: username updated from %s to %s", oldUsername, newUsername), nil
+}
+
+// contactUsernameFieldsIfChanged returns whatsapp_username fields to apply when newUsername
+// differs from the stored value. For new contacts the fields are returned so they can be
+// attached to the incoming message.
+func (h *handler) contactUsernameFieldsIfChanged(ctx context.Context, channel courier.Channel, urn urns.URN, newUsername string) (map[string]string, string, error) {
+	if newUsername == "" {
+		return nil, "", nil
+	}
+
+	contact, err := h.Backend().FindContact(ctx, channel, urn)
+	if err == courier.ErrContactNotFound {
+		return map[string]string{contactFieldWAUsername: newUsername},
+			fmt.Sprintf("username_update: username set to %s", newUsername), nil
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("username_update: contact lookup failed: %w", err)
+	}
+
+	oldUsername, err := h.Backend().GetContactFieldValue(ctx, channel, contact, contactFieldWAUsername)
+	if err != nil {
+		return nil, "", fmt.Errorf("username_update: failed to read current username: %w", err)
+	}
+	if oldUsername == newUsername {
+		return nil, "", nil
+	}
+
+	info := fmt.Sprintf("username_update: username updated from %s to %s", oldUsername, newUsername)
+	if oldUsername == "" {
+		info = fmt.Sprintf("username_update: username set to %s", newUsername)
+	}
+
+	return map[string]string{contactFieldWAUsername: newUsername}, info, nil
 }
 
 // addMetadataWithOverwrite adds metadata to both the root level and overwrite_message field
@@ -681,19 +835,14 @@ func addMetadataWithOverwrite(event courier.Msg, metadataToAdd map[string]interf
 }
 
 type IGComment struct {
-	Text string `json:"text,omitempty"`
-	From struct {
-		ID       string `json:"id,omitempty"`
-		Username string `json:"username,omitempty"`
-	} `json:"from,omitempty"`
+	ID    string `json:"id,omitempty"`
 	Media struct {
 		AdID             string `json:"ad_id,omitempty"`
 		ID               string `json:"id,omitempty"`
 		MediaProductType string `json:"media_product_type,omitempty"`
 		OriginalMediaID  string `json:"original_media_id,omitempty"`
+		Caption          string `json:"caption,omitempty"`
 	} `json:"media,omitempty"`
-	Time int64  `json:"time,omitempty"`
-	ID   string `json:"id,omitempty"`
 }
 
 type FeedbackQuestion struct {
@@ -737,47 +886,40 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 		channelAddress = payload.Entry[0].ID
 		return h.Backend().GetChannelByAddress(ctx, courier.ChannelType("IG"), courier.ChannelAddress(channelAddress))
 	} else {
-		if len(payload.Entry[0].Changes) == 0 {
+		routing := routeWhatsAppChanges(payload)
+		if !routing.hasChanges {
 			return nil, fmt.Errorf("no changes found")
 		}
-		if integrationWebhookFields[payload.Entry[0].Changes[0].Field] {
-			logrus.WithField("field", payload.Entry[0].Changes[0].Field).Info("[integration_webhook] receiving integration webhook")
-			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, "", true)
-			if er != nil {
+
+		if routing.toIntegrations {
+			logrus.Info("[integration_webhook] receiving integration webhook")
+			if er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, "", true); er != nil {
 				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
 			}
-
-			if payload.Entry[0].Changes[0].Field == "account_update" {
-				logrus.WithField("event", payload.Entry[0].Changes[0].Value.Event).WithField("waba_info", payload.Entry[0].Changes[0].Value.WabaInfo).Info("[account_update] receiving account_update webhook")
-				// Handle account_update webhook type
-				if payload.Entry[0].Changes[0].Value.Event == "MM_LITE_TERMS_SIGNED" && payload.Entry[0].Changes[0].Value.WabaInfo != nil {
-					logrus.WithField("waba_id", payload.Entry[0].Changes[0].Value.WabaInfo.WabaID).Info("[mmlite] MM_LITE_TERMS_SIGNED event detected for waba_id")
-					wabaID := payload.Entry[0].Changes[0].Value.WabaInfo.WabaID
-
-					// Update channel config with ad_account_id and mmlite for all channels with matching waba_id
-					err := h.Backend().UpdateChannelConfigByWabaID(ctx, wabaID, map[string]interface{}{
-						"mmlite": true,
-					})
-					if err != nil {
-						logrus.WithError(err).WithField("waba_id", wabaID).Error("[mmlite] error updating channel config with waba_id")
-						return nil, fmt.Errorf("error updating channel config with waba_id %s: %v", wabaID, err)
-					}
-					logrus.WithField("waba_id", wabaID).Info("[mmlite] channel config updated with waba_id")
-				}
+			if err := h.handleMMLiteTermsSigned(ctx, payload); err != nil {
+				return nil, err
 			}
-
-			return nil, fmt.Errorf("template update, so ignore")
-		} else if payload.Entry[0].Changes[0].Field == "flows" {
-			er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrlFlows, h.Server().Config().WhatsappCloudWebhooksTokenFlows, false)
-			if er != nil {
-				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
-			}
-			return nil, fmt.Errorf("template update, so ignore")
 		}
-		channelAddress = payload.Entry[0].Changes[0].Value.Metadata.PhoneNumberID
-		if channelAddress == "" {
+
+		if routing.toFlows {
+			if er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrlFlows, h.Server().Config().WhatsappCloudWebhooksTokenFlows, false); er != nil {
+				courier.LogRequestError(r, nil, fmt.Errorf("could not send flows webhook: %s", er))
+			}
+		}
+
+		if routing.channelAddress == "" {
+			if routing.toIntegrations || routing.toFlows {
+				return nil, fmt.Errorf("template update, so ignore")
+			}
 			return nil, fmt.Errorf("no channel address found")
 		}
+
+		if routing.multipleAddrs {
+			logrus.WithField("phone_number_id", routing.channelAddress).
+				Warn("batched webhook carries more than one phone_number_id; resolving the first")
+		}
+
+		channelAddress = routing.channelAddress
 
 		// get a value if exists from request header to a variable routerToken
 		routerToken := r.Header.Get("X-Router-Token")
@@ -787,6 +929,25 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 
 		return h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WAC"), courier.ChannelAddress(channelAddress))
 	}
+}
+
+func (h *handler) handleMMLiteTermsSigned(ctx context.Context, payload *moPayload) error {
+	var lastErr error
+	for _, entry := range payload.Entry {
+		for _, change := range entry.Changes {
+			if change.Field != "account_update" || change.Value.Event != "MM_LITE_TERMS_SIGNED" || change.Value.WabaInfo == nil {
+				continue
+			}
+			wabaID := change.Value.WabaInfo.WabaID
+			if err := h.Backend().UpdateChannelConfigByWabaID(ctx, wabaID, map[string]interface{}{"mmlite": true}); err != nil {
+				logrus.WithError(err).WithField("waba_id", wabaID).Error("[mmlite] error updating channel config with waba_id")
+				lastErr = errors.Wrapf(err, "error updating channel config with waba_id %s", wabaID)
+				continue
+			}
+			logrus.WithField("waba_id", wabaID).Info("[mmlite] channel config updated with waba_id")
+		}
+	}
+	return lastErr
 }
 
 // receiveVerify handles Facebook's webhook verification callback
@@ -942,6 +1103,48 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 
 		for _, change := range entry.Changes {
 
+			if change.Field == wacBusinessUsernameUpdatesField {
+				info, err := h.processBusinessUsernameUpdate(ctx, channel, change.Value.Username, change.Value.Status)
+				if err != nil {
+					logrus.WithField("channel_uuid", channel.UUID()).WithError(err).Warn(err.Error())
+					data = append(data, courier.NewInfoData(err.Error()))
+					continue
+				}
+				data = append(data, courier.NewInfoData(info))
+				continue
+			}
+
+			if change.Field == wacStandbyField {
+				logrus.WithField("channel_uuid", channel.UUID()).Info("ignoring standby webhook")
+				data = append(data, courier.NewInfoData("ignoring standby webhook"))
+				continue
+			}
+
+			if change.Field == wacMessagingHandoversField {
+				handoverContacts := make([]wacHandoverContact, 0, len(change.Value.Contacts))
+				for _, contact := range change.Value.Contacts {
+					handoverContacts = append(handoverContacts, wacHandoverContact{
+						WaID:   contact.WaID,
+						UserID: contact.UserID,
+					})
+					handoverContacts[len(handoverContacts)-1].Profile.Name = contact.Profile.Name
+				}
+
+				info, err := h.processMessagingHandover(ctx, channel, wacHandoverValue{
+					Timestamp:           change.Value.Timestamp,
+					Type:                change.Value.Type,
+					Sender:              change.Value.Sender,
+					ControlPassed:       change.Value.ControlPassed,
+					ConversationContext: change.Value.ConversationContext,
+					Contacts:            handoverContacts,
+				}, entry.Time, r)
+				if err != nil {
+					return nil, nil, err
+				}
+				data = append(data, courier.NewInfoData(info))
+				continue
+			}
+
 			for _, contact := range change.Value.Contacts {
 				if contact.WaID != "" {
 					contactNames[contact.WaID] = contact.Profile.Name
@@ -950,11 +1153,14 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					contactNames[contact.UserID] = contact.Profile.Name
 				}
 				if contact.Profile.Username != "" {
-					if contact.WaID != "" {
-						contactUsernames[contact.WaID] = contact.Profile.Username
-					}
-					if contact.UserID != "" {
-						contactUsernames[contact.UserID] = contact.Profile.Username
+					username := contact.Profile.Username
+					if username != "" {
+						if contact.WaID != "" {
+							contactUsernames[contact.WaID] = username
+						}
+						if contact.UserID != "" {
+							contactUsernames[contact.UserID] = username
+						}
 					}
 				}
 			}
@@ -1078,17 +1284,18 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				// create our message
 				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithReceivedOn(date).WithExternalID(msg.ID).WithContactName(contactName)
 
-				// store username as contact field
-				contactFields := map[string]string{}
 				username := contactUsernames[msg.From]
 				if username == "" {
 					username = contactUsernames[msg.FromUserID]
 				}
+				var usernameUpdateInfo string
 				if username != "" {
-					contactFields["whatsapp_username"] = username
-				}
-				if len(contactFields) > 0 {
-					ev.WithNewContactFields(contactFields)
+					if fields, info, usernameErr := h.contactUsernameFieldsIfChanged(ctx, channel, urn, username); usernameErr != nil {
+						logrus.WithField("channel_uuid", channel.UUID()).WithError(usernameErr).Warn(usernameErr.Error())
+					} else if fields != nil {
+						ev.WithNewContactFields(fields)
+						usernameUpdateInfo = info
+					}
 				}
 
 				event := h.Backend().CheckExternalIDSeen(ev)
@@ -1137,13 +1344,32 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					if err := addMetadataWithOverwrite(event, referralMetadata); err != nil {
 						courier.LogRequestError(r, channel, err)
 					}
+				}
 
-					if msg.Referral.CtwaClid != "" {
-						// Write ctwa data to database
-						err := h.Backend().WriteCtwaToDB(ctx, msg.Referral.CtwaClid, urn, date, channel.UUID(), entry.ID)
-						if err != nil {
-							courier.LogRequestError(r, channel, fmt.Errorf("error writing ctwa data: %v", err))
-						}
+				if msg.Referral.SourceID != "" && msg.Referral.SourceType != "" && msg.Referral.CtwaClid != "" {
+					phoneNumberID := ""
+					if change.Value.Metadata != nil {
+						phoneNumberID = change.Value.Metadata.PhoneNumberID
+					}
+
+					err := h.Backend().WriteCtwaToDB(ctx, courier.CtwaEvent{
+						CtwaClid:      msg.Referral.CtwaClid,
+						ContactUrn:    urn,
+						Timestamp:     date,
+						ChannelUUID:   channel.UUID(),
+						Waba:          entry.ID,
+						PhoneNumberID: phoneNumberID,
+						MessageID:     msg.ID,
+						Referral: courier.CtwaReferralSource{
+							SourceID:   msg.Referral.SourceID,
+							SourceType: msg.Referral.SourceType,
+							SourceURL:  msg.Referral.SourceURL,
+							Headline:   msg.Referral.Headline,
+							Body:       msg.Referral.Body,
+						},
+					})
+					if err != nil {
+						courier.LogRequestError(r, channel, fmt.Errorf("error writing ctwa data: %v", err))
 					}
 				}
 
@@ -1167,11 +1393,15 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					return nil, nil, err
 				}
 
+				if usernameUpdateInfo != "" {
+					data = append(data, courier.NewInfoData(usernameUpdateInfo))
+				}
+
 				// add secondary URN (phone or BSUID) after contact is persisted
 				if secondaryURN != urns.NilURN {
 					contact, contactErr := h.Backend().GetContact(ctx, channel, urn, "", "")
 					if contactErr == nil {
-						h.Backend().AddURNtoContact(ctx, channel, contact, secondaryURN)
+						h.replaceWhatsAppBSUIDOnContact(ctx, channel, contact, secondaryURN)
 					}
 				}
 
@@ -1207,13 +1437,13 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					return nil, nil, err
 				}
 
+				recipientID := status.RecipientID
+				if recipientID == "" {
+					recipientID = status.RecipientUserID
+				}
+
 				if (msgStatus == courier.MsgDelivered || msgStatus == courier.MsgRead) &&
 					channel.Address() != h.Server().Config().WhatsappCloudDemoAddress {
-
-					recipientID := status.RecipientID
-					if recipientID == "" {
-						recipientID = status.RecipientUserID
-					}
 
 					if recipientID != "" {
 						urn, err := urns.NewWhatsAppURN(recipientID)
@@ -1362,6 +1592,91 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 	return events, data, nil
 }
 
+func isSkippedInstagramCommentMediaType(mediaProductType string) bool {
+	switch strings.ToUpper(mediaProductType) {
+	case "STORY", "LIVE":
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *handler) handleInstagramComment(
+	ctx context.Context,
+	channel courier.Channel,
+	commentID string,
+	commentText string,
+	fromID string,
+	mediaID string,
+	mediaAdID string,
+	mediaProductType string,
+	originalMediaID string,
+	mediaCaption string,
+	entryTime int64,
+	r *http.Request,
+) (courier.Event, interface{}, error) {
+	if commentID == "" {
+		err := fmt.Errorf("instagram comment missing identifier")
+		courier.LogRequestError(r, channel, err)
+		return nil, courier.NewInfoData(err.Error()), nil
+	}
+
+	if fromID == channel.Address() {
+		return nil, courier.NewInfoData(fmt.Sprintf("ignoring comment from our own channel: %s", fromID)), nil
+	}
+
+	if isSkippedInstagramCommentMediaType(mediaProductType) {
+		return nil, courier.NewInfoData(fmt.Sprintf("ignoring story/live comment: %s", mediaProductType)), nil
+	}
+
+	igComment := IGComment{
+		ID: commentID,
+		Media: struct {
+			AdID             string `json:"ad_id,omitempty"`
+			ID               string `json:"id,omitempty"`
+			MediaProductType string `json:"media_product_type,omitempty"`
+			OriginalMediaID  string `json:"original_media_id,omitempty"`
+			Caption          string `json:"caption,omitempty"`
+		}{
+			ID:               mediaID,
+			AdID:             mediaAdID,
+			MediaProductType: mediaProductType,
+			OriginalMediaID:  originalMediaID,
+			Caption:          mediaCaption,
+		},
+	}
+
+	urn, err := urns.NewInstagramURN(fromID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	ev := h.Backend().NewIncomingMsg(channel, urn, commentText).WithExternalID(commentID).WithReceivedOn(time.Unix(0, entryTime*1000000).UTC())
+	event := h.Backend().CheckExternalIDSeen(ev)
+
+	igCommentMetadata := map[string]interface{}{
+		"ig_comment": igComment,
+	}
+	if channel.BoolConfigForKey(courier.ConfigForwardComments, false) {
+		igResponseType := "dm_comment"
+		if channel.BoolConfigForKey(courier.ConfigReplyOnComment, false) {
+			igResponseType = "comment"
+		}
+		igCommentMetadata["ig_response_type"] = igResponseType
+	}
+	if err := addMetadataWithOverwrite(event, igCommentMetadata); err != nil {
+		courier.LogRequestError(r, channel, err)
+	}
+
+	err = h.Backend().WriteMsg(ctx, event)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	h.Backend().WriteExternalIDSeen(event)
+	return event, courier.NewMsgReceiveData(event), nil
+}
+
 func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel courier.Channel, payload *moPayload, w http.ResponseWriter, r *http.Request) ([]courier.Event, []interface{}, error) {
 	var err error
 
@@ -1375,70 +1690,34 @@ func (h *handler) processFacebookInstagramPayload(ctx context.Context, channel c
 	for _, entry := range payload.Entry {
 
 		if len(entry.Messaging) == 0 {
-			if len(entry.Changes) > 0 && entry.Changes[0].Field == "comments" {
-
-				// Check if the comment is from our own channel to prevent loops
-				// When we reply to a comment, Instagram sends a webhook about our own reply
-				if entry.Changes[0].Value.From.ID == channel.Address() {
-					data = append(data, courier.NewInfoData(fmt.Sprintf("ignoring comment from our own channel: %s", entry.Changes[0].Value.From.ID)))
+			for _, change := range entry.Changes {
+				if change.Field != "comments" {
 					continue
 				}
 
-				// Build IGComment struct and wrapper
-				wrapper := struct {
-					IGComment IGComment `json:"ig_comment"`
-				}{
-					IGComment: IGComment{
-						Text: entry.Changes[0].Value.Text,
-						From: struct {
-							ID       string `json:"id,omitempty"`
-							Username string `json:"username,omitempty"`
-						}{
-							ID:       entry.Changes[0].Value.From.ID,
-							Username: entry.Changes[0].Value.From.Username,
-						},
-						Media: struct {
-							AdID             string `json:"ad_id,omitempty"`
-							ID               string `json:"id,omitempty"`
-							MediaProductType string `json:"media_product_type,omitempty"`
-							OriginalMediaID  string `json:"original_media_id,omitempty"`
-						}{
-							ID:               entry.Changes[0].Value.Media.ID,
-							AdID:             entry.Changes[0].Value.Media.AdID,
-							MediaProductType: entry.Changes[0].Value.Media.MediaProductType,
-							OriginalMediaID:  entry.Changes[0].Value.Media.OriginalMediaID,
-						},
-						Time: entry.Time,
-						ID:   entry.Changes[0].Value.ID,
-					},
-				}
-
-				// Create message from comment
-				text := entry.Changes[0].Value.Text
-				urn, err := urns.NewInstagramURN(entry.Changes[0].Value.From.ID)
+				event, infoData, err := h.handleInstagramComment(
+					ctx,
+					channel,
+					change.Value.ID,
+					change.Value.Text,
+					change.Value.From.ID,
+					change.Value.Media.ID,
+					change.Value.Media.AdID,
+					change.Value.Media.MediaProductType,
+					change.Value.Media.OriginalMediaID,
+					change.Value.Media.Caption,
+					entry.Time,
+					r,
+				)
 				if err != nil {
 					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 				}
-
-				ev := h.Backend().NewIncomingMsg(channel, urn, text).WithExternalID(entry.Changes[0].Value.ID).WithReceivedOn(time.Unix(0, entry.Time*1000000).UTC())
-				event := h.Backend().CheckExternalIDSeen(ev)
-
-				// Add IG comment metadata to both root and overwrite_message
-				igCommentMetadata := map[string]interface{}{
-					"ig_comment": wrapper.IGComment,
+				if infoData != nil {
+					data = append(data, infoData)
 				}
-				if err := addMetadataWithOverwrite(event, igCommentMetadata); err != nil {
-					courier.LogRequestError(r, channel, err)
+				if event != nil {
+					events = append(events, event)
 				}
-				err = h.Backend().WriteMsg(ctx, event)
-				if err != nil {
-					return nil, nil, err
-				}
-
-				h.Backend().WriteExternalIDSeen(event)
-				events = append(events, event)
-				data = append(data, courier.NewMsgReceiveData(event))
-
 			}
 			continue
 		}
@@ -1912,28 +2191,49 @@ func (h *handler) sendFacebookInstagramMsg(ctx context.Context, msg courier.Msg)
 		return status, nil
 
 	} else if msg.IGCommentID() != "" && msg.Text() != "" {
-		var baseURL *url.URL
-		form := url.Values{}
-
 		commentID := msg.IGCommentID()
-		if msg.IGResponseType() == "comment" {
-			baseURL, _ = url.Parse(fmt.Sprintf(graphURL+"%s/replies", commentID))
-			form.Set("message", msg.Text())
-		} else if msg.IGResponseType() == "dm_comment" {
-			pageID := strconv.Itoa(msg.Channel().IntConfigForKey(courier.ConfigPageID, 0))
-			baseURL, _ = url.Parse(fmt.Sprintf(graphURL+"%s/messages", pageID))
-			query := baseURL.Query()
-			query.Set("recipient", fmt.Sprintf("{comment_id:%s}", commentID))
-			query.Set("message", fmt.Sprintf("{\"text\":\"%s\"}", strings.TrimSpace(msg.Text())))
-			baseURL.RawQuery = query.Encode()
+		responseType := msg.IGResponseType()
+		if responseType == "" {
+			responseType = "comment"
 		}
 
-		query := baseURL.Query()
-		query.Set("access_token", accessToken)
-		baseURL.RawQuery = query.Encode()
+		var req *http.Request
+		switch responseType {
+		case "comment":
+			replyURL, _ := url.Parse(fmt.Sprintf("%s%s/replies", graphURL, commentID))
+			form := url.Values{}
+			form.Set("message", msg.Text())
+			form.Set("access_token", accessToken)
 
-		req, _ := http.NewRequest(http.MethodPost, baseURL.String(), strings.NewReader(form.Encode()))
-		req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+			req, _ = http.NewRequest(http.MethodPost, replyURL.String(), strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		case "dm_comment":
+			messagesURL, _ := url.Parse(sendURL)
+			payloadMap := map[string]interface{}{
+				"recipient": map[string]string{
+					"comment_id": commentID,
+				},
+				"message": map[string]string{
+					"text": msg.Text(),
+				},
+			}
+			jsonBody, err := json.Marshal(payloadMap)
+			if err != nil {
+				return status, err
+			}
+
+			query := url.Values{}
+			query.Set("access_token", accessToken)
+			messagesURL.RawQuery = query.Encode()
+
+			req, _ = http.NewRequest(http.MethodPost, messagesURL.String(), bytes.NewReader(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Accept", "application/json")
+
+		default:
+			return status, fmt.Errorf("invalid ig_response_type: %s", responseType)
+		}
 
 		rr, err := utils.MakeHTTPRequest(req)
 
@@ -2085,6 +2385,14 @@ type wacMTMedia struct {
 	Filename string `json:"filename,omitempty"`
 }
 
+func newWACMedia(id, link string) (wacMTMedia, error) {
+	encoded, err := utils.EncodeMediaURL(link)
+	if err != nil {
+		return wacMTMedia{}, err
+	}
+	return wacMTMedia{ID: id, Link: encoded}, nil
+}
+
 type wacMTSection struct {
 	Title        string             `json:"title,omitempty"`
 	Rows         []wacMTSectionRow  `json:"rows,omitempty"`
@@ -2132,15 +2440,16 @@ type wacMTAction struct {
 }
 
 type wacParam struct {
-	Type        string       `json:"type"`
-	Text        string       `json:"text,omitempty"`
-	Payload     string       `json:"payload,omitempty"`
-	PhoneNumber string       `json:"phone_number,omitempty"`
-	URL         string       `json:"url,omitempty"`
-	Image       *wacMTMedia  `json:"image,omitempty"`
-	Document    *wacMTMedia  `json:"document,omitempty"`
-	Video       *wacMTMedia  `json:"video,omitempty"`
-	Action      *wacMTAction `json:"action,omitempty"`
+	Type          string       `json:"type"`
+	ParameterName string       `json:"parameter_name,omitempty"`
+	Text          string       `json:"text,omitempty"`
+	Payload       string       `json:"payload,omitempty"`
+	PhoneNumber   string       `json:"phone_number,omitempty"`
+	URL           string       `json:"url,omitempty"`
+	Image         *wacMTMedia  `json:"image,omitempty"`
+	Document      *wacMTMedia  `json:"document,omitempty"`
+	Video         *wacMTMedia  `json:"video,omitempty"`
+	Action        *wacMTAction `json:"action,omitempty"`
 }
 
 type wacComponent struct {
@@ -2208,12 +2517,26 @@ type wacInteractive[P wacInteractiveActionParams] struct {
 	} `json:"action,omitempty"`
 }
 
+type wacMTContext struct {
+	MessageID string `json:"message_id"`
+}
+
+// wacQuotedMessageID returns the WhatsApp message id to quote as a contextual reply.
+// Returns the value of metadata.response_to_external_id if present, otherwise returns empty string.
+func wacQuotedMessageID(msg courier.Msg) string {
+	if id, err := jsonparser.GetString(msg.Metadata(), "response_to_external_id"); err == nil && id != "" {
+		return id
+	}
+	return ""
+}
+
 type wacMTPayload[P wacInteractiveActionParams] struct {
-	MessagingProduct string `json:"messaging_product"`
-	RecipientType    string `json:"recipient_type"`
-	To               string `json:"to,omitempty"`
-	Recipient        string `json:"recipient,omitempty"`
-	Type             string `json:"type"`
+	MessagingProduct string        `json:"messaging_product"`
+	RecipientType    string        `json:"recipient_type"`
+	To               string        `json:"to,omitempty"`
+	Recipient        string        `json:"recipient,omitempty"`
+	Type             string        `json:"type"`
+	Context          *wacMTContext `json:"context,omitempty"`
 
 	Text *wacText `json:"text,omitempty"`
 
@@ -2451,7 +2774,10 @@ func (h *handler) fillWACPayloadByInteractionType(i int, msg courier.Msg, msgPar
 			if len(msg.Attachments()) > 0 {
 				attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
 				attType = strings.Split(attType, "/")[0]
-				media := wacMTMedia{Link: attURL}
+				media, err := newWACMedia("", attURL)
+				if err != nil {
+					return false, err
+				}
 				if attType == "image" {
 					interactive.Header = &struct {
 						Type     string      "json:\"type\""
@@ -2469,8 +2795,12 @@ func (h *handler) fillWACPayloadByInteractionType(i int, msg courier.Msg, msgPar
 	case "carousel":
 		if carousel := msg.Carousel(); carousel != nil {
 			hasCaption = true
-			payload.Type = "interactive"
-			payload.Interactive, err = h.buildInteractiveCarouselPayload(msg, accessToken, status, start)
+			if len(msg.Attachments()) == 1 {
+				err = h.buildSingleCardCarouselPayload(msg, payload)
+			} else {
+				payload.Type = "interactive"
+				payload.Interactive, err = h.buildInteractiveCarouselPayload(msg)
+			}
 			if err != nil {
 				return false, err
 			}
@@ -2578,6 +2908,14 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			payload.To = urnPath
 		} else {
 			payload.Recipient = urnPath
+		}
+
+		// Contextual reply (quote bubble). Meta does not support context on template messages;
+		// only attach to the first part when the message is split.
+		if templating == nil && i == 0 {
+			if quotedID := wacQuotedMessageID(msg); quotedID != "" {
+				payload.Context = &wacMTContext{MessageID: quotedID}
+			}
 		}
 
 		// do we have a template?
@@ -2745,17 +3083,12 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		} else if (i < len(msg.Attachments()) && len(qrs) == 0 && len(msg.ListMessage().ListItems) == 0 && msg.InteractionType() != "order_details") && msg.InteractionType() != "carousel" ||
 			len(qrs) > 3 && i < len(msg.Attachments()) ||
 			len(msg.ListMessage().ListItems) > 0 && i < len(msg.Attachments()) {
-			attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
+			declaredMIME, attURL := handlers.SplitAttachment(msg.Attachments()[i])
 			fileURL := attURL
 
-			splitedAttType := strings.Split(attType, "/")
-			attType = splitedAttType[0]
-			attFormat := ""
-			if len(splitedAttType) > 1 {
-				attFormat = splitedAttType[1]
-			}
+			attType, attFormat := wacPayloadMediaType(declaredMIME, attURL)
 
-			mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, false)
+			mediaID, mediaLogs, webpConverted, err := h.fetchWACMediaID(msg, declaredMIME, attURL, accessToken, false)
 			for _, log := range mediaLogs {
 				status.AddLog(log)
 			}
@@ -2764,24 +3097,21 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			} else if mediaID != "" {
 				attURL = ""
 			}
-			parsedURL, err := url.Parse(attURL)
+
+			payload.Type = attType
+			media, err := newWACMedia(mediaID, attURL)
 			if err != nil {
 				return status, err
 			}
-
-			if attType == "application" {
-				attType = "document"
-			}
-			payload.Type = attType
-			media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
-			if len(msgParts) == 1 && (attType != "audio" && attFormat != "webp") && len(msg.Attachments()) == 1 && len(msg.QuickReplies()) == 0 && len(msg.ListMessage().ListItems) == 0 {
+			sendAsSticker := attFormat == "webp" && !webpConverted
+			if len(msgParts) == 1 && (attType != "audio" && !sendAsSticker) && len(msg.Attachments()) == 1 && len(msg.QuickReplies()) == 0 && len(msg.ListMessage().ListItems) == 0 {
 				media.Caption = msgParts[i]
 				hasCaption = true
 			}
 
 			switch attType {
 			case "image":
-				if attFormat == "webp" {
+				if sendAsSticker {
 					payload.Sticker = &media
 					payload.Type = "sticker"
 				} else {
@@ -2818,9 +3148,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					}
 
 					if len(msg.Attachments()) > 0 {
-						attType, attURL := handlers.SplitAttachment(msg.Attachments()[i])
+						declaredMIME, attURL := handlers.SplitAttachment(msg.Attachments()[i])
 						fileURL := attURL
-						mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, false)
+						mediaID, mediaLogs, _, err := h.fetchWACMediaID(msg, declaredMIME, attURL, accessToken, false)
 						for _, log := range mediaLogs {
 							status.AddLog(log)
 						}
@@ -2829,11 +3159,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 						} else if mediaID != "" {
 							attURL = ""
 						}
-						attType = strings.Split(attType, "/")[0]
-						if attType == "application" {
-							attType = "document"
+						attType, _ := wacPayloadMediaType(declaredMIME, fileURL)
+						media, err := newWACMedia(mediaID, attURL)
+						if err != nil {
+							return nil, err
 						}
-						media := wacMTMedia{ID: mediaID, Link: attURL}
 						switch attType {
 						case "image":
 							interactive.Header = &struct {
@@ -2869,11 +3199,16 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 							if i == 0 {
 								zeroIndex = true
 							}
-							payloadAudio = wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", Type: "audio", Audio: &wacMTMedia{ID: mediaID, Link: attURL}, Category: msgCategory, TTLSeconds: msgTTLSeconds}
+							payloadAudio = wacMTPayload[map[string]any]{MessagingProduct: "whatsapp", RecipientType: "individual", Type: "audio", Audio: &media, Category: msgCategory, TTLSeconds: msgTTLSeconds}
 							if isPhoneNumber.MatchString(urnPath) {
 								payloadAudio.To = urnPath
 							} else {
 								payloadAudio.Recipient = urnPath
+							}
+							if i == 0 {
+								if quotedID := wacQuotedMessageID(msg); quotedID != "" {
+									payloadAudio.Context = &wacMTContext{MessageID: quotedID}
+								}
 							}
 							status, _, err := requestWAC(payloadAudio, token, msg, status, wacPhoneURL, zeroIndex, isMarketingTemplate)
 							if err != nil {
@@ -3000,49 +3335,17 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 			return status, err
 		}
 
-		// add BSUID from response if present and different from what we sent
-		if len(respPayload.Contacts) > 0 && respPayload.Contacts[0].UserID != "" &&
-			respPayload.Contacts[0].UserID != msg.URN().Path() {
-			if !hasNewURN {
-				bsuidURN, err := urns.NewWhatsAppURN(respPayload.Contacts[0].UserID)
-				if err == nil {
-					contact, err := h.Backend().GetContact(ctx, msg.Channel(), msg.URN(), "", "")
-					if err != nil {
-						log := courier.NewChannelLogFromError("unable to get contact for BSUID URN", msg.Channel(), msg.ID(), time.Since(start), err)
-						status.AddLog(log)
-					} else {
-						_, err = h.Backend().AddURNtoContact(ctx, msg.Channel(), contact, bsuidURN)
-						if err != nil {
-							log := courier.NewChannelLogFromError("unable to add BSUID URN to contact", msg.Channel(), msg.ID(), time.Since(start), err)
-							status.AddLog(log)
-						}
-					}
-				}
+		if !hasNewURN && len(respPayload.Contacts) > 0 {
+			contactInfo := respPayload.Contacts[0]
+			waIDAdded, abortSend := h.applyWACSendResponseContactURNs(ctx, msg, contactInfo.UserID, contactInfo.WaID, status, start)
+			if abortSend {
+				return status, nil
+			}
+			if waIDAdded {
+				hasNewURN = true
 			}
 		}
 
-		// if payload.contacts[0].wa_id != payload.contacts[0].input | to fix cases with 9 extra
-		if len(respPayload.Contacts) > 0 && respPayload.Contacts[0].WaID != msg.URN().Path() {
-			if !hasNewURN {
-				toUpdateURN, err := urns.NewWhatsAppURN(respPayload.Contacts[0].WaID)
-				if err != nil {
-					return status, nil
-				}
-				// Instead of updating the existing URN, add a new URN to the contact
-				contact, err := h.Backend().GetContact(ctx, msg.Channel(), msg.URN(), "", "")
-				if err != nil {
-					log := courier.NewChannelLogFromError("unable to get contact for new URN", msg.Channel(), msg.ID(), time.Since(start), err)
-					status.AddLog(log)
-				} else {
-					_, err = h.Backend().AddURNtoContact(ctx, msg.Channel(), contact, toUpdateURN)
-					if err != nil {
-						log := courier.NewChannelLogFromError("unable to add new URN to contact", msg.Channel(), msg.ID(), time.Since(start), err)
-						status.AddLog(log)
-					}
-					hasNewURN = true
-				}
-			}
-		}
 		if templating != nil && len(msg.Attachments()) > 0 || hasCaption {
 			break
 		}
@@ -3601,24 +3904,57 @@ func fbCalculateSignature(appSecret string, body []byte) (string, error) {
 	return hex.EncodeToString(mac.Sum(nil)), nil
 }
 
+func isNamedTemplating(templating *MsgTemplating) bool {
+	return templating != nil && strings.EqualFold(templating.ParameterFormat, "named")
+}
+
+func buildBodyComponent(templating *MsgTemplating) *wacComponent {
+	if templating == nil {
+		return nil
+	}
+
+	bodyComponent := &wacComponent{Type: "body"}
+	if isNamedTemplating(templating) {
+		if len(templating.NamedVariables) == 0 {
+			return nil
+		}
+		names := make([]string, 0, len(templating.NamedVariables))
+		for name := range templating.NamedVariables {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			bodyComponent.Params = append(bodyComponent.Params, &wacParam{
+				Type:          "text",
+				ParameterName: name,
+				Text:          templating.NamedVariables[name],
+			})
+		}
+		return bodyComponent
+	}
+
+	if len(templating.Variables) == 0 {
+		return nil
+	}
+	for _, v := range templating.Variables {
+		bodyComponent.Params = append(bodyComponent.Params, &wacParam{Type: "text", Text: v})
+	}
+	return bodyComponent
+}
+
 // buildTemplateComponents builds all components for a WhatsApp template message
 // This includes: body variables, carousel/header, order details, and buttons
 func (h *handler) buildTemplateComponents(msg courier.Msg, templating *MsgTemplating, accessToken string, status courier.MsgStatus, start time.Time) ([]*wacComponent, error) {
 	var components []*wacComponent
 
-	// Build body component with variables
-	if len(templating.Variables) > 0 {
-		bodyComponent := &wacComponent{Type: "body"}
-		for _, v := range templating.Variables {
-			bodyComponent.Params = append(bodyComponent.Params, &wacParam{Type: "text", Text: v})
-		}
+	if bodyComponent := buildBodyComponent(templating); bodyComponent != nil {
 		components = append(components, bodyComponent)
 	}
 
 	// Handle carousel templates - identified by IsCarousel flag
 	// 2-10 cards required, media is mandatory per card, body and buttons are optional (max 2 buttons per card)
 	if templating.IsCarousel {
-		carouselComponent, err := h.buildCarouselComponent(msg, templating, accessToken, status, start)
+		carouselComponent, err := h.buildCarouselComponent(msg, templating)
 		if err != nil {
 			return nil, err
 		}
@@ -3685,10 +4021,10 @@ func buildPaymentRequestParam(parameter courier.ButtonParam) *wacParam {
 func (h *handler) buildHeaderComponent(msg courier.Msg, accessToken string, status courier.MsgStatus, start time.Time) (*wacComponent, error) {
 	header := &wacComponent{Type: "header"}
 
-	attType, attURL := handlers.SplitAttachment(msg.Attachments()[0])
+	declaredMIME, attURL := handlers.SplitAttachment(msg.Attachments()[0])
 	fileURL := attURL
 
-	mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, true)
+	mediaID, mediaLogs, _, err := h.fetchWACMediaID(msg, declaredMIME, attURL, accessToken, true)
 	for _, log := range mediaLogs {
 		status.AddLog(log)
 	}
@@ -3697,17 +4033,12 @@ func (h *handler) buildHeaderComponent(msg courier.Msg, accessToken string, stat
 	} else if mediaID != "" {
 		attURL = ""
 	}
-	attType = strings.Split(attType, "/")[0]
+	attType, _ := wacPayloadMediaType(declaredMIME, fileURL)
 
-	parsedURL, err := url.Parse(attURL)
+	media, err := newWACMedia(mediaID, attURL)
 	if err != nil {
 		return nil, err
 	}
-	if attType == "application" {
-		attType = "document"
-	}
-
-	media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
 	switch attType {
 	case "image":
 		header.Params = append(header.Params, &wacParam{Type: "image", Image: &media})
@@ -3749,9 +4080,129 @@ func buildOrderDetailsComponent(msg courier.Msg) (*wacComponent, error) {
 	return button, nil
 }
 
+// buildSingleCardCarouselPayload sends a single-card carousel as a normal interactive message with media and text.
+// When the card has no buttons, it falls back to a media message with caption.
+func (h *handler) buildSingleCardCarouselPayload(msg courier.Msg, payload *wacMTPayload[map[string]any]) error {
+	carousel := msg.Carousel()
+	if carousel == nil || len(carousel.Cards) == 0 {
+		return fmt.Errorf("carousel message is nil")
+	}
+
+	cardData := carousel.Cards[0]
+	mimeType, attURL := handlers.SplitAttachment(msg.Attachments()[0])
+	attType := strings.Split(mimeType, "/")[0]
+	if attType != "image" && attType != "video" {
+		return fmt.Errorf("carousel card has unsupported header type: %s (only image and video are supported)", attType)
+	}
+	if attType == "image" {
+		rewrittenURL, err := h.rewriteWebPImageURL(msg, attURL)
+		if err != nil {
+			return err
+		}
+		attURL = rewrittenURL
+	}
+
+	media, err := newWACMedia("", attURL)
+	if err != nil {
+		return err
+	}
+
+	bodyText := singleCardCarouselBodyText(msg, cardData)
+	if bodyText == "" {
+		return fmt.Errorf("interactive carousel requires body text")
+	}
+
+	if len(cardData.Buttons) == 0 {
+		payload.Type = attType
+		media.Caption = parseBacklashes(bodyText)
+		if attType == "image" {
+			payload.Image = &media
+		} else {
+			payload.Video = &media
+		}
+		return nil
+	}
+
+	firstBtn := cardData.Buttons[0]
+	if firstBtn.SubType != "url" && firstBtn.SubType != "quick_reply" {
+		return fmt.Errorf("carousel card has unsupported button sub_type: %s", firstBtn.SubType)
+	}
+	header := &struct {
+		Type     string      `json:"type"`
+		Text     string      `json:"text,omitempty"`
+		Video    *wacMTMedia `json:"video,omitempty"`
+		Image    *wacMTMedia `json:"image,omitempty"`
+		Document *wacMTMedia `json:"document,omitempty"`
+	}{Type: attType}
+	if attType == "image" {
+		header.Image = &media
+	} else {
+		header.Video = &media
+	}
+
+	interactive := wacInteractive[map[string]any]{
+		Body: struct {
+			Text string `json:"text"`
+		}{Text: parseBacklashes(bodyText)},
+		Header: header,
+	}
+
+	if firstBtn.SubType == "url" {
+		displayText, urlVal := extractCarouselURLParams(firstBtn)
+		interactive.Type = "cta_url"
+		interactive.Action = &struct {
+			Button            string                 `json:"button,omitempty"`
+			Sections          []wacMTSection         `json:"sections,omitempty"`
+			Buttons           []wacMTButton          `json:"buttons,omitempty"`
+			CatalogID         string                 `json:"catalog_id,omitempty"`
+			ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
+			Name              string                 `json:"name,omitempty"`
+			Parameters        map[string]interface{} `json:"parameters,omitempty"`
+			Cards             []wacCarouselCard      `json:"cards,omitempty"`
+		}{
+			Name: "cta_url",
+			Parameters: map[string]interface{}{
+				"display_text": parseBacklashes(displayText),
+				"url":          urlVal,
+			},
+		}
+	} else {
+		btns := make([]wacMTButton, len(cardData.Buttons))
+		for i, btn := range cardData.Buttons {
+			id, title := extractCarouselQuickReplyParams(btn)
+			btns[i] = wacMTButton{
+				Type:  "reply",
+				Reply: &mtQuickReply{ID: id, Title: parseBacklashes(title)},
+			}
+		}
+		interactive.Type = "button"
+		interactive.Action = &struct {
+			Button            string                 `json:"button,omitempty"`
+			Sections          []wacMTSection         `json:"sections,omitempty"`
+			Buttons           []wacMTButton          `json:"buttons,omitempty"`
+			CatalogID         string                 `json:"catalog_id,omitempty"`
+			ProductRetailerID string                 `json:"product_retailer_id,omitempty"`
+			Name              string                 `json:"name,omitempty"`
+			Parameters        map[string]interface{} `json:"parameters,omitempty"`
+			Cards             []wacCarouselCard      `json:"cards,omitempty"`
+		}{Buttons: btns}
+	}
+
+	payload.Type = "interactive"
+	payload.Interactive = &interactive
+	return nil
+}
+
+func singleCardCarouselBodyText(msg courier.Msg, card courier.CarouselCard) string {
+	if body := strings.TrimSpace(card.Body); body != "" {
+		return body
+	}
+	return strings.TrimSpace(msg.Text())
+}
+
 // buildInteractiveCarouselPayload builds the interactive payload for WhatsApp interactive media carousel messages.
 // Uses msg.Attachments() for card media, msg.Text() for main body, msg.Carousel() for per-card body and buttons.
-func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg, accessToken string, status courier.MsgStatus, start time.Time) (*wacInteractive[map[string]any], error) {
+func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg) (*wacInteractive[map[string]any], error) {
 	carousel := msg.Carousel()
 	if carousel == nil {
 		return nil, nil
@@ -3787,18 +4238,24 @@ func (h *handler) buildInteractiveCarouselPayload(msg courier.Msg, accessToken s
 			}
 		}
 
-		attType, attURL := handlers.SplitAttachment(attachments[cardIdx])
+		mimeType, attURL := handlers.SplitAttachment(attachments[cardIdx])
 
-		parsedURL, err := url.Parse(attURL)
-		if err != nil {
-			return nil, errors.Wrapf(err, "invalid attachment URL for card %d", cardIdx)
-		}
-		media := wacMTMedia{Link: parsedURL.String()}
-
-		splitedAttType := strings.Split(attType, "/")
-		attType = splitedAttType[0]
+		splitedAttType := strings.Split(mimeType, "/")
+		attType := splitedAttType[0]
 		if attType != "image" && attType != "video" {
 			return nil, fmt.Errorf("carousel card %d has unsupported header type: %s (only image and video are supported)", cardIdx, attType)
+		}
+		if attType == "image" {
+			rewrittenURL, err := h.rewriteWebPImageURL(msg, attURL)
+			if err != nil {
+				return nil, err
+			}
+			attURL = rewrittenURL
+		}
+
+		media, err := newWACMedia("", attURL)
+		if err != nil {
+			return nil, errors.Wrapf(err, "invalid attachment URL for card %d", cardIdx)
 		}
 
 		cardIdxPtr := cardIdx
@@ -3919,7 +4376,7 @@ func extractCarouselQuickReplyParams(btn courier.CarouselCardButton) (id, title 
 // buildCarouselComponent builds the carousel component for WhatsApp template messages
 // Card count is based on attachments count - media is mandatory per card (min 2, max 10 cards), body and buttons are optional (max 2 buttons per card)
 // Media (header), body variables, and buttons are matched by index
-func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplating, accessToken string, status courier.MsgStatus, start time.Time) (*wacComponent, error) {
+func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplating) (*wacComponent, error) {
 	// Carousel requires 2-10 cards, each with mandatory media
 	numCards := len(msg.Attachments())
 	if numCards < 2 {
@@ -3936,32 +4393,30 @@ func (h *handler) buildCarouselComponent(msg courier.Msg, templating *MsgTemplat
 
 		// Build header component with media (mandatory for each card)
 		headerComponent := &wacComponent{Type: "header"}
-		attType, attURL := handlers.SplitAttachment(msg.Attachments()[cardIdx])
+		mimeType, attURL := handlers.SplitAttachment(msg.Attachments()[cardIdx])
 
-		mediaID, mediaLogs, err := h.fetchWACMediaID(msg, attType, attURL, accessToken, true)
-		for _, log := range mediaLogs {
-			status.AddLog(log)
-		}
-		if err != nil {
-			status.AddLog(courier.NewChannelLogFromError("error on fetch media ID for carousel card", msg.Channel(), msg.ID(), time.Since(start), err))
-		} else if mediaID != "" {
-			attURL = ""
-		}
-		attType = strings.Split(attType, "/")[0]
+		attType := strings.Split(mimeType, "/")[0]
 
-		parsedURL, err := url.Parse(attURL)
+		if attType != "image" && attType != "video" {
+			return nil, fmt.Errorf("unsupported attachment type for carousel card header: %s (only image and video are supported)", attType)
+		}
+		if attType == "image" {
+			rewrittenURL, err := h.rewriteWebPImageURL(msg, attURL)
+			if err != nil {
+				return nil, err
+			}
+			attURL = rewrittenURL
+		}
+
+		media, err := newWACMedia("", attURL)
 		if err != nil {
 			return nil, err
 		}
-
-		media := wacMTMedia{ID: mediaID, Link: parsedURL.String()}
 		switch attType {
 		case "image":
 			headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "image", Image: &media})
 		case "video":
 			headerComponent.Params = append(headerComponent.Params, &wacParam{Type: "video", Video: &media})
-		default:
-			return nil, fmt.Errorf("unsupported attachment type for carousel card header: %s (only image and video are supported)", attType)
 		}
 		card.Components = append(card.Components, headerComponent)
 
@@ -4061,12 +4516,14 @@ type MsgTemplating struct {
 		UUID     string `json:"uuid" validate:"required"`
 		Category string `json:"category"`
 	} `json:"template" validate:"required,dive"`
-	Language      string         `json:"language" validate:"required"`
-	Country       string         `json:"country"`
-	Namespace     string         `json:"namespace"`
-	Variables     []string       `json:"variables"`
-	IsCarousel    bool           `json:"is_carousel,omitempty"`
-	CarouselCards []CarouselCard `json:"carousel_cards,omitempty"`
+	Language        string            `json:"language" validate:"required"`
+	Country         string            `json:"country"`
+	Namespace       string            `json:"namespace"`
+	Variables       []string          `json:"variables"`
+	NamedVariables  map[string]string `json:"named_variables,omitempty"`
+	ParameterFormat string            `json:"parameter_format,omitempty"`
+	IsCarousel      bool              `json:"is_carousel,omitempty"`
+	CarouselCards   []CarouselCard    `json:"carousel_cards,omitempty"`
 }
 
 // CarouselCard represents a single card in a carousel template
@@ -4190,72 +4647,101 @@ var languageMenuMap = map[string]string{
 	"ar-JO": "قائمة",
 }
 
-// convertWebPIfNeeded converts WebP images to PNG for WhatsApp template uploads
-// Returns the converted image data, new mime type, and new file extension if conversion occurred
-// Only converts for WhatsApp channels (WAC/WCD) and only for templates
-func convertWebPIfNeeded(data []byte, mimeType string, isTemplate bool, channelType courier.ChannelType) ([]byte, string, string, error) {
+// convertWebPIfNeeded converts WebP images to PNG when they are used as WhatsApp image media.
+// When forceConvert is true, any WebP is converted. Otherwise WebP is kept only for sticker-sized files.
+// Returns the converted image data, new mime type, new file extension, and whether conversion occurred.
+func convertWebPIfNeeded(data []byte, mimeType string, forceConvert bool, channelType courier.ChannelType) ([]byte, string, string, bool, error) {
 	// Only convert for WhatsApp channels (WAC or WCD)
 	if channelType != "WAC" && channelType != "WCD" {
-		return data, mimeType, "", nil
+		return data, mimeType, "", false, nil
 	}
 
-	// Only convert for templates
-	if !isTemplate {
-		return data, mimeType, "", nil
-	}
-
-	// Check if the image is actually WebP (regardless of mime type or extension)
 	if !handlers.IsWebPImage(data) {
-		return data, mimeType, "", nil
+		return data, mimeType, "", false, nil
+	}
+
+	if !forceConvert && handlers.IsWhatsAppStickerWebP(data) {
+		return data, mimeType, "", false, nil
 	}
 
 	// Convert WebP to PNG (lossless format, better quality preservation)
 	convertedData, err := handlers.ConvertWebPToPNG(data, handlers.MaxImageSizeBytes)
 	if err != nil {
-		return nil, "", "", errors.Wrapf(err, "failed to convert WebP image to PNG")
+		return nil, "", "", false, errors.Wrapf(err, "failed to convert WebP image to PNG")
 	}
 
-	return convertedData, "image/png", ".png", nil
+	return convertedData, "image/png", ".png", true, nil
 }
 
-func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, accessToken string, isTemplate bool) (string, []*courier.ChannelLog, error) {
+func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, accessToken string, forceConvertWebP bool) (string, []*courier.ChannelLog, bool, error) {
 	var logs []*courier.ChannelLog
+
+	mediaURL, err := utils.EncodeMediaURL(mediaURL)
+	if err != nil {
+		return "", logs, false, errors.Wrapf(err, "invalid media URL")
+	}
+
+	canonicalMediaURL := utils.StripPresignParams(mediaURL)
 
 	rc := h.Backend().RedisPool().Get()
 	defer rc.Close()
 
 	cacheKey := fmt.Sprintf(mediaCacheKeyPatternWhatsapp, msg.Channel().UUID().String())
-	mediaID, err := rcache.Get(rc, cacheKey, mediaURL)
-	if err != nil {
-		return "", logs, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, mediaURL)
-	} else if mediaID != "" {
-		return mediaID, logs, nil
+	var mediaID string
+	convertedPNGKey := canonicalMediaURL + ":png"
+	webpLike := strings.Contains(strings.ToLower(mimeType), "webp") ||
+		strings.HasSuffix(strings.ToLower(mediaURL), ".webp")
+
+	// Pre-download cache: safe when the cache key is unambiguous.
+	// Ambiguous WebP (plain vs :png) is resolved after download + convertWebPIfNeeded.
+	if forceConvertWebP {
+		mediaID, err = rcache.Get(rc, cacheKey, convertedPNGKey)
+		if err != nil {
+			return "", logs, false, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, convertedPNGKey)
+		} else if mediaID != "" {
+			return mediaID, logs, true, nil
+		}
+		if !webpLike {
+			mediaID, err = rcache.Get(rc, cacheKey, canonicalMediaURL)
+			if err != nil {
+				return "", logs, false, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, canonicalMediaURL)
+			} else if mediaID != "" {
+				return mediaID, logs, false, nil
+			}
+		}
+	} else if !webpLike {
+		mediaID, err = rcache.Get(rc, cacheKey, canonicalMediaURL)
+		if err != nil {
+			return "", logs, false, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, canonicalMediaURL)
+		} else if mediaID != "" {
+			return mediaID, logs, false, nil
+		}
 	}
 
-	failKey := fmt.Sprintf("%s-%s", msg.Channel().UUID().String(), mediaURL)
+	failKey := fmt.Sprintf("%s-%s", msg.Channel().UUID().String(), canonicalMediaURL)
 	found, _ := failedMediaCache.Get(failKey)
 
 	if found != nil {
-		return "", logs, nil
+		return "", logs, false, nil
 	}
 
 	// request to download media
 	req, err := http.NewRequest("GET", mediaURL, nil)
 	if err != nil {
-		return "", logs, errors.Wrapf(err, "error builing media request")
+		return "", logs, false, errors.Wrapf(err, "error builing media request")
 	}
 	rr, err := utils.MakeHTTPRequest(req)
 	log := courier.NewChannelLogFromRR("Fetching media", msg.Channel(), msg.ID(), rr).WithError("error fetching media", err)
 	logs = append(logs, log)
 	if err != nil {
 		failedMediaCache.Set(failKey, true, cache.DefaultExpiration)
-		return "", logs, nil
+		return "", logs, false, nil
 	}
 
-	// Convert WebP to PNG if needed (only for WhatsApp templates)
-	convertedData, convertedMimeType, fileExt, err := convertWebPIfNeeded(rr.Body, mimeType, isTemplate, msg.Channel().ChannelType())
+	// Convert WebP to PNG if needed (templates, carousel, interactive headers, and non-sticker images)
+	convertedData, convertedMimeType, fileExt, converted, err := convertWebPIfNeeded(rr.Body, mimeType, forceConvertWebP, msg.Channel().ChannelType())
 	if err != nil {
-		return "", logs, errors.Wrapf(err, "error converting WebP image")
+		return "", logs, false, errors.Wrapf(err, "error converting WebP image")
 	}
 
 	// Update mime type and file URL if conversion occurred
@@ -4264,11 +4750,22 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 	if fileExt != "" {
 		finalMimeType = convertedMimeType
 		// Update file extension in URL for proper file naming
-		if strings.HasSuffix(mediaURL, ".webp") {
-			finalMediaURL = strings.TrimSuffix(mediaURL, ".webp") + fileExt
-		} else {
-			// If extension doesn't match, add the new extension
-			finalMediaURL = mediaURL + fileExt
+		finalMediaURL, err = replaceWebPExtension(mediaURL, fileExt)
+		if err != nil {
+			return "", logs, false, errors.Wrapf(err, "invalid media URL")
+		}
+	}
+
+	cacheMediaKey := canonicalMediaURL
+	if converted {
+		cacheMediaKey = convertedPNGKey
+	}
+	if webpLike && !forceConvertWebP {
+		mediaID, err = rcache.Get(rc, cacheKey, cacheMediaKey)
+		if err != nil {
+			return "", logs, converted, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, cacheMediaKey)
+		} else if mediaID != "" {
+			return mediaID, logs, converted, nil
 		}
 	}
 
@@ -4278,16 +4775,31 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 	wacPhoneURLMedia := base.ResolveReference(path)
 	mediaID, logs, err = requestWACMediaUpload(convertedData, finalMediaURL, wacPhoneURLMedia.String(), finalMimeType, msg, accessToken)
 	if err != nil {
-		return "", logs, err
+		return "", logs, converted, err
 	}
 
 	// put in cache
-	err = rcache.Set(rc, cacheKey, mediaURL, mediaID)
+	err = rcache.Set(rc, cacheKey, cacheMediaKey, mediaID)
 	if err != nil {
-		return "", logs, errors.Wrapf(err, "error setting media id in cache")
+		return "", logs, converted, errors.Wrapf(err, "error setting media id in cache")
 	}
 
-	return mediaID, logs, nil
+	return mediaID, logs, converted, nil
+}
+
+// replaceWebPExtension swaps a trailing .webp in the URL path for ext, or appends ext when the path has
+// no .webp extension, leaving the query string untouched.
+func replaceWebPExtension(mediaURL, ext string) (string, error) {
+	u, err := url.Parse(mediaURL)
+	if err != nil {
+		return "", err
+	}
+
+	u.Path = strings.TrimSuffix(u.Path, ".webp") + ext
+	if u.RawPath != "" {
+		u.RawPath = strings.TrimSuffix(u.RawPath, ".webp") + ext
+	}
+	return u.String(), nil
 }
 
 func requestWACMediaUpload(file []byte, mediaURL string, requestUrl string, mimeType string, msg courier.Msg, accessToken string) (string, []*courier.ChannelLog, error) {
@@ -4296,16 +4808,12 @@ func requestWACMediaUpload(file []byte, mediaURL string, requestUrl string, mime
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	fileType := http.DetectContentType(file)
 	u, err := url.Parse(mediaURL)
 	if err != nil {
 		return "", logs, errors.Wrap(err, "invalid media URL")
 	}
 	fileName := path.Base(u.Path)
-
-	if fileType != mimeType || fileType == "application/octet-stream" || fileType == "application/zip" {
-		fileType = mimetype.Detect(file).String()
-	}
+	fileType := wacUploadContentType(mimeType, fileName, file)
 
 	h := make(textproto.MIMEHeader)
 	h.Set("Content-Disposition",

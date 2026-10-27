@@ -18,6 +18,9 @@ type Config struct {
 	S3MediaPrefix             string `help:"the prefix that will be added to attachment filenames"`
 	S3DisableSSL              bool   `help:"whether we disable SSL when accessing S3. Should always be set to False unless you're hosting an S3 compatible service within a secure internal network"`
 	S3ForcePathStyle          bool   `help:"whether we force S3 path style. Should generally need to default to False unless you're hosting an S3 compatible service"`
+	S3SignedBuckets           string `help:"comma separated list of S3 buckets, besides the media bucket, whose attachment URLs are presigned before sending"`
+	S3PresignedURLExpiration  int    `help:"the expiration time in hours (1 to 168) for presigned attachment URLs. When signing with an IAM role (no access key) a URL stops working once the role session expires"`
+	S3UseIamRole              bool   `help:"whether we use IAM role to authenticate to S3"`
 	AWSAccessKeyID            string `help:"the access key id to use when authenticating S3"`
 	AWSSecretAccessKey        string `help:"the secret access key id to use when authenticating S3"`
 	FacebookApplicationSecret string `help:"the Facebook app secret"`
@@ -25,8 +28,11 @@ type Config struct {
 	MaxWorkers                int    `help:"the maximum number of go routines that will be used for sending (set to 0 to disable sending)"`
 	LibratoUsername           string `help:"the username that will be used to authenticate to Librato"`
 	LibratoToken              string `help:"the token that will be used to authenticate to Librato"`
-	StatusUsername            string `help:"the username that is needed to authenticate against the /status endpoint"`
-	StatusPassword            string `help:"the password that is needed to authenticate against the /status endpoint"`
+	StatusUsername            string `help:"the username that is needed to authenticate against the /status and pprof endpoints"`
+	StatusPassword            string `help:"the password that is needed to authenticate against the /status and pprof endpoints"`
+	EnablePprof               bool   `help:"enable the internal pprof HTTP server (not the public webhook port)"`
+	PprofAddress              string `help:"address the pprof server binds to"`
+	PprofPort                 int    `help:"port the pprof server listens on"`
 	LogLevel                  string `help:"the logging level courier should use"`
 	Version                   string `help:"the version that will be used in request and response headers"`
 
@@ -79,6 +85,9 @@ type Config struct {
 	CallsWebhookToken string `help:"the token for calls webhooks"`
 
 	TelephonyResolveToken string `help:"bearer token required for GET /c/tph/resolve; empty disables auth"`
+
+	ConversionEventsURL   string `help:"the Flows URL for POST /conversion/ events (conversation_started)"`
+	ConversionEventsToken string `help:"the fixed access token for Flows /conversion/ calls from Courier"`
 }
 
 // NewConfig returns a new default configuration object
@@ -91,18 +100,24 @@ func NewConfig() *Config {
 		DB:                           "postgres://temba:temba@localhost/temba?sslmode=disable",
 		Redis:                        "redis://localhost:6379/15",
 		SpoolDir:                     "/var/spool/courier",
-		S3Endpoint:                   "https://s3.amazonaws.com",
+		S3Endpoint:                   "",
 		S3Region:                     "us-east-1",
 		S3MediaBucket:                "courier-media",
 		S3MediaPrefix:                "/media/",
 		S3DisableSSL:                 false,
 		S3ForcePathStyle:             false,
+		S3SignedBuckets:              "",
+		S3PresignedURLExpiration:     168, // 7 days in hours
+		S3UseIamRole:                 false,
 		AWSAccessKeyID:               "",
 		AWSSecretAccessKey:           "",
 		FacebookApplicationSecret:    "missing_facebook_app_secret",
 		FacebookWebhookSecret:        "missing_facebook_webhook_secret",
 		WhatsappAdminSystemUserToken: "missing_whatsapp_admin_system_user_token",
 		MaxWorkers:                   32,
+		EnablePprof:                  true,
+		PprofAddress:                 "0.0.0.0",
+		PprofPort:                    6060,
 		LogLevel:                     "error",
 		Version:                      "Dev",
 		WaitMediaCount:               10,
@@ -120,6 +135,7 @@ func NewConfig() *Config {
 		WhatsappCloudDemoAddress:     "1234567890",
 		WhatsappCloudDemoURL:         "http://localhost:3000/wacr/receive",
 		WhatsappCloudDemoToken:       "1234567890",
+		ConversionEventsURL:          "",
 	}
 }
 

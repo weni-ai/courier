@@ -9,12 +9,16 @@ import (
 	"time"
 
 	"github.com/nyaruka/courier"
+	"github.com/nyaruka/courier/handlers"
 	. "github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/gocommon/urns"
+	"github.com/stretchr/testify/require"
 	"gopkg.in/go-playground/assert.v1"
 )
 
 var access_token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImFiYzEyMyJ9.eyJpc3MiOiJodHRwczovL2FwaS5ib3RmcmFtZXdvcmsuY29tIiwic2VydmljZXVybCI6Imh0dHBzOi8vc21iYS50cmFmZmljbWFuYWdlci5uZXQvYnIvIiwiYXVkIjoiMTU5NiJ9.hqKdNdlB0NX6jtwkN96jI-kIiWTWPDIA1K7oo56tVsRBmMycyNNHrsGbKrEw7dccLjATmimpk4x0J_umaJZ5mcK5S5F7b4hkGHFIRWc4vaMjxCl6VSJ6E6DTRnQwfrfTF0AerHSO1iABI2YAlbdMV3ahxGzzNkaqnIX496G2IKwiYziOumo4M0gfOt-MqNkOJKvnSRfB7pikSATaSQiaFmrA5A8bH0AbaM9znPIRxHyrKqlFlrpWkPSiUPOS3aHQeD8kVGk7RNEWtOk26sXfUIjHp8ZYExIClBEmc6QPAf2-FAuwsw-S8YDLwsiycJ0gEO8MYPZWn8gXR_sVIwLMMg"
+
+const singleTenantAccessToken = "single-tenant-access-token"
 
 var testChannels = []courier.Channel{
 	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "TM", "2022", "US", map[string]interface{}{"auth_token": access_token, "tenantID": "cba321", "botID": "0123", "appID": "1596"}),
@@ -350,15 +354,163 @@ func TestSending(t *testing.T) {
 func TestDescribe(t *testing.T) {
 	server := buildMockTeams()
 
-	handler := newHandler().(courier.URNDescriber)
+	mb := courier.NewMockBackend()
+	s := handlers.NewTestServer(mb)
+	h := newHandler()
+	h.Initialize(s)
+	describer := h.(courier.URNDescriber)
+
 	tcs := []struct {
 		urn      urns.URN
 		metadata map[string]string
 	}{{urns.URN("teams:a:2022:serviceURL:" + string(server.URL) + "/"), map[string]string{"name": "John Doe"}}}
 
 	for _, tc := range tcs {
-		metadata, _ := handler.DescribeURN(context.Background(), testChannels[0], tc.urn)
+		metadata, _ := describer.DescribeURN(context.Background(), testChannels[0], tc.urn)
 		assert.Equal(t, metadata, tc.metadata)
 	}
 	server.Close()
+}
+
+func teamsChannelConfig(extra map[string]interface{}) map[string]interface{} {
+	config := map[string]interface{}{
+		courier.ConfigAuthToken: access_token,
+		"tenantID":              "cba321",
+		"botID":                 "0123",
+		"appID":                 "1596",
+		"app_password":          "secret",
+	}
+	for k, v := range extra {
+		config[k] = v
+	}
+	return config
+}
+
+func buildMockOAuthServer() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Content-Type", "application/json")
+		w.Write([]byte(`{"access_token":"` + singleTenantAccessToken + `"}`))
+	}))
+}
+
+func overrideTeamsTokenURL(url string) func() {
+	orig := teamsTenantTokenURL
+	teamsTenantTokenURL = func(string) string { return url }
+	return func() { teamsTenantTokenURL = orig }
+}
+
+func TestSendMsgSingleTenantFallback(t *testing.T) {
+	oauthServer := buildMockOAuthServer()
+	defer oauthServer.Close()
+	defer overrideTeamsTokenURL(oauthServer.URL)()
+
+	teamsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenH := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if tokenH == access_token {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if tokenH == singleTenantAccessToken {
+			w.Header().Add("Content-Type", "application/json")
+			w.Write([]byte(`{"id":"1234567890"}`))
+			return
+		}
+		http.Error(w, "invalid auth token", http.StatusBadRequest)
+	}))
+	defer teamsServer.Close()
+
+	mb := courier.NewMockBackend()
+	s := handlers.NewTestServer(mb)
+	h := newHandler()
+	require.NoError(t, h.Initialize(s))
+
+	channel := courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "TM", "2022", "US", teamsChannelConfig(nil))
+	mb.AddChannel(channel)
+
+	urn := urns.URN("teams:a:2022:serviceURL:" + teamsServer.URL + "/")
+	msg := mb.NewOutgoingMsg(channel, courier.NewMsgID(10), urn, "hello", false, nil, "", 0, "", "")
+
+	ctx := context.Background()
+	status, err := h.SendMsg(ctx, msg)
+	require.NoError(t, err)
+	require.Equal(t, "W", string(status.Status()))
+	require.Equal(t, "1234567890", status.ExternalID())
+	require.Equal(t, teamsConfigVersionV2, channel.StringConfigForKey(teamsConfigVersionKey, ""))
+	require.Equal(t, singleTenantAccessToken, channel.StringConfigForKey(courier.ConfigAuthToken, ""))
+}
+
+func TestSendMsgV2DoesNotRetryOAuthOn401(t *testing.T) {
+	oauthCalls := 0
+	oauthServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		oauthCalls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer oauthServer.Close()
+
+	teamsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	defer teamsServer.Close()
+
+	mb := courier.NewMockBackend()
+	s := handlers.NewTestServer(mb)
+	h := newHandler()
+	require.NoError(t, h.Initialize(s))
+
+	channel := courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "TM", "2022", "US", teamsChannelConfig(map[string]interface{}{teamsConfigVersionKey: teamsConfigVersionV2}))
+	mb.AddChannel(channel)
+
+	urn := urns.URN("teams:a:2022:serviceURL:" + teamsServer.URL + "/")
+	msg := mb.NewOutgoingMsg(channel, courier.NewMsgID(10), urn, "hello", false, nil, "", 0, "", "")
+
+	_, err := h.SendMsg(context.Background(), msg)
+	require.Error(t, err)
+	require.Equal(t, 0, oauthCalls)
+}
+
+func TestConversationUpdateSingleTenantFallback(t *testing.T) {
+	oauthServer := buildMockOAuthServer()
+	defer oauthServer.Close()
+	defer overrideTeamsTokenURL(oauthServer.URL)()
+
+	teamsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenH := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if r.URL.Path == "/v3/conversations" {
+			if tokenH == access_token {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			if tokenH == singleTenantAccessToken {
+				w.Header().Add("Content-Type", "application/json")
+				w.Write([]byte(`{"id":"a:2811"}`))
+				return
+			}
+		}
+		http.Error(w, "invalid auth token", http.StatusBadRequest)
+	}))
+	defer teamsServer.Close()
+
+	channel := courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "TM", "2022", "US", teamsChannelConfig(nil))
+
+	payload := `{
+		"channelId": "msteams",
+		"id": "56834",
+		"timestamp": "2022-06-06T16:51:00.0000000Z",
+		"serviceUrl": "` + teamsServer.URL + `",
+		"type":"conversationUpdate",
+		"membersAdded": [{"id":"4569","name": "Joe","role": "user"}]
+	}`
+
+	RunChannelTestCases(t, []courier.Channel{channel}, newHandler(), []ChannelHandleTestCase{{
+		Label:             "Conversation Update Single Tenant Fallback",
+		URL:               "/c/tm/8eb23e93-5ecb-45ba-b726-3b064e0c568c/receive",
+		Data:              payload,
+		Status:            200,
+		Response:          "Handled",
+		Headers:           map[string]string{"Authorization": "Bearer " + access_token},
+		NoQueueErrorCheck: true,
+	}})
+
+	require.Equal(t, teamsConfigVersionV2, channel.StringConfigForKey(teamsConfigVersionKey, ""))
+	require.Equal(t, singleTenantAccessToken, channel.StringConfigForKey(courier.ConfigAuthToken, ""))
 }

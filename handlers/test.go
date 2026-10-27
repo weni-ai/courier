@@ -110,10 +110,14 @@ type ChannelSendTestCase struct {
 	Error      string
 	Status     string
 	ExternalID string
+	// StatusMetadata, when set, is compared with require.JSONEq against the
+	// metadata attached to the MsgStatus returned by SendMsg.
+	StatusMetadata json.RawMessage
 
 	Stopped bool
 
 	ContactURNs map[string]bool
+	PrepBackend func(*courier.MockBackend)
 
 	SendPrep     SendPrepFunc
 	NewURN       string
@@ -145,6 +149,11 @@ func ensureTestServerUp(host string) {
 
 // utility method to make a request to a handler URL
 func testHandlerRequest(tb testing.TB, s courier.Server, path string, headers map[string]string, data string, multipartFormFields map[string]string, expectedStatus int, expectedBody *string, requestPrepFunc RequestPrepFunc) string {
+	return TestHandlerRequest(tb, s, path, headers, data, multipartFormFields, expectedStatus, expectedBody, requestPrepFunc)
+}
+
+// TestHandlerRequest posts to a handler URL and asserts the HTTP response.
+func TestHandlerRequest(tb testing.TB, s courier.Server, path string, headers map[string]string, data string, multipartFormFields map[string]string, expectedStatus int, expectedBody *string, requestPrepFunc RequestPrepFunc) string {
 	var req *http.Request
 	var err error
 	url := fmt.Sprintf("https://%s%s", s.Config().Domain, path)
@@ -207,6 +216,11 @@ func testHandlerRequest(tb testing.TB, s courier.Server, path string, headers ma
 }
 
 func newServer(backend courier.Backend) courier.Server {
+	return NewTestServer(backend)
+}
+
+// NewTestServer creates a courier server configured for handler tests.
+func NewTestServer(backend courier.Backend) courier.Server {
 	// for benchmarks, log to null
 	logger := logrus.New()
 	logger.Out = ioutil.Discard
@@ -238,6 +252,13 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 		mockRRCount := 0
 		t.Run(testCase.Label, func(t *testing.T) {
 			require := require.New(t)
+
+			mb.ClearQueueMsgs()
+			mb.ClearSeenExternalIDs()
+
+			if testCase.PrepBackend != nil {
+				testCase.PrepBackend(mb)
+			}
 
 			msg := mb.NewOutgoingMsg(channel, courier.NewMsgID(10), urns.URN(testCase.URN), testCase.Text, testCase.HighPriority, testCase.QuickReplies, testCase.Topic, testCase.ResponseToID, testCase.ResponseToExternalID, testCase.TextLanguage)
 
@@ -351,6 +372,11 @@ func RunChannelSendTestCases(t *testing.T, channel courier.Channel, handler cour
 
 			if testCase.ExternalID != "" {
 				require.Equal(testCase.ExternalID, status.ExternalID())
+			}
+
+			if len(testCase.StatusMetadata) > 0 {
+				require.NotNil(status, "status should not be nil")
+				require.JSONEq(string(testCase.StatusMetadata), string(status.Metadata()))
 			}
 
 			if testCase.Status != "" {

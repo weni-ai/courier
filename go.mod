@@ -3,7 +3,7 @@ module github.com/nyaruka/courier
 require (
 	github.com/antchfx/xmlquery v0.0.0-20181223105952-355641961c92
 	github.com/antchfx/xpath v0.0.0-20181208024549-4bbdf6db12aa // indirect
-	github.com/aws/aws-sdk-go v1.40.56
+	github.com/aws/aws-sdk-go v1.44.34
 	github.com/buger/jsonparser v1.1.1
 	github.com/certifi/gocertifi v0.0.0-20180118203423-deb3ae2ef261 // indirect
 	github.com/dghubble/oauth1 v0.4.0
@@ -84,6 +84,4 @@ require (
 
 go 1.24.0
 
-toolchain go1.24.12
-
-replace github.com/nyaruka/gocommon => github.com/weni-ai/gocommon v1.17.0
+replace github.com/nyaruka/gocommon => github.com/weni-ai/gocommon v1.18.0-a1-staging

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	_ "embed"
 	"image"
 	"image/png"
 	"math"
@@ -10,10 +11,23 @@ import (
 	"golang.org/x/image/webp"
 )
 
+//go:embed testdata/carousel.webp
+var minimalWebPBytes []byte
+
+//go:embed testdata/sticker_512.webp
+var sticker512WebPBytes []byte
+
 const (
 	// MaxImageSizeBytes is the maximum allowed size for images (5MB)
 	// This is used for image resizing to ensure images don't exceed platform limits
 	MaxImageSizeBytes = 5 * 1024 * 1024
+
+	// WhatsAppStickerSize is the required width and height for WhatsApp sticker images.
+	WhatsAppStickerSize = 512
+	// WhatsAppStaticStickerMaxBytes is the max file size for static WhatsApp stickers.
+	WhatsAppStaticStickerMaxBytes = 100 * 1024
+	// WhatsAppAnimatedStickerMaxBytes is the max file size for animated WhatsApp stickers.
+	WhatsAppAnimatedStickerMaxBytes = 500 * 1024
 )
 
 // IsWebPImage detects if the image data is actually WebP format by checking the magic bytes
@@ -24,6 +38,55 @@ func IsWebPImage(data []byte) bool {
 	}
 	// WebP files start with "RIFF" (4 bytes) followed by 4 bytes for file size, then "WEBP" (4 bytes)
 	return string(data[0:4]) == "RIFF" && string(data[8:12]) == "WEBP"
+}
+
+func isAnimatedWebP(data []byte) bool {
+	return bytes.Contains(data, []byte("ANIM")) || bytes.Contains(data, []byte("ANMF"))
+}
+
+// webpCanvasSize returns the logical canvas width and height for a WebP file.
+// Animated and other extended WebP files expose dimensions in the VP8X chunk; golang.org/x/image/webp cannot decode them.
+func webpCanvasSize(data []byte) (width, height int, ok bool) {
+	if !IsWebPImage(data) {
+		return 0, 0, false
+	}
+
+	if len(data) >= 30 && string(data[12:16]) == "VP8X" {
+		chunkSize := int(data[16]) | int(data[17])<<8 | int(data[18])<<16 | int(data[19])<<24
+		if chunkSize < 10 || len(data) < 20+chunkSize {
+			return 0, 0, false
+		}
+		width = (int(data[24]) | int(data[25])<<8 | int(data[26])<<16) + 1
+		height = (int(data[27]) | int(data[28])<<8 | int(data[29])<<16) + 1
+		return width, height, width > 0 && height > 0
+	}
+
+	cfg, err := webp.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return 0, 0, false
+	}
+	return cfg.Width, cfg.Height, true
+}
+
+// IsWhatsAppStickerWebP reports whether data is a WebP file that meets WhatsApp sticker constraints.
+func IsWhatsAppStickerWebP(data []byte) bool {
+	if !IsWebPImage(data) {
+		return false
+	}
+
+	maxBytes := WhatsAppStaticStickerMaxBytes
+	if isAnimatedWebP(data) {
+		maxBytes = WhatsAppAnimatedStickerMaxBytes
+	}
+	if len(data) > maxBytes {
+		return false
+	}
+
+	width, height, ok := webpCanvasSize(data)
+	if !ok {
+		return false
+	}
+	return width == WhatsAppStickerSize && height == WhatsAppStickerSize
 }
 
 // ResizeImage resizes an image to fit within maxSizeBytes by reducing dimensions proportionally
@@ -105,6 +168,16 @@ func normalizeToRGBA(img image.Image) *image.RGBA {
 	}
 
 	return rgba
+}
+
+// MinimalWebPBytes returns a decodable WebP image for tests.
+func MinimalWebPBytes() []byte {
+	return minimalWebPBytes
+}
+
+// Sticker512WebPBytes returns a 512x512 WebP image for tests.
+func Sticker512WebPBytes() []byte {
+	return sticker512WebPBytes
 }
 
 // ConvertWebPToPNG converts a WebP image to PNG format

@@ -1,3 +1,96 @@
+1.75.0
+----------
+ * feat: implement WhatsApp sticker validation and handling
+ * fix: Correction for sending XML and text files on WhatsApp
+
+1.74.1
+----------
+ * feat: Enhanced the downloadMediaToS3 function to generate unique filenames for attachments, preventing collisions between files with the same extension.
+
+1.74.0
+----------
+ * feat: presign attachment URLs in memory at send time
+ * feat: add StripPresignParams to get a stable canonical media URL
+ * fix: handle presigned and private media in WhatsApp handlers
+
+1.73.0
+----------
+ * refactor: enhance Teams handler with single-tenant token support
+ * fix: stop gzipping responses that retained flate writers
+
+1.72.1
+----------
+ * refactor: update Instagram comment handling and test cases
+
+1.72.0
+----------
+ * feat: emit named WhatsApp Cloud API template parameters and refuse named templates on on-premises/360dialog
+
+1.71.0
+----------
+ * refactor: improve Instagram comment handling and test cases
+
+1.70.1
+----------
+ * enhance Instagram comment handling with reply configuration
+
+1.70.0
+----------
+ * feat: add support for forwarding Instagram feed comments to agents
+
+1.69.0
+---------- 
+ * feat: Refactor WAC webhook routing to support batched multi-entry payloads
+ * feat: implement media URL encoding for WhatsApp and Facebook handlers
+ * feat: enhance order metadata handling in webchat- #316
+
+1.68.2
+----------
+ * fix: remove fallback to ResponseToExternalID for whatsapp context reply
+
+1.68.1
+----------
+ * fix: whatsapp context reply strategy
+
+1.68.0
+----------
+ * Add conversation orchestration support for WhatsApp Multi-Partner
+
+1.67.0
+----------
+ * feat: add support for interactive carousel with WebP images in WhatsApp
+
+1.66.1
+----------
+ * feat: add conversation starter metadata handling in weniwebchat
+
+1.66.0
+----------
+ * feat: whatsapp context reply support
+
+1.65.0
+----------
+ * feat: add configurable pprof HTTP server with auth support
+
+1.64.0
+----------
+ * feat: implement CTWA referral source handling and testing
+ * feat: add support for conversation_started events in Flows backend 
+
+1.63.0
+----------
+ * feat: enhance CTWA event handling in backend
+
+1.62.0
+----------
+ * feat: add GetContactFieldValue method to Backend interface and implement related functionality
+ * feat: add ReplaceWhatsAppBSUIDOnContact method to manage WhatsApp BSUID URNs
+
+1.61.0
+----------
+ * feat: Persist email thread metadata on outbound sends so subsequent replies reuse subject and extend References instead of starting a new thread
+ * feat: Block inbound email by mailbox — blocking any virtual (+wt-) contact stops all future messages from that real address
+
 1.60.1
 ----------
  * fix: publish whatsapp-cloud-token (WAMID return) for AB2/is_multi_agents projects so agent messages get external_id in chats-engine; keep billing create suppressed for AB2

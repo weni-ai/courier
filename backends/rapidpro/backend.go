@@ -83,6 +83,27 @@ func (b *backend) FindContact(ctx context.Context, c courier.Channel, urn urns.U
 	return contact, nil
 }
 
+// GetContactFieldValue returns the current text value for a contact field key.
+func (b *backend) GetContactFieldValue(ctx context.Context, c courier.Channel, contact courier.Contact, fieldKey string) (string, error) {
+	dbChannel := c.(*DBChannel)
+	dbContact := contact.(*DBContact)
+
+	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
+	defer cancel()
+
+	return getContactFieldValue(timeout, b.db, dbChannel.OrgID_, dbContact.ID_, fieldKey)
+}
+
+// IsEmailMailboxBlocked reports whether any active blocked contact in the
+// channel's org matches the real mailbox or a +wt- thread variant of it.
+func (b *backend) IsEmailMailboxBlocked(ctx context.Context, c courier.Channel, address string) (bool, error) {
+	dbChannel, ok := c.(*DBChannel)
+	if !ok {
+		return false, fmt.Errorf("IsEmailMailboxBlocked requires a *DBChannel, got %T", c)
+	}
+	return isEmailMailboxBlocked(ctx, b, dbChannel.OrgID_, address)
+}
+
 // AddURNtoContact adds a URN to the passed in contact
 func (b *backend) AddURNtoContact(ctx context.Context, c courier.Channel, contact courier.Contact, urn urns.URN) (urns.URN, error) {
 	tx, err := b.db.BeginTxx(ctx, nil)
@@ -121,6 +142,56 @@ func (b *backend) RemoveURNfromContact(ctx context.Context, c courier.Channel, c
 		return urns.NilURN, err
 	}
 	return urn, nil
+}
+
+// ReplaceWhatsAppBSUIDOnContact removes existing WhatsApp BSUID URNs in the same category
+// as newURN (regular or parent) on the contact and associates newURN with it.
+// Phone number URNs and BSUIDs in other categories are left unchanged.
+func (b *backend) ReplaceWhatsAppBSUIDOnContact(ctx context.Context, c courier.Channel, contact courier.Contact, newURN urns.URN) (urns.URN, error) {
+	if newURN.Scheme() != urns.WhatsAppScheme || !courier.IsWhatsAppBSUIDOrParentPath(newURN.Path()) {
+		return urns.NilURN, fmt.Errorf("ReplaceWhatsAppBSUIDOnContact requires a whatsapp BSUID URN")
+	}
+
+	tx, err := b.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return urns.NilURN, err
+	}
+	defer tx.Rollback()
+
+	dbChannel := c.(*DBChannel)
+	dbContact := contact.(*DBContact)
+
+	contactURNs, err := contactURNsForContact(tx, dbContact.ID_)
+	if err != nil {
+		return urns.NilURN, err
+	}
+
+	newIdentity := string(newURN.Identity())
+	newPath := newURN.Path()
+	for _, contactURN := range contactURNs {
+		if contactURN.Scheme != urns.WhatsAppScheme || !courier.IsWhatsAppBSUIDOrParentPath(contactURN.Path) {
+			continue
+		}
+		if !courier.SameWhatsAppBSUIDCategory(contactURN.Path, newPath) {
+			continue
+		}
+		if contactURN.Identity == newIdentity {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, removeURNFromContact, dbContact.ID_, contactURN.Identity); err != nil {
+			return urns.NilURN, err
+		}
+	}
+
+	if _, err := contactURNForURN(tx, dbChannel, dbContact.ID_, newURN, ""); err != nil {
+		return urns.NilURN, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return urns.NilURN, err
+	}
+
+	return newURN, nil
 }
 
 const updateMsgVisibilityDeleted = `
@@ -499,20 +570,20 @@ func (b *backend) WriteContactLastSeen(ctx context.Context, msg courier.Msg, las
 	return nil
 }
 
-// WriteCtwaToDB writes the passed in ctwa data to our backend
-func (b *backend) WriteCtwaToDB(ctx context.Context, ctwaClid string, contactUrn urns.URN, timestamp time.Time, channelUUID courier.ChannelUUID, waba string) error {
+// WriteCtwaToDB writes the passed in ctwa event to our backend
+func (b *backend) WriteCtwaToDB(ctx context.Context, event courier.CtwaEvent) error {
 	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
 	defer cancel()
 
-	ctwa := &DBCtwa{
-		CtwaClid:    ctwaClid,
-		ContactUrn:  contactUrn.String(),
-		Timestamp:   timestamp,
-		ChannelUUID: channelUUID.String(),
-		Waba:        waba,
-	}
+	return writeCtwa(timeout, b, event)
+}
 
-	return writeCtwa(timeout, b, ctwa)
+// WriteWAConversationHandover writes the passed in WA conversation handover to our backend
+func (b *backend) WriteWAConversationHandover(ctx context.Context, event courier.WAConversationHandoverEvent) error {
+	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
+	defer cancel()
+
+	return writeWAConversationHandover(timeout, b, event)
 }
 
 // Check if external ID has been seen in a period
@@ -759,20 +830,30 @@ func (b *backend) Start() error {
 	}
 
 	// create our storage (S3 or file system)
-	if b.config.AWSAccessKeyID != "" {
-		s3Client, err := storage.NewS3Client(&storage.S3Options{
-			AWSAccessKeyID:     b.config.AWSAccessKeyID,
-			AWSSecretAccessKey: b.config.AWSSecretAccessKey,
-			Endpoint:           b.config.S3Endpoint,
+	if b.config.AWSAccessKeyID != "" || b.config.S3UseIamRole {
+		s3Opts := &storage.S3Options{
+			AWSAccessKeyID:     b.config.AWSAccessKeyID,     // can be empty for IAM role
+			AWSSecretAccessKey: b.config.AWSSecretAccessKey, // can be empty for IAM role
 			Region:             b.config.S3Region,
 			DisableSSL:         b.config.S3DisableSSL,
 			ForcePathStyle:     b.config.S3ForcePathStyle,
 			MaxRetries:         3,
-		})
+		}
+		// Only set endpoint if explicitly configured (non-empty)
+		// Empty endpoint allows SDK to auto-discover endpoints (required for IAM role/WebIdentity)
+		if b.config.S3Endpoint != "" {
+			s3Opts.Endpoint = b.config.S3Endpoint
+		}
+		s3Client, err := storage.NewS3Client(s3Opts)
 		if err != nil {
 			return err
 		}
 		b.storage = storage.NewS3(s3Client, b.config.S3MediaBucket, b.config.S3Region, 32)
+
+		b.attachmentURLSigner, err = newAttachmentURLSigner(b.config, s3Opts)
+		if err != nil {
+			return err
+		}
 	} else {
 		b.storage = storage.NewFS("_storage")
 	}
@@ -794,6 +875,12 @@ func (b *backend) Start() error {
 	}
 	if err == nil {
 		err = courier.EnsureSpoolDirPresent(b.config.SpoolDir, "events")
+	}
+	if err == nil {
+		err = courier.EnsureSpoolDirPresent(b.config.SpoolDir, "ctwa")
+	}
+	if err == nil {
+		err = courier.EnsureSpoolDirPresent(b.config.SpoolDir, "conversion_events")
 	}
 	if err != nil {
 		log.WithError(err).Error("spool directories not writable")
@@ -835,6 +922,9 @@ func (b *backend) Start() error {
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "statuses"), b.flushStatusFile)
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "events"), b.flushChannelEventFile)
 	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "contact_last_seens"), b.flushContactLastSeenFile)
+	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "ctwa"), b.flushCtwaFile)
+	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "wa_conversation_handover"), b.flushWAConversationHandoverFile)
+	courier.RegisterFlusher(path.Join(b.config.SpoolDir, "conversion_events"), b.flushConversationStartedFile)
 	logrus.WithFields(logrus.Fields{
 		"comp":  "backend",
 		"state": "started",
@@ -909,6 +999,9 @@ type backend struct {
 	storage   storage.Storage
 	awsCreds  *credentials.Credentials
 
+	// nil when attachments are stored on the file system
+	attachmentURLSigner *storage.S3URLSigner
+
 	popScript *redis.Script
 
 	stopChan  chan bool
@@ -971,4 +1064,25 @@ func (b *backend) LookupLastMsgWithExternalID(ctx context.Context, channel couri
 
 func (b *backend) GetProjectUUIDFromChannelUUID(ctx context.Context, channelUUID courier.ChannelUUID) (string, error) {
 	return getProjectUUIDFromChannelUUID(ctx, b.db, channelUUID.String())
+}
+
+// newAttachmentURLSigner creates a signer for our media bucket plus the extra buckets in S3SignedBuckets
+func newAttachmentURLSigner(config *courier.Config, s3Opts *storage.S3Options) (*storage.S3URLSigner, error) {
+	expiration := time.Duration(config.S3PresignedURLExpiration) * time.Hour
+	if expiration <= 0 || expiration > storage.MaxPresignExpiration {
+		return nil, fmt.Errorf("S3PresignedURLExpiration must be between 1 and %d hours, got %d", int(storage.MaxPresignExpiration.Hours()), config.S3PresignedURLExpiration)
+	}
+
+	buckets := append([]string{config.S3MediaBucket}, strings.Split(config.S3SignedBuckets, ",")...)
+	return storage.NewS3URLSigner(s3Opts, buckets)
+}
+
+// SignAttachmentURL returns a presigned URL for attachments stored in our S3 buckets, other URLs are returned unchanged
+func (b *backend) SignAttachmentURL(ctx context.Context, attachmentURL string) (string, error) {
+	if b.attachmentURLSigner == nil {
+		return attachmentURL, nil
+	}
+
+	signedURL, _, err := b.attachmentURLSigner.Sign(attachmentURL, time.Duration(b.config.S3PresignedURLExpiration)*time.Hour)
+	return signedURL, err
 }

@@ -34,6 +34,7 @@ var (
 	emptyReferences = `{"from":"client@example.com","to":"support@company.com","subject":"Re:","body":"resp","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<a@x>","in_reply_to":"<b@x>","references":[]}`
 	missingFrom     = `{"to":"support@company.com","body":"hi","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab"}`
 	missingBody     = `{"from":"client@example.com","to":"support@company.com","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab"}`
+	spamNewThread   = `{"from":"spam@evil.com","to":"support@company.com","subject":"Buy now","body":"spam body","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<spam-new@evil.com>"}`
 
 	// Two brand new (non-reply) messages from the same mailbox on different
 	// subjects should become two distinct contacts, while a reply to the
@@ -53,7 +54,7 @@ func urnWithTag(address, anchor string) string {
 var receiveTestCases = []ChannelHandleTestCase{
 	{Label: "Receive plain without threading",
 		URL: receiveURL, Data: plainReceive, Status: 200, Response: "Message Accepted",
-		Text: Sp("Hi there"), URN: Sp("mailto:client@example.com"), ExternalID: Sp(""),
+		Name: Sp("client@example.com"), Text: Sp("Hi there"), URN: Sp("mailto:client@example.com"), ExternalID: Sp(""),
 		Metadata: Jp(map[string]interface{}{
 			"email": map[string]interface{}{
 				"subject": "Hello",
@@ -62,7 +63,7 @@ var receiveTestCases = []ChannelHandleTestCase{
 
 	{Label: "Receive with message_id only",
 		URL: receiveURL, Data: messageIDOnly, Status: 200, Response: "Message Accepted",
-		Text: Sp("First message"), URN: Sp(urnWithTag("client@example.com", "<first@example.com>")),
+		Name: Sp("client@example.com"), Text: Sp("First message"), URN: Sp(urnWithTag("client@example.com", "<first@example.com>")),
 		ExternalID: Sp("<first@example.com>"),
 		Metadata: Jp(map[string]interface{}{
 			"email": map[string]interface{}{
@@ -72,7 +73,7 @@ var receiveTestCases = []ChannelHandleTestCase{
 
 	{Label: "Receive with full threading",
 		URL: receiveURL, Data: threadedReceive, Status: 200, Response: "Message Accepted",
-		Text: Sp("Resposta"), URN: Sp(urnWithTag("client@example.com", "<root@example.com>")),
+		Name: Sp("client@example.com"), Text: Sp("Resposta"), URN: Sp(urnWithTag("client@example.com", "<root@example.com>")),
 		ExternalID: Sp("<CABc@mail.gmail.com>"),
 		Metadata: Jp(map[string]interface{}{
 			"email": map[string]interface{}{
@@ -84,7 +85,7 @@ var receiveTestCases = []ChannelHandleTestCase{
 
 	{Label: "Receive normalizes missing angle brackets",
 		URL: receiveURL, Data: missingBrackets, Status: 200, Response: "Message Accepted",
-		Text: Sp("resp"), URN: Sp(urnWithTag("client@example.com", "root@example.com")),
+		Name: Sp("client@example.com"), Text: Sp("resp"), URN: Sp(urnWithTag("client@example.com", "root@example.com")),
 		ExternalID: Sp("<abc@example.com>"),
 		Metadata: Jp(map[string]interface{}{
 			"email": map[string]interface{}{
@@ -96,7 +97,7 @@ var receiveTestCases = []ChannelHandleTestCase{
 
 	{Label: "Receive dedupes references",
 		URL: receiveURL, Data: dupReferences, Status: 200, Response: "Message Accepted",
-		Text: Sp("resp"), URN: Sp(urnWithTag("client@example.com", "<root@x>")),
+		Name: Sp("client@example.com"), Text: Sp("resp"), URN: Sp(urnWithTag("client@example.com", "<root@x>")),
 		ExternalID: Sp("<a@x>"),
 		Metadata: Jp(map[string]interface{}{
 			"email": map[string]interface{}{
@@ -108,7 +109,7 @@ var receiveTestCases = []ChannelHandleTestCase{
 
 	{Label: "Receive accepts null references",
 		URL: receiveURL, Data: nullReferences, Status: 200, Response: "Message Accepted",
-		Text: Sp("resp"), URN: Sp(urnWithTag("client@example.com", "<b@x>")),
+		Name: Sp("client@example.com"), Text: Sp("resp"), URN: Sp(urnWithTag("client@example.com", "<b@x>")),
 		ExternalID: Sp("<a@x>"),
 		Metadata: Jp(map[string]interface{}{
 			"email": map[string]interface{}{
@@ -119,7 +120,7 @@ var receiveTestCases = []ChannelHandleTestCase{
 
 	{Label: "Receive accepts empty references",
 		URL: receiveURL, Data: emptyReferences, Status: 200, Response: "Message Accepted",
-		Text: Sp("resp"), URN: Sp(urnWithTag("client@example.com", "<b@x>")),
+		Name: Sp("client@example.com"), Text: Sp("resp"), URN: Sp(urnWithTag("client@example.com", "<b@x>")),
 		ExternalID: Sp("<a@x>"),
 		Metadata: Jp(map[string]interface{}{
 			"email": map[string]interface{}{
@@ -131,19 +132,27 @@ var receiveTestCases = []ChannelHandleTestCase{
 	{Label: "Missing from", URL: receiveURL, Data: missingFrom, Status: 400, Response: "'from' required"},
 	{Label: "Missing body", URL: receiveURL, Data: missingBody, Status: 400, Response: "'body' required"},
 
+	// Blocking any virtual contact for a mailbox must stop a brand-new thread
+	// from the same real address (server returns empty 200, no queued msg).
+	{Label: "Receive from blocked mailbox is ignored",
+		URL: receiveURL, Data: spamNewThread, Status: 200, Response: "",
+		PrepBackend: func(mb *courier.MockBackend) {
+			mb.SetEmailMailboxBlocked("spam@evil.com", true)
+		}},
+
 	{Label: "New thread on subject Meu Produto gets its own contact",
 		URL: receiveURL, Data: newThreadProduct, Status: 200, Response: "Message Accepted",
-		Text: Sp("Duvida sobre produto"), URN: Sp(urnWithTag("fulano123@gmail.com", "<produto@example.com>")),
+		Name: Sp("fulano123@gmail.com"), Text: Sp("Duvida sobre produto"), URN: Sp(urnWithTag("fulano123@gmail.com", "<produto@example.com>")),
 		ExternalID: Sp("<produto@example.com>")},
 
 	{Label: "New thread on subject Minha fatura gets a different contact",
 		URL: receiveURL, Data: newThreadInvoice, Status: 200, Response: "Message Accepted",
-		Text: Sp("Duvida sobre fatura"), URN: Sp(urnWithTag("fulano123@gmail.com", "<fatura@example.com>")),
+		Name: Sp("fulano123@gmail.com"), Text: Sp("Duvida sobre fatura"), URN: Sp(urnWithTag("fulano123@gmail.com", "<fatura@example.com>")),
 		ExternalID: Sp("<fatura@example.com>")},
 
 	{Label: "Reply to Meu Produto thread resolves back to that same contact",
 		URL: receiveURL, Data: replyToProduct, Status: 200, Response: "Message Accepted",
-		Text: Sp("Resposta produto"), URN: Sp(urnWithTag("fulano123@gmail.com", "<produto@example.com>")),
+		Name: Sp("fulano123@gmail.com"), Text: Sp("Resposta produto"), URN: Sp(urnWithTag("fulano123@gmail.com", "<produto@example.com>")),
 		ExternalID: Sp("<produto-reply@example.com>")},
 }
 
@@ -160,6 +169,22 @@ func TestThreadContactSegregation(t *testing.T) {
 	}
 	if productURN != replyURN {
 		t.Fatalf("expected a reply to the original thread to derive the same contact URN: got %q, want %q", replyURN, productURN)
+	}
+}
+
+func TestRealAddressFromURNPath(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"spam+wt-a1b2c3d4@evil.com", "spam@evil.com"},
+		{"spam@evil.com", "spam@evil.com"},
+		{"person+work@gmail.com", "person+work@gmail.com"},
+		{"person+work+wt-deadbeef@gmail.com", "person+work@gmail.com"},
+	}
+	for _, tc := range cases {
+		if got := realAddressFromURNPath(tc.in); got != tc.want {
+			t.Errorf("realAddressFromURNPath(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }
 
@@ -222,6 +247,17 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		ResponseToExternalID: "<root@x>",
 		Status:               "W",
 		RequestBody:          `{"uuid":"00000000-0000-0000-0000-000000000000","from":"test@example.com","to":"client@example.com","body":"Reply body","subject":"Re: Pedido #123","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<root@x>","references":["<root@x>"]}`,
+		StatusMetadata:       json.RawMessage(`{"email":{"in_reply_to":"<root@x>","references":["<root@x>"],"subject":"Re: Pedido #123"}}`),
+		ResponseBody:         `{"status":"sent"}`, ResponseStatus: 200,
+		SendPrep: setSendURL},
+
+	{Label: "Send subsequent message reuses subject and extends references from prior outbound",
+		Text: "Follow-up details", URN: "mailto:client@example.com",
+		ResponseToExternalID: "<outbound1@x>",
+		Metadata:             json.RawMessage(`{"ticketer_id":1}`),
+		Status:               "W",
+		RequestBody:          `{"uuid":"00000000-0000-0000-0000-000000000000","from":"test@example.com","to":"client@example.com","body":"Follow-up details","subject":"Re: Pedido #123","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<outbound1@x>","references":["<root@x>","<outbound1@x>"]}`,
+		StatusMetadata:       json.RawMessage(`{"email":{"in_reply_to":"<outbound1@x>","references":["<root@x>","<outbound1@x>"],"subject":"Re: Pedido #123"},"ticketer_id":1}`),
 		ResponseBody:         `{"status":"sent"}`, ResponseStatus: 200,
 		SendPrep: setSendURL},
 
@@ -304,6 +340,14 @@ func seedParents(mb *courier.MockBackend) {
 	mb.AddMsgByID(parentViaID)
 	mb.AddMsgByExternalID(parentViaID)
 
+	// prior outbound that already stashed thread metadata (what SendMsg now
+	// writes after a successful reply) — subsequent sends resolve this as
+	// parent and must keep the same subject / extend References
+	priorOutbound := mb.NewIncomingMsg(defaultChannel, urns.URN("mailto:client@example.com"), "First reply").
+		WithExternalID("<outbound1@x>").
+		WithMetadata(json.RawMessage(`{"email":{"in_reply_to":"<root@x>","references":["<root@x>"],"subject":"Re: Pedido #123"}}`))
+	mb.AddMsgByExternalID(priorOutbound)
+
 	lastInbound := mb.NewIncomingMsg(defaultChannel, urns.URN("mailto:ticket@example.com"), "Help").
 		WithExternalID("<ticket-inbound@x>").
 		WithMetadata(json.RawMessage(`{"email":{"subject":"Account issue"}}`))
@@ -313,4 +357,58 @@ func seedParents(mb *courier.MockBackend) {
 
 func TestSending(t *testing.T) {
 	RunChannelSendTestCases(t, defaultChannel, newHandler(), defaultSendTestCases, seedParents)
+}
+
+func TestMergeEmailMetadata(t *testing.T) {
+	emailBlock := json.RawMessage(`{"email":{"in_reply_to":"<a@x>","references":["<a@x>"],"subject":"Re: Hi"}}`)
+
+	t.Run("empty emailBlock returns nil", func(t *testing.T) {
+		if got := mergeEmailMetadata(json.RawMessage(`{"ticketer_id":1}`), nil); got != nil {
+			t.Fatalf("expected nil, got %s", got)
+		}
+	})
+
+	t.Run("empty object emailBlock returns nil", func(t *testing.T) {
+		if got := mergeEmailMetadata(nil, json.RawMessage(`{}`)); got != nil {
+			t.Fatalf("expected nil, got %s", got)
+		}
+	})
+
+	t.Run("nil existing returns emailBlock", func(t *testing.T) {
+		got := mergeEmailMetadata(nil, emailBlock)
+		assertJSONEqual(t, emailBlock, got)
+	})
+
+	t.Run("preserves unrelated existing keys", func(t *testing.T) {
+		existing := json.RawMessage(`{"ticketer_id":1,"chats_msg_uuid":"abc"}`)
+		got := mergeEmailMetadata(existing, emailBlock)
+		assertJSONEqual(t, json.RawMessage(`{"chats_msg_uuid":"abc","email":{"in_reply_to":"<a@x>","references":["<a@x>"],"subject":"Re: Hi"},"ticketer_id":1}`), got)
+	})
+
+	t.Run("overwrites existing email key", func(t *testing.T) {
+		existing := json.RawMessage(`{"email":{"subject":"Old"},"ticketer_id":1}`)
+		got := mergeEmailMetadata(existing, emailBlock)
+		assertJSONEqual(t, json.RawMessage(`{"email":{"in_reply_to":"<a@x>","references":["<a@x>"],"subject":"Re: Hi"},"ticketer_id":1}`), got)
+	})
+
+	t.Run("invalid existing falls back to emailBlock", func(t *testing.T) {
+		got := mergeEmailMetadata(json.RawMessage(`["not","object"]`), emailBlock)
+		assertJSONEqual(t, emailBlock, got)
+	})
+}
+
+func assertJSONEqual(t *testing.T, want, got json.RawMessage) {
+	t.Helper()
+	var wantVal, gotVal interface{}
+	if err := json.Unmarshal(want, &wantVal); err != nil {
+		t.Fatalf("want unmarshal: %v", err)
+	}
+	if err := json.Unmarshal(got, &gotVal); err != nil {
+		t.Fatalf("got unmarshal: %v\ngot=%s", err, got)
+	}
+	wantJSON, _ := json.Marshal(wantVal)
+	gotJSON, _ := json.Marshal(gotVal)
+	if string(wantJSON) != string(gotJSON) {
+		t.Fatalf("mismatch\nwant: %s\ngot:  %s", wantJSON, gotJSON)
+	}
 }

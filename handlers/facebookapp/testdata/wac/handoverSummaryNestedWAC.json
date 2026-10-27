@@ -1,0 +1,37 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "8856996819413533",
+      "time": 1789502043,
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "recipient": {
+              "display_phone_number": "551140631872",
+              "phone_number_id": "12345"
+            },
+            "sender": {
+              "phone_number": "558893565901"
+            },
+            "timestamp": "1789502043",
+            "type": "control_passed",
+            "control_passed": {
+              "previous_owner_role": "utility",
+              "new_owner_role": "escalation",
+              "metadata": "Envio de mensagens service",
+              "conversation_context": {
+                "type": "summary",
+                "summary": {
+                  "text": "* The business sent a template and the customer tapped a button.\n* The business acknowledged the response by saying \"ok\"."
+                }
+              }
+            }
+          },
+          "field": "messaging_handovers"
+        }
+      ]
+    }
+  ]
+}

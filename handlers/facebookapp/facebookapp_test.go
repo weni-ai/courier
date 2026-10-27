@@ -26,6 +26,28 @@ var testChannelsIG = []courier.Channel{
 	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "IG", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"}),
 }
 
+var testChannelsIGForwardComments = []courier.Channel{
+	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "IG", "12345", "", map[string]interface{}{
+		courier.ConfigAuthToken:       "a123",
+		courier.ConfigForwardComments: true,
+	}),
+}
+
+var testChannelsIGReplyOnComment = []courier.Channel{
+	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "IG", "12345", "", map[string]interface{}{
+		courier.ConfigAuthToken:       "a123",
+		courier.ConfigForwardComments: true,
+		courier.ConfigReplyOnComment:  true,
+	}),
+}
+
+var testChannelsIGReplyOnCommentOnly = []courier.Channel{
+	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "IG", "12345", "", map[string]interface{}{
+		courier.ConfigAuthToken:      "a123",
+		courier.ConfigReplyOnComment: true,
+	}),
+}
+
 var testChannelsWAC = []courier.Channel{
 	courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "WAC", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123", "webhook": `{"url": "https://webhook.site", "method": "POST", "headers": {}}`}),
 }
@@ -101,10 +123,6 @@ var testCasesIG = []ChannelHandleTestCase{
 		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		PrepRequest: addValidSignature},
 
-	{Label: "Receive Comment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "Handled",
-		Text: Sp("Hello World"), URN: Sp("instagram:5678"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
-		PrepRequest: addValidSignature},
-
 	{Label: "Receive Attachment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/attachmentIG.json")), Status: 200, Response: "Handled",
 		Text: Sp(""), Attachments: []string{"https://image-url/foo.png"}, URN: Sp("instagram:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
 		PrepRequest: addValidSignature},
@@ -146,6 +164,195 @@ var testCasesIG = []ChannelHandleTestCase{
 			},
 		}),
 		PrepRequest: addValidSignature},
+}
+
+var testCasesIGComments = []ChannelHandleTestCase{
+	{Label: "Receive Comment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("30065218"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"ig_comment": map[string]interface{}{
+				"id": "30065218",
+				"media": map[string]interface{}{
+					"ad_id":              "1280670063",
+					"id":                 "180615383",
+					"media_product_type": "AD",
+					"original_media_id":  "179908467",
+				},
+			},
+			"ig_response_type": "dm_comment",
+			"overwrite_message": map[string]interface{}{
+				"ig_comment": map[string]interface{}{
+					"id": "30065218",
+					"media": map[string]interface{}{
+						"ad_id":              "1280670063",
+						"id":                 "180615383",
+						"media_product_type": "AD",
+						"original_media_id":  "179908467",
+					},
+				},
+				"ig_response_type": "dm_comment",
+			},
+		}),
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment With Caption", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentCaptionIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Nice post!"), URN: Sp("instagram:5678"), ExternalID: Sp("30065221"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"ig_comment": map[string]interface{}{
+				"id": "30065221",
+				"media": map[string]interface{}{
+					"ad_id":              "1280670063",
+					"id":                 "180615383",
+					"media_product_type": "FEED",
+					"original_media_id":  "179908467",
+					"caption":            "Summer sale post",
+				},
+			},
+			"ig_response_type": "dm_comment",
+			"overwrite_message": map[string]interface{}{
+				"ig_comment": map[string]interface{}{
+					"id": "30065221",
+					"media": map[string]interface{}{
+						"ad_id":              "1280670063",
+						"id":                 "180615383",
+						"media_product_type": "FEED",
+						"original_media_id":  "179908467",
+						"caption":            "Summer sale post",
+					},
+				},
+				"ig_response_type": "dm_comment",
+			},
+		}),
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Reply On Comment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("30065218"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"ig_comment": map[string]interface{}{
+				"id": "30065218",
+				"media": map[string]interface{}{
+					"ad_id":              "1280670063",
+					"id":                 "180615383",
+					"media_product_type": "AD",
+					"original_media_id":  "179908467",
+				},
+			},
+			"ig_response_type": "comment",
+			"overwrite_message": map[string]interface{}{
+				"ig_comment": map[string]interface{}{
+					"id": "30065218",
+					"media": map[string]interface{}{
+						"ad_id":              "1280670063",
+						"id":                 "180615383",
+						"media_product_type": "AD",
+						"original_media_id":  "179908467",
+					},
+				},
+				"ig_response_type": "comment",
+			},
+		}),
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Without Forward Config", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("30065218"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"ig_comment": map[string]interface{}{
+				"id": "30065218",
+				"media": map[string]interface{}{
+					"ad_id":              "1280670063",
+					"id":                 "180615383",
+					"media_product_type": "AD",
+					"original_media_id":  "179908467",
+				},
+			},
+			"overwrite_message": map[string]interface{}{
+				"ig_comment": map[string]interface{}{
+					"id": "30065218",
+					"media": map[string]interface{}{
+						"ad_id":              "1280670063",
+						"id":                 "180615383",
+						"media_product_type": "AD",
+						"original_media_id":  "179908467",
+					},
+				},
+			},
+		}),
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Reply On Comment Without Forward", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("30065218"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		Metadata: Jp(map[string]interface{}{
+			"ig_comment": map[string]interface{}{
+				"id": "30065218",
+				"media": map[string]interface{}{
+					"ad_id":              "1280670063",
+					"id":                 "180615383",
+					"media_product_type": "AD",
+					"original_media_id":  "179908467",
+				},
+			},
+			"overwrite_message": map[string]interface{}{
+				"ig_comment": map[string]interface{}{
+					"id": "30065218",
+					"media": map[string]interface{}{
+						"ad_id":              "1280670063",
+						"id":                 "180615383",
+						"media_product_type": "AD",
+						"original_media_id":  "179908467",
+					},
+				},
+			},
+		}),
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Missing ID", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentMissingIDIG.json")), Status: 200, Response: "missing identifier", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Story Skip", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentStoryIG.json")), Status: 200, Response: "ignoring story/live comment", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		PrepRequest: addValidSignature},
+
+	{Label: "Receive Comment Self Skip", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentSelfIG.json")), Status: 200, Response: "ignoring comment from our own channel", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		PrepRequest: addValidSignature},
+
+	{Label: "No Duplicate Receive Comment", URL: "/c/ig/receive", Data: string(courier.ReadFile("./testdata/ig/commentDuplicateIG.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("instagram:5678"), ExternalID: Sp("30065218"), Date: Tp(time.Date(2016, 4, 7, 1, 11, 27, 970000000, time.UTC)),
+		PrepRequest: addValidSignature},
+}
+
+func TestInstagramComments(t *testing.T) {
+	RunChannelTestCases(t, testChannelsIGForwardComments, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+		testCasesIGComments[0],
+		testCasesIGComments[1],
+		testCasesIGComments[6],
+		testCasesIGComments[7],
+		testCasesIGComments[8],
+	})
+
+	RunChannelTestCases(t, testChannelsIGReplyOnComment, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+		testCasesIGComments[2],
+	})
+
+	RunChannelTestCases(t, testChannelsIG, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+		testCasesIGComments[3],
+	})
+
+	RunChannelTestCases(t, testChannelsIGReplyOnCommentOnly, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+		testCasesIGComments[4],
+	})
+
+	RunChannelTestCases(t, testChannelsIGForwardComments, newHandler("IG", "Instagram", false), []ChannelHandleTestCase{
+		testCasesIGComments[5],
+	})
+}
+
+func TestIsSkippedInstagramCommentMediaType(t *testing.T) {
+	assert.True(t, isSkippedInstagramCommentMediaType("STORY"))
+	assert.True(t, isSkippedInstagramCommentMediaType("story"))
+	assert.True(t, isSkippedInstagramCommentMediaType("LIVE"))
+	assert.True(t, isSkippedInstagramCommentMediaType("live"))
+	assert.False(t, isSkippedInstagramCommentMediaType("FEED"))
+	assert.False(t, isSkippedInstagramCommentMediaType("AD"))
+	assert.False(t, isSkippedInstagramCommentMediaType("REELS"))
 }
 
 func addValidSignature(r *http.Request) {
@@ -260,6 +467,83 @@ func TestDescribeWAC(t *testing.T) {
 	for _, tc := range tcs {
 		metadata, _ := handler.DescribeURN(context.Background(), testChannelsWAC[0], tc.urn)
 		assert.Equal(t, metadata, tc.metadata)
+	}
+}
+
+func TestReceiveWACHandover(t *testing.T) {
+	tcs := []struct {
+		label       string
+		fixture     string
+		response    string
+		eventCount  int
+		contextType string
+		contextText string
+		contactName string
+		contactURN  string
+	}{
+		{
+			label:       "Summary handover with recipient phone_number_id",
+			fixture:     "./testdata/wac/handoverSummaryWAC.json",
+			response:    "wa conversation handover persisted",
+			eventCount:  1,
+			contextType: courier.WAHandoverContextSummary,
+			contextText: "Customer asked about pricing and delivery.",
+			contactName: "Kerry Fisher",
+		},
+		{
+			label:       "History handover",
+			fixture:     "./testdata/wac/handoverHistoryWAC.json",
+			response:    "wa conversation handover persisted",
+			eventCount:  1,
+			contextType: courier.WAHandoverContextHistory,
+			contextText: "[user] Hi\n[business] Hello, how can I help?\n[user] <image>",
+			contactName: "Kerry Fisher",
+		},
+		{
+			label:      "Control passed without context",
+			fixture:    "./testdata/wac/handoverNoContextWAC.json",
+			response:   "control_passed without conversation context",
+			eventCount: 0,
+		},
+		{
+			label:       "Summary handover nested in control_passed with phone_number sender",
+			fixture:     "./testdata/wac/handoverSummaryNestedWAC.json",
+			response:    "wa conversation handover persisted",
+			eventCount:  1,
+			contextType: courier.WAHandoverContextSummary,
+			contextText: "* The business sent a template and the customer tapped a button.\n* The business acknowledged the response by saying \"ok\".",
+			contactURN:  "whatsapp:558893565901",
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.label, func(t *testing.T) {
+			mb := courier.NewMockBackend()
+			s := handlers.NewTestServer(mb)
+			for _, ch := range testChannelsWAC {
+				mb.AddChannel(ch)
+			}
+			handler := newHandler("WAC", "Cloud API WhatsApp", false)
+			handler.Initialize(s)
+
+			handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, string(courier.ReadFile(tc.fixture)), nil, 200, Sp(tc.response), addValidSignatureWAC)
+
+			assert.Equal(t, 0, mb.LenQueuedMsgs())
+			events := mb.WAHandoverEvents()
+			assert.Len(t, events, tc.eventCount)
+			if tc.eventCount == 0 {
+				return
+			}
+
+			assert.Equal(t, tc.contextType, events[0].ContextType)
+			assert.Equal(t, tc.contextText, events[0].ContextText)
+			expectedURN := tc.contactURN
+			if expectedURN == "" {
+				expectedURN = "whatsapp:5678"
+			}
+			assert.Equal(t, expectedURN, events[0].ContactURN.String())
+			assert.Equal(t, tc.contactName, events[0].ContactName)
+		})
 	}
 }
 
@@ -518,14 +802,14 @@ var testCasesWAC = []ChannelHandleTestCase{
 		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		ContactURNs: map[string]bool{
 			"whatsapp:US.13491208655302741918": true,
-			"whatsapp:5678":                   true,
+			"whatsapp:5678":                    true,
 		},
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Message Phone and BSUID Existing BSUID Contact", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUIDWithPhone.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		ContactURNs: map[string]bool{
 			"whatsapp:US.13491208655302741918": true,
-			"whatsapp:5678":                   true,
+			"whatsapp:5678":                    true,
 		},
 		PrepBackend: func(mb *courier.MockBackend) {
 			bsuidURN, _ := urns.NewWhatsAppURN("US.13491208655302741918")
@@ -536,7 +820,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		ContactURNs: map[string]bool{
 			"whatsapp:US.13491208655302741918": true,
-			"whatsapp:5678":                   true,
+			"whatsapp:5678":                    true,
 		},
 		PrepBackend: func(mb *courier.MockBackend) {
 			phoneURN, _ := urns.NewWhatsAppURN("5678")
@@ -547,7 +831,7 @@ var testCasesWAC = []ChannelHandleTestCase{
 		Text: Sp("+250 788 123 456"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		ContactURNs: map[string]bool{
 			"whatsapp:US.13491208655302741918": true,
-			"whatsapp:5678":                   true,
+			"whatsapp:5678":                    true,
 		},
 		PrepBackend: func(mb *courier.MockBackend) {
 			// reproduces the reported incident: contact previously existed with only the BSUID
@@ -563,18 +847,42 @@ var testCasesWAC = []ChannelHandleTestCase{
 	{Label: "Receive Status BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/statusBSUID.json")), Status: 200, Response: `"type":"status"`,
 		MsgStatus: Sp("S"), ExternalID: Sp("external_id"), PrepRequest: addValidSignatureWAC},
 	{Label: "Receive User ID Update", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/userIDUpdateWAC.json")), Status: 200, Response: `"user_id_update: BSUID updated from US.13491208655302741918 to US.98765432100000000001"`,
+		PrepBackend: func(mb *courier.MockBackend) {
+			oldBSUID, _ := urns.NewWhatsAppURN("US.13491208655302741918")
+			mb.GetContact(context.Background(), testChannelsWAC[0], oldBSUID, "", "")
+		},
+		PrepRequest: addValidSignatureWAC},
+	{Label: "Receive Message Phone and BSUID Replaces Old BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloBSUIDWithPhoneNewBSUID.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
+		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
+		ContactURNs: map[string]bool{
+			"whatsapp:US.98765432100000000001": true,
+			"whatsapp:5678":                    true,
+			"whatsapp:US.13491208655302741918": false,
+		},
+		PrepBackend: func(mb *courier.MockBackend) {
+			phoneURN, _ := urns.NewWhatsAppURN("5678")
+			oldBSUID, _ := urns.NewWhatsAppURN("US.13491208655302741918")
+			contact, _ := mb.GetContact(context.Background(), testChannelsWAC[0], phoneURN, "", "")
+			mb.AddURNtoContact(context.Background(), testChannelsWAC[0], contact, oldBSUID)
+		},
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Message Phone BSUID and Parent BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloParentBSUID.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("Hello World"), URN: Sp("whatsapp:5678"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		ContactURNs: map[string]bool{
 			"whatsapp:US.13491208655302741918": true,
-			"whatsapp:5678":                   true,
+			"whatsapp:5678":                    true,
 		},
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive Message BSUID and Parent BSUID Only", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/helloParentBSUIDOnly.json")), Status: 200, Response: "Handled", NoQueueErrorCheck: true, NoInvalidChannelCheck: true,
 		Text: Sp("Hello World"), URN: Sp("whatsapp:US.13491208655302741918"), ExternalID: Sp("external_id"), Date: Tp(time.Date(2016, 1, 30, 1, 57, 9, 0, time.UTC)),
 		PrepRequest: addValidSignatureWAC},
 	{Label: "Receive User ID Update with Parent BSUID", URL: wacReceiveURL, Data: string(courier.ReadFile("./testdata/wac/userIDUpdateParentBSUID.json")), Status: 200, Response: `"user_id_update: parent BSUID updated from US.ENT.11815799212886844830 to US.ENT.99999999999999999999"`,
+		PrepBackend: func(mb *courier.MockBackend) {
+			oldBSUID, _ := urns.NewWhatsAppURN("US.13491208655302741918")
+			oldParentBSUID, _ := urns.NewWhatsAppURN("US.ENT.11815799212886844830")
+			contact, _ := mb.GetContact(context.Background(), testChannelsWAC[0], oldBSUID, "", "")
+			mb.AddURNtoContact(context.Background(), testChannelsWAC[0], contact, oldParentBSUID)
+		},
 		PrepRequest: addValidSignatureWAC},
 }
 
@@ -765,13 +1073,24 @@ var SendTestCasesIG = []ChannelSendTestCase{
 			graphURL = buildMockIGCommentReplyServer().URL + "/"
 		},
 	},
+	{Label: "Instagram Comment Reply Legacy",
+		Text: "Reply to comment", URN: "instagram:12345",
+		Status: "W", ExternalID: "30065218",
+		Metadata:     json.RawMessage(`{"ig_comment_id": "30065218"}`),
+		ResponseBody: `{"id": "30065218"}`, ResponseStatus: 200,
+		SendPrep: func(server *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+			graphURL = buildMockIGCommentReplyServer().URL + "/"
+		},
+	},
 	{Label: "Instagram DM Comment Reply",
 		Text: "Reply to comment", URN: "instagram:12345",
 		Status: "W", ExternalID: "mid.133",
 		Metadata:     json.RawMessage(`{"ig_comment_id": "30065218","ig_response_type": "dm_comment"}`),
 		ResponseBody: `{"message_id": "mid.133"}`, ResponseStatus: 200,
 		SendPrep: func(server *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
-			graphURL = buildMockIGCommentReplyServer().URL + "/"
+			mockServer := buildMockIGCommentReplyServer()
+			sendURL = mockServer.URL
+			graphURL = mockServer.URL + "/"
 		},
 	},
 	{Label: "Quick Reply",
@@ -831,6 +1150,13 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		Status: "W", ExternalID: "157b5e14568e8",
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"Simple Message"}}`,
+		SendPrep:    setSendURL},
+	{Label: "Plain Send as Contextual Reply",
+		Text: "Simple Message", URN: "whatsapp:250788123123", Path: "/12345_ID/messages",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{"response_to_external_id":"wamid.HBgLMTY0NjcwNDM1OTUVAgASGBQzQTdCNTg5RjY1MEMyRjlGMjRGNgA="}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"text","context":{"message_id":"wamid.HBgLMTY0NjcwNDM1OTUVAgASGBQzQTdCNTg5RjY1MEMyRjlGMjRGNgA="},"text":{"body":"Simple Message"}}`,
 		SendPrep:    setSendURL},
 	{Label: "Unicode Send",
 		Text: "☺", URN: "whatsapp:250788123123", Path: "/12345_ID/messages",
@@ -917,6 +1243,15 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "variables": ["Chef", "tomorrow"]}}`),
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"revive_issue","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","text":"Chef"},{"type":"text","text":"tomorrow"}]}]}}`,
+		SendPrep:    setSendURL,
+	},
+	{Label: "Named Template Send",
+		Text:   "templated message",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "cobranca_bf4", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "parameter_format": "named", "named_variables": {"nome": "João", "cota": "045"}}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"cobranca_bf4","language":{"policy":"deterministic","code":"en"},"components":[{"type":"body","parameters":[{"type":"text","parameter_name":"cota","text":"045"},{"type":"text","parameter_name":"nome","text":"João"}]}]}}`,
 		SendPrep:    setSendURL,
 	},
 	{Label: "Template Country Language",
@@ -1469,11 +1804,40 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"carousel","body":{"text":"Choose an option"},"action":{"cards":[{"card_index":0,"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}},"body":{"text":"Option A"},"action":{"buttons":[{"type":"quick_reply","quick_reply":{"id":"opt_a","title":"opt_a"}}]}},{"card_index":1,"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/card2.jpg"}},"body":{"text":"Option B"},"action":{"buttons":[{"type":"quick_reply","quick_reply":{"id":"opt_b","title":"opt_b"}}]}}]}}}`,
 		SendPrep:    setSendURL},
-	{Label: "Interactive Carousel - Less than 2 attachments",
+	{Label: "Interactive Carousel Send - Encodes non-ASCII image URL",
+		Text: "Choose an option", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{
+			"image/jpeg:https://foo.bar/1ª-edicao.jpg",
+			"image/jpeg:https://foo.bar/card2.jpg",
+		},
+		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Option A","buttons":[{"sub_type":"quick_reply","parameter":"opt_a"}]},{"body":"Option B","buttons":[{"sub_type":"quick_reply","parameter":"opt_b"}]}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"carousel","body":{"text":"Choose an option"},"action":{"cards":[{"card_index":0,"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/1%C2%AA-edicao.jpg"}},"body":{"text":"Option A"},"action":{"buttons":[{"type":"quick_reply","quick_reply":{"id":"opt_a","title":"opt_a"}}]}},{"card_index":1,"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/card2.jpg"}},"body":{"text":"Option B"},"action":{"buttons":[{"type":"quick_reply","quick_reply":{"id":"opt_b","title":"opt_b"}}]}}]}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Interactive Carousel - Single card with CTA URL",
 		Text: "Main text", URN: "whatsapp:250788123123",
-		Attachments: []string{"image/jpeg:https://foo.bar/card1.jpg"},
-		Metadata:    json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[{"sub_type":"url","parameters":{"display_text":"Link","url":"https://x.com"}}]}]}`),
-		Error:       "interactive carousel requires 2-10 media attachments, got 1",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments:  []string{"image/jpeg:https://foo.bar/card1.jpg"},
+		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[{"sub_type":"url","parameters":{"display_text":"Link","url":"https://x.com"}}]}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"cta_url","header":{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}},"body":{"text":"Card 1"},"action":{"name":"cta_url","parameters":{"display_text":"Link","url":"https://x.com"}}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Interactive Carousel - Single card with quick replies",
+		Text: "Main text", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments:  []string{"image/jpeg:https://foo.bar/card1.jpg"},
+		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Pick one","buttons":[{"sub_type":"quick_reply","parameters":{"id":"opt_a","title":"Option A"}}]}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"button","header":{"type":"image","image":{"link":"https://foo.bar/card1.jpg"}},"body":{"text":"Pick one"},"action":{"buttons":[{"type":"reply","reply":{"id":"opt_a","title":"Option A"}}]}}}`,
+		SendPrep:    setSendURL},
+	{Label: "Interactive Carousel - Single card without buttons",
+		Text: "Main text", URN: "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments:  []string{"image/jpeg:https://foo.bar/card1.jpg"},
+		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1"}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"link":"https://foo.bar/card1.jpg","caption":"Card 1"}}`,
 		SendPrep:    setSendURL},
 	{Label: "Interactive Carousel - Missing body",
 		Text: "", URN: "whatsapp:250788123123",
@@ -1603,6 +1967,24 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"5511987654321","type":"text","text":{"body":"Simple Message"}}`,
 		SendPrep:    setSendURL,
 		ContactURNs: map[string]bool{"whatsapp:5511987654321": true, "whatsapp:551187654321": true},
+	},
+	{Label: "Replace BSUID from send response",
+		Text: "Simple Message", URN: "whatsapp:5678", Path: "/12345_ID/messages",
+		Status: "W", ExternalID: "157b5e14568e8",
+		ResponseBody: `{ "contacts":[{"input":"5678", "wa_id":"5678", "user_id":"US.98765432100000000001"}], "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"5678","type":"text","text":{"body":"Simple Message"}}`,
+		SendPrep:    setSendURL,
+		ContactURNs: map[string]bool{
+			"whatsapp:5678":                    true,
+			"whatsapp:US.98765432100000000001": true,
+			"whatsapp:US.13491208655302741918": false,
+		},
+		PrepBackend: func(mb *courier.MockBackend) {
+			phoneURN, _ := urns.NewWhatsAppURN("5678")
+			oldBSUID, _ := urns.NewWhatsAppURN("US.13491208655302741918")
+			contact, _ := mb.GetContact(context.Background(), testChannelsWAC[0], phoneURN, "", "")
+			mb.AddURNtoContact(context.Background(), testChannelsWAC[0], contact, oldBSUID)
+		},
 	},
 	{Label: "Marketing Template Send - mmlite disabled",
 		Text:   "marketing template message",
@@ -1842,6 +2224,36 @@ func mockAttachmentURLs(mediaServer *httptest.Server, testCases []ChannelSendTes
 	return casesWithMockedUrls
 }
 
+func isCarouselSendTestCase(testCase ChannelSendTestCase) bool {
+	meta := string(testCase.Metadata)
+	return strings.Contains(meta, `"is_carousel": true`) || strings.Contains(meta, `"interaction_type":"carousel"`)
+}
+
+func mockCarouselAttachmentURLs(mediaServer *httptest.Server, testCases []ChannelSendTestCase) []ChannelSendTestCase {
+	casesWithMockedUrls := make([]ChannelSendTestCase, len(testCases))
+
+	for i, testCase := range testCases {
+		mockedCase := testCase
+		if !isCarouselSendTestCase(testCase) {
+			casesWithMockedUrls[i] = mockedCase
+			continue
+		}
+
+		for j, attachment := range testCase.Attachments {
+			mockedCase.Attachments[j] = strings.Replace(attachment, "https://foo.bar", mediaServer.URL, 1)
+		}
+		if testCase.RequestBody != "" {
+			mockedCase.RequestBody = strings.Replace(testCase.RequestBody, "https://foo.bar", mediaServer.URL, -1)
+		}
+		casesWithMockedUrls[i] = mockedCase
+	}
+	return casesWithMockedUrls
+}
+
+func mockPublicMediaURL(mediaURL string) string {
+	return "https://localhost/media/" + handlers.PngFilenameForURL(mediaURL)
+}
+
 func buildMockIGCommentReplyServer() *httptest.Server {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
@@ -1856,14 +2268,20 @@ func buildMockIGCommentReplyServer() *httptest.Server {
 			return
 		}
 
-		if strings.Contains(r.URL.Path, "/messages") {
-			err := r.ParseForm()
-			if err != nil {
+		if strings.Contains(r.URL.Path, "/messages") || r.URL.Path == "/" {
+			var payload map[string]interface{}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				http.Error(w, "Bad request", http.StatusBadRequest)
 				return
 			}
 
-			w.Write([]byte(`{ "id": "mid.133" }`))
+			recipient, ok := payload["recipient"].(map[string]interface{})
+			if !ok || recipient["comment_id"] == nil {
+				http.Error(w, "missing recipient.comment_id", http.StatusBadRequest)
+				return
+			}
+
+			w.Write([]byte(`{ "message_id": "mid.133" }`))
 			return
 		}
 
@@ -1922,21 +2340,150 @@ func TestSending(t *testing.T) {
 		res.Write([]byte("error"))
 	}))
 
-	// WebP media server - returns valid WebP image data
+	// WebP media server - returns valid WebP image data (non-sticker dimensions)
 	webpMediaServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 		defer req.Body.Close()
 		res.WriteHeader(200)
-		// Valid 1x1 pixel WebP lossy image
-		webpData := []byte{'R', 'I', 'F', 'F', 0x1A, 0x00, 0x00, 0x00, 'W', 'E', 'B', 'P', 'V', 'P', '8', ' ', 0x0E, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x2D, 0x01, 0x00, 0x00, 0x00, 0x00}
-		res.Write(webpData)
+		res.Write(handlers.MinimalWebPBytes())
+	}))
+
+	stickerMediaServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		defer req.Body.Close()
+		res.WriteHeader(200)
+		res.Write(handlers.Sticker512WebPBytes())
 	}))
 
 	defer mediaServer.Close()
 	defer webpMediaServer.Close()
+	defer stickerMediaServer.Close()
+	SendTestCasesWAC = mockCarouselAttachmentURLs(mediaServer, SendTestCasesWAC)
 	CachedSendTestCasesWAC := mockAttachmentURLs(mediaServer, CachedSendTestCasesWAC)
 	FailingCachedSendTestCasesWAC := mockAttachmentURLs(failingMediaServer, FailingCachedSendTestCasesWAC)
 
 	updateWebPTestCase(SendTestCasesWAC, webpMediaServer.URL)
+	webpProductURL := webpMediaServer.URL + "/product.webp"
+	webpProductCaptionURL := webpMediaServer.URL + "/product-caption.webp"
+	sticker512URL := stickerMediaServer.URL + "/sticker.webp"
+	SendTestCasesWAC = append(SendTestCasesWAC, ChannelSendTestCase{
+		Label:        "Interactive Button Message Send with WebP attachment",
+		Text:         "Product description",
+		URN:          "whatsapp:250788123123",
+		Status:       "W",
+		ExternalID:   "157b5e14568e8",
+		QuickReplies: []string{"Lo quiero"},
+		Attachments:  []string{"image/webp:" + webpProductURL},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method:       "POST",
+				Path:         "/12345_ID/media",
+				BodyContains: "product.png",
+			}: {
+				Status: 201,
+				Body:   `{"id":"157b5e14568e8"}`,
+			},
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"button","header":{"type":"image","image":{"id":"157b5e14568e8"}},"body":{"text":"Product description"},"action":{"buttons":[{"type":"reply","reply":{"id":"0","title":"Lo quiero"}}]}}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL,
+	})
+	SendTestCasesWAC = append(SendTestCasesWAC, ChannelSendTestCase{
+		Label:       "Image Send - WebP product photo",
+		Text:        "image caption",
+		URN:         "whatsapp:250788123123",
+		Status:      "W",
+		ExternalID:  "157b5e14568e8",
+		Attachments: []string{"image/webp:" + webpProductCaptionURL},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method:       "POST",
+				Path:         "/12345_ID/media",
+				BodyContains: "product-caption.png",
+			}: {
+				Status: 201,
+				Body:   `{"id":"157b5e14568e8"}`,
+			},
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"id":"157b5e14568e8","caption":"image caption"}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL,
+	})
+	SendTestCasesWAC = append(SendTestCasesWAC, ChannelSendTestCase{
+		Label:       "Sticker Send - 512 WebP with media upload",
+		Text:        "sticker caption",
+		URN:         "whatsapp:250788123123",
+		Status:      "W",
+		ExternalID:  "157b5e14568e8",
+		Attachments: []string{"image/webp:" + sticker512URL},
+		Responses: map[MockedRequest]MockedResponse{
+			{
+				Method:       "POST",
+				Path:         "/12345_ID/media",
+				BodyContains: "sticker.webp",
+			}: {
+				Status: 201,
+				Body:   `{"id":"268c6f24679f9"}`,
+			},
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"sticker","sticker":{"id":"268c6f24679f9"}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+			{
+				Method: "POST",
+				Path:   "/12345_ID/messages",
+				Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"text","text":{"body":"sticker caption"}}`,
+			}: {
+				Status: 201,
+				Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+			},
+		},
+		SendPrep: setSendURL,
+	})
+	card1URL := webpMediaServer.URL + "/card1.webp"
+	card2URL := webpMediaServer.URL + "/card2.webp"
+	SendTestCasesWAC = append(SendTestCasesWAC, ChannelSendTestCase{
+		Label:  "Interactive Carousel Send - WebP images",
+		Text:   "Browse our collection",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{
+			"image/webp:" + card1URL,
+			"image/webp:" + card2URL,
+		},
+		Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}]},{"body":"Card 2","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}]}]}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: fmt.Sprintf(`{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"carousel","body":{"text":"Browse our collection"},"action":{"cards":[{"card_index":0,"type":"cta_url","header":{"type":"image","image":{"link":"%s"}},"body":{"text":"Card 1"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}},{"card_index":1,"type":"cta_url","header":{"type":"image","image":{"link":"%s"}},"body":{"text":"Card 2"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}}]}}}`, mockPublicMediaURL(card1URL), mockPublicMediaURL(card2URL)),
+		SendPrep:    setSendURL,
+	})
+	SendTestCasesWAC = append(SendTestCasesWAC, ChannelSendTestCase{
+		Label:  "Carousel Template Send - WebP images",
+		Text:   "Carousel with webp images",
+		URN:    "whatsapp:250788123123",
+		Status: "W", ExternalID: "157b5e14568e8",
+		Attachments: []string{
+			"image/webp:" + card1URL,
+			"image/webp:" + card2URL,
+		},
+		Metadata:     json.RawMessage(`{ "templating": { "template": { "name": "webp_carousel", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "language": "eng", "is_carousel": true}}`),
+		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+		RequestBody: fmt.Sprintf(`{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"webp_carousel","language":{"policy":"deterministic","code":"en"},"components":[{"type":"carousel","cards":[{"card_index":0,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"%s"}}]}]},{"card_index":1,"components":[{"type":"header","parameters":[{"type":"image","image":{"link":"%s"}}]}]}]}]}}`, mockPublicMediaURL(card1URL), mockPublicMediaURL(card2URL)),
+		SendPrep:    setSendURL,
+	})
 	SendTestCasesWAC = append(SendTestCasesWAC, CachedSendTestCasesWAC...)
 	SendTestCasesWAC = append(SendTestCasesWAC, FailingCachedSendTestCasesWAC...)
 
@@ -1953,6 +2500,170 @@ func TestSending(t *testing.T) {
 	RunChannelSendTestCases(t, ChannelWAC, newHandler("WAC", "Cloud API WhatsApp", false), SendTestCasesWAC, nil)
 	RunChannelSendTestCases(t, ChannelWACMarketing, newHandler("WAC", "Cloud API WhatsApp", false), MarketingMessageSendTestCasesWAC, nil)
 	RunChannelActionTestCases(t, ChannelWAC, newHandler("WAC", "Cloud API WhatsApp", false), ActionTestCasesWAC, nil)
+}
+
+func TestSendingPresignedMedia(t *testing.T) {
+	mediaServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		defer req.Body.Close()
+		res.WriteHeader(200)
+		res.Write([]byte("media bytes"))
+	}))
+	defer mediaServer.Close()
+
+	webpMediaServer := httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
+		defer req.Body.Close()
+		res.WriteHeader(200)
+		res.Write(handlers.MinimalWebPBytes())
+	}))
+	defer webpMediaServer.Close()
+
+	imageURL := mediaServer.URL + "/presigned-image.jpg"
+	headerURL := webpMediaServer.URL + "/presigned-header.webp"
+	card1URL := webpMediaServer.URL + "/presigned-card1.webp"
+	card2URL := webpMediaServer.URL + "/presigned-card2.webp"
+	firstSignature := "?X-Amz-Date=20261021T120000Z&X-Amz-Signature=aaa"
+	secondSignature := "?X-Amz-Date=20261022T090000Z&X-Amz-Signature=bbb"
+	templateMetadata := json.RawMessage(`{ "templating": { "template": { "name": "revive_issue", "uuid": "171f8a4d-f725-46d7-85a6-11aceff0bfe3" }, "namespace": "wa_template_namespace", "language": "eng", "country": "US", "variables": ["Chef", "tomorrow"]}}`)
+	signPublicMedia := func(mb *courier.MockBackend) {
+		mb.SetAttachmentURLSigner(func(url string) (string, error) {
+			return url + "?X-Amz-Signature=signed", nil
+		})
+	}
+
+	testCases := []ChannelSendTestCase{
+		{Label: "Image Send with presigned URL uploads media",
+			Text: "image caption", URN: "whatsapp:250788123123",
+			Status: "W", ExternalID: "157b5e14568e8",
+			Attachments: []string{"image/jpeg:" + imageURL + firstSignature},
+			Responses: map[MockedRequest]MockedResponse{
+				{
+					Method:       "POST",
+					Path:         "/12345_ID/media",
+					BodyContains: `filename="presigned-image.jpg"`,
+				}: {
+					Status: 201,
+					Body:   `{"id":"presigned-image-id"}`,
+				},
+				{
+					Method: "POST",
+					Path:   "/12345_ID/messages",
+					Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"id":"presigned-image-id","caption":"image caption"}}`,
+				}: {
+					Status: 201,
+					Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+				},
+			},
+			SendPrep: setSendURL},
+		{Label: "Image Send with a new signature for the same media uses the cached media id",
+			Text: "image caption", URN: "whatsapp:250788123123",
+			Status: "W", ExternalID: "157b5e14568e8",
+			Attachments: []string{"image/jpeg:" + imageURL + secondSignature},
+			Responses: map[MockedRequest]MockedResponse{
+				{
+					Method: "POST",
+					Path:   "/12345_ID/messages",
+					Body:   `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"image","image":{"id":"presigned-image-id","caption":"image caption"}}`,
+				}: {
+					Status: 201,
+					Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+				},
+			},
+			SendPrep: setSendURL},
+		{Label: "Template Send with presigned WebP header uploads it as PNG",
+			Text: "Media Message Msg", URN: "whatsapp:250788123123",
+			Status: "W", ExternalID: "157b5e14568e8",
+			Metadata:    templateMetadata,
+			Attachments: []string{"image/webp:" + headerURL + firstSignature},
+			Responses: map[MockedRequest]MockedResponse{
+				{
+					Method:       "POST",
+					Path:         "/12345_ID/media",
+					BodyContains: `filename="presigned-header.png"`,
+				}: {
+					Status: 201,
+					Body:   `{"id":"presigned-header-id"}`,
+				},
+				{
+					Method:       "POST",
+					Path:         "/12345_ID/messages",
+					BodyContains: `{"type":"header","parameters":[{"type":"image","image":{"id":"presigned-header-id"}}]}`,
+				}: {
+					Status: 201,
+					Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+				},
+			},
+			SendPrep: setSendURL},
+		{Label: "Template Send with a new signature for the same WebP header uses the cached media id",
+			Text: "Media Message Msg", URN: "whatsapp:250788123123",
+			Status: "W", ExternalID: "157b5e14568e8",
+			Metadata:    templateMetadata,
+			Attachments: []string{"image/webp:" + headerURL + secondSignature},
+			Responses: map[MockedRequest]MockedResponse{
+				{
+					Method:       "POST",
+					Path:         "/12345_ID/messages",
+					BodyContains: `{"type":"header","parameters":[{"type":"image","image":{"id":"presigned-header-id"}}]}`,
+				}: {
+					Status: 201,
+					Body:   `{ "messages": [{"id": "157b5e14568e8"}] }`,
+				},
+			},
+			SendPrep: setSendURL},
+		{Label: "Interactive Carousel Send with presigned WebP images links to the signed PNGs",
+			Text: "Browse our collection", URN: "whatsapp:250788123123",
+			Status: "W", ExternalID: "157b5e14568e8",
+			Attachments: []string{
+				"image/webp:" + card1URL + firstSignature,
+				"image/webp:" + card2URL + secondSignature,
+			},
+			Metadata:     json.RawMessage(`{"interaction_type":"carousel","carousel":[{"body":"Card 1","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}]},{"body":"Card 2","buttons":[{"sub_type":"url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}]}]}`),
+			ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 201,
+			RequestBody: fmt.Sprintf(`{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"interactive","interactive":{"type":"carousel","body":{"text":"Browse our collection"},"action":{"cards":[{"card_index":0,"type":"cta_url","header":{"type":"image","image":{"link":"%s"}},"body":{"text":"Card 1"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/1"}}},{"card_index":1,"type":"cta_url","header":{"type":"image","image":{"link":"%s"}},"body":{"text":"Card 2"},"action":{"name":"cta_url","parameters":{"display_text":"Visit","url":"https://example.com/2"}}}]}}}`, mockPublicMediaURL(card1URL)+"?X-Amz-Signature=signed", mockPublicMediaURL(card2URL)+"?X-Amz-Signature=signed"),
+			SendPrep:    setSendURL},
+	}
+
+	channel := courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WAC", "12345_ID", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
+	RunChannelSendTestCases(t, channel, newHandler("WAC", "Cloud API WhatsApp", false), testCases, signPublicMedia)
+}
+
+func TestReplaceWebPExtension(t *testing.T) {
+	tcs := []struct {
+		label    string
+		mediaURL string
+		expected string
+	}{
+		{
+			label:    "webp extension is replaced",
+			mediaURL: "https://foo.bar/media/image.webp",
+			expected: "https://foo.bar/media/image.png",
+		},
+		{
+			label:    "missing extension is appended",
+			mediaURL: "https://foo.bar/media/image",
+			expected: "https://foo.bar/media/image.png",
+		},
+		{
+			label:    "presign query is kept after the new extension",
+			mediaURL: "https://bucket.s3.amazonaws.com/media/image.webp?X-Amz-Date=20261021T120000Z&X-Amz-Signature=aaa",
+			expected: "https://bucket.s3.amazonaws.com/media/image.png?X-Amz-Date=20261021T120000Z&X-Amz-Signature=aaa",
+		},
+		{
+			label:    "encoded path is kept",
+			mediaURL: "https://foo.bar/media/foo%2F1%C2%AA-edicao.webp?X-Amz-Signature=aaa",
+			expected: "https://foo.bar/media/foo%2F1%C2%AA-edicao.png?X-Amz-Signature=aaa",
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.label, func(t *testing.T) {
+			got, err := replaceWebPExtension(tc.mediaURL, ".png")
+			assert.NoError(t, err)
+			assert.Equal(t, tc.expected, got)
+		})
+	}
+
+	_, err := replaceWebPExtension("http://[::1", ".png")
+	assert.Error(t, err)
 }
 
 func TestSigning(t *testing.T) {
@@ -2072,4 +2783,254 @@ func TestWaTemplateTypeFromMetadata(t *testing.T) {
 			assert.Equal(t, c.expected, got)
 		})
 	}
+}
+
+func TestRouteWhatsAppChanges(t *testing.T) {
+	cases := []struct {
+		label              string
+		payload            string
+		wantHasChanges     bool
+		wantToIntegrations bool
+		wantToFlows        bool
+		wantChannelAddress string
+		wantMultipleAddrs  bool
+	}{
+		{
+			label: "template status update alone",
+			payload: `{
+				"entry":[{"changes":[{"field":"message_template_status_update","value":{}}]}]
+			}`,
+			wantHasChanges:     true,
+			wantToIntegrations: true,
+		},
+		{
+			label: "messages change alone",
+			payload: `{
+				"entry":[{"changes":[{"field":"messages","value":{"metadata":{"phone_number_id":"12345"}}}]}]
+			}`,
+			wantHasChanges:     true,
+			wantChannelAddress: "12345",
+		},
+		{
+			label: "messages then template status in same entry",
+			payload: `{
+				"entry":[{
+					"changes":[
+						{"field":"messages","value":{"metadata":{"phone_number_id":"12345"}}},
+						{"field":"message_template_status_update","value":{}}
+					]
+				}]
+			}`,
+			wantHasChanges:     true,
+			wantToIntegrations: true,
+			wantChannelAddress: "12345",
+		},
+		{
+			label: "template status in entry 0 and messages in entry 1",
+			payload: `{
+				"entry":[
+					{"changes":[{"field":"message_template_status_update","value":{}}]},
+					{"changes":[{"field":"messages","value":{"metadata":{"phone_number_id":"12345"}}}]}
+				]
+			}`,
+			wantHasChanges:     true,
+			wantToIntegrations: true,
+			wantChannelAddress: "12345",
+		},
+		{
+			label: "nil metadata does not panic",
+			payload: `{
+				"entry":[{"changes":[{"field":"messages","value":{}}]}]
+			}`,
+			wantHasChanges: true,
+		},
+		{
+			label: "handover uses recipient phone_number_id when metadata is absent",
+			payload: `{
+				"entry":[{"changes":[{"field":"messaging_handovers","value":{"recipient":{"phone_number_id":"12345"}}}]}]
+			}`,
+			wantHasChanges:     true,
+			wantChannelAddress: "12345",
+		},
+		{
+			label: "two different phone_number_ids",
+			payload: `{
+				"entry":[{
+					"changes":[
+						{"field":"messages","value":{"metadata":{"phone_number_id":"111"}}},
+						{"field":"messages","value":{"metadata":{"phone_number_id":"222"}}}
+					]
+				}]
+			}`,
+			wantHasChanges:     true,
+			wantChannelAddress: "111",
+			wantMultipleAddrs:  true,
+		},
+		{
+			label:          "empty entries",
+			payload:        `{"entry":[]}`,
+			wantHasChanges: false,
+		},
+		{
+			label: "entries with no changes",
+			payload: `{
+				"entry":[{"id":"1","changes":[]}]
+			}`,
+			wantHasChanges: false,
+		},
+		{
+			label: "flows mixed with template status update",
+			payload: `{
+				"entry":[{
+					"changes":[
+						{"field":"flows","value":{}},
+						{"field":"message_template_status_update","value":{}}
+					]
+				}]
+			}`,
+			wantHasChanges:     true,
+			wantToIntegrations: true,
+			wantToFlows:        true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.label, func(t *testing.T) {
+			payload := &moPayload{}
+			err := json.Unmarshal([]byte(c.payload), payload)
+			assert.NoError(t, err)
+
+			got := routeWhatsAppChanges(payload)
+			assert.Equal(t, c.wantHasChanges, got.hasChanges)
+			assert.Equal(t, c.wantToIntegrations, got.toIntegrations)
+			assert.Equal(t, c.wantToFlows, got.toFlows)
+			assert.Equal(t, c.wantChannelAddress, got.channelAddress)
+			assert.Equal(t, c.wantMultipleAddrs, got.multipleAddrs)
+		})
+	}
+}
+
+func TestHandleMMLiteTermsSignedContinuesAfterError(t *testing.T) {
+	payloadJSON := `{
+		"entry": [
+			{"changes": [{"field": "account_update", "value": {"event": "MM_LITE_TERMS_SIGNED", "waba_info": {"waba_id": "waba-fail"}}}]},
+			{"changes": [
+				{"field": "messages", "value": {}},
+				{"field": "account_update", "value": {"event": "MM_LITE_TERMS_SIGNED", "waba_info": {"waba_id": "waba-ok"}}}
+			]}
+		]
+	}`
+
+	t.Run("processes remaining waba ids after an update error", func(t *testing.T) {
+		mb := &courier.MockBackend{}
+		mb.FailUpdateChannelConfigByWabaID("waba-fail", fmt.Errorf("db down"))
+
+		h := newHandler("WAC", "WhatsApp Cloud", false).(*handler)
+		h.SetServer(courier.NewServer(&courier.Config{}, mb))
+
+		payload := &moPayload{}
+		assert.NoError(t, json.Unmarshal([]byte(payloadJSON), payload))
+
+		err := h.handleMMLiteTermsSigned(context.Background(), payload)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "waba-fail")
+		assert.Equal(t, []string{"waba-fail", "waba-ok"}, mb.UpdatedWabaIDs())
+	})
+
+	t.Run("returns nil when every update succeeds", func(t *testing.T) {
+		mb := &courier.MockBackend{}
+		h := newHandler("WAC", "WhatsApp Cloud", false).(*handler)
+		h.SetServer(courier.NewServer(&courier.Config{}, mb))
+
+		payload := &moPayload{}
+		assert.NoError(t, json.Unmarshal([]byte(payloadJSON), payload))
+
+		assert.NoError(t, h.handleMMLiteTermsSigned(context.Background(), payload))
+		assert.Equal(t, []string{"waba-fail", "waba-ok"}, mb.UpdatedWabaIDs())
+	})
+}
+
+func TestContactUsernameUpdate(t *testing.T) {
+	channel := courier.NewMockChannel(
+		"8eb23e93-5ecb-45ba-b726-3b064e0c568c",
+		"WAC",
+		"12345",
+		"",
+		map[string]interface{}{courier.ConfigAuthToken: "a123"},
+	)
+
+	RunChannelTestCases(t, []courier.Channel{channel}, newHandler("WAC", "WhatsApp Cloud", false), []ChannelHandleTestCase{
+		{
+			Label:                 "Receive Message BSUID Username Update",
+			URL:                   wacReceiveURL,
+			Data:                  string(courier.ReadFile("./testdata/wac/helloBSUIDUsername.json")),
+			Status:                200,
+			Response:              `"username_update: username updated from olduser to @kerryfisher"`,
+			NoQueueErrorCheck:     true,
+			NoInvalidChannelCheck: true,
+			PrepRequest:           addValidSignatureWAC,
+			PrepBackend: func(mb *courier.MockBackend) {
+				bsuidURN, err := urns.NewWhatsAppURN("US.13491208655302741918")
+				assert.NoError(t, err)
+				mb.GetContact(context.Background(), channel, bsuidURN, "", "")
+				mb.SetContactFieldValue(bsuidURN, "whatsapp_username", "olduser")
+			},
+		},
+	})
+}
+
+func TestBusinessUsernameUpdatesApproved(t *testing.T) {
+	channel := courier.NewMockChannel(
+		"8eb23e93-5ecb-45ba-b726-3b064e0c568c",
+		"WAC",
+		"12345",
+		"",
+		map[string]interface{}{
+			courier.ConfigAuthToken: "a123",
+			"wa_username":           "oldusername",
+		},
+	)
+
+	RunChannelTestCases(t, []courier.Channel{channel}, newHandler("WAC", "WhatsApp Cloud", false), []ChannelHandleTestCase{
+		{
+			Label:                 "Receive Business Username Update Approved",
+			URL:                   wacReceiveURL,
+			Data:                  string(courier.ReadFile("./testdata/wac/businessUsernameUpdatesWAC.json")),
+			Status:                200,
+			Response:              `"business_username_updates: username updated from oldusername to jaspersmarket"`,
+			NoQueueErrorCheck:     true,
+			NoInvalidChannelCheck: true,
+			PrepRequest:           addValidSignatureWAC,
+		},
+	})
+
+	assert.Equal(t, "jaspersmarket", channel.StringConfigForKey("wa_username", ""))
+}
+
+func TestBusinessUsernameUpdatesReserved(t *testing.T) {
+	channel := courier.NewMockChannel(
+		"8eb23e93-5ecb-45ba-b726-3b064e0c568c",
+		"WAC",
+		"12345",
+		"",
+		map[string]interface{}{
+			courier.ConfigAuthToken: "a123",
+			"wa_username":           "oldusername",
+		},
+	)
+
+	RunChannelTestCases(t, []courier.Channel{channel}, newHandler("WAC", "WhatsApp Cloud", false), []ChannelHandleTestCase{
+		{
+			Label:                 "Ignore Business Username Update Reserved",
+			URL:                   wacReceiveURL,
+			Data:                  string(courier.ReadFile("./testdata/wac/businessUsernameUpdatesReservedWAC.json")),
+			Status:                200,
+			Response:              `"business_username_updates: ignoring status \"reserved\""`,
+			NoQueueErrorCheck:     true,
+			NoInvalidChannelCheck: true,
+			PrepRequest:           addValidSignatureWAC,
+		},
+	})
+
+	assert.Equal(t, "oldusername", channel.StringConfigForKey("wa_username", ""))
 }

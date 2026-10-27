@@ -93,6 +93,7 @@ func (h *dummyHandler) receiveMsg(ctx context.Context, channel Channel, w http.R
 
 func testConfig() *Config {
 	config := NewConfig()
+	config.EnablePprof = false
 	config.DB = "postgres://courier:courier@" + envOr("POSTGRES_HOST", "localhost") + ":5432/courier_test?sslmode=disable"
 	config.Redis = "redis://" + envOr("REDIS_HOST", "localhost") + ":6379/0"
 	return config

@@ -26,6 +26,9 @@ var receiveURL = fmt.Sprintf("/c/wwc/%s/receive", channelUUID)
 var orderMetadata1 = json.RawMessage(`{"order":{"product_items":[{"product_retailer_id":"product-001","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","seller_id":"seller-001","quantity":2},{"product_retailer_id":"product-002","name":"Smartphone","price":"1999.90","currency":"BRL","seller_id":"seller-002","quantity":1}]},"overwrite_message":{"order":{"product_items":[{"product_retailer_id":"product-001","name":"Smart TV 50\"","price":"2999.90","currency":"BRL","seller_id":"seller-001","quantity":2},{"product_retailer_id":"product-002","name":"Smartphone","price":"1999.90","currency":"BRL","seller_id":"seller-002","quantity":1}]}}}`)
 var orderMetadata2 = json.RawMessage(`{"order":{"product_items":[{"product_retailer_id":"product-abc","name":"Headphones","price":"299.90","currency":"BRL","seller_id":"audio-seller","quantity":3}]},"overwrite_message":{"order":{"product_items":[{"product_retailer_id":"product-abc","name":"Headphones","price":"299.90","currency":"BRL","seller_id":"audio-seller","quantity":3}]}}}`)
 
+// Conversation starter metadata for tests
+var conversationStarterMetadata = json.RawMessage(`{"from_conversation_starter":true}`)
+
 const (
 	textMsgTemplate = `
 	{
@@ -35,6 +38,19 @@ const (
 			"type":"text",
 			"timestamp":%q,
 			"text":%q
+		}
+	}
+	`
+
+	textMsgWithStarterTemplate = `
+	{
+		"type":"message",
+		"from":%q,
+		"message":{
+			"type":"text",
+			"timestamp":%q,
+			"text":%q,
+			"from_conversation_starter": %s
 		}
 	}
 	`
@@ -169,6 +185,27 @@ var testCases = []ChannelHandleTestCase{
 		Response: "Accepted",
 	},
 	{
+		Label:    "Receive Text Msg From Conversation Starter",
+		URL:      receiveURL,
+		Data:     fmt.Sprintf(textMsgWithStarterTemplate, "2345678", "1616586927", "Qual a diferença entre os modelos?", "true"),
+		Name:     Sp("2345678"),
+		URN:      Sp("ext:2345678"),
+		Text:     Sp("Qual a diferença entre os modelos?"),
+		Metadata: &conversationStarterMetadata,
+		Status:   200,
+		Response: "Accepted",
+	},
+	{
+		Label:    "Receive Text Msg With Conversation Starter False",
+		URL:      receiveURL,
+		Data:     fmt.Sprintf(textMsgWithStarterTemplate, "2345678", "1616586927", "Hello Test!", "false"),
+		Name:     Sp("2345678"),
+		URN:      Sp("ext:2345678"),
+		Text:     Sp("Hello Test!"),
+		Status:   200,
+		Response: "Accepted",
+	},
+	{
 		Label:    "Receive Valid Text Msg With Contact Fields",
 		URL:      receiveURL,
 		Data:     fmt.Sprintf(textMsgWithContactFieldsTemplate, "2345678", "1616586927", "Hello With Fields!", `{"name":"John Doe","email":"john@example.com"}`),
@@ -255,6 +292,7 @@ var testCases = []ChannelHandleTestCase{
 		Data:     fmt.Sprintf(orderMsgTemplate, "2345678", "1616586927"),
 		Name:     Sp("2345678"),
 		URN:      Sp("ext:2345678"),
+		Text:     Sp(""),
 		Metadata: &orderMetadata1,
 		Status:   200,
 		Response: "Accepted",
@@ -265,6 +303,7 @@ var testCases = []ChannelHandleTestCase{
 		Data:     fmt.Sprintf(orderMsgSingleItemTemplate, "2345678", "1616586927"),
 		Name:     Sp("2345678"),
 		URN:      Sp("ext:2345678"),
+		Text:     Sp(""),
 		Metadata: &orderMetadata2,
 		Status:   200,
 		Response: "Accepted",
@@ -298,8 +337,133 @@ var testCases = []ChannelHandleTestCase{
 	},
 }
 
+func TestBuildOrderMetadata(t *testing.T) {
+	order := miOrder{
+		ProductItems: []miProductItem{
+			{
+				ProductRetailerID: "product-001",
+				Name:              "Smart TV 50\"",
+				Price:             "2999.90",
+				SalePrice:         "2599.90",
+				Currency:          "BRL",
+				SellerID:          "seller-001",
+				Quantity:          2,
+				ProductURL:        "https://loja.com/tv",
+				Extra:             map[string]interface{}{"line_note": "gift wrap"},
+			},
+		},
+	}
+
+	metadata, err := buildOrderMetadata(order)
+	if err != nil {
+		t.Fatalf("buildOrderMetadata() error = %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(metadata, &parsed); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	orderRoot, ok := parsed["order"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected order at metadata root")
+	}
+	overwrite, ok := parsed["overwrite_message"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected overwrite_message at metadata root")
+	}
+	orderOverwrite, ok := overwrite["order"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected order inside overwrite_message")
+	}
+
+	orderRootJSON, _ := json.Marshal(orderRoot)
+	orderOverwriteJSON, _ := json.Marshal(orderOverwrite)
+	if string(orderRootJSON) != string(orderOverwriteJSON) {
+		t.Fatalf("overwrite_message.order differs from order: %s vs %s", orderRootJSON, orderOverwriteJSON)
+	}
+
+	items, ok := orderRoot["product_items"].([]interface{})
+	if !ok || len(items) != 1 {
+		t.Fatalf("expected one product item, got %#v", orderRoot["product_items"])
+	}
+	item, ok := items[0].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected product item map")
+	}
+	if item["price"] != "2999.90" {
+		t.Fatalf("expected webchat price field, got %#v", item["price"])
+	}
+	if _, hasItemPrice := item["item_price"]; hasItemPrice {
+		t.Fatal("did not expect WPP item_price field")
+	}
+}
+
 func TestHandler(t *testing.T) {
 	RunChannelTestCases(t, testChannels, newHandler(), testCases)
+}
+
+func TestIncomingMsgMetadata(t *testing.T) {
+	tests := []struct {
+		name     string
+		payload  *miPayload
+		expected json.RawMessage
+	}{
+		{
+			name: "text without starter flag",
+			payload: &miPayload{Message: miMessage{
+				Type: "text",
+				Text: "Hello Test!",
+			}},
+			expected: nil,
+		},
+		{
+			name: "text with starter true",
+			payload: &miPayload{Message: miMessage{
+				Type:                    "text",
+				Text:                    "Qual a diferença entre os modelos?",
+				FromConversationStarter: true,
+			}},
+			expected: json.RawMessage(`{"from_conversation_starter":true}`),
+		},
+		{
+			name: "text with starter false",
+			payload: &miPayload{Message: miMessage{
+				Type:                    "text",
+				Text:                    "Hello Test!",
+				FromConversationStarter: false,
+			}},
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := incomingMsgMetadata(tt.payload)
+			if tt.expected == nil {
+				if got != nil {
+					t.Errorf("incomingMsgMetadata() = %s, want nil", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Errorf("incomingMsgMetadata() = nil, want %s", tt.expected)
+				return
+			}
+			var wantObj, gotObj interface{}
+			if err := json.Unmarshal(tt.expected, &wantObj); err != nil {
+				t.Fatalf("invalid expected JSON: %v", err)
+			}
+			if err := json.Unmarshal(got, &gotObj); err != nil {
+				t.Fatalf("invalid result JSON: %v", err)
+			}
+			wantJSON, _ := json.Marshal(wantObj)
+			gotJSON, _ := json.Marshal(gotObj)
+			if string(wantJSON) != string(gotJSON) {
+				t.Errorf("incomingMsgMetadata() = %s, want %s", gotJSON, wantJSON)
+			}
+		})
+	}
 }
 
 func BenchmarkHandler(b *testing.B) {

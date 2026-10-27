@@ -39,11 +39,25 @@ type Backend interface {
 	// FindContact looks up a contact by URN without creating one. Returns ErrContactNotFound if none exists.
 	FindContact(context context.Context, channel Channel, urn urns.URN) (Contact, error)
 
+	// GetContactFieldValue returns the current text value for a contact field key, or empty if unset.
+	GetContactFieldValue(context.Context, Channel, Contact, string) (string, error)
+
+	// IsEmailMailboxBlocked reports whether any active contact in the channel's
+	// org is blocked for the given real mailbox address — either the exact
+	// mailto: URN or any synthetic +wt-<8hex> thread variant derived from it.
+	// Used by the email handler so blocking one virtual contact stops all
+	// future inbound from that mailbox.
+	IsEmailMailboxBlocked(context context.Context, channel Channel, address string) (bool, error)
+
 	// AddURNtoContact adds a URN to the passed in contact
 	AddURNtoContact(context context.Context, channel Channel, contact Contact, urn urns.URN) (urns.URN, error)
 
 	// RemoveURNFromcontact removes a URN from the passed in contact
 	RemoveURNfromContact(context context.Context, channel Channel, contact Contact, urn urns.URN) (urns.URN, error)
+
+	// ReplaceWhatsAppBSUIDOnContact removes existing WhatsApp BSUID URNs in the same category
+	// as newURN (regular or parent) on the contact and associates newURN with it.
+	ReplaceWhatsAppBSUIDOnContact(context context.Context, channel Channel, contact Contact, newURN urns.URN) (urns.URN, error)
 
 	// DeleteMsgWithExternalID delete a message we receive an event that it should be deleted
 	DeleteMsgWithExternalID(ctx context.Context, channel Channel, externalID string) error
@@ -75,8 +89,11 @@ type Backend interface {
 	// WriteContactLastSeen writes the passed in contact last seen to our backend
 	WriteContactLastSeen(context.Context, Msg, time.Time) error
 
-	// WriteCtwaToDB writes the passed in ctwa data to our backend
-	WriteCtwaToDB(context.Context, string, urns.URN, time.Time, ChannelUUID, string) error
+	// WriteCtwaToDB writes the passed in ctwa event to our backend
+	WriteCtwaToDB(context.Context, CtwaEvent) error
+
+	// WriteWAConversationHandover writes the passed in WA conversation handover to our backend
+	WriteWAConversationHandover(context.Context, WAConversationHandoverEvent) error
 
 	// PopNextOutgoingMsg returns the next message that needs to be sent, callers should call MarkOutgoingMsgComplete with the
 	// returned message when they have dealt with the message (regardless of whether it was sent or not)
@@ -142,6 +159,9 @@ type Backend interface {
 	UpdateChannelConfigByWabaID(context.Context, string, map[string]interface{}) error
 
 	GetProjectUUIDFromChannelUUID(context.Context, ChannelUUID) (string, error)
+
+	// SignAttachmentURL returns a presigned URL for attachments stored in our S3 buckets, other URLs are returned unchanged
+	SignAttachmentURL(context.Context, string) (string, error)
 }
 
 // NewBackend creates the type of backend passed in

@@ -63,6 +63,28 @@ type MockBackend struct {
 	// lastMsgByChannelURN is seeded by tests to back LookupLastMsgWithExternalID;
 	// keyed as "<channelUUID>|<urnIdentity>".
 	lastMsgByChannelURN map[string]Msg
+
+	// blockedEmailMailboxes is seeded by tests to back IsEmailMailboxBlocked;
+	// keyed by lowercased real mailbox address (no mailto: prefix).
+	blockedEmailMailboxes map[string]bool
+
+	// contactFieldValues tracks contact field values for GetContactFieldValue in tests.
+	contactFieldValues map[urns.URN]map[string]string
+
+	ctwaEvents []CtwaEvent
+
+	waHandoverEvents []WAConversationHandoverEvent
+
+	// updateChannelConfigByWabaIDErrors is seeded by tests so
+	// UpdateChannelConfigByWabaID fails for specific waba IDs.
+	updateChannelConfigByWabaIDErrors map[string]error
+
+	// updatedWabaIDs records every waba ID passed to UpdateChannelConfigByWabaID.
+	updatedWabaIDs []string
+
+	// attachmentURLSigner is seeded by tests to back SignAttachmentURL, when
+	// nil URLs are returned unchanged.
+	attachmentURLSigner func(string) (string, error)
 }
 
 // NewMockBackend returns a new mock backend suitable for testing
@@ -90,14 +112,15 @@ func NewMockBackend() *MockBackend {
 	}
 
 	return &MockBackend{
-		channels:            make(map[ChannelUUID]Channel),
-		channelsByAddress:   make(map[ChannelAddress]Channel),
-		contacts:            make(map[urns.URN]Contact),
-		sentMsgs:            make(map[MsgID]bool),
-		redisPool:           redisPool,
-		msgsByExternalID:    make(map[string]Msg),
-		msgsByID:            make(map[MsgID]Msg),
-		lastMsgByChannelURN: make(map[string]Msg),
+		channels:              make(map[ChannelUUID]Channel),
+		channelsByAddress:     make(map[ChannelAddress]Channel),
+		contacts:              make(map[urns.URN]Contact),
+		sentMsgs:              make(map[MsgID]bool),
+		redisPool:             redisPool,
+		msgsByExternalID:      make(map[string]Msg),
+		msgsByID:              make(map[MsgID]Msg),
+		lastMsgByChannelURN:   make(map[string]Msg),
+		blockedEmailMailboxes: make(map[string]bool),
 	}
 }
 
@@ -279,6 +302,18 @@ func (mb *MockBackend) WriteMsg(ctx context.Context, m Msg) error {
 		uuid, _ := NewContactUUID(string(uuids.New()))
 		mb.contacts[m.URN()] = &mockContact{m.Channel(), m.URN(), m.URNAuth(), uuid}
 	}
+
+	if fields := m.NewContactFields(); len(fields) > 0 {
+		if mb.contactFieldValues == nil {
+			mb.contactFieldValues = make(map[urns.URN]map[string]string)
+		}
+		if mb.contactFieldValues[m.URN()] == nil {
+			mb.contactFieldValues[m.URN()] = make(map[string]string)
+		}
+		for key, value := range fields {
+			mb.contactFieldValues[m.URN()][key] = value
+		}
+	}
 	return nil
 }
 
@@ -324,10 +359,42 @@ func (mb *MockBackend) WriteContactLastSeen(ctx context.Context, msg Msg, lastSe
 	return nil
 }
 
-// WriteCtwaToDB writes the passed in ctwa data to our backend (mock implementation)
-func (mb *MockBackend) WriteCtwaToDB(ctx context.Context, ctwaClid string, contactUrn urns.URN, timestamp time.Time, channelUUID ChannelUUID, waba string) error {
-	// For the mock backend, we just return nil as this is primarily for testing
+// WriteCtwaToDB writes the passed in ctwa event to our backend (mock implementation)
+func (mb *MockBackend) WriteCtwaToDB(ctx context.Context, event CtwaEvent) error {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+
+	mb.ctwaEvents = append(mb.ctwaEvents, event)
 	return nil
+}
+
+// WriteWAConversationHandover writes the passed in WA conversation handover to our backend (mock implementation)
+func (mb *MockBackend) WriteWAConversationHandover(ctx context.Context, event WAConversationHandoverEvent) error {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+
+	mb.waHandoverEvents = append(mb.waHandoverEvents, event)
+	return nil
+}
+
+// CtwaEvents returns CTWA events written through the mock backend.
+func (mb *MockBackend) CtwaEvents() []CtwaEvent {
+	mb.mutex.RLock()
+	defer mb.mutex.RUnlock()
+
+	events := make([]CtwaEvent, len(mb.ctwaEvents))
+	copy(events, mb.ctwaEvents)
+	return events
+}
+
+// WAHandoverEvents returns WA conversation handover events written through the mock backend.
+func (mb *MockBackend) WAHandoverEvents() []WAConversationHandoverEvent {
+	mb.mutex.RLock()
+	defer mb.mutex.RUnlock()
+
+	events := make([]WAConversationHandoverEvent, len(mb.waHandoverEvents))
+	copy(events, mb.waHandoverEvents)
+	return events
 }
 
 // NewChannelEvent creates a new channel event with the passed in parameters
@@ -395,6 +462,54 @@ func (mb *MockBackend) FindContact(ctx context.Context, channel Channel, urn urn
 	return contact, nil
 }
 
+// GetContactFieldValue returns the current text value for a contact field key.
+func (mb *MockBackend) GetContactFieldValue(ctx context.Context, channel Channel, contact Contact, fieldKey string) (string, error) {
+	mc, ok := contact.(*mockContact)
+	if !ok {
+		return "", nil
+	}
+	if mb.contactFieldValues == nil {
+		return "", nil
+	}
+	if fields, ok := mb.contactFieldValues[mc.urn]; ok {
+		return fields[fieldKey], nil
+	}
+	return "", nil
+}
+
+// SetContactFieldValue seeds a contact field value for tests.
+func (mb *MockBackend) SetContactFieldValue(urn urns.URN, fieldKey, value string) {
+	if mb.contactFieldValues == nil {
+		mb.contactFieldValues = make(map[urns.URN]map[string]string)
+	}
+	if mb.contactFieldValues[urn] == nil {
+		mb.contactFieldValues[urn] = make(map[string]string)
+	}
+	mb.contactFieldValues[urn][fieldKey] = value
+}
+
+// SetEmailMailboxBlocked marks a real mailbox as blocked for IsEmailMailboxBlocked tests.
+func (mb *MockBackend) SetEmailMailboxBlocked(address string, blocked bool) {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+	address = strings.ToLower(strings.TrimSpace(address))
+	if address == "" {
+		return
+	}
+	if blocked {
+		mb.blockedEmailMailboxes[address] = true
+	} else {
+		delete(mb.blockedEmailMailboxes, address)
+	}
+}
+
+// IsEmailMailboxBlocked reports whether the real mailbox was marked blocked via SetEmailMailboxBlocked.
+func (mb *MockBackend) IsEmailMailboxBlocked(ctx context.Context, channel Channel, address string) (bool, error) {
+	mb.mutex.RLock()
+	defer mb.mutex.RUnlock()
+	return mb.blockedEmailMailboxes[strings.ToLower(strings.TrimSpace(address))], nil
+}
+
 // AddURNtoContact adds a URN to the passed in contact
 func (mb *MockBackend) AddURNtoContact(context context.Context, channel Channel, contact Contact, urn urns.URN) (urns.URN, error) {
 	mb.contacts[urn] = contact
@@ -408,6 +523,26 @@ func (mb *MockBackend) RemoveURNfromContact(context context.Context, channel Cha
 		delete(mb.contacts, urn)
 	}
 	return urn, nil
+}
+
+// ReplaceWhatsAppBSUIDOnContact removes existing WhatsApp BSUID URNs in the same category
+// as newURN (regular or parent) on the contact and associates newURN with it.
+func (mb *MockBackend) ReplaceWhatsAppBSUIDOnContact(_ context.Context, _ Channel, contact Contact, newURN urns.URN) (urns.URN, error) {
+	newIdentity := newURN.Identity()
+	newPath := newURN.Path()
+	for urn, c := range mb.contacts {
+		if c.UUID() != contact.UUID() || urn.Scheme() != urns.WhatsAppScheme || !IsWhatsAppBSUIDOrParentPath(urn.Path()) {
+			continue
+		}
+		if !SameWhatsAppBSUIDCategory(urn.Path(), newPath) {
+			continue
+		}
+		if urn.Identity() != newIdentity {
+			delete(mb.contacts, urn)
+		}
+	}
+	mb.contacts[newURN] = contact
+	return newURN, nil
 }
 
 // AddChannel adds a test channel to the test server
@@ -441,6 +576,7 @@ func (mb *MockBackend) ClearContacts() {
 	mb.mutex.Lock()
 	defer mb.mutex.Unlock()
 	mb.contacts = make(map[urns.URN]Contact)
+	mb.blockedEmailMailboxes = make(map[string]bool)
 }
 
 // ClearSeenExternalIDs clears our mock seen external ids
@@ -802,7 +938,11 @@ func (m *mockMsg) WithAttachment(url string) Msg {
 	return m
 }
 func (m *mockMsg) WithMetadata(metadata json.RawMessage) Msg { m.metadata = metadata; return m }
-func (m *mockMsg) Status() MsgStatusValue                    { return "" }
+func (m *mockMsg) WithAttachments(attachments []string) Msg {
+	m.attachments = attachments
+	return m
+}
+func (m *mockMsg) Status() MsgStatusValue { return "" }
 
 func (m *mockMsg) Header() string {
 	if m.metadata == nil {
@@ -1413,6 +1553,11 @@ func ReadFile(path string) []byte {
 	return d
 }
 
+// PutMedia stores media contents and returns a deterministic public URL for tests.
+func (mb *MockBackend) PutMedia(ctx context.Context, channel Channel, filename, contentType string, contents []byte) (string, error) {
+	return fmt.Sprintf("https://localhost/media/%s", filename), nil
+}
+
 // UpdateChannelConfig updates the channel configuration
 func (mb *MockBackend) UpdateChannelConfig(ctx context.Context, channel Channel, config map[string]interface{}) error {
 	if mockChannel, ok := channel.(*MockChannel); ok {
@@ -1421,8 +1566,37 @@ func (mb *MockBackend) UpdateChannelConfig(ctx context.Context, channel Channel,
 	return nil
 }
 
+// FailUpdateChannelConfigByWabaID makes UpdateChannelConfigByWabaID return err for wabaID.
+func (mb *MockBackend) FailUpdateChannelConfigByWabaID(wabaID string, err error) {
+	if mb.updateChannelConfigByWabaIDErrors == nil {
+		mb.updateChannelConfigByWabaIDErrors = map[string]error{}
+	}
+	mb.updateChannelConfigByWabaIDErrors[wabaID] = err
+}
+
+// UpdatedWabaIDs returns the waba IDs passed to UpdateChannelConfigByWabaID.
+func (mb *MockBackend) UpdatedWabaIDs() []string {
+	return append([]string(nil), mb.updatedWabaIDs...)
+}
+
 // UpdateChannelConfigByWabaID updates the channel configuration for all channels with matching waba_id
 func (mb *MockBackend) UpdateChannelConfigByWabaID(ctx context.Context, wabaID string, configUpdates map[string]interface{}) error {
-	// For mock implementation, we'll just return nil since we don't have a real database
+	mb.updatedWabaIDs = append(mb.updatedWabaIDs, wabaID)
+	if err := mb.updateChannelConfigByWabaIDErrors[wabaID]; err != nil {
+		return err
+	}
 	return nil
+}
+
+// SetAttachmentURLSigner seeds the function used by SignAttachmentURL
+func (mb *MockBackend) SetAttachmentURLSigner(signer func(string) (string, error)) {
+	mb.attachmentURLSigner = signer
+}
+
+// SignAttachmentURL returns the URL signed by the seeded signer, or unchanged if there is none
+func (mb *MockBackend) SignAttachmentURL(ctx context.Context, url string) (string, error) {
+	if mb.attachmentURLSigner == nil {
+		return url, nil
+	}
+	return mb.attachmentURLSigner(url)
 }

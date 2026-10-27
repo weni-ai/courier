@@ -427,10 +427,12 @@ func downloadMediaToS3(ctx context.Context, b *backend, channel courier.Channel,
 		}
 	}
 
-	// create our filename
-	filename := msgUUID.String()
+	// The message UUID alone is shared by every attachment. A later file with
+	// the same extension would overwrite an earlier one (attachment 1 collides
+	// with 3, 2 with 4, and so on), so each object gets its own id.
+	filename := fmt.Sprintf("%s_%s", msgUUID.String(), courier.NewMsgUUID().String())
 	if extension != "" {
-		filename = fmt.Sprintf("%s.%s", msgUUID, extension)
+		filename = fmt.Sprintf("%s.%s", filename, extension)
 	}
 	path := filepath.Join(b.config.S3MediaPrefix, strconv.FormatInt(int64(orgID), 10), filename[:4], filename[4:8], filename)
 	if !strings.HasPrefix(path, "/") {
@@ -830,6 +832,11 @@ func (m *DBMsg) WithAttachment(url string) courier.Msg {
 // WithURNAuth can be used to add a URN auth setting to a message
 func (m *DBMsg) WithURNAuth(auth string) courier.Msg {
 	m.URNAuth_ = auth
+	return m
+}
+
+func (m *DBMsg) WithAttachments(attachments []string) courier.Msg {
+	m.Attachments_ = attachments
 	return m
 }
 

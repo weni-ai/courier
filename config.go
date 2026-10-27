@@ -84,6 +84,8 @@ type Config struct {
 	CallsWebhookURL   string `help:"the url where calls webhooks will be sent"`
 	CallsWebhookToken string `help:"the token for calls webhooks"`
 
+	TelephonyResolveToken string `help:"bearer token required for GET /c/tph/resolve; empty rejects all resolve requests"`
+
 	ConversionEventsURL   string `help:"the Flows URL for POST /conversion/ events (conversation_started)"`
 	ConversionEventsToken string `help:"the fixed access token for Flows /conversion/ calls from Courier"`
 }

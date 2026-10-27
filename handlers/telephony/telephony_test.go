@@ -20,9 +20,12 @@ var testChannels = []courier.Channel{
 	}),
 }
 
+const resolveToken = "tph-resolve-token"
+
 var (
-	receiveURL = "/c/tph/receive"
-	resolveURL = "/c/tph/resolve?did=%2B15551234567"
+	receiveURL     = "/c/tph/receive"
+	resolveURL     = "/c/tph/resolve?did=%2B15551234567"
+	resolveHeaders = map[string]string{"Authorization": "Bearer " + resolveToken}
 )
 
 const receiveMsgTemplate = `
@@ -99,6 +102,7 @@ var resolveTestCases = []ChannelHandleTestCase{
 	{
 		Label:                 "Resolve Valid DID",
 		URL:                   resolveURL,
+		Headers:               resolveHeaders,
 		Status:                200,
 		Response:              channelUUID,
 		NoInvalidChannelCheck: true,
@@ -107,6 +111,7 @@ var resolveTestCases = []ChannelHandleTestCase{
 	{
 		Label:                 "Resolve Unknown DID",
 		URL:                   "/c/tph/resolve?did=%2B19999999999",
+		Headers:               resolveHeaders,
 		Status:                400,
 		Response:              "channel not found",
 		NoInvalidChannelCheck: true,
@@ -115,15 +120,56 @@ var resolveTestCases = []ChannelHandleTestCase{
 	{
 		Label:                 "Resolve Missing DID",
 		URL:                   "/c/tph/resolve",
+		Headers:               resolveHeaders,
 		Status:                400,
 		Response:              "did is required",
+		NoInvalidChannelCheck: true,
+		NoQueueErrorCheck:     true,
+	},
+	{
+		Label:                 "Resolve Missing Authorization",
+		URL:                   resolveURL,
+		Status:                400,
+		Response:              "missing or invalid authorization",
+		NoInvalidChannelCheck: true,
+		NoQueueErrorCheck:     true,
+	},
+	{
+		Label:                 "Resolve Invalid Token",
+		URL:                   resolveURL,
+		Headers:               map[string]string{"Authorization": "Bearer wrong-token"},
+		Status:                400,
+		Response:              "missing or invalid authorization",
 		NoInvalidChannelCheck: true,
 		NoQueueErrorCheck:     true,
 	},
 }
 
 func TestResolveHandler(t *testing.T) {
-	RunChannelTestCases(t, testChannels, newHandler(), resolveTestCases)
+	mb := courier.NewMockBackend()
+	s := NewTestServer(mb)
+	s.Config().TelephonyResolveToken = resolveToken
+	for _, ch := range testChannels {
+		mb.AddChannel(ch)
+	}
+	newHandler().Initialize(s)
+
+	for _, tc := range resolveTestCases {
+		t.Run(tc.Label, func(t *testing.T) {
+			TestHandlerRequest(t, s, tc.URL, tc.Headers, tc.Data, tc.MultipartFormFields, tc.Status, &tc.Response, tc.PrepRequest)
+		})
+	}
+}
+
+func TestResolveDisabledWithoutToken(t *testing.T) {
+	mb := courier.NewMockBackend()
+	s := NewTestServer(mb)
+	s.Config().TelephonyResolveToken = ""
+	mb.AddChannel(testChannels[0])
+	newHandler().Initialize(s)
+
+	response := "resolve endpoint disabled"
+	TestHandlerRequest(t, s, resolveURL, resolveHeaders, "", nil, 400, &response, nil)
 }
 
 var sendTestCases = []ChannelSendTestCase{

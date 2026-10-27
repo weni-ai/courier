@@ -152,7 +152,9 @@ func TestResolveHandler(t *testing.T) {
 	for _, ch := range testChannels {
 		mb.AddChannel(ch)
 	}
-	newHandler().Initialize(s)
+	if err := newHandler().Initialize(s); err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
 
 	for _, tc := range resolveTestCases {
 		t.Run(tc.Label, func(t *testing.T) {
@@ -166,7 +168,9 @@ func TestResolveDisabledWithoutToken(t *testing.T) {
 	s := NewTestServer(mb)
 	s.Config().TelephonyResolveToken = ""
 	mb.AddChannel(testChannels[0])
-	newHandler().Initialize(s)
+	if err := newHandler().Initialize(s); err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
 
 	response := "resolve endpoint disabled"
 	TestHandlerRequest(t, s, resolveURL, resolveHeaders, "", nil, 400, &response, nil)

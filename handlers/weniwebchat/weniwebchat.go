@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/buger/jsonparser"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
@@ -190,6 +191,7 @@ type moPayload struct {
 	From        string    `json:"from" validate:"required"`
 	Message     moMessage `json:"message"`
 	ChannelUUID string    `json:"channel_uuid" validate:"required"`
+	MessageKind string    `json:"message_kind,omitempty"`
 }
 
 type moMessage struct {
@@ -268,6 +270,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 
 	payload := newOutgoingMessage("message", msg.URN().Path(), msg.Channel().Address(), msg.QuickReplies(), msg.Channel().UUID().String())
+	payload.MessageKind = messageKind(msg)
 
 	// sendPayload marshals and sends the payload, collecting logs
 	sendPayload := func() error {
@@ -408,6 +411,15 @@ func (h *handler) SendAction(ctx context.Context, msg courier.Msg) (courier.MsgS
 	return nil, nil
 }
 
+// messageKind reads metadata.message_kind. Empty or invalid metadata yields "".
+func messageKind(msg courier.Msg) string {
+	kind, err := jsonparser.GetString(msg.Metadata(), "message_kind")
+	if err != nil {
+		return ""
+	}
+	return kind
+}
+
 func newOutgoingMessage(payType, to, from string, quickReplies []string, channelUUID string) *moPayload {
 	return &moPayload{
 		Type: payType,
@@ -455,6 +467,7 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 		To:          msg.URN().Path(),
 		From:        msg.Channel().Address(),
 		ChannelUUID: msg.Channel().UUID().String(),
+		MessageKind: messageKind(msg),
 		Message: moMessage{
 			Type:      "interactive",
 			TimeStamp: getTimestamp(),

@@ -1,3 +1,7 @@
+1.76.0
+----------
+ * feat: add PSTN telephony channel handler (TPH)
+
 1.75.0
 ----------
  * feat: implement WhatsApp sticker validation and handling

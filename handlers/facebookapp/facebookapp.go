@@ -2450,6 +2450,7 @@ type wacParam struct {
 	Document      *wacMTMedia  `json:"document,omitempty"`
 	Video         *wacMTMedia  `json:"video,omitempty"`
 	Action        *wacMTAction `json:"action,omitempty"`
+	CouponCode    string       `json:"coupon_code,omitempty"`
 }
 
 type wacComponent struct {
@@ -3980,11 +3981,21 @@ func (h *handler) buildTemplateComponents(msg courier.Msg, templating *MsgTempla
 	// Handle dynamic buttons
 	if len(msg.Buttons()) > 0 {
 		for i, button := range msg.Buttons() {
-			buttonComponent := &wacComponent{Type: "button", SubType: button.SubType, Index: &i}
+			subType := button.SubType
+			if isCopyCodeButton(subType) {
+				subType = wacButtonSubTypeCopyCode
+			}
+			buttonComponent := &wacComponent{Type: "button", SubType: subType, Index: &i}
 			if button.SubType == "payment_request" {
 				for _, parameter := range button.Parameters {
 					buttonComponent.Params = append(buttonComponent.Params, buildPaymentRequestParam(parameter))
 				}
+			} else if isCopyCodeButton(button.SubType) {
+				params, err := buildCopyCodeParams(button)
+				if err != nil {
+					return nil, err
+				}
+				buttonComponent.Params = params
 			} else {
 				for _, parameter := range button.Parameters {
 					buttonComponent.Params = append(buttonComponent.Params, &wacParam{Type: parameter.Type, Text: parameter.Text})
@@ -3995,6 +4006,31 @@ func (h *handler) buildTemplateComponents(msg courier.Msg, templating *MsgTempla
 	}
 
 	return components, nil
+}
+
+const (
+	wacButtonSubTypeCopyCode   = "copy_code"
+	wacButtonSubTypeCouponCode = "coupon_code"
+	wacParamTypeCouponCode     = "coupon_code"
+)
+
+func isCopyCodeButton(subType string) bool {
+	return subType == wacButtonSubTypeCopyCode || subType == wacButtonSubTypeCouponCode
+}
+
+func buildCopyCodeParams(button courier.ButtonComponent) ([]*wacParam, error) {
+	if len(button.Parameters) == 0 {
+		return nil, fmt.Errorf("missing coupon_code for copy_code button")
+	}
+	params := make([]*wacParam, 0, len(button.Parameters))
+	for _, parameter := range button.Parameters {
+		code := strings.TrimSpace(parameter.Text)
+		if code == "" {
+			return nil, fmt.Errorf("missing coupon_code for copy_code button")
+		}
+		params = append(params, &wacParam{Type: wacParamTypeCouponCode, CouponCode: code})
+	}
+	return params, nil
 }
 
 func buildPaymentRequestParam(parameter courier.ButtonParam) *wacParam {

@@ -1,15 +1,21 @@
 package weniwebchat
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nyaruka/courier"
 	. "github.com/nyaruka/courier/handlers"
+	"github.com/nyaruka/gocommon/urns"
+	"github.com/stretchr/testify/require"
 )
 
 const channelUUID = "8eb23e93-5ecb-45ba-b726-3b064e0c568c"
@@ -639,6 +645,79 @@ var sendTestCases = []ChannelSendTestCase{
 			timestamp = "1616700878"
 		},
 	},
+	{
+		Label:          "AC-C1 Custom Data Object",
+		Text:           "Simple Message",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"text","timestamp":"1616700878","text":"Simple Message","custom_data":{"order_id":"1234567890-01","coupon":{"code":"BLACKFRIDAY10","expires_at":"2026-11-30T23:59:59Z"},"tags":["vip","recovery"]}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		Metadata:       json.RawMessage(`{"custom_data":{"order_id":"1234567890-01","coupon":{"code":"BLACKFRIDAY10","expires_at":"2026-11-30T23:59:59Z"},"tags":["vip","recovery"]}}`),
+		SendPrep:       prepareSendMsg,
+	},
+	{
+		Label:          "AC-C2 Metadata Without Custom Data",
+		Text:           "Simple Message",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"text","timestamp":"1616700878","text":"Simple Message"},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		Metadata:       json.RawMessage(`{"topic":"purchase"}`),
+		SendPrep:       prepareSendMsg,
+	},
+	{
+		Label:          "AC-C3 Custom Data Null",
+		Text:           "Simple Message",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"text","timestamp":"1616700878","text":"Simple Message"},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		Metadata:       json.RawMessage(`{"custom_data":null}`),
+		SendPrep:       prepareSendMsg,
+	},
+	{
+		Label:          "AC-C3 Custom Data String",
+		Text:           "Simple Message",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"text","timestamp":"1616700878","text":"Simple Message"},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		Metadata:       json.RawMessage(`{"custom_data":"oops"}`),
+		SendPrep:       prepareSendMsg,
+	},
+	{
+		Label:          "AC-C3 Custom Data Array",
+		Text:           "Simple Message",
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"text","timestamp":"1616700878","text":"Simple Message"},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		Metadata:       json.RawMessage(`{"custom_data":[1]}`),
+		SendPrep:       prepareSendMsg,
+	},
+	{
+		Label:          "AC-C5 Text Quick Replies Custom Data",
+		Text:           "Simple Message",
+		QuickReplies:   []string{"Yes", "No", "\\/Slash", "\\\\Backslash"},
+		URN:            "ext:371298371241",
+		Status:         string(courier.MsgSent),
+		Path:           "/send",
+		Headers:        map[string]string{"Content-type": "application/json"},
+		RequestBody:    `{"type":"message","to":"371298371241","from":"250788383383","message":{"type":"text","timestamp":"1616700878","text":"Simple Message","quick_replies":["Yes","No","/Slash","\\Backslash"],"custom_data":{"order_id":"1234567890-01"}},"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c568c"}`,
+		ResponseStatus: 200,
+		Metadata:       json.RawMessage(`{"custom_data":{"order_id":"1234567890-01"}}`),
+		SendPrep:       prepareSendMsg,
+	},
 }
 
 func TestSending(t *testing.T) {
@@ -923,4 +1002,101 @@ func TestExtractProductSectionsExtra(t *testing.T) {
 	if item.Extra["sku"] != "SKU-9" || item.Extra["variant_id"] != "var-2" {
 		t.Errorf("Extra = %#v, want sku=SKU-9 variant_id=var-2", item.Extra)
 	}
+}
+
+func TestCustomDataFromMetadata(t *testing.T) {
+	tests := []struct {
+		name     string
+		metadata json.RawMessage
+		want     json.RawMessage
+	}{
+		{name: "object", metadata: json.RawMessage(`{"custom_data":{"order_id":"1"}}`), want: json.RawMessage(`{"order_id":"1"}`)},
+		{name: "missing", metadata: json.RawMessage(`{"topic":"x"}`), want: nil},
+		{name: "null", metadata: json.RawMessage(`{"custom_data":null}`), want: nil},
+		{name: "string", metadata: json.RawMessage(`{"custom_data":"oops"}`), want: nil},
+		{name: "array", metadata: json.RawMessage(`{"custom_data":[1]}`), want: nil},
+		{name: "empty metadata", metadata: nil, want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := customDataFromMetadata(tt.metadata)
+			if tt.want == nil {
+				require.Nil(t, got)
+				return
+			}
+			require.JSONEq(t, string(tt.want), string(got))
+		})
+	}
+}
+
+func captureSendBodies(t *testing.T, msg courier.Msg, channel courier.Channel) []string {
+	t.Helper()
+	var bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		bodies = append(bodies, string(body))
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	channel.(*courier.MockChannel).SetConfig(courier.ConfigBaseURL, server.URL)
+	timestamp = "1616700878"
+
+	mb := courier.NewMockBackend()
+	mb.AddChannel(channel)
+	h := newHandler()
+	s := NewTestServer(mb)
+	require.NoError(t, h.Initialize(s))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	status, err := h.SendMsg(ctx, msg)
+	require.NoError(t, err)
+	require.Equal(t, courier.MsgSent, status.Status())
+	return bodies
+}
+
+func TestCustomDataLastAttachmentOnly(t *testing.T) {
+	mb := courier.NewMockBackend()
+	channel := testChannels[0]
+	msg := mb.NewOutgoingMsg(channel, courier.NewMsgID(10), urns.URN("ext:371298371241"), "Medias", false, nil, "", 0, "", "")
+	msg.WithAttachment("image/jpg:https://foo.bar/first.jpg")
+	msg.WithAttachment("image/jpg:https://foo.bar/second.jpg")
+	msg.WithAttachment("image/jpg:https://foo.bar/third.jpg")
+	msg.WithMetadata(json.RawMessage(`{"custom_data":{"order_id":"1234567890-01"}}`))
+
+	bodies := captureSendBodies(t, msg, channel)
+	require.Len(t, bodies, 3)
+	require.Contains(t, bodies[0], "first.jpg")
+	require.NotContains(t, bodies[0], "custom_data")
+	require.Contains(t, bodies[1], "second.jpg")
+	require.NotContains(t, bodies[1], "custom_data")
+	require.Contains(t, bodies[2], "third.jpg")
+	require.Contains(t, bodies[2], `"custom_data":{"order_id":"1234567890-01"}`)
+}
+
+func TestCustomDataLastProductBatchOnly(t *testing.T) {
+	var products bytes.Buffer
+	products.WriteString(`{"action":"View","custom_data":{"order_id":"1234567890-01"},"products":[`)
+	for i := 0; i < 11; i++ {
+		if i > 0 {
+			products.WriteByte(',')
+		}
+		fmt.Fprintf(&products, `{"product":"Section-%02d","product_retailer_info":[{"retailer_id":"p-%d","name":"Item","price":"10.00","currency":"BRL","image":"https://example.com/i.jpg","description":"An item","seller_id":"seller"}]}`, i, i)
+	}
+	products.WriteString(`]}`)
+
+	mb := courier.NewMockBackend()
+	channel := testChannels[0]
+	msg := mb.NewOutgoingMsg(channel, courier.NewMsgID(10), urns.URN("ext:371298371241"), "Catalog", false, nil, "", 0, "", "")
+	msg.WithMetadata(products.Bytes())
+
+	bodies := captureSendBodies(t, msg, channel)
+	require.Len(t, bodies, 2)
+	require.Contains(t, bodies[0], "Section-00")
+	require.NotContains(t, bodies[0], "custom_data")
+	require.Contains(t, bodies[1], "Section-10")
+	require.Contains(t, bodies[1], `"custom_data":{"order_id":"1234567890-01"}`)
 }

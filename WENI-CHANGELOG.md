@@ -1,3 +1,7 @@
+1.77.0
+----------
+ * feat: implement WWC custom_data handling for outbound /send
+
 1.76.0
 ----------
  * feat: add PSTN telephony channel handler (TPH)

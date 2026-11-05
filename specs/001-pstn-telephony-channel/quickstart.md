@@ -3,7 +3,7 @@
 ## Run tests
 
 ```bash
-cd /home/matheuscardoso/Dev/vtex/courier
+cd <repo-root>
 go test ./handlers/telephony/... -v
 ```
 

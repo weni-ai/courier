@@ -68,7 +68,7 @@ func isResolveRequest(r *http.Request) bool {
 func (h *handler) authorizeResolve(r *http.Request) error {
 	expected := strings.TrimSpace(h.Server().Config().TelephonyResolveToken)
 	if expected == "" {
-		return nil
+		return errors.New("resolve endpoint disabled: no token configured")
 	}
 
 	authHeader := r.Header.Get("Authorization")
@@ -78,7 +78,6 @@ func (h *handler) authorizeResolve(r *http.Request) error {
 
 	token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
 	if subtle.ConstantTimeCompare([]byte(token), []byte(expected)) != 1 {
-
 		return errors.New("missing or invalid authorization")
 	}
 

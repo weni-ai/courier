@@ -1,33 +1,23 @@
 <!--
 Sync Impact Report:
-- Version change: none (unfilled template) → 1.0.0
-- Modified principles: n/a (first generation)
-- Added principles:
-  I. Reviewed Changes on a Protected Main Branch
-  II. Secrets and Supply Chain
-  III. Structured, Privacy-Safe Observability
-  IV. Versioned Contracts
-  V. Specification Traceability
-  VI. No Silent Divergence
-  VII. Conventional, Atomic Commits
-  VIII. Release Changelog
-  IX. Never Trust the Client
-  X. Fail Gracefully and Predictably
-  XI. Bounded Retry Over REST
-  XII. Stateless, Peak-Sized Services
-  XIII. Diagnosable Errors
-  XIV. Tests Exercise Flows
-  XV. Explicit Over Clever
-  XVI. Contained Changes
-- Added sections: Technology Stack & Constraints; Development Workflow & Quality Gates; Governance
+- Version change: 1.0.0 → 2.0.0 (MAJOR: Principle V redefined)
+- Modified principles:
+  V. Specification Traceability — a product spec is no longer mandatory; an engineering
+     spec may also originate in engineering and then opens with `## Origin Without Product Spec`
+  VI. No Silent Divergence — scoped to engineering specs derived from a product spec
+- Added principles: none
+- Added sections: none
 - Removed sections: none
+- Other edits: Development Workflow — PRs reference their engineering spec on either path
 - Templates requiring updates:
-  ✅ .specify/templates/plan-template.md — generic "Constitution Check" gate already defers to this file; no edit required
-  ✅ .specify/templates/spec-template.md — no edit required; engineering specs MUST add the inheritance section from Principle V
+  ✅ .specify/templates/plan-template.md — Constitution Check defers to this file; no edit required
+  ✅ .specify/presets/vtex-cx-engineering/templates/spec-template.md — already provides both
+     `## Inheritance from Product Spec` and `## Origin Without Product Spec`
+  ✅ .specify/presets/vtex-cx-engineering/commands/speckit.specify.md — already branches on both paths
   ✅ .specify/templates/tasks-template.md — no edit required
 - Follow-up TODOs:
-  TODO(PRODUCT_SPEC_REPO): the product-spec repository that engineering specs inherit from is not
-    referenced anywhere in this repo; record it here once known.
+  TODO(PRODUCT_SPEC_REPO): the product-spec repository that derived engineering specs inherit
+    from is not referenced anywhere in this repo; record it here once known.
   TODO(PEAK_LOAD): no declared peak load exists for Courier (inbound webhooks/s, outbound sends/s);
     the next engineering spec touching throughput MUST declare it (Principle XII).
   TODO(BRANCH_PROTECTION): confirm that `main` on weni-ai/courier enforces required review and a
@@ -107,17 +97,22 @@ deprecation give them a predictable path to adapt without outages.
 
 ### V. Specification Traceability
 
-- Every engineering spec in `specs/` MUST derive from exactly one approved product
-  spec and MUST reference it through an immutable, pinned version (commit or tag).
-  A mutable URL or ID alone MUST NOT be used.
-- The product spec MUST exist and be tagged before its engineering spec is created.
-- An engineering spec MUST NOT redefine the "what" it inherits: problem, scope,
-  success criteria, and binding decisions belong to the product spec.
-- A technical architecture document SHOULD be produced for non-trivial features;
-  when it exists it MUST be linked from the engineering spec, pinned by commit/tag.
-  Its absence MUST NOT block the engineering spec.
-- Every engineering spec MUST open with an inheritance section in exactly this
-  format:
+- An engineering spec in `specs/` either derives from a product spec or originates
+  in engineering (hotfix, fix, technical debt, upstream sync). Both are regular
+  paths; neither requires a justification, and either MAY follow the full or the
+  lite cycle.
+- **Derived from a product spec:**
+  - The engineering spec MUST derive from exactly one approved product spec and
+    MUST reference it through an immutable, pinned version (commit or tag). A
+    mutable URL or ID alone MUST NOT be used.
+  - The product spec MUST exist and be tagged before its engineering spec is
+    created.
+  - The engineering spec MUST NOT redefine the "what" it inherits: problem, scope,
+    success criteria, and binding decisions belong to the product spec.
+  - A technical architecture document SHOULD be produced for non-trivial features;
+    when it exists it MUST be linked from the engineering spec, pinned by
+    commit/tag. Its absence MUST NOT block the engineering spec.
+  - The spec MUST open with an inheritance section in exactly this format:
 
 ```
 ## Inheritance from Product Spec
@@ -129,12 +124,25 @@ deprecation give them a predictable path to adapt without outages.
 - Divergences: <none | link to amendment>
 ```
 
-**Rationale:** traceability from product intent to technical execution keeps
-decisions auditable. Pinning the version guarantees every team (Courier, Mailroom,
-Flows, etc.) implements the same version of a feature. A mandatory product spec
-prevents engineering work without an agreed problem; an optional architecture doc
-avoids blocking trivial designs; a single inheritance format keeps the link
-machine-checkable across repositories.
+- **Originated in engineering:** the spec states its own "what" and MUST open with
+  an origin section in exactly this format:
+
+```
+## Origin Without Product Spec
+- Product Spec: none
+- Problem: <what is wrong or missing, in one or two sentences>
+- Acceptance criteria: <observable outcomes that prove the change is done>
+```
+
+**Rationale:** traceability from intent to technical execution keeps decisions
+auditable and lets any change be traced back to the need that justified it. When
+the change is born in product, pinning the product spec's version guarantees every
+team (Courier, Mailroom, Flows, etc.) implements the same version of a feature.
+When the change is born in engineering — a provider API break, a memory leak, an
+upstream merge — the engineering spec itself is the origin, and its problem and
+acceptance criteria are what the change is verified against. An optional
+architecture doc avoids blocking trivial designs; a fixed opening format for each
+path keeps the origin machine-checkable across repositories.
 
 ### VI. No Silent Divergence
 
@@ -147,6 +155,8 @@ machine-checkable across repositories.
   `Pinned version` MUST be updated to it.
 - A technical difference that contradicts nothing inherited is an implementation
   decision, not a divergence, and MUST be recorded in the engineering spec.
+- This principle applies only to engineering specs derived from a product spec;
+  a spec originated in engineering inherits nothing it could diverge from.
 
 **Rationale:** with the product spec as single source of truth, a silent code
 deviation makes intent and implementation drift apart with no audit trail.
@@ -333,8 +343,8 @@ upstream merges harder.
 - CI (`.github/workflows/ci.yml`) MUST pass: `go test -p=1 ./...` against
   Postgres 12 and 13, Redis, and RabbitMQ. Tests MUST NOT depend on network
   access to real providers; use `httptest` servers and `handlers/testdata`.
-- Pull requests MUST state the engineering spec they implement (Principle V)
-  and MUST include flow tests for new or changed handlers (Principle XIV).
+- Pull requests MUST state the engineering spec they implement, whether derived
+  from a product spec or originated in engineering (Principle V), and MUST include flow tests for new or changed handlers (Principle XIV).
 - Releases are cut by tagging `X.Y.Z` on `main` after updating
   `WENI-CHANGELOG.md` (Principle VIII); pre-release tags use a `-<suffix>`.
 - Plans generated with `/speckit.plan` MUST include a Constitution Check against
@@ -357,4 +367,4 @@ upstream merges harder.
   treat any conflict with a `MUST` as CRITICAL. Exceptions MUST be documented in
   this file with rationale (as with the spool exception) — never granted ad hoc.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-01 | **Last Amended**: 2026-10-01
+**Version**: 2.0.0 | **Ratified**: 2026-10-01 | **Last Amended**: 2026-10-27

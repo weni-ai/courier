@@ -206,6 +206,7 @@ type moMessage struct {
 	ListMessage  *courier.ListMessage `json:"list_message,omitempty"`
 	CTAMessage   *courier.CTAMessage  `json:"cta_message,omitempty"`
 	Interactive  *wwcInteractive      `json:"interactive,omitempty"`
+	CustomData   json.RawMessage      `json:"custom_data,omitempty"`
 }
 
 // Interactive message structures
@@ -300,6 +301,8 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		if msg.CTAMessage() != nil {
 			payload.Message.CTAMessage = msg.CTAMessage()
 		}
+		// Last payload of a logical message — same place as interactive extras (AD-005).
+		payload.Message.CustomData = customDataFromMetadata(msg.Metadata())
 	}
 
 	lenAttachments := len(msg.Attachments())
@@ -440,6 +443,21 @@ func getTimestamp() string {
 	return fmt.Sprint(time.Now().Unix())
 }
 
+// customDataFromMetadata copies metadata.custom_data only when it is a JSON object.
+// Other types (null, string, array, number, boolean) are dropped so the send still proceeds.
+func customDataFromMetadata(metadata json.RawMessage) json.RawMessage {
+	if len(metadata) == 0 {
+		return nil
+	}
+	value, dataType, _, err := jsonparser.Get(metadata, "custom_data")
+	if err != nil || dataType != jsonparser.Object {
+		return nil
+	}
+	out := make(json.RawMessage, len(value))
+	copy(out, value)
+	return out
+}
+
 func normalizeQuickReplies(quickReplies []string) []string {
 	var text string
 	var qrs []string
@@ -528,6 +546,7 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 
 		payload := basePayload
 		payload.Message.Interactive = &interactive
+		payload.Message.CustomData = customDataFromMetadata(msg.Metadata())
 
 		return h.sendPayload(ctx, payload, status, sendURL, start, msg.Channel(), msg.ID())
 	}
@@ -548,8 +567,10 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 	// Build message batches respecting limits (30 products, 10 sections per message)
 	allBatches := buildProductBatches(sections)
 
-	// Send each batch as a separate message
-	for _, batch := range allBatches {
+	// Send each batch as a separate message. Product batches do not use
+	// addInteractiveElements; custom_data still belongs only on the last POST (AD-005).
+	lastBatch := len(allBatches) - 1
+	for i, batch := range allBatches {
 		interactive := wwcInteractive{
 			Type:   InteractiveProductListType,
 			Header: header,
@@ -562,6 +583,9 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 
 		payload := basePayload
 		payload.Message.Interactive = &interactive
+		if i == lastBatch {
+			payload.Message.CustomData = customDataFromMetadata(msg.Metadata())
+		}
 
 		status, err := h.sendPayload(ctx, payload, status, sendURL, start, msg.Channel(), msg.ID())
 		if err != nil {

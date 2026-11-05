@@ -3157,7 +3157,7 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					if len(msg.Attachments()) > 0 {
 						declaredMIME, attURL := handlers.SplitAttachment(msg.Attachments()[i])
 						fileURL := attURL
-						mediaID, mediaLogs, _, err := h.fetchWACMediaID(msg, declaredMIME, attURL, accessToken, true)
+						mediaID, mediaLogs, _, err := h.fetchWACMediaID(msg, declaredMIME, attURL, accessToken, false)
 						for _, log := range mediaLogs {
 							status.AddLog(log)
 						}
@@ -4694,28 +4694,35 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 	defer rc.Close()
 
 	cacheKey := fmt.Sprintf(mediaCacheKeyPatternWhatsapp, msg.Channel().UUID().String())
+	var mediaID string
 	convertedPNGKey := canonicalMediaURL + ":png"
-	if forceConvertWebP {
-		mediaID, err := rcache.Get(rc, cacheKey, convertedPNGKey)
-		if err != nil {
-			return "", logs, false, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, convertedPNGKey)
-		} else if mediaID != "" {
-			return mediaID, logs, true, nil
-		}
-	} else if strings.Contains(strings.ToLower(mimeType), "webp") || strings.HasSuffix(strings.ToLower(mediaURL), ".webp") {
-		mediaID, err := rcache.Get(rc, cacheKey, convertedPNGKey)
-		if err != nil {
-			return "", logs, false, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, convertedPNGKey)
-		} else if mediaID != "" {
-			return mediaID, logs, true, nil
-		}
-	}
+	webpLike := strings.Contains(strings.ToLower(mimeType), "webp") ||
+		strings.HasSuffix(strings.ToLower(mediaURL), ".webp")
 
-	mediaID, err := rcache.Get(rc, cacheKey, canonicalMediaURL)
-	if err != nil {
-		return "", logs, false, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, canonicalMediaURL)
-	} else if mediaID != "" {
-		return mediaID, logs, false, nil
+	// Pre-download cache: safe when the cache key is unambiguous.
+	// Ambiguous WebP (plain vs :png) is resolved after download + convertWebPIfNeeded.
+	if forceConvertWebP {
+		mediaID, err = rcache.Get(rc, cacheKey, convertedPNGKey)
+		if err != nil {
+			return "", logs, false, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, convertedPNGKey)
+		} else if mediaID != "" {
+			return mediaID, logs, true, nil
+		}
+		if !webpLike {
+			mediaID, err = rcache.Get(rc, cacheKey, canonicalMediaURL)
+			if err != nil {
+				return "", logs, false, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, canonicalMediaURL)
+			} else if mediaID != "" {
+				return mediaID, logs, false, nil
+			}
+		}
+	} else if !webpLike {
+		mediaID, err = rcache.Get(rc, cacheKey, canonicalMediaURL)
+		if err != nil {
+			return "", logs, false, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, canonicalMediaURL)
+		} else if mediaID != "" {
+			return mediaID, logs, false, nil
+		}
 	}
 
 	failKey := fmt.Sprintf("%s-%s", msg.Channel().UUID().String(), canonicalMediaURL)
@@ -4756,6 +4763,19 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 		}
 	}
 
+	cacheMediaKey := canonicalMediaURL
+	if converted {
+		cacheMediaKey = convertedPNGKey
+	}
+	if webpLike && !forceConvertWebP {
+		mediaID, err = rcache.Get(rc, cacheKey, cacheMediaKey)
+		if err != nil {
+			return "", logs, converted, errors.Wrapf(err, "error reading media id from redis: %s : %s", cacheKey, cacheMediaKey)
+		} else if mediaID != "" {
+			return mediaID, logs, converted, nil
+		}
+	}
+
 	// upload media to WhatsAppCloud
 	base, _ := url.Parse(graphURL)
 	path, _ := url.Parse(fmt.Sprintf("/%s/media", msg.Channel().Address()))
@@ -4766,10 +4786,6 @@ func (h *handler) fetchWACMediaID(msg courier.Msg, mimeType, mediaURL string, ac
 	}
 
 	// put in cache
-	cacheMediaKey := canonicalMediaURL
-	if converted {
-		cacheMediaKey = convertedPNGKey
-	}
 	err = rcache.Set(rc, cacheKey, cacheMediaKey, mediaID)
 	if err != nil {
 		return "", logs, converted, errors.Wrapf(err, "error setting media id in cache")

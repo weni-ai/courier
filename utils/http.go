@@ -205,6 +205,13 @@ var (
 // MakeHTTPRequestWithRetry makes an HTTP request with the passed in client, returning a
 // RequestResponse containing logging information gathered during the request
 func MakeHTTPRequestWithRetry(ctx context.Context, original *http.Request, attempts int, baseBackoff time.Duration, idempotencyKey string) (*RequestResponse, error) {
+	rr, _, err := MakeHTTPRequestWithRetryAttempts(ctx, original, attempts, baseBackoff, idempotencyKey)
+	return rr, err
+}
+
+// MakeHTTPRequestWithRetryAttempts behaves like MakeHTTPRequestWithRetry and also returns how many
+// attempts were made. The backoff between attempts stops early when ctx is done.
+func MakeHTTPRequestWithRetryAttempts(ctx context.Context, original *http.Request, attempts int, baseBackoff time.Duration, idempotencyKey string) (*RequestResponse, int, error) {
 	if attempts < 1 {
 		attempts = 1
 	}
@@ -215,18 +222,19 @@ func MakeHTTPRequestWithRetry(ctx context.Context, original *http.Request, attem
 		bodyBytes, err = io.ReadAll(original.Body)
 		_ = original.Body.Close()
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 
 	client := GetHTTPClient()
 	var lastRR *RequestResponse
 	var lastErr error
+	attemptsMade := 0
 
 	for i := 0; i < attempts; i++ {
 		req, err := http.NewRequestWithContext(ctx, original.Method, original.URL.String(), bytes.NewReader(bodyBytes))
 		if err != nil {
-			return nil, err
+			return nil, attemptsMade, err
 		}
 		req.Header = original.Header.Clone()
 		if idempotencyKey != "" && (original.Method == http.MethodPost || original.Method == http.MethodPut || original.Method == http.MethodPatch) {
@@ -236,17 +244,36 @@ func MakeHTTPRequestWithRetry(ctx context.Context, original *http.Request, attem
 		req.Close = true
 
 		rr, err := MakeHTTPRequestWithClient(req, client)
+		attemptsMade++
 		lastRR, lastErr = rr, err
 
 		if err == nil && rr != nil && rr.Status == RRStatusSuccess {
-			return rr, nil
+			return rr, attemptsMade, nil
 		}
 		if !shouldRetryTransient(rr, err) || i == attempts-1 {
 			break
 		}
-		time.Sleep(withJitter(baseBackoff, i))
+		if !waitBackoff(ctx, withJitter(baseBackoff, i)) {
+			break
+		}
 	}
-	return lastRR, lastErr
+	return lastRR, attemptsMade, lastErr
+}
+
+// IsTransientFailure reports whether a failed request is one MakeHTTPRequestWithRetry retries
+func IsTransientFailure(rr *RequestResponse, err error) bool {
+	return shouldRetryTransient(rr, err)
+}
+
+func waitBackoff(ctx context.Context, backoff time.Duration) bool {
+	timer := time.NewTimer(backoff)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 func shouldRetryTransient(rr *RequestResponse, err error) bool {

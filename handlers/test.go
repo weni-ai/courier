@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -236,6 +237,52 @@ func NewTestServer(backend courier.Backend) courier.Server {
 
 	return courier.NewServerWithLogger(config, backend, logger)
 
+}
+
+// LogCaptureHook records every entry logged through the standard logrus logger
+type LogCaptureHook struct {
+	mu      sync.Mutex
+	entries []*logrus.Entry
+}
+
+// CaptureLogs records standard logrus entries until the test ends
+func CaptureLogs(tb testing.TB) *LogCaptureHook {
+	hook := &LogCaptureHook{}
+	logger := logrus.StandardLogger()
+	previous := make(logrus.LevelHooks)
+	for level, hooks := range logger.Hooks {
+		previous[level] = append([]logrus.Hook(nil), hooks...)
+	}
+	logger.AddHook(hook)
+	tb.Cleanup(func() { logger.ReplaceHooks(previous) })
+	return hook
+}
+
+func (h *LogCaptureHook) Levels() []logrus.Level { return logrus.AllLevels }
+
+func (h *LogCaptureHook) Fire(entry *logrus.Entry) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.entries = append(h.entries, entry)
+	return nil
+}
+
+// Entries returns the captured entries in the order they were logged
+func (h *LogCaptureHook) Entries() []*logrus.Entry {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]*logrus.Entry(nil), h.entries...)
+}
+
+// Lines returns every captured entry formatted with its message and fields
+func (h *LogCaptureHook) Lines(tb testing.TB) []string {
+	lines := make([]string, 0, len(h.entries))
+	for _, entry := range h.Entries() {
+		line, err := entry.String()
+		require.NoError(tb, err)
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 // RunChannelSendTestCases runs all the passed in test cases against the channel

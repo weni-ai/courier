@@ -42,6 +42,10 @@ var (
 	newThreadProduct = `{"from":"fulano123@gmail.com","to":"support@company.com","subject":"Meu Produto","body":"Duvida sobre produto","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<produto@example.com>"}`
 	newThreadInvoice = `{"from":"fulano123@gmail.com","to":"support@company.com","subject":"Minha fatura","body":"Duvida sobre fatura","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<fatura@example.com>"}`
 	replyToProduct   = `{"from":"fulano123@gmail.com","to":"support@company.com","subject":"Re: Meu Produto","body":"Resposta produto","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<produto-reply@example.com>","in_reply_to":"<agent-produto@ourdomain.com>","references":["<produto@example.com>","<agent-produto@ourdomain.com>"]}`
+	legacyReply      = `{"from":"fulano123@gmail.com","to":"support@company.com","subject":"Re: Oi","body":"Resposta do contato legado","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<legacy-reply@example.com>","in_reply_to":"<agent-legacy@ourdomain.com>","references":["<agent-legacy@ourdomain.com>"]}`
+	legacyRefsReply  = `{"from":"fulano123@gmail.com","to":"support@company.com","subject":"Re: Oi","body":"Resposta citada na cadeia","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<legacy-refs@example.com>","references":["<unknown-root@example.com>","<agent-legacy@ourdomain.com>"]}`
+	legacyCaseReply  = `{"from":"Fulano123@Gmail.com","to":"support@company.com","subject":"Re: Oi","body":"Resposta com caixa diferente","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<legacy-case@example.com>","in_reply_to":"<agent-legacy@ourdomain.com>"}`
+	mixedParentReply = `{"from":"fulano123@gmail.com","to":"support@company.com","subject":"Re: Meu Produto","body":"Resposta da thread","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<mixed@example.com>","in_reply_to":"<agent-produto@ourdomain.com>","references":["<produto@example.com>","<agent-legacy@ourdomain.com>","<agent-produto@ourdomain.com>"]}`
 )
 
 // urnWithTag builds the "mailto:" URN we expect the handler to derive for an
@@ -154,6 +158,75 @@ var receiveTestCases = []ChannelHandleTestCase{
 		URL: receiveURL, Data: replyToProduct, Status: 200, Response: "Message Accepted",
 		Name: Sp("fulano123@gmail.com"), Text: Sp("Resposta produto"), URN: Sp(urnWithTag("fulano123@gmail.com", "<produto@example.com>")),
 		ExternalID: Sp("<produto-reply@example.com>")},
+
+	{Label: "Reply to a legacy contact reuses the plain URN",
+		URL: receiveURL, Data: legacyReply, Status: 200, Response: "Message Accepted",
+		Name: Sp("fulano123@gmail.com"), Text: Sp("Resposta do contato legado"),
+		URN:        Sp("mailto:fulano123@gmail.com"),
+		ExternalID: Sp("<legacy-reply@example.com>"),
+		PrepBackend: func(mb *courier.MockBackend) {
+			parent := mb.NewIncomingMsg(testChannels[0], urns.URN("mailto:fulano123@gmail.com"), "Oi").
+				WithExternalID("<agent-legacy@ourdomain.com>")
+			mb.AddMsgByExternalID(parent)
+		}},
+
+	{Label: "Reply reuses a legacy contact when only References cites the sent message",
+		URL: receiveURL, Data: legacyRefsReply, Status: 200, Response: "Message Accepted",
+		Name: Sp("fulano123@gmail.com"), Text: Sp("Resposta citada na cadeia"),
+		URN:        Sp("mailto:fulano123@gmail.com"),
+		ExternalID: Sp("<legacy-refs@example.com>"),
+		PrepBackend: func(mb *courier.MockBackend) {
+			parent := mb.NewIncomingMsg(testChannels[0], urns.URN("mailto:fulano123@gmail.com"), "Oi").
+				WithExternalID("<agent-legacy@ourdomain.com>")
+			mb.AddMsgByExternalID(parent)
+		}},
+
+	{Label: "Reply reuses a legacy contact when From differs only by case",
+		URL: receiveURL, Data: legacyCaseReply, Status: 200, Response: "Message Accepted",
+		Name: Sp("Fulano123@Gmail.com"), Text: Sp("Resposta com caixa diferente"),
+		URN:        Sp("mailto:fulano123@gmail.com"),
+		ExternalID: Sp("<legacy-case@example.com>"),
+		PrepBackend: func(mb *courier.MockBackend) {
+			parent := mb.NewIncomingMsg(testChannels[0], urns.URN("mailto:fulano123@gmail.com"), "Oi").
+				WithExternalID("<agent-legacy@ourdomain.com>")
+			mb.AddMsgByExternalID(parent)
+		}},
+
+	{Label: "Reply that cites another mailbox keeps a new thread URN",
+		URL: receiveURL, Data: legacyReply, Status: 200, Response: "Message Accepted",
+		Name: Sp("fulano123@gmail.com"), Text: Sp("Resposta do contato legado"),
+		URN:        Sp(urnWithTag("fulano123@gmail.com", "<agent-legacy@ourdomain.com>")),
+		ExternalID: Sp("<legacy-reply@example.com>"),
+		PrepBackend: func(mb *courier.MockBackend) {
+			parent := mb.NewIncomingMsg(testChannels[0], urns.URN("mailto:other@example.com"), "Oi").
+				WithExternalID("<agent-legacy@ourdomain.com>")
+			mb.AddMsgByExternalID(parent)
+		}},
+
+	{Label: "Direct reply to a threaded message ignores an older legacy reference",
+		URL: receiveURL, Data: mixedParentReply, Status: 200, Response: "Message Accepted",
+		Name: Sp("fulano123@gmail.com"), Text: Sp("Resposta da thread"),
+		URN:        Sp(urnWithTag("fulano123@gmail.com", "<produto@example.com>")),
+		ExternalID: Sp("<mixed@example.com>"),
+		PrepBackend: func(mb *courier.MockBackend) {
+			threaded := mb.NewIncomingMsg(testChannels[0], urns.URN("mailto:fulano123+wt-aaaaaaaa@gmail.com"), "Produto").
+				WithExternalID("<agent-produto@ourdomain.com>")
+			mb.AddMsgByExternalID(threaded)
+			legacy := mb.NewIncomingMsg(testChannels[0], urns.URN("mailto:fulano123@gmail.com"), "Oi").
+				WithExternalID("<agent-legacy@ourdomain.com>")
+			mb.AddMsgByExternalID(legacy)
+		}},
+
+	{Label: "Reply that cites a threaded contact keeps the thread URN",
+		URL: receiveURL, Data: replyToProduct, Status: 200, Response: "Message Accepted",
+		Name: Sp("fulano123@gmail.com"), Text: Sp("Resposta produto"),
+		URN:        Sp(urnWithTag("fulano123@gmail.com", "<produto@example.com>")),
+		ExternalID: Sp("<produto-reply@example.com>"),
+		PrepBackend: func(mb *courier.MockBackend) {
+			parent := mb.NewIncomingMsg(testChannels[0], urns.URN("mailto:fulano123+wt-aaaaaaaa@gmail.com"), "Produto").
+				WithExternalID("<agent-produto@ourdomain.com>")
+			mb.AddMsgByExternalID(parent)
+		}},
 }
 
 // TestThreadContactSegregation asserts that the URN derived for a reply to a

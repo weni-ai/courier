@@ -185,6 +185,20 @@ type ButtonParam struct {
 	Text string `json:"text"`
 }
 
+// ButtonsFromMetadata decodes metadata.buttons without panicking on extra or missing keys.
+func ButtonsFromMetadata(raw json.RawMessage) []ButtonComponent {
+	if len(raw) == 0 {
+		return nil
+	}
+	var meta struct {
+		Buttons []ButtonComponent `json:"buttons"`
+	}
+	if err := json.Unmarshal(raw, &meta); err != nil || len(meta.Buttons) == 0 {
+		return nil
+	}
+	return meta.Buttons
+}
+
 type ListMessage struct {
 	ButtonText string      `json:"button_text"`
 	ListItems  []ListItems `json:"list_items"`

@@ -1036,6 +1036,43 @@ func (b *backend) GetMessage(ctx context.Context, msgUUID string) (courier.Msg, 
 	return GetMsgByUUID(b, msgUUID)
 }
 
+const selectContactURNByExternalIDSQL = `
+SELECT
+	u.identity
+FROM
+	msgs_msg m
+JOIN contacts_contacturn u ON u.id = m.contact_urn_id
+WHERE
+	m.channel_id = $1 AND
+	m.external_id = $2
+ORDER BY
+	m.id DESC
+LIMIT 1
+`
+
+// LookupContactURNByExternalID returns the contact URN attached to the most
+// recent message on the channel with the given external_id. Missing rows
+// return NilURN so the caller can try another Message-ID.
+func (b *backend) LookupContactURNByExternalID(ctx context.Context, channel courier.Channel, externalID string) (urns.URN, error) {
+	if externalID == "" {
+		return urns.NilURN, nil
+	}
+	dbChannel, ok := channel.(*DBChannel)
+	if !ok {
+		return urns.NilURN, fmt.Errorf("LookupContactURNByExternalID requires a *DBChannel, got %T", channel)
+	}
+
+	var identity string
+	err := b.db.GetContext(ctx, &identity, selectContactURNByExternalIDSQL, dbChannel.ID(), externalID)
+	if err == sql.ErrNoRows {
+		return urns.NilURN, nil
+	}
+	if err != nil {
+		return urns.NilURN, err
+	}
+	return urns.Parse(identity)
+}
+
 // LookupMsgByExternalID resolves a channel + external_id pair to the message
 // row, used to thread replies (e.g. email Message-ID -> In-Reply-To).
 func (b *backend) LookupMsgByExternalID(ctx context.Context, channel courier.Channel, externalID string) (courier.Msg, error) {

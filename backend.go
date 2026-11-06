@@ -145,6 +145,11 @@ type Backend interface {
 	// fall back gracefully.
 	LookupMsgByExternalID(context.Context, Channel, string) (Msg, error)
 
+	// LookupContactURNByExternalID returns the contact URN of the most recent
+	// message on the channel with the given external_id. A missing message
+	// returns NilURN and a nil error. A non-nil error means the lookup failed.
+	LookupContactURNByExternalID(context.Context, Channel, string) (urns.URN, error)
+
 	// LookupMsgByID returns the message with the given Temba id. Used by the
 	// email handler when response_to_id is set but response_to_external_id is not.
 	LookupMsgByID(context.Context, MsgID) (Msg, error)

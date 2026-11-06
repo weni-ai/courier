@@ -86,8 +86,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		return nil, errors.New("blocked contact sending message")
 	}
 
-
-	urn, err := buildContactURN(payload)
+	urn, err := h.contactURNForInbound(ctx, channel, payload)
 	if err != nil {
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
@@ -141,6 +140,58 @@ func buildThreadMetadata(payload *moPayload) json.RawMessage {
 // present in the contact's address (e.g. "person+work@gmail.com") is left
 // untouched.
 var threadTagPattern = regexp.MustCompile(`\+wt-[0-9a-f]{8}(@|$)`)
+
+// contactURNForInbound picks the contact URN for an inbound email.
+// A reply that cites a Message-ID we already stored on a legacy contact
+// (mailto address with no +wt- tag) stays on that contact. When In-Reply-To
+// itself belongs to another contact, older References are left alone and the
+// URN comes from buildContactURN.
+func (h *handler) contactURNForInbound(ctx context.Context, channel courier.Channel, payload *moPayload) (urns.URN, error) {
+	direct := normalizeMessageID(payload.InReplyTo)
+	for _, id := range replyParentIDs(payload) {
+		parentURN, err := h.Backend().LookupContactURNByExternalID(ctx, channel, id)
+		if err != nil {
+			return urns.NilURN, fmt.Errorf("looking up contact for message %s: %w", id, err)
+		}
+		if parentURN == urns.NilURN {
+			continue
+		}
+		if !threadTagPattern.MatchString(parentURN.Path()) && sameEmailAddress(realAddressFromURNPath(parentURN.Path()), payload.From) {
+			return parentURN, nil
+		}
+		// The message being answered belongs to another contact. Older
+		// References must not pull the reply onto a legacy mailbox contact.
+		if id == direct {
+			break
+		}
+	}
+	return buildContactURN(payload)
+}
+
+// replyParentIDs lists Message-IDs that may identify the message being
+// answered: In-Reply-To first, then References from newest to oldest. The
+// inbound message's own Message-ID is not included.
+func replyParentIDs(payload *moPayload) []string {
+	ids := make([]string, 0, 1+len(payload.References))
+	seen := make(map[string]bool, 1+len(payload.References))
+	add := func(raw string) {
+		id := normalizeMessageID(raw)
+		if id == "" || seen[id] {
+			return
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	add(payload.InReplyTo)
+	for i := len(payload.References) - 1; i >= 0; i-- {
+		add(payload.References[i])
+	}
+	return ids
+}
+
+func sameEmailAddress(a, b string) bool {
+	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
+}
 
 // buildContactURN derives the URN used to identify the contact for an inbound
 // message. Each new conversation (a message that isn't a reply to anything we

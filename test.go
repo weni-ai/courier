@@ -649,6 +649,22 @@ func (b *MockBackend) LookupMsgByExternalID(ctx context.Context, channel Channel
 	return msg, nil
 }
 
+// LookupContactURNByExternalID returns the URN stored on the seeded message.
+// A missing message is not an error: the caller falls back to another id.
+func (b *MockBackend) LookupContactURNByExternalID(ctx context.Context, channel Channel, externalID string) (urns.URN, error) {
+	msg, err := b.LookupMsgByExternalID(ctx, channel, externalID)
+	if err != nil {
+		if err == ErrMsgNotFound {
+			return urns.NilURN, nil
+		}
+		return urns.NilURN, err
+	}
+	if msg == nil {
+		return urns.NilURN, nil
+	}
+	return msg.URN(), nil
+}
+
 func (b *MockBackend) LookupMsgByID(ctx context.Context, id MsgID) (Msg, error) {
 	if id == NilMsgID {
 		return nil, ErrMsgNotFound

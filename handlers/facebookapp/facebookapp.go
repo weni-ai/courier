@@ -4014,19 +4014,21 @@ const (
 	wacParamTypeCouponCode     = "coupon_code"
 )
 
+var errMissingCouponCode = errors.New("missing coupon_code for copy_code button")
+
 func isCopyCodeButton(subType string) bool {
 	return subType == wacButtonSubTypeCopyCode || subType == wacButtonSubTypeCouponCode
 }
 
 func buildCopyCodeParams(button courier.ButtonComponent) ([]*wacParam, error) {
 	if len(button.Parameters) == 0 {
-		return nil, fmt.Errorf("missing coupon_code for copy_code button")
+		return nil, errMissingCouponCode
 	}
 	params := make([]*wacParam, 0, len(button.Parameters))
 	for _, parameter := range button.Parameters {
 		code := strings.TrimSpace(parameter.Text)
 		if code == "" {
-			return nil, fmt.Errorf("missing coupon_code for copy_code button")
+			return nil, errMissingCouponCode
 		}
 		params = append(params, &wacParam{Type: wacParamTypeCouponCode, CouponCode: code})
 	}

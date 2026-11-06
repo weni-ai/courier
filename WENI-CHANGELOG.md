@@ -3,6 +3,7 @@
  * feat: authenticate WhatsApp Cloud webhook forwards to integrations with COURIER_WHATSAPP_CLOUD_WEBHOOKS_TOKEN, with bounded retry
  * fix: verify the Meta signature before forwarding WhatsApp Cloud webhooks to integrations or Flows
  * fix: stop echoing the expected signature and request body on invalid Facebook, Instagram and WhatsApp Cloud signatures
+ * feat: reuse the plain mailto URN for inbound email replies whose In-Reply-To or References cite a Message-ID stored on that same legacy contact. Its purpose is to unification of contacts to avoid the reply create a new contact for email channel.s
 
 1.77.0
 ----------

@@ -1075,6 +1075,38 @@ func (ts *BackendTestSuite) TestLookupContactURNByExternalID() {
 	ts.Equal(urns.NilURN, missing)
 }
 
+func (ts *BackendTestSuite) TestLookupContactURNByExternalID() {
+	ctx := context.Background()
+	channel := ts.getChannel("KN", "dbc126ed-66bc-4e28-b67b-81dc3327c95d")
+
+	ts.b.db.MustExec(`
+		INSERT INTO contacts_contact(id, is_active, status, created_on, modified_on, uuid, ticket_count, created_by_id, modified_by_id, org_id)
+		VALUES(503, TRUE, 'A', NOW(), NOW(), 'a984069d-0008-4d8c-a772-b14a8a6ac503', 0, 1, 1, 1)
+	`)
+	ts.b.db.MustExec(`
+		INSERT INTO contacts_contacturn(id, identity, path, scheme, priority, channel_id, contact_id, org_id)
+		VALUES(5003, 'mailto:fulano123@gmail.com', 'fulano123@gmail.com', 'mailto', 50, $1, 503, 1)
+	`, channel.ID())
+	ts.b.db.MustExec(`
+		INSERT INTO msgs_msg (
+			uuid, text, high_priority, created_on, modified_on, sent_on, queued_on,
+			direction, status, visibility, msg_count, error_count, next_attempt,
+			external_id, channel_id, contact_id, contact_urn_id, org_id
+		) VALUES (
+			'a984069d-0008-4d8c-a772-b14a8a6acc03', 'outbound', true, now(), now(), now(), now(),
+			'O', 'S', 'V', 1, 0, now(),
+			'<agent-legacy@ourdomain.com>', $1, 503, 5003, 1
+		)`, channel.ID())
+
+	urn, err := ts.b.LookupContactURNByExternalID(ctx, channel, "<agent-legacy@ourdomain.com>")
+	ts.NoError(err)
+	ts.Equal("mailto:fulano123@gmail.com", string(urn))
+
+	missing, err := ts.b.LookupContactURNByExternalID(ctx, channel, "<missing@ourdomain.com>")
+	ts.NoError(err)
+	ts.Equal(urns.NilURN, missing)
+}
+
 // TestLookupLastMsgWithExternalIDWithTextMetadata reproduces the production
 // failure where msgs_msg.metadata is text and sqlx Get cannot scan a string
 // into *json.RawMessage — the exact error seen when resolveParentExternalID

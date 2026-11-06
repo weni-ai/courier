@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +16,9 @@ import (
 	. "github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/gocommon/urns"
 	"github.com/nyaruka/gocommon/uuids"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var testChannelsFBA = []courier.Channel{
@@ -2971,6 +2974,252 @@ func TestHandleMMLiteTermsSignedContinuesAfterError(t *testing.T) {
 		assert.NoError(t, h.handleMMLiteTermsSigned(context.Background(), payload))
 		assert.Equal(t, []string{"waba-fail", "waba-ok"}, mb.UpdatedWabaIDs())
 	})
+}
+
+const (
+	testIntegrationsToken    = "test-integrations-token"
+	testIntegrationsPath     = "/api/v1/webhook/facebook/api/notification/"
+	testTemplateStatusUpdate = `{"object":"whatsapp_business_account","entry":[{"id":"waba-1","time":1,"changes":[{"field":"message_template_status_update","value":{"event":"APPROVED","message_template_id":42,"message_template_name":"welcome"}}]}]}`
+	testFlowsStatusUpdate    = `{"object":"whatsapp_business_account","entry":[{"id":"waba-1","time":1,"changes":[{"field":"flows","value":{"event":"FLOW_STATUS_CHANGE","flow_id":"77"}}]}]}`
+	testTemplateWithMessage  = `{"object":"whatsapp_business_account","entry":[{"id":"waba-1","changes":[
+		{"field":"message_template_status_update","value":{"event":"APPROVED","message_template_id":42}},
+		{"field":"messages","value":{"messaging_product":"whatsapp","metadata":{"phone_number_id":"12345"},
+			"contacts":[{"profile":{"name":"Kerry Fisher"},"wa_id":"5678"}],
+			"messages":[{"from":"5678","id":"external_id","timestamp":"1454119029","text":{"body":"Hello World"},"type":"text"}]}}
+	]}]}`
+)
+
+type forwardedRequest struct {
+	path          string
+	authorization string
+	contentType   string
+	body          string
+}
+
+type forwardTarget struct {
+	server   *httptest.Server
+	statuses []int
+	requests []forwardedRequest
+}
+
+func newForwardTarget(t *testing.T, statuses ...int) *forwardTarget {
+	target := &forwardTarget{statuses: statuses}
+	target.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		status := http.StatusOK
+		if attempt := len(target.requests); attempt < len(target.statuses) {
+			status = target.statuses[attempt]
+		}
+		target.requests = append(target.requests, forwardedRequest{
+			path:          r.URL.Path,
+			authorization: r.Header.Get("Authorization"),
+			contentType:   r.Header.Get("Content-Type"),
+			body:          string(body),
+		})
+		w.WriteHeader(status)
+	}))
+	t.Cleanup(target.server.Close)
+	return target
+}
+
+type wacForwardFixture struct {
+	server       courier.Server
+	backend      *courier.MockBackend
+	integrations *forwardTarget
+	flows        *forwardTarget
+}
+
+func newWACForwardFixture(t *testing.T, token string, integrationsStatuses ...int) *wacForwardFixture {
+	fixture := &wacForwardFixture{
+		backend:      courier.NewMockBackend(),
+		integrations: newForwardTarget(t, integrationsStatuses...),
+		flows:        newForwardTarget(t),
+	}
+	fixture.server = handlers.NewTestServer(fixture.backend)
+	config := fixture.server.Config()
+	config.WhatsappCloudWebhooksUrl = fixture.integrations.server.URL
+	config.WhatsappCloudWebhooksToken = token
+	config.WhatsappCloudWebhooksUrlFlows = fixture.flows.server.URL
+	config.WhatsappCloudWebhooksTokenFlows = "flows-token"
+
+	fixture.backend.AddChannel(courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "WAC", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"}))
+	newHandler("WAC", "Cloud API WhatsApp", false).Initialize(fixture.server)
+	return fixture
+}
+
+func (f *wacForwardFixture) post(t *testing.T, body string, expectedStatus int, prep RequestPrepFunc) string {
+	return handlers.TestHandlerRequest(t, f.server, wacReceiveURL, nil, body, nil, expectedStatus, nil, prep)
+}
+
+func assertNoTokenLeak(t *testing.T, logs *handlers.LogCaptureHook, response string) {
+	assert.NotContains(t, response, testIntegrationsToken)
+	for _, line := range logs.Lines(t) {
+		assert.NotContains(t, line, testIntegrationsToken)
+	}
+}
+
+func TestWACIntegrationsForwardSendsBearerToken(t *testing.T) {
+	logs := handlers.CaptureLogs(t)
+	f := newWACForwardFixture(t, testIntegrationsToken, http.StatusOK)
+
+	response := f.post(t, testTemplateStatusUpdate, http.StatusOK, addValidSignatureWAC)
+
+	require.Len(t, f.integrations.requests, 1)
+	forwarded := f.integrations.requests[0]
+	assert.Equal(t, testIntegrationsPath, forwarded.path)
+	assert.Equal(t, "Bearer "+testIntegrationsToken, forwarded.authorization)
+	assert.Equal(t, "application/json", forwarded.contentType)
+	assert.JSONEq(t, `{"object":"whatsapp_business_account","entry":[{"id":"waba-1","time":1,"changes":[{"field":"message_template_status_update","value":{"ban_info":{},"event":"APPROVED","message_template_id":42,"message_template_name":"welcome","waba_info":{}}}]}]}`, forwarded.body)
+	assert.Empty(t, f.flows.requests)
+	assertNoTokenLeak(t, logs, response)
+}
+
+func TestWACIntegrationsForwardWithoutTokenIsRedelivered(t *testing.T) {
+	logs := handlers.CaptureLogs(t)
+	f := newWACForwardFixture(t, "")
+
+	response := f.post(t, testTemplateStatusUpdate, http.StatusBadRequest, addValidSignatureWAC)
+
+	assert.Empty(t, f.integrations.requests)
+	assert.Contains(t, response, "integrations webhook forward failed")
+	assertNoTokenLeak(t, logs, response)
+}
+
+func TestWACIntegrationsForwardRecoversFromTransientFailure(t *testing.T) {
+	f := newWACForwardFixture(t, testIntegrationsToken, http.StatusServiceUnavailable, http.StatusOK)
+
+	f.post(t, testTemplateStatusUpdate, http.StatusOK, addValidSignatureWAC)
+
+	assert.Len(t, f.integrations.requests, 2)
+}
+
+func TestWACIntegrationsForwardUnauthorizedIsRedelivered(t *testing.T) {
+	logs := handlers.CaptureLogs(t)
+	f := newWACForwardFixture(t, testIntegrationsToken, http.StatusUnauthorized)
+
+	response := f.post(t, testTemplateStatusUpdate, http.StatusBadRequest, addValidSignatureWAC)
+
+	assert.Len(t, f.integrations.requests, 1)
+	assert.Contains(t, response, "integrations webhook forward failed")
+	assert.NotContains(t, response, "401")
+	assertNoTokenLeak(t, logs, response)
+}
+
+func TestWACForwardRequiresValidSignature(t *testing.T) {
+	cases := []struct {
+		label    string
+		body     string
+		prep     RequestPrepFunc
+		response string
+	}{
+		{"integrations payload with invalid signature", testTemplateStatusUpdate, addInvalidSignature, "invalid request signature"},
+		{"integrations payload without signature", testTemplateStatusUpdate, nil, "missing request signature"},
+		{"flows payload with invalid signature", testFlowsStatusUpdate, addInvalidSignature, "invalid request signature"},
+		{"flows payload without signature", testFlowsStatusUpdate, nil, "missing request signature"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.label, func(t *testing.T) {
+			logs := handlers.CaptureLogs(t)
+			f := newWACForwardFixture(t, testIntegrationsToken)
+
+			response := f.post(t, c.body, http.StatusBadRequest, c.prep)
+
+			assert.Contains(t, response, c.response)
+			assert.Empty(t, f.integrations.requests)
+			assert.Empty(t, f.flows.requests)
+
+			var skipped bool
+			for _, entry := range logs.Entries() {
+				if entry.Data["event"] == "wac_webhook_forward_skipped" {
+					skipped = true
+					assert.Equal(t, logrus.WarnLevel, entry.Level)
+					assert.Equal(t, "invalid_signature", entry.Data["reason"])
+				}
+			}
+			assert.True(t, skipped, "expected a wac_webhook_forward_skipped log entry")
+		})
+	}
+}
+
+func TestWACFlowsForwardWithValidSignature(t *testing.T) {
+	f := newWACForwardFixture(t, testIntegrationsToken)
+
+	f.post(t, testFlowsStatusUpdate, http.StatusOK, addValidSignatureWAC)
+
+	require.Len(t, f.flows.requests, 1)
+	assert.Equal(t, "/whatsapp_flows/", f.flows.requests[0].path)
+	assert.Empty(t, f.integrations.requests)
+}
+
+func TestWACMixedPayloadWithInvalidSignatureIsNotForwarded(t *testing.T) {
+	f := newWACForwardFixture(t, testIntegrationsToken)
+
+	f.post(t, testTemplateWithMessage, http.StatusBadRequest, addInvalidSignature)
+
+	assert.Empty(t, f.integrations.requests)
+	assert.Equal(t, 0, f.backend.LenQueuedMsgs())
+}
+
+func TestWACMixedPayloadProcessesMessagesWhenForwardFails(t *testing.T) {
+	logs := handlers.CaptureLogs(t)
+	f := newWACForwardFixture(t, testIntegrationsToken, http.StatusUnauthorized)
+
+	response := f.post(t, testTemplateWithMessage, http.StatusOK, addValidSignatureWAC)
+
+	assert.Len(t, f.integrations.requests, 1)
+	assert.Equal(t, 1, f.backend.LenQueuedMsgs())
+	assertNoTokenLeak(t, logs, response)
+	channelLog, err := f.backend.GetLastChannelLog()
+	require.NoError(t, err)
+	assert.NotContains(t, fmt.Sprintf("%+v", channelLog), testIntegrationsToken)
+}
+
+func TestInvalidSignatureResponseHidesExpectedSignature(t *testing.T) {
+	cases := []struct {
+		channelType string
+		url         string
+		channels    []courier.Channel
+		body        string
+	}{
+		{"FBA", "/c/fba/receive", testChannelsFBA, string(courier.ReadFile("./testdata/fba/helloMsgFBA.json"))},
+		{"IG", "/c/ig/receive", testChannelsIG, string(courier.ReadFile("./testdata/ig/helloMsgIG.json"))},
+		{"WAC", wacReceiveURL, testChannelsWAC, string(courier.ReadFile("./testdata/wac/helloWAC.json"))},
+	}
+
+	for _, c := range cases {
+		t.Run(c.channelType, func(t *testing.T) {
+			logs := handlers.CaptureLogs(t)
+			mb := courier.NewMockBackend()
+			s := handlers.NewTestServer(mb)
+			for _, ch := range c.channels {
+				mb.AddChannel(ch)
+			}
+			newHandler(courier.ChannelType(c.channelType), "Test", false).Initialize(s)
+
+			response := handlers.TestHandlerRequest(t, s, c.url, nil, c.body, nil, http.StatusBadRequest, Sp("invalid request signature"), addInvalidSignature)
+
+			assert.NotContains(t, response, "expected")
+			assert.NotContains(t, response, "Hello")
+			for _, line := range logs.Lines(t) {
+				assert.NotContains(t, line, "expected:")
+				assert.NotContains(t, line, "Hello")
+			}
+		})
+	}
+}
+
+func TestValidateSignatureErrorCarriesNoDetail(t *testing.T) {
+	h := newHandler("WAC", "Cloud API WhatsApp", false).(*handler)
+	h.SetServer(handlers.NewTestServer(courier.NewMockBackend()))
+
+	req := httptest.NewRequest(http.MethodPost, wacReceiveURL, strings.NewReader(`{"secret":"body"}`))
+	addInvalidSignature(req)
+
+	err := h.validateSignature(req)
+
+	require.Error(t, err)
+	assert.Equal(t, "invalid request signature", err.Error())
 }
 
 func TestContactUsernameUpdate(t *testing.T) {

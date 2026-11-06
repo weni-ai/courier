@@ -2,12 +2,18 @@ package handlers
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/nyaruka/courier/utils"
+	"github.com/sirupsen/logrus"
 )
 
 func SendWebhooksExternal(r *http.Request, configWebhook interface{}) error {
@@ -99,23 +105,131 @@ type moTemplatesPayload struct {
 	} `json:"entry"`
 }
 
-func SendWebhooks(r *http.Request, url_ string, tokenFlows string, isIntegrations bool) error {
+func (p *moTemplatesPayload) wabaIDs() []string {
+	ids := make([]string, 0, len(p.Entry))
+	for _, entry := range p.Entry {
+		ids = append(ids, entry.ID)
+	}
+	return ids
+}
+
+const (
+	integrationsWebhookPath        = "/api/v1/webhook/facebook/api/notification/"
+	integrationsForwardAttempts    = 3
+	integrationsForwardBaseBackoff = 500 * time.Millisecond
+	integrationsForwardBodyLimit   = 1000000
+
+	integrationsForwardFailedEvent = "integrations_webhook_forward_failed"
+
+	integrationsForwardReasonTokenNotConfigured = "token_not_configured"
+	integrationsForwardReasonUnauthorized       = "unauthorized"
+	integrationsForwardReasonRejected           = "rejected"
+	integrationsForwardReasonTransientExhausted = "transient_exhausted"
+)
+
+var integrationsForwardTimeout = 10 * time.Second
+
+var errIntegrationsTokenNotConfigured = errors.New("integrations webhook token not configured")
+
+type integrationsForwardError struct {
+	reason     string
+	statusCode int
+	attempts   int
+}
+
+func (e *integrationsForwardError) Error() string {
+	return fmt.Sprintf("integrations webhook forward failed: reason=%s status_code=%d attempts=%d", e.reason, e.statusCode, e.attempts)
+}
+
+// ForwardToIntegrations sends a WhatsApp Cloud webhook to integrations, authenticated with token.
+// The caller must have verified the Meta signature of r. An empty token fails closed without
+// any request. The response trace is never logged because it carries the Authorization header.
+func ForwardToIntegrations(ctx context.Context, r *http.Request, baseURL, token string) error {
+	body, err := ReadBody(r, integrationsForwardBodyLimit)
+	if err != nil {
+		return err
+	}
+
+	payload := &moTemplatesPayload{}
+	if err := json.Unmarshal(body, payload); err != nil {
+		return fmt.Errorf("unable to parse request JSON: %s", err)
+	}
+
+	forwardBody := &bytes.Buffer{}
+	if err := json.NewEncoder(forwardBody).Encode(payload); err != nil {
+		return err
+	}
+	bodyHash := sha256.Sum256(forwardBody.Bytes())
+	idempotencyKey := hex.EncodeToString(bodyHash[:])
+
+	failureLog := logrus.WithFields(logrus.Fields{
+		"event":           integrationsForwardFailedEvent,
+		"idempotency_key": idempotencyKey,
+		"waba_ids":        payload.wabaIDs(),
+	})
+
+	if token == "" {
+		failureLog.WithFields(logrus.Fields{
+			"reason":      integrationsForwardReasonTokenNotConfigured,
+			"status_code": 0,
+			"attempts":    0,
+		}).Error("integrations webhook forward not sent")
+		return errIntegrationsTokenNotConfigured
+	}
+
+	req, err := http.NewRequest(http.MethodPost, baseURL+integrationsWebhookPath, forwardBody)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	forwardCtx, cancel := context.WithTimeout(ctx, integrationsForwardTimeout)
+	defer cancel()
+
+	rr, attempts, err := utils.MakeHTTPRequestWithRetryAttempts(forwardCtx, req, integrationsForwardAttempts, integrationsForwardBaseBackoff, idempotencyKey)
+	if err == nil {
+		return nil
+	}
+
+	forwardErr := &integrationsForwardError{
+		reason:   integrationsForwardFailureReason(rr, err),
+		attempts: attempts,
+	}
+	if rr != nil {
+		forwardErr.statusCode = rr.StatusCode
+	}
+	failureLog.WithError(err).WithFields(logrus.Fields{
+		"reason":      forwardErr.reason,
+		"status_code": forwardErr.statusCode,
+		"attempts":    forwardErr.attempts,
+	}).Error("integrations webhook forward failed")
+	return forwardErr
+}
+
+func integrationsForwardFailureReason(rr *utils.RequestResponse, err error) string {
+	if rr != nil && rr.StatusCode == http.StatusUnauthorized {
+		return integrationsForwardReasonUnauthorized
+	}
+	if utils.IsTransientFailure(rr, err) {
+		return integrationsForwardReasonTransientExhausted
+	}
+	return integrationsForwardReasonRejected
+}
+
+func SendWebhooks(r *http.Request, url_ string, tokenFlows string) error {
 	moTemplatesPayload := &moTemplatesPayload{}
 
-	if isIntegrations {
-		url_ = url_ + "/api/v1/webhook/facebook/api/notification/"
-	} else {
-		url_ = url_ + "/whatsapp_flows/"
-		parsedURL, err := url.Parse(url_)
-		if err != nil {
-			return err
-		}
-
-		params := url.Values{}
-		params.Add("token", tokenFlows)
-		parsedURL.RawQuery = params.Encode()
-		url_ = parsedURL.String()
+	url_ = url_ + "/whatsapp_flows/"
+	parsedURL, err := url.Parse(url_)
+	if err != nil {
+		return err
 	}
+
+	params := url.Values{}
+	params.Add("token", tokenFlows)
+	parsedURL.RawQuery = params.Encode()
+	url_ = parsedURL.String()
 
 	body, err := ReadBody(r, 1000000)
 	if err != nil {

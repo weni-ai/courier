@@ -891,26 +891,20 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 			return nil, fmt.Errorf("no changes found")
 		}
 
-		if routing.toIntegrations {
-			logrus.Info("[integration_webhook] receiving integration webhook")
-			if er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrl, "", true); er != nil {
-				courier.LogRequestError(r, nil, fmt.Errorf("could not send template webhook: %s", er))
-			}
-			if err := h.handleMMLiteTermsSigned(ctx, payload); err != nil {
+		if routing.toIntegrations || routing.toFlows {
+			forwardErr, err := h.forwardWhatsAppWebhooks(ctx, r, payload, routing)
+			if err != nil {
 				return nil, err
 			}
-		}
-
-		if routing.toFlows {
-			if er := handlers.SendWebhooks(r, h.Server().Config().WhatsappCloudWebhooksUrlFlows, h.Server().Config().WhatsappCloudWebhooksTokenFlows, false); er != nil {
-				courier.LogRequestError(r, nil, fmt.Errorf("could not send flows webhook: %s", er))
+			if routing.channelAddress == "" {
+				if forwardErr != nil {
+					return nil, forwardErr
+				}
+				return nil, fmt.Errorf("template update, so ignore")
 			}
 		}
 
 		if routing.channelAddress == "" {
-			if routing.toIntegrations || routing.toFlows {
-				return nil, fmt.Errorf("template update, so ignore")
-			}
 			return nil, fmt.Errorf("no channel address found")
 		}
 
@@ -929,6 +923,49 @@ func (h *handler) GetChannel(ctx context.Context, r *http.Request) (courier.Chan
 
 		return h.Backend().GetChannelByAddress(ctx, courier.ChannelType("WAC"), courier.ChannelAddress(channelAddress))
 	}
+}
+
+var errIntegrationsForwardFailed = errors.New("integrations webhook forward failed")
+
+// forwardWhatsAppWebhooks sends integration and Flows changes on, but only once the Meta signature
+// is verified. forwardErr is the failure Meta should see so it redelivers; err aborts the request.
+func (h *handler) forwardWhatsAppWebhooks(ctx context.Context, r *http.Request, payload *moPayload, routing wacWebhookRouting) (forwardErr error, err error) {
+	if err := h.validateSignature(r); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"event":    "wac_webhook_forward_skipped",
+			"reason":   "invalid_signature",
+			"waba_ids": payload.wabaIDs(),
+		}).Warn("WhatsApp Cloud webhook not forwarded")
+		return err, nil
+	}
+
+	config := h.Server().Config()
+
+	if routing.toIntegrations {
+		logrus.Info("[integration_webhook] receiving integration webhook")
+		if er := handlers.ForwardToIntegrations(ctx, r, config.WhatsappCloudWebhooksUrl, config.WhatsappCloudWebhooksToken); er != nil {
+			forwardErr = errIntegrationsForwardFailed
+		}
+		if err := h.handleMMLiteTermsSigned(ctx, payload); err != nil {
+			return nil, err
+		}
+	}
+
+	if routing.toFlows {
+		if er := handlers.SendWebhooks(r, config.WhatsappCloudWebhooksUrlFlows, config.WhatsappCloudWebhooksTokenFlows); er != nil {
+			courier.LogRequestError(r, nil, fmt.Errorf("could not send flows webhook: %s", er))
+		}
+	}
+
+	return forwardErr, nil
+}
+
+func (p *moPayload) wabaIDs() []string {
+	ids := make([]string, 0, len(p.Entry))
+	for _, entry := range p.Entry {
+		ids = append(ids, entry.ID)
+	}
+	return ids
 }
 
 func (h *handler) handleMMLiteTermsSigned(ctx context.Context, payload *moPayload) error {
@@ -3856,6 +3893,8 @@ func (h *handler) DescribeURN(ctx context.Context, channel courier.Channel, urn 
 	}
 }
 
+var errInvalidRequestSignature = errors.New("invalid request signature")
+
 // see https://developers.facebook.com/docs/messenger-platform/webhook#security
 func (h *handler) validateSignature(r *http.Request) error {
 	headerSignature := r.Header.Get(signatureHeader)
@@ -3888,7 +3927,7 @@ func (h *handler) validateSignature(r *http.Request) error {
 
 	// compare signatures in way that isn't sensitive to a timing attack
 	if !hmac.Equal([]byte(expectedSignature), []byte(signature)) {
-		return fmt.Errorf("invalid request signature, expected: %s got: %s for body: '%s'", expectedSignature, signature, string(body))
+		return errInvalidRequestSignature
 	}
 
 	return nil

@@ -1,3 +1,13 @@
+1.78.0
+----------
+ * feat: authenticate WhatsApp Cloud webhook forwards to integrations with COURIER_WHATSAPP_CLOUD_WEBHOOKS_TOKEN, with bounded retry
+ * fix: verify the Meta signature before forwarding WhatsApp Cloud webhooks to integrations or Flows
+ * fix: stop echoing the expected signature and request body on invalid Facebook, Instagram and WhatsApp Cloud signatures
+
+1.77.0
+----------
+ * feat: implement WWC custom_data handling for outbound /send
+
 1.76.0
 ----------
  * feat: add PSTN telephony channel handler (TPH)

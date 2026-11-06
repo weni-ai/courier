@@ -40,6 +40,7 @@ type Config struct {
 	WhatsappCloudApplicationSecret  string `help:"the Whatsapp Cloud app secret"`
 	WhatsappCloudWebhookSecret      string `help:"the secret for WhatsApp Cloud webhook URL verification"`
 	WhatsappCloudWebhooksUrl        string `help:"the url where all WhatsApp Cloud webhooks will be sent"`
+	WhatsappCloudWebhooksToken      string `help:"bearer token sent to integrations on forwarded WhatsApp Cloud webhooks; empty disables the forward"`
 	WhatsappCloudWebhooksUrlFlows   string `help:"the url where WhatsApp Cloud flow_message webhooks will be sent to Flows"`
 	WhatsappCloudWebhooksTokenFlows string `help:"the token for sending WhatsApp Cloud flow_message webhooks that will be sent to Flows"`
 

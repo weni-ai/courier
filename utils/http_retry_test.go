@@ -191,6 +191,68 @@ func TestAttemptsOneNoRetry(t *testing.T) {
 	}
 }
 
+func TestRetryAttemptsReportsAttemptsMade(t *testing.T) {
+	stub := &stubRoundTripper{responses: []stubOutcome{
+		{status: http.StatusServiceUnavailable, body: `"busy"`},
+		{status: http.StatusServiceUnavailable, body: `"busy"`},
+		{status: http.StatusServiceUnavailable, body: `"busy"`},
+	}}
+	restore := setupStubClient(t, stub)
+	defer restore()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req := newReq(t, http.MethodPost, "https://example.org/api", `{"x":2}`, "")
+	rr, attempts, err := MakeHTTPRequestWithRetryAttempts(ctx, req, 3, 1*time.Millisecond, "idem-attempts")
+	if err == nil {
+		t.Fatalf("expected error after exhausting retries")
+	}
+	if attempts != 3 || stub.attempts != 3 {
+		t.Fatalf("expected 3 attempts, got reported=%d made=%d", attempts, stub.attempts)
+	}
+	if rr == nil || rr.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected last response 503, got %+v", rr)
+	}
+}
+
+func TestRetryBackoffStopsWhenContextDone(t *testing.T) {
+	stub := &stubRoundTripper{responses: []stubOutcome{
+		{status: http.StatusServiceUnavailable, body: `"busy"`},
+		{status: http.StatusServiceUnavailable, body: `"busy"`},
+	}}
+	restore := setupStubClient(t, stub)
+	defer restore()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	req := newReq(t, http.MethodPost, "https://example.org/api", `{"x":2}`, "")
+	_, attempts, err := MakeHTTPRequestWithRetryAttempts(ctx, req, 3, 10*time.Second, "idem-ctx")
+	if err == nil {
+		t.Fatalf("expected error when context ends during backoff")
+	}
+	if attempts != 1 {
+		t.Fatalf("expected 1 attempt, got %d", attempts)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("expected backoff to stop with the context, took %s", elapsed)
+	}
+}
+
+func TestIsTransientFailure(t *testing.T) {
+	if !IsTransientFailure(&RequestResponse{StatusCode: http.StatusBadGateway}, nil) {
+		t.Fatalf("expected 502 to be transient")
+	}
+	if IsTransientFailure(&RequestResponse{StatusCode: http.StatusUnauthorized}, nil) {
+		t.Fatalf("expected 401 not to be transient")
+	}
+	if !IsTransientFailure(nil, syscall.ECONNRESET) {
+		t.Fatalf("expected connection reset to be transient")
+	}
+}
+
 func TestRetryOnConnResetMultipleThenSuccess(t *testing.T) {
 	stub := &stubRoundTripper{responses: []stubOutcome{
 		{err: syscall.ECONNRESET},

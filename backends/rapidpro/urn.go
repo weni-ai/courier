@@ -250,8 +250,8 @@ func contactURNForURN(db *sqlx.Tx, channel *DBChannel, contactID ContactID, urn 
 
 const insertURN = `
 INSERT INTO 
-	contacts_contacturn(org_id, identity, path, scheme, display, auth, priority, channel_id, contact_id)
-                 VALUES(:org_id, :identity, :path, :scheme, :display, :auth, :priority, :channel_id, :contact_id)
+	contacts_contacturn(org_id, identity, path, scheme, display, auth, priority, channel_id, contact_id, attachment_status)
+                 VALUES(:org_id, :identity, :path, :scheme, :display, :auth, :priority, :channel_id, :contact_id, 'not-attached')
 RETURNING id
 `
 

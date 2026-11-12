@@ -54,7 +54,28 @@ CREATE TABLE contacts_contacturn (
     contact_id integer references contacts_contact(id) on delete cascade,
     org_id integer NOT NULL references orgs_org(id) on delete cascade,
     auth text,
+    attachment_status character varying(16) NOT NULL DEFAULT 'not-attached',
     UNIQUE (org_id, identity)
+);
+
+DROP TABLE IF EXISTS msgs_protocol CASCADE;
+CREATE TABLE msgs_protocol (
+    id bigserial primary key,
+    uuid character varying(36) NOT NULL UNIQUE,
+    org_id integer NOT NULL references orgs_org(id) on delete cascade,
+    contact_id integer NOT NULL references contacts_contact(id) on delete cascade,
+    urn_id integer NOT NULL references contacts_contacturn(id) on delete cascade,
+    state character varying(8) NOT NULL,
+    predecessor_id bigint NULL,
+    opened_on timestamp with time zone NOT NULL,
+    closed_on timestamp with time zone NULL,
+    close_reason character varying(32) NOT NULL DEFAULT '',
+    idle_accumulated integer NOT NULL DEFAULT 0,
+    timer_deadline timestamp with time zone NULL,
+    timer_kind character varying(8) NOT NULL DEFAULT '',
+    timer_paused boolean NOT NULL DEFAULT false,
+    external_id character varying(255) NULL,
+    UNIQUE (org_id, urn_id, external_id)
 );
 
 DROP TABLE IF EXISTS msgs_msg CASCADE;
@@ -81,7 +102,8 @@ CREATE TABLE msgs_msg (
     contact_urn_id integer NOT NULL references contacts_contacturn(id) on delete cascade,
     org_id integer NOT NULL references orgs_org(id) on delete cascade,
     metadata text,
-    topup_id integer
+    topup_id integer,
+    protocol_id bigint NULL references msgs_protocol(id) on delete set null
 );
 
 DROP TABLE IF EXISTS channels_channellog CASCADE;

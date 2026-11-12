@@ -30,7 +30,9 @@ func seedThreadOwner(t *testing.T, mb *courier.MockBackend, ch courier.Channel, 
 	rc := mb.RedisPool().Get()
 	defer rc.Close()
 	key := wacThreadOwnerKey(ch.UUID(), urns.URN(urnStr))
-	_, err := rc.Do("HSET", key, "state", state, "ts", ts)
+	_, err := rc.Do("HSET", key, "state", state)
+	require.NoError(t, err)
+	_, err = rc.Do("HSET", key, "ts", ts)
 	require.NoError(t, err)
 	_, err = rc.Do("EXPIRE", key, 86400)
 	require.NoError(t, err)
@@ -152,7 +154,9 @@ func TestWACThreadOwner(t *testing.T) {
 			require.NoError(t, err)
 
 			if tc.seedTS != "" {
-				_, err = rc.Do("HSET", key, "state", tc.seedState, "ts", tc.seedTS)
+				_, err = rc.Do("HSET", key, "state", tc.seedState)
+				require.NoError(t, err)
+				_, err = rc.Do("HSET", key, "ts", tc.seedTS)
 				require.NoError(t, err)
 				_, err = rc.Do("EXPIRE", key, 100)
 				require.NoError(t, err)

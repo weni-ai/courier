@@ -35,14 +35,16 @@ if stored then
 	if incoming <= tonumber(stored) then
 		return "stale"
 	end
-	redis.call("HSET", KEYS[1], "state", ARGV[2], "ts", ARGV[1])
+	redis.call("HSET", KEYS[1], "state", ARGV[2])
+	redis.call("HSET", KEYS[1], "ts", ARGV[1])
 	redis.call("EXPIRE", KEYS[1], tonumber(ARGV[3]))
 	return "updated"
 end
 if ARGV[4] == "update_if_exists" then
 	return "absent"
 end
-redis.call("HSET", KEYS[1], "state", ARGV[2], "ts", ARGV[1])
+redis.call("HSET", KEYS[1], "state", ARGV[2])
+redis.call("HSET", KEYS[1], "ts", ARGV[1])
 redis.call("EXPIRE", KEYS[1], tonumber(ARGV[3]))
 return "created"
 `)

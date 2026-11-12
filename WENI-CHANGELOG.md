@@ -1,3 +1,7 @@
+Unreleased
+----------
+ * feat: keep a copy author's reply on the thread contact, prefix the body with their address, and send the accumulated cc list to email-proxy. Deploy email-proxy first so it accepts cc.
+
 1.80.0
 ----------
  * feat: implement WAC thread ownership functionality

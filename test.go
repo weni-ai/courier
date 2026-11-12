@@ -66,6 +66,14 @@ type MockBackend struct {
 	// keyed as "<channelUUID>|<urnIdentity>".
 	lastMsgByChannelURN map[string]Msg
 
+	// lastMsgByContactURN is seeded by tests to back LookupLastMsgByContactURN.
+	// Unlike lastMsgByChannelURN it accepts a message with an empty external_id.
+	lastMsgByContactURN map[string]Msg
+
+	// lastMsgByContactURNErr, when set for a channel + URN, is returned by
+	// LookupLastMsgByContactURN before the seeded message is considered.
+	lastMsgByContactURNErr map[string]error
+
 	// blockedEmailMailboxes is seeded by tests to back IsEmailMailboxBlocked;
 	// keyed by lowercased real mailbox address (no mailto: prefix).
 	blockedEmailMailboxes map[string]bool
@@ -114,15 +122,17 @@ func NewMockBackend() *MockBackend {
 	}
 
 	return &MockBackend{
-		channels:              make(map[ChannelUUID]Channel),
-		channelsByAddress:     make(map[ChannelAddress]Channel),
-		contacts:              make(map[urns.URN]Contact),
-		sentMsgs:              make(map[MsgID]bool),
-		redisPool:             redisPool,
-		msgsByExternalID:      make(map[string]Msg),
-		msgsByID:              make(map[MsgID]Msg),
-		lastMsgByChannelURN:   make(map[string]Msg),
-		blockedEmailMailboxes: make(map[string]bool),
+		channels:               make(map[ChannelUUID]Channel),
+		channelsByAddress:      make(map[ChannelAddress]Channel),
+		contacts:               make(map[urns.URN]Contact),
+		sentMsgs:               make(map[MsgID]bool),
+		redisPool:              redisPool,
+		msgsByExternalID:       make(map[string]Msg),
+		msgsByID:               make(map[MsgID]Msg),
+		lastMsgByChannelURN:    make(map[string]Msg),
+		lastMsgByContactURN:    make(map[string]Msg),
+		lastMsgByContactURNErr: make(map[string]error),
+		blockedEmailMailboxes:  make(map[string]bool),
 	}
 }
 
@@ -157,6 +167,29 @@ func (mb *MockBackend) AddLastMsgForContact(msg Msg) {
 	}
 	key := fmt.Sprintf("%s|%s", msg.Channel().UUID(), msg.URN().Identity())
 	mb.lastMsgByChannelURN[key] = msg
+}
+
+// AddLastMsgByContactURN seeds the latest message for a channel + contact URN,
+// including a message whose external_id is empty.
+func (mb *MockBackend) AddLastMsgByContactURN(msg Msg) {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+	if msg == nil || msg.Channel() == nil || msg.URN() == urns.NilURN {
+		return
+	}
+	key := fmt.Sprintf("%s|%s", msg.Channel().UUID(), msg.URN().Identity())
+	mb.lastMsgByContactURN[key] = msg
+}
+
+// SetLastMsgByContactURNErr makes LookupLastMsgByContactURN fail for this pair.
+func (mb *MockBackend) SetLastMsgByContactURNErr(channel Channel, urn urns.URN, err error) {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+	if channel == nil || urn == urns.NilURN {
+		return
+	}
+	key := fmt.Sprintf("%s|%s", channel.UUID(), urn.Identity())
+	mb.lastMsgByContactURNErr[key] = err
 }
 
 // GetLastQueueMsg returns the last message queued to the server
@@ -715,6 +748,23 @@ func (b *MockBackend) LookupLastMsgWithExternalID(ctx context.Context, channel C
 	key := fmt.Sprintf("%s|%s", channel.UUID(), urn.Identity())
 	msg, ok := b.lastMsgByChannelURN[key]
 	if !ok || msg.ExternalID() == "" {
+		return nil, ErrMsgNotFound
+	}
+	return msg, nil
+}
+
+func (b *MockBackend) LookupLastMsgByContactURN(ctx context.Context, channel Channel, urn urns.URN) (Msg, error) {
+	if channel == nil || urn == urns.NilURN {
+		return nil, ErrMsgNotFound
+	}
+	b.mutex.RLock()
+	defer b.mutex.RUnlock()
+	key := fmt.Sprintf("%s|%s", channel.UUID(), urn.Identity())
+	if err, ok := b.lastMsgByContactURNErr[key]; ok && err != nil {
+		return nil, err
+	}
+	msg, ok := b.lastMsgByContactURN[key]
+	if !ok {
 		return nil, ErrMsgNotFound
 	}
 	return msg, nil

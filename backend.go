@@ -159,6 +159,11 @@ type Backend interface {
 	// email handler to thread replies when mailroom did not set response_to_external_id.
 	LookupLastMsgWithExternalID(context.Context, Channel, urns.URN) (Msg, error)
 
+	// LookupLastMsgByContactURN returns the latest visible message on the channel
+	// for the contact URN, including rows with an empty external_id. A missing
+	// row returns ErrMsgNotFound. Any other error means the read failed.
+	LookupLastMsgByContactURN(context.Context, Channel, urns.URN) (Msg, error)
+
 	UpdateChannelConfig(context.Context, Channel, map[string]interface{}) error
 
 	UpdateChannelConfigByWabaID(context.Context, string, map[string]interface{}) error

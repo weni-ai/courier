@@ -478,11 +478,15 @@ func TestReceiveWACHandover(t *testing.T) {
 		label       string
 		fixture     string
 		response    string
+		status      int
 		eventCount  int
 		contextType string
 		contextText string
 		contactName string
 		contactURN  string
+		wantState   string
+		wantTS      string
+		repost      bool
 	}{
 		{
 			label:       "Summary handover with recipient phone_number_id",
@@ -492,6 +496,8 @@ func TestReceiveWACHandover(t *testing.T) {
 			contextType: courier.WAHandoverContextSummary,
 			contextText: "Customer asked about pricing and delivery.",
 			contactName: "Kerry Fisher",
+			wantState:   wacThreadOwnerStateOwner,
+			wantTS:      "1454119029",
 		},
 		{
 			label:       "History handover",
@@ -501,12 +507,17 @@ func TestReceiveWACHandover(t *testing.T) {
 			contextType: courier.WAHandoverContextHistory,
 			contextText: "[user] Hi\n[business] Hello, how can I help?\n[user] <image>",
 			contactName: "Kerry Fisher",
+			wantState:   wacThreadOwnerStateOwner,
+			wantTS:      "1454119029",
 		},
 		{
 			label:      "Control passed without context",
 			fixture:    "./testdata/wac/handoverNoContextWAC.json",
 			response:   "control_passed without conversation context",
 			eventCount: 0,
+			wantState:  wacThreadOwnerStateOwner,
+			wantTS:     "1454119029",
+			repost:     true,
 		},
 		{
 			label:       "Summary handover nested in control_passed with phone_number sender",
@@ -516,6 +527,30 @@ func TestReceiveWACHandover(t *testing.T) {
 			contextType: courier.WAHandoverContextSummary,
 			contextText: "* The business sent a template and the customer tapped a button.\n* The business acknowledged the response by saying \"ok\".",
 			contactURN:  "whatsapp:558893565901",
+			wantState:   wacThreadOwnerStateOwner,
+			wantTS:      "1789502043",
+		},
+		{
+			label:      "Control taken",
+			fixture:    "./testdata/wac/handoverTakenWAC.json",
+			response:   "control_taken recorded",
+			eventCount: 0,
+			wantState:  wacThreadOwnerStateNone,
+			wantTS:     "1454119029",
+		},
+		{
+			label:      "Control taken without timestamp uses entry.time",
+			fixture:    "./testdata/wac/handoverTakenNoTimestampWAC.json",
+			response:   "control_taken recorded",
+			eventCount: 0,
+			wantState:  wacThreadOwnerStateNone,
+			wantTS:     "1454119029",
+		},
+		{
+			label:    "Control passed without sender",
+			fixture:  "./testdata/wac/handoverNoSenderWAC.json",
+			response: "no sender identifier in handover",
+			status:   400,
 		},
 	}
 
@@ -529,25 +564,218 @@ func TestReceiveWACHandover(t *testing.T) {
 			handler := newHandler("WAC", "Cloud API WhatsApp", false)
 			handler.Initialize(s)
 
-			handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, string(courier.ReadFile(tc.fixture)), nil, 200, Sp(tc.response), addValidSignatureWAC)
+			status := 200
+			if tc.status != 0 {
+				status = tc.status
+			}
+			handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, string(courier.ReadFile(tc.fixture)), nil, status, Sp(tc.response), addValidSignatureWAC)
+
+			if status != 200 {
+				assert.Equal(t, 0, mb.LenQueuedMsgs())
+				return
+			}
 
 			assert.Equal(t, 0, mb.LenQueuedMsgs())
 			events := mb.WAHandoverEvents()
 			assert.Len(t, events, tc.eventCount)
-			if tc.eventCount == 0 {
-				return
-			}
 
-			assert.Equal(t, tc.contextType, events[0].ContextType)
-			assert.Equal(t, tc.contextText, events[0].ContextText)
 			expectedURN := tc.contactURN
 			if expectedURN == "" {
 				expectedURN = "whatsapp:5678"
 			}
-			assert.Equal(t, expectedURN, events[0].ContactURN.String())
-			assert.Equal(t, tc.contactName, events[0].ContactName)
+			if tc.eventCount > 0 {
+				assert.Equal(t, tc.contextType, events[0].ContextType)
+				assert.Equal(t, tc.contextText, events[0].ContextText)
+				assert.Equal(t, expectedURN, events[0].ContactURN.String())
+				assert.Equal(t, tc.contactName, events[0].ContactName)
+			}
+
+			got := threadOwnerHash(t, mb, testChannelsWAC[0], expectedURN)
+			assert.Equal(t, tc.wantState, got["state"])
+			assert.Equal(t, tc.wantTS, got["ts"])
+
+			if tc.repost {
+				handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, string(courier.ReadFile(tc.fixture)), nil, 200, Sp(tc.response), addValidSignatureWAC)
+				again := threadOwnerHash(t, mb, testChannelsWAC[0], expectedURN)
+				assert.Equal(t, tc.wantState, again["state"])
+				assert.Equal(t, tc.wantTS, again["ts"])
+			}
 		})
 	}
+}
+
+func TestReceiveWACThreadOwnerMessages(t *testing.T) {
+	channel := testChannelsWAC[0]
+	urn := "whatsapp:5678"
+
+	t.Run("no existing key does not create", func(t *testing.T) {
+		mb := courier.NewMockBackend()
+		s := handlers.NewTestServer(mb)
+		mb.AddChannel(channel)
+		handler := newHandler("WAC", "Cloud API WhatsApp", false)
+		handler.Initialize(s)
+
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, string(courier.ReadFile("./testdata/wac/helloWAC.json")), nil, 200, Sp("Handled"), addValidSignatureWAC)
+		got := threadOwnerHash(t, mb, channel, urn)
+		assert.Empty(t, got)
+	})
+
+	t.Run("existing key updates to owner", func(t *testing.T) {
+		mb := courier.NewMockBackend()
+		s := handlers.NewTestServer(mb)
+		mb.AddChannel(channel)
+		handler := newHandler("WAC", "Cloud API WhatsApp", false)
+		handler.Initialize(s)
+		seedThreadOwner(t, mb, channel, urn, wacThreadOwnerStateNone, "1")
+
+		hook := handlers.CaptureLogs(t)
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, string(courier.ReadFile("./testdata/wac/helloWAC.json")), nil, 200, Sp("Handled"), addValidSignatureWAC)
+		got := threadOwnerHash(t, mb, channel, urn)
+		assert.Equal(t, wacThreadOwnerStateOwner, got["state"])
+		assert.Equal(t, "1454119029", got["ts"])
+		for _, entry := range hook.Entries() {
+			assert.NotEqual(t, "wac_thread_owner_update_failed", entry.Data["event"])
+		}
+		assertNoWACOwnershipPII(t, hook.Entries())
+	})
+
+	t.Run("invalid timestamp does not write redis", func(t *testing.T) {
+		mb := courier.NewMockBackend()
+		s := handlers.NewTestServer(mb)
+		mb.AddChannel(channel)
+		handler := newHandler("WAC", "Cloud API WhatsApp", false)
+		handler.Initialize(s)
+		invalidURN := "whatsapp:bla"
+		seedThreadOwner(t, mb, channel, invalidURN, wacThreadOwnerStateNone, "1")
+
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, string(courier.ReadFile("./testdata/wac/invalidTimestamp.json")), nil, 400, Sp("invalid timestamp"), addValidSignatureWAC)
+		got := threadOwnerHash(t, mb, channel, invalidURN)
+		assert.Equal(t, wacThreadOwnerStateNone, got["state"])
+		assert.Equal(t, "1", got["ts"])
+	})
+}
+
+func TestReceiveWACStandbyContext(t *testing.T) {
+	channel := testChannelsWAC[0]
+	urn := "whatsapp:5678"
+	body := string(courier.ReadFile("./testdata/wac/handoverStandbyContextWAC.json"))
+
+	t.Run("flag off ignores standby", func(t *testing.T) {
+		mb := courier.NewMockBackend()
+		s := handlers.NewTestServer(mb)
+		mb.AddChannel(channel)
+		handler := newHandler("WAC", "Cloud API WhatsApp", false)
+		handler.Initialize(s)
+
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, Sp("ignoring standby webhook"), addValidSignatureWAC)
+		assert.Equal(t, 0, mb.LenQueuedMsgs())
+		assert.Empty(t, mb.WAHandoverEvents())
+		assert.Empty(t, threadOwnerHash(t, mb, channel, urn))
+	})
+
+	t.Run("flag on persists context without redis or inbound msg", func(t *testing.T) {
+		mb := courier.NewMockBackend()
+		s := handlers.NewTestServer(mb)
+		s.Config().EnableWACStandbyContext = true
+		mb.AddChannel(channel)
+		handler := newHandler("WAC", "Cloud API WhatsApp", false)
+		handler.Initialize(s)
+
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, Sp("wa conversation handover persisted"), addValidSignatureWAC)
+		assert.Equal(t, 0, mb.LenQueuedMsgs())
+		events := mb.WAHandoverEvents()
+		require.Len(t, events, 1)
+		assert.Equal(t, courier.WAHandoverContextSummary, events[0].ContextType)
+		assert.Equal(t, "Standby summary of the conversation.", events[0].ContextText)
+		assert.Empty(t, threadOwnerHash(t, mb, channel, urn))
+	})
+}
+
+func TestSendWACThreadOwner(t *testing.T) {
+	channel := testChannelsWAC[0]
+	urn := "whatsapp:250788123123"
+
+	runSend := func(t *testing.T, enableBlock bool, seedState, seedTS string, closeRedis bool) (courier.MsgStatus, int, *handlers.LogCaptureHook) {
+		t.Helper()
+		mb := courier.NewMockBackend()
+		s := handlers.NewTestServer(mb)
+		s.Config().EnableWACSendOwnershipBlock = enableBlock
+		mb.AddChannel(channel)
+		handler := newHandler("WAC", "Cloud API WhatsApp", false)
+		handler.Initialize(s)
+		if seedState != "" {
+			seedThreadOwner(t, mb, channel, urn, seedState, seedTS)
+		}
+		if closeRedis {
+			require.NoError(t, mb.RedisPool().Close())
+		}
+
+		graphHits := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			graphHits++
+			w.WriteHeader(201)
+			w.Write([]byte(`{ "messages": [{"id": "157b5e14568e8"}] }`))
+		}))
+		t.Cleanup(server.Close)
+		prevGraph := graphURL
+		graphURL = server.URL
+		t.Cleanup(func() { graphURL = prevGraph })
+
+		hook := handlers.CaptureLogs(t)
+		msg := mb.NewOutgoingMsg(channel, courier.NewMsgID(10), urns.URN(urn), "Simple Message", false, nil, "", 0, "", "")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		status, err := handler.SendMsg(ctx, msg)
+		require.NoError(t, err)
+		return status, graphHits, hook
+	}
+
+	t.Run("flag off sends even if not_owner", func(t *testing.T) {
+		status, hits, _ := runSend(t, false, wacThreadOwnerStateNone, "1", false)
+		assert.Equal(t, 1, hits)
+		assert.Equal(t, courier.MsgWired, status.Status())
+	})
+
+	t.Run("flag on not_owner blocks", func(t *testing.T) {
+		status, hits, hook := runSend(t, true, wacThreadOwnerStateNone, "1", false)
+		assert.Equal(t, 0, hits)
+		assert.Equal(t, courier.MsgFailed, status.Status())
+		found := false
+		for _, entry := range hook.Entries() {
+			if entry.Data["event"] == "wac_send_blocked" {
+				found = true
+				assert.Equal(t, "not_owner", entry.Data["reason"])
+			}
+		}
+		assert.True(t, found)
+		assertNoWACOwnershipPII(t, hook.Entries())
+	})
+
+	t.Run("flag on missing key sends", func(t *testing.T) {
+		status, hits, _ := runSend(t, true, "", "", false)
+		assert.Equal(t, 1, hits)
+		assert.Equal(t, courier.MsgWired, status.Status())
+	})
+
+	t.Run("flag on owner sends", func(t *testing.T) {
+		status, hits, _ := runSend(t, true, wacThreadOwnerStateOwner, "1", false)
+		assert.Equal(t, 1, hits)
+		assert.Equal(t, courier.MsgWired, status.Status())
+	})
+
+	t.Run("flag on redis read error sends", func(t *testing.T) {
+		status, hits, hook := runSend(t, true, "", "", true)
+		assert.Equal(t, 1, hits)
+		assert.Equal(t, courier.MsgWired, status.Status())
+		found := false
+		for _, entry := range hook.Entries() {
+			if entry.Data["event"] == "wac_send_ownership_read_failed" {
+				found = true
+			}
+		}
+		assert.True(t, found)
+		assertNoWACOwnershipPII(t, hook.Entries())
+	})
 }
 
 func TestResolveMediaURL(t *testing.T) {
@@ -1418,8 +1646,8 @@ var SendTestCasesWAC = []ChannelSendTestCase{
 		Text:   "coupon template",
 		URN:    "whatsapp:250788123123",
 		Status: "W", ExternalID: "157b5e14568e8",
-		Attachments: []string{"image/png:https://foo.bar/header.png"},
-		Metadata:    json.RawMessage(`{"templating":{"template":{"name":"coupon_offer","uuid":"171f8a4d-f725-46d7-85a6-11aceff0bfe3"},"language":"por_BR","variables":["Gabriel","1234"]},"buttons":[{"sub_type":"copy_code","parameters":[{"type":"coupon_code","text":"1234"}]}]}`),
+		Attachments:  []string{"image/png:https://foo.bar/header.png"},
+		Metadata:     json.RawMessage(`{"templating":{"template":{"name":"coupon_offer","uuid":"171f8a4d-f725-46d7-85a6-11aceff0bfe3"},"language":"por_BR","variables":["Gabriel","1234"]},"buttons":[{"sub_type":"copy_code","parameters":[{"type":"coupon_code","text":"1234"}]}]}`),
 		ResponseBody: `{ "messages": [{"id": "157b5e14568e8"}] }`, ResponseStatus: 200,
 		RequestBody: `{"messaging_product":"whatsapp","recipient_type":"individual","to":"250788123123","type":"template","template":{"name":"coupon_offer","language":{"policy":"deterministic","code":"pt_BR"},"components":[{"type":"body","parameters":[{"type":"text","text":"Gabriel"},{"type":"text","text":"1234"}]},{"type":"header","parameters":[{"type":"image","image":{"link":"https://foo.bar/header.png"}}]},{"type":"button","sub_type":"copy_code","index":0,"parameters":[{"type":"coupon_code","coupon_code":"1234"}]}]}}`,
 		SendPrep:    setSendURL},

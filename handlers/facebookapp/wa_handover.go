@@ -21,6 +21,7 @@ const (
 	wacMessagingHandoversField   = "messaging_handovers"
 	wacStandbyField              = "standby"
 	wacHandoverTypeControlPassed = "control_passed"
+	wacHandoverTypeControlTaken  = "control_taken"
 	maxWAHandoverContextTextLen  = 32000
 )
 
@@ -52,6 +53,12 @@ type wacHandoverSender struct {
 
 type wacHandoverRecipient struct {
 	PhoneNumberID string `json:"phone_number_id"`
+}
+
+type wacHandoverControlTaken struct {
+	PreviousOwnerRole string `json:"previous_owner_role"`
+	NewOwnerRole      string `json:"new_owner_role"`
+	Metadata          string `json:"metadata"`
 }
 
 type wacHandoverControlPassed struct {
@@ -337,27 +344,46 @@ func (h *handler) processMessagingHandover(
 	channel courier.Channel,
 	value wacHandoverValue,
 	entryTime int64,
+	w http.ResponseWriter,
 	r *http.Request,
 ) (string, error) {
 	occurredOn, err := parseWAHandoverOccurredOn(value, entryTime)
 	if err != nil {
-		return "", handlers.WriteAndLogRequestError(ctx, h, channel, nil, r, err)
+		return "", handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
-	if value.Type != wacHandoverTypeControlPassed {
+	if value.Type != wacHandoverTypeControlPassed && value.Type != wacHandoverTypeControlTaken {
 		logMessagingHandoverReceived(channel, messagingHandoverLogFields(value, occurredOn, "", "", "", "ignored_type"))
 		return fmt.Sprintf("ignoring handover type %s", value.Type), nil
 	}
 
-	contextType, contextText, ok := renderWAHandoverContextText(resolveWAHandoverConversationContext(value))
-	if !ok {
-		logMessagingHandoverReceived(channel, messagingHandoverLogFields(value, occurredOn, "", "", "", "skipped_no_context"))
-		return "control_passed without conversation context", nil
-	}
-
 	urn, err := resolveWAHandoverSenderURN(value.Sender)
 	if err != nil {
-		return "", handlers.WriteAndLogRequestError(ctx, h, channel, nil, r, err)
+		return "", handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+
+	if channel.ChannelType() == "WAC" {
+		state := wacThreadOwnerStateOwner
+		if value.Type == wacHandoverTypeControlTaken {
+			state = wacThreadOwnerStateNone
+		}
+		rc := h.Backend().RedisPool().Get()
+		_, applyErr := applyWACThreadOwner(rc, channel.UUID(), urn, occurredOn.Unix(), state, wacThreadOwnerModeSet, value.Type)
+		rc.Close()
+		if applyErr != nil {
+			return "", applyErr
+		}
+	}
+
+	if value.Type == wacHandoverTypeControlTaken {
+		logMessagingHandoverReceived(channel, messagingHandoverLogFields(value, occurredOn, string(urn.Identity()), "", "", "control_taken"))
+		return "control_taken recorded", nil
+	}
+
+	contextType, contextText, ok := renderWAHandoverContextText(resolveWAHandoverConversationContext(value))
+	if !ok {
+		logMessagingHandoverReceived(channel, messagingHandoverLogFields(value, occurredOn, string(urn.Identity()), "", "", "skipped_no_context"))
+		return "control_passed without conversation context", nil
 	}
 
 	contactName := ""
@@ -393,5 +419,55 @@ func (h *handler) processMessagingHandover(
 		return "", err
 	}
 
+	return "wa conversation handover persisted", nil
+}
+
+func (h *handler) persistWAHandoverContext(
+	ctx context.Context,
+	channel courier.Channel,
+	value wacHandoverValue,
+	entryTime int64,
+	w http.ResponseWriter,
+	r *http.Request,
+) (string, error) {
+	occurredOn, err := parseWAHandoverOccurredOn(value, entryTime)
+	if err != nil {
+		return "", handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+
+	contextType, contextText, ok := renderWAHandoverContextText(resolveWAHandoverConversationContext(value))
+	if !ok {
+		return "standby without conversation context", nil
+	}
+
+	urn, err := resolveWAHandoverSenderURN(value.Sender)
+	if err != nil {
+		return "", handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+	}
+
+	contactName := ""
+	for _, contact := range value.Contacts {
+		if contact.WaID == urn.Path() || contact.UserID == urn.Path() {
+			contactName = contact.Profile.Name
+			break
+		}
+	}
+
+	conversationContext := resolveWAHandoverConversationContext(value)
+	event := courier.WAConversationHandoverEvent{
+		ChannelUUID: channel.UUID(),
+		ContactURN:  urn,
+		ContactName: contactName,
+		ContextType: contextType,
+		ContextText: contextText,
+		OccurredOn:  occurredOn,
+	}
+	if conversationContext != nil {
+		event.ContextPayload, _ = json.Marshal(conversationContext)
+	}
+
+	if err := h.Backend().WriteWAConversationHandover(ctx, event); err != nil {
+		return "", err
+	}
 	return "wa conversation handover persisted", nil
 }

@@ -76,12 +76,57 @@ type wacHandoverControlPassed struct {
 	ConversationContext     *wacConversationContext `json:"conversation_context"`
 }
 
+type moWACValueContact struct {
+	Profile struct {
+		Name     string `json:"name"`
+		Username string `json:"username,omitempty"`
+	} `json:"profile"`
+	WaID         string `json:"wa_id"`
+	UserID       string `json:"user_id,omitempty"`
+	ParentUserID string `json:"parent_user_id,omitempty"`
+}
+
 type wacHandoverContact struct {
 	Profile struct {
 		Name string `json:"name"`
 	} `json:"profile"`
 	WaID   string `json:"wa_id"`
 	UserID string `json:"user_id,omitempty"`
+}
+
+func wacHandoverContactsFromValueContacts(contacts []moWACValueContact) []wacHandoverContact {
+	out := make([]wacHandoverContact, 0, len(contacts))
+	for _, contact := range contacts {
+		handoverContact := wacHandoverContact{WaID: contact.WaID, UserID: contact.UserID}
+		handoverContact.Profile.Name = contact.Profile.Name
+		out = append(out, handoverContact)
+	}
+	return out
+}
+
+type wacMessagesPendingContext struct {
+	OK          bool
+	ContextType string
+	ContextText string
+	Context     *wacConversationContext
+	Contacts    []wacHandoverContact
+}
+
+func resolveWACMessagesPendingContext(channelType courier.ChannelType, field string, conversationContext *wacConversationContext, contacts []moWACValueContact) wacMessagesPendingContext {
+	if channelType != "WAC" || field != "messages" {
+		return wacMessagesPendingContext{}
+	}
+	contextType, contextText, ok := renderWAHandoverContextText(conversationContext)
+	if !ok {
+		return wacMessagesPendingContext{}
+	}
+	return wacMessagesPendingContext{
+		OK:          true,
+		ContextType: contextType,
+		ContextText: contextText,
+		Context:     conversationContext,
+		Contacts:    wacHandoverContactsFromValueContacts(contacts),
+	}
 }
 
 type wacHandoverValue struct {
@@ -386,36 +431,12 @@ func (h *handler) processMessagingHandover(
 		return "control_passed without conversation context", nil
 	}
 
-	contactName := ""
-	for _, contact := range value.Contacts {
-		if contact.WaID == urn.Path() || contact.UserID == urn.Path() {
-			contactName = contact.Profile.Name
-			break
-		}
-	}
-
+	contactName := wacHandoverContactName(value.Contacts, urn)
 	conversationContext := resolveWAHandoverConversationContext(value)
-
-	event := courier.WAConversationHandoverEvent{
-		ChannelUUID: channel.UUID(),
-		ContactURN:  urn,
-		ContactName: contactName,
-		ContextType: contextType,
-		ContextText: contextText,
-		OccurredOn:  occurredOn,
-	}
-
-	if conversationContext != nil {
-		event.ContextPayload, _ = json.Marshal(conversationContext)
-	}
-
-	if value.ControlPassed != nil {
-		applyWAHandoverPreviousOwner(&event, value.ControlPassed)
-	}
 
 	logMessagingHandoverReceived(channel, messagingHandoverLogFields(value, occurredOn, string(urn.Identity()), contactName, contextType, "persisted"))
 
-	if err := h.Backend().WriteWAConversationHandover(ctx, event); err != nil {
+	if err := h.persistRenderedWAHandover(ctx, channel, urn, contactName, contextType, contextText, conversationContext, occurredOn, value.ControlPassed); err != nil {
 		return "", err
 	}
 
@@ -445,15 +466,34 @@ func (h *handler) persistWAHandoverContext(
 		return "", handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
-	contactName := ""
-	for _, contact := range value.Contacts {
+	contactName := wacHandoverContactName(value.Contacts, urn)
+	conversationContext := resolveWAHandoverConversationContext(value)
+	if err := h.persistRenderedWAHandover(ctx, channel, urn, contactName, contextType, contextText, conversationContext, occurredOn, nil); err != nil {
+		return "", err
+	}
+	return "wa conversation handover persisted", nil
+}
+
+func wacHandoverContactName(contacts []wacHandoverContact, urn urns.URN) string {
+	for _, contact := range contacts {
 		if contact.WaID == urn.Path() || contact.UserID == urn.Path() {
-			contactName = contact.Profile.Name
-			break
+			return contact.Profile.Name
 		}
 	}
+	return ""
+}
 
-	conversationContext := resolveWAHandoverConversationContext(value)
+func (h *handler) persistRenderedWAHandover(
+	ctx context.Context,
+	channel courier.Channel,
+	urn urns.URN,
+	contactName string,
+	contextType string,
+	contextText string,
+	conversationContext *wacConversationContext,
+	occurredOn time.Time,
+	controlPassed *wacHandoverControlPassed,
+) error {
 	event := courier.WAConversationHandoverEvent{
 		ChannelUUID: channel.UUID(),
 		ContactURN:  urn,
@@ -465,9 +505,8 @@ func (h *handler) persistWAHandoverContext(
 	if conversationContext != nil {
 		event.ContextPayload, _ = json.Marshal(conversationContext)
 	}
-
-	if err := h.Backend().WriteWAConversationHandover(ctx, event); err != nil {
-		return "", err
+	if controlPassed != nil {
+		applyWAHandoverPreviousOwner(&event, controlPassed)
 	}
-	return "wa conversation handover persisted", nil
+	return h.Backend().WriteWAConversationHandover(ctx, event)
 }

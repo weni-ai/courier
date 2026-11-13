@@ -602,6 +602,18 @@ func TestReceiveWACHandover(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("writer error fails the webhook", func(t *testing.T) {
+		mb := courier.NewMockBackend()
+		s := handlers.NewTestServer(mb)
+		mb.AddChannel(testChannelsWAC[0])
+		mb.SetErrorOnWAHandover(true)
+		handler := newHandler("WAC", "Cloud API WhatsApp", false)
+		handler.Initialize(s)
+
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, string(courier.ReadFile("./testdata/wac/handoverSummaryWAC.json")), nil, 400, Sp("Error"), addValidSignatureWAC)
+		assert.Equal(t, 0, mb.LenQueuedMsgs())
+	})
 }
 
 func TestReceiveWACThreadOwnerMessages(t *testing.T) {
@@ -688,6 +700,132 @@ func TestReceiveWACStandbyContext(t *testing.T) {
 		assert.Equal(t, courier.WAHandoverContextSummary, events[0].ContextType)
 		assert.Equal(t, "Standby summary of the conversation.", events[0].ContextText)
 		assert.Empty(t, threadOwnerHash(t, mb, channel, urn))
+	})
+
+	t.Run("flag on writer error fails the webhook", func(t *testing.T) {
+		mb := courier.NewMockBackend()
+		s := handlers.NewTestServer(mb)
+		s.Config().EnableWACStandbyContext = true
+		mb.AddChannel(channel)
+		mb.SetErrorOnWAHandover(true)
+		handler := newHandler("WAC", "Cloud API WhatsApp", false)
+		handler.Initialize(s)
+
+		hook := handlers.CaptureLogs(t)
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 400, Sp("Error"), addValidSignatureWAC)
+		assert.Equal(t, 0, mb.LenQueuedMsgs())
+		for _, entry := range hook.Entries() {
+			assert.NotEqual(t, "wac_pending_context_write_failed", entry.Data["event"])
+		}
+	})
+}
+
+func TestReceiveWACMessagesContext(t *testing.T) {
+	channel := testChannelsWAC[0]
+	summaryBody := string(courier.ReadFile("./testdata/wac/messagesContextSummaryWAC.json"))
+	occurredOn := time.Unix(1454119029, 0).UTC()
+
+	t.Run("summary persists before the inbound msg", func(t *testing.T) {
+		mb := courier.NewMockBackend()
+		s := handlers.NewTestServer(mb)
+		mb.AddChannel(channel)
+		handler := newHandler("WAC", "Cloud API WhatsApp", false)
+		handler.Initialize(s)
+
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, summaryBody, nil, 200, Sp("Handled"), addValidSignatureWAC)
+		assert.False(t, s.Config().EnableWACStandbyContext)
+		events := mb.WAHandoverEvents()
+		require.Len(t, events, 1)
+		assert.Equal(t, courier.WAHandoverContextSummary, events[0].ContextType)
+		assert.Equal(t, "AI summary of the conversation.", events[0].ContextText)
+		assert.Equal(t, "whatsapp:5678", events[0].ContactURN.String())
+		assert.True(t, events[0].OccurredOn.Equal(occurredOn))
+		assert.Equal(t, 1, mb.LenQueuedMsgs())
+		assert.Equal(t, []string{"wa_handover", "msg"}, mb.BackendCalls())
+	})
+
+	t.Run("no conversation context queues the msg", func(t *testing.T) {
+		mb := courier.NewMockBackend()
+		s := handlers.NewTestServer(mb)
+		mb.AddChannel(channel)
+		handler := newHandler("WAC", "Cloud API WhatsApp", false)
+		handler.Initialize(s)
+
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, string(courier.ReadFile("./testdata/wac/helloWAC.json")), nil, 200, Sp("Handled"), addValidSignatureWAC)
+		assert.Empty(t, mb.WAHandoverEvents())
+		assert.Equal(t, 1, mb.LenQueuedMsgs())
+	})
+
+	t.Run("whitespace summary does not persist", func(t *testing.T) {
+		mb := courier.NewMockBackend()
+		s := handlers.NewTestServer(mb)
+		mb.AddChannel(channel)
+		handler := newHandler("WAC", "Cloud API WhatsApp", false)
+		handler.Initialize(s)
+
+		body := strings.Replace(summaryBody, "AI summary of the conversation.", "   ", 1)
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, Sp("Handled"), addValidSignatureWAC)
+		assert.Empty(t, mb.WAHandoverEvents())
+		assert.Equal(t, 1, mb.LenQueuedMsgs())
+	})
+
+	t.Run("writer error still queues the msg", func(t *testing.T) {
+		mb := courier.NewMockBackend()
+		s := handlers.NewTestServer(mb)
+		mb.AddChannel(channel)
+		mb.SetErrorOnWAHandover(true)
+		handler := newHandler("WAC", "Cloud API WhatsApp", false)
+		handler.Initialize(s)
+
+		hook := handlers.CaptureLogs(t)
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, summaryBody, nil, 200, Sp("Handled"), addValidSignatureWAC)
+		assert.Equal(t, 1, mb.LenQueuedMsgs())
+		var found bool
+		for _, entry := range hook.Entries() {
+			if entry.Data["event"] != "wac_pending_context_write_failed" {
+				continue
+			}
+			found = true
+			assert.Equal(t, channel.UUID(), entry.Data["channel_uuid"])
+			assert.Equal(t, "external_id", entry.Data["external_id"])
+			_, hasText := entry.Data["context_text"]
+			assert.False(t, hasText)
+			assertNoWACOwnershipPII(t, []*logrus.Entry{entry})
+		}
+		assert.True(t, found)
+	})
+
+	t.Run("WCD does not persist conversation context", func(t *testing.T) {
+		mb := courier.NewMockBackend()
+		s := handlers.NewTestServer(mb)
+		wcd := courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WCD", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
+		mb.AddChannel(wcd)
+		handler := newWACDemoHandler("WCD", "WhatsApp Cloud Demo")
+		handler.Initialize(s)
+
+		// WCD receive is registered with the channel UUID in the path.
+		handlers.TestHandlerRequest(t, s, "/c/wcd/8eb23e93-5ecb-45ba-b726-3b064e0c56ab/receive", nil, summaryBody, nil, 200, nil, nil)
+		assert.Empty(t, mb.WAHandoverEvents())
+		assert.Equal(t, 1, mb.LenQueuedMsgs())
+	})
+
+	t.Run("two messages each persist before their write", func(t *testing.T) {
+		mb := courier.NewMockBackend()
+		s := handlers.NewTestServer(mb)
+		mb.AddChannel(channel)
+		handler := newHandler("WAC", "Cloud API WhatsApp", false)
+		handler.Initialize(s)
+
+		body := string(courier.ReadFile("./testdata/wac/messagesContextSummaryTwoWAC.json"))
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, Sp("Handled"), addValidSignatureWAC)
+		events := mb.WAHandoverEvents()
+		require.Len(t, events, 2)
+		for _, event := range events {
+			assert.Equal(t, courier.WAHandoverContextSummary, event.ContextType)
+			assert.Equal(t, "AI summary of the conversation.", event.ContextText)
+		}
+		assert.Equal(t, 2, mb.LenQueuedMsgs())
+		assert.Equal(t, []string{"wa_handover", "msg", "wa_handover", "msg"}, mb.BackendCalls())
 	})
 }
 

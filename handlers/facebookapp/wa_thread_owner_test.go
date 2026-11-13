@@ -43,7 +43,7 @@ func assertNoWACOwnershipPII(t *testing.T, entries []*logrus.Entry) {
 	for _, entry := range entries {
 		event, _ := entry.Data["event"].(string)
 		switch event {
-		case "wac_thread_owner_applied", "wac_thread_owner_update_failed", "wac_send_blocked", "wac_send_ownership_read_failed":
+		case "wac_thread_owner_applied", "wac_thread_owner_update_failed", "wac_send_blocked", "wac_send_ownership_read_failed", "wac_pending_context_write_failed":
 			_, hasURN := entry.Data["contact_urn"]
 			_, hasPhone := entry.Data["sender_phone_number"]
 			assert.False(t, hasURN, "event %s must not include contact_urn", event)

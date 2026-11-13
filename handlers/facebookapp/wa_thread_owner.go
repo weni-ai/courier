@@ -3,6 +3,7 @@ package facebookapp
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gomodule/redigo/redis"
@@ -22,6 +23,10 @@ const (
 	wacThreadOwnerUpdated    = "updated"
 	wacThreadOwnerStale      = "stale"
 	wacThreadOwnerAbsent     = "absent"
+
+	wacTemplateCategoryMarketing      = "MARKETING"
+	wacTemplateCategoryUtility        = "UTILITY"
+	wacTemplateCategoryAuthentication = "AUTHENTICATION"
 )
 
 // Incoming ts <= stored is stale so Meta redelivery of the same webhook does not refresh TTL or flip state.
@@ -86,7 +91,19 @@ func getWACThreadOwner(rc redis.Conn, channelUUID courier.ChannelUUID, urn urns.
 	return state, err
 }
 
-func (h *handler) blockWACSendIfNotOwner(msg courier.Msg) (bool, courier.MsgStatus) {
+func wacAllowedTemplateCategory(templating *MsgTemplating) bool {
+	if templating == nil {
+		return false
+	}
+	switch strings.ToUpper(templating.Template.Category) {
+	case wacTemplateCategoryMarketing, wacTemplateCategoryUtility, wacTemplateCategoryAuthentication:
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *handler) blockWACSendIfNotOwner(msg courier.Msg, templating *MsgTemplating) (bool, courier.MsgStatus) {
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
 	rc := h.Backend().RedisPool().Get()
 	state, err := getWACThreadOwner(rc, msg.Channel().UUID(), msg.URN())
@@ -102,8 +119,12 @@ func (h *handler) blockWACSendIfNotOwner(msg courier.Msg) (bool, courier.MsgStat
 	if state != wacThreadOwnerStateNone {
 		return false, nil
 	}
+	if msg.DirectSend() || wacAllowedTemplateCategory(templating) {
+		return false, nil
+	}
 
 	status.SetStatus(courier.MsgFailed)
+	status.SetFailedReason(courier.FailedReasonOtherOwner)
 	logrus.WithFields(logrus.Fields{
 		"event":        "wac_send_blocked",
 		"channel_uuid": msg.Channel().UUID(),
@@ -111,4 +132,35 @@ func (h *handler) blockWACSendIfNotOwner(msg courier.Msg) (bool, courier.MsgStat
 		"reason":       "not_owner",
 	}).Info("wac send blocked")
 	return true, status
+}
+
+func (h *handler) failWACSendOnGraph131070(msg courier.Msg, status courier.MsgStatus, resp *wacMTResponse) bool {
+	if msg.Channel().ChannelType() != "WAC" || !h.Server().Config().EnableWACSendOwnershipBlock {
+		return false
+	}
+	if resp == nil || resp.Error == nil || resp.Error.Code != wacGraphErrorThreadNotOwned {
+		return false
+	}
+
+	rc := h.Backend().RedisPool().Get()
+	_, err := applyWACThreadOwner(rc, msg.Channel().UUID(), msg.URN(), time.Now().Unix(), wacThreadOwnerStateNone, wacThreadOwnerModeSet, "graph_131070")
+	rc.Close()
+	if err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"event":        "wac_thread_owner_update_failed",
+			"channel_uuid": msg.Channel().UUID(),
+			"msg_uuid":     msg.UUID().String(),
+			"source":       "graph_131070",
+		}).Error("wac thread owner update failed")
+	}
+
+	status.SetStatus(courier.MsgFailed)
+	status.SetFailedReason(courier.FailedReasonOtherOwner)
+	logrus.WithFields(logrus.Fields{
+		"event":        "wac_send_blocked",
+		"channel_uuid": msg.Channel().UUID(),
+		"msg_uuid":     msg.UUID().String(),
+		"reason":       "131070",
+	}).Info("wac send blocked")
+	return true
 }

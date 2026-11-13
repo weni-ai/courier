@@ -20,6 +20,9 @@ const (
 	MsgFailed    MsgStatusValue = "F"
 	MsgRead      MsgStatusValue = "V"
 	NilMsgStatus MsgStatusValue = ""
+
+	// FailedReasonOtherOwner is msgs_msg.failed_reason when another WhatsApp partner owns the thread.
+	FailedReasonOtherOwner = "H"
 )
 
 //-----------------------------------------------------------------------------
@@ -42,6 +45,9 @@ type MsgStatus interface {
 
 	Status() MsgStatusValue
 	SetStatus(MsgStatusValue)
+
+	FailedReason() string
+	SetFailedReason(string)
 
 	// Metadata returns the metadata of the underlying message row, when the
 	// backend populates it (e.g. via the RETURNING clause of the status update)

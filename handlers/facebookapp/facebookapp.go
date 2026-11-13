@@ -2635,6 +2635,8 @@ type wacMTPayload[P wacInteractiveActionParams] struct {
 	} `json:"direct_send_config,omitempty"`
 }
 
+const wacGraphErrorThreadNotOwned = 131070
+
 type wacMTResponse struct {
 	Messages []*struct {
 		ID string `json:"id"`
@@ -2644,6 +2646,9 @@ type wacMTResponse struct {
 		WaID   string `json:"wa_id,omitempty"`
 		UserID string `json:"user_id,omitempty"`
 	} `json:"contacts,omitempty"`
+	Error *struct {
+		Code int `json:"code"`
+	} `json:"error,omitempty"`
 }
 type wacMTProductItem struct {
 	ProductRetailerID string `json:"product_retailer_id" validate:"required"`
@@ -2920,8 +2925,14 @@ func (h *handler) fillWACPayloadByInteractionType(i int, msg courier.Msg, msgPar
 }
 
 func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
+	templating, err := h.getTemplate(msg)
+	if err != nil {
+		return nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())
+	}
+	isMarketingTemplate := templating != nil && strings.ToUpper(templating.Template.Category) == "MARKETING"
+
 	if msg.Channel().ChannelType() == "WAC" && h.Server().Config().EnableWACSendOwnershipBlock {
-		if blocked, status := h.blockWACSendIfNotOwner(msg); blocked {
+		if blocked, status := h.blockWACSendIfNotOwner(msg, templating); blocked {
 			return status, nil
 		}
 	}
@@ -2945,18 +2956,6 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 
 	if demoURL != "" {
 		graphURL = demoURL
-	}
-
-	// Check if the message is a marketing template by examining metadata
-	isMarketingTemplate := false
-	var err error
-	templating, err := h.getTemplate(msg)
-	if err == nil && templating != nil {
-		// Check if template category is "MARKETING" in the template category
-		// This is how Meta identifies marketing templates
-		isMarketingTemplate = strings.ToUpper(templating.Template.Category) == "MARKETING"
-	} else if err != nil {
-		return nil, errors.Wrapf(err, "unable to decode template: %s for channel: %s", string(msg.Metadata()), msg.Channel().UUID())
 	}
 
 	base, _ := url.Parse(graphURL)
@@ -3294,8 +3293,11 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 									payloadAudio.Context = &wacMTContext{MessageID: quotedID}
 								}
 							}
-							status, _, err := requestWAC(payloadAudio, token, msg, status, wacPhoneURL, zeroIndex, isMarketingTemplate)
+							status, respPayload, err := requestWAC(payloadAudio, token, msg, status, wacPhoneURL, zeroIndex, isMarketingTemplate)
 							if err != nil {
+								return status, nil
+							}
+							if h.failWACSendOnGraph131070(msg, status, respPayload) {
 								return status, nil
 							}
 						default:
@@ -3418,6 +3420,9 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 		if err != nil {
 			return status, err
 		}
+		if h.failWACSendOnGraph131070(msg, status, respPayload) {
+			return status, nil
+		}
 
 		if !hasNewURN && len(respPayload.Contacts) > 0 {
 			contactInfo := respPayload.Contacts[0]
@@ -3519,9 +3524,12 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 				Name: "catalog_message",
 			}
 			payload.Interactive = &interactive
-			status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true, isMarketingTemplate)
+			status, respPayload, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true, isMarketingTemplate)
 			if err != nil {
 				return status, err
+			}
+			if h.failWACSendOnGraph131070(msg, status, respPayload) {
+				return status, nil
 			}
 		} else if len(products) > 0 {
 			if !isUnitaryProduct {
@@ -3612,9 +3620,12 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					}
 
 					payload.Interactive = &interactive
-					status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true, isMarketingTemplate)
+					status, respPayload, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true, isMarketingTemplate)
 					if err != nil {
 						return status, err
+					}
+					if h.failWACSendOnGraph131070(msg, status, respPayload) {
+						return status, nil
 					}
 				}
 
@@ -3634,9 +3645,12 @@ func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) 
 					ProductRetailerID: unitaryProduct,
 				}
 				payload.Interactive = &interactive
-				status, _, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true, isMarketingTemplate)
+				status, respPayload, err := requestWAC(payload, accessToken, msg, status, wacPhoneURL, true, isMarketingTemplate)
 				if err != nil {
 					return status, err
+				}
+				if h.failWACSendOnGraph131070(msg, status, respPayload) {
+					return status, nil
 				}
 			}
 		}
@@ -3828,14 +3842,23 @@ func requestWAC[P wacInteractiveActionParams](payload wacMTPayload[P], accessTok
 	log := courier.NewChannelLogFromRR(logTitle, msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
 	status.AddLog(log)
 
-	if err != nil {
-		return status, &wacMTResponse{}, nil
+	respPayload := &wacMTResponse{}
+	if rr != nil && len(rr.Body) > 0 {
+		parsed, parseErr := processResponse(rr.Body)
+		if parseErr != nil {
+			log.WithError("Message Send Error", errors.Errorf("unable to unmarshal response body"))
+			return status, parsed, nil
+		}
+		respPayload = parsed
+	} else if err != nil {
+		return status, respPayload, nil
 	}
 
-	// Process the response
-	respPayload, err := processResponse(rr.Body)
+	if respPayload.Error != nil && respPayload.Error.Code != 0 {
+		return status, respPayload, nil
+	}
+
 	if err != nil {
-		log.WithError("Message Send Error", errors.Errorf("unable to unmarshal response body"))
 		return status, respPayload, nil
 	}
 

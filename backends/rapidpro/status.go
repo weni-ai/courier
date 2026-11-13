@@ -131,6 +131,7 @@ UPDATE msgs_msg SET
 		ELSE
 			metadata
 		END,
+	failed_reason = COALESCE(NULLIF(CAST(:failed_reason AS varchar), ''), failed_reason),
 	modified_on = :modified_on
 WHERE 
 	msgs_msg.id = :msg_id AND
@@ -180,6 +181,7 @@ UPDATE msgs_msg SET
 		ELSE 
 			NULL 
 		END,
+	failed_reason = COALESCE(NULLIF(CAST(:failed_reason AS varchar), ''), failed_reason),
 	modified_on = :modified_on
 WHERE 
 	msgs_msg.id = (SELECT msgs_msg.id FROM msgs_msg WHERE msgs_msg.external_id = :external_id AND msgs_msg.channel_id = :channel_id AND msgs_msg.direction = 'O' LIMIT 1)
@@ -307,11 +309,12 @@ UPDATE msgs_msg SET
 		ELSE
 			msgs_msg.metadata
 		END,
+	failed_reason = COALESCE(NULLIF(s.failed_reason, ''), msgs_msg.failed_reason),
 	modified_on = NOW()
 FROM
-	(VALUES(:msg_id, :channel_id, :status, :external_id, :metadata)) 
+	(VALUES(:msg_id, :channel_id, :status, :external_id, :metadata, :failed_reason)) 
 AS 
-	s(msg_id, channel_id, status, external_id, metadata) 
+	s(msg_id, channel_id, status, external_id, metadata, failed_reason) 
 WHERE 
 	msgs_msg.id = s.msg_id::bigint AND
 	msgs_msg.channel_id = s.channel_id::int AND 
@@ -326,15 +329,16 @@ RETURNING
 
 // DBMsgStatus represents a status update on a message
 type DBMsgStatus struct {
-	ChannelUUID_ courier.ChannelUUID    `json:"channel_uuid"             db:"channel_uuid"`
-	ChannelID_   courier.ChannelID      `json:"channel_id"               db:"channel_id"`
-	ID_          courier.MsgID          `json:"msg_id,omitempty"         db:"msg_id"`
-	OldURN_      urns.URN               `json:"old_urn"                  db:"old_urn"`
-	NewURN_      urns.URN               `json:"new_urn"                  db:"new_urn"`
-	ExternalID_  string                 `json:"external_id,omitempty"    db:"external_id"`
-	Status_      courier.MsgStatusValue `json:"status"                   db:"status"`
-	ModifiedOn_  time.Time              `json:"modified_on"              db:"modified_on"`
-	Metadata_    json.RawMessage        `json:"-"                         db:"metadata"`
+	ChannelUUID_  courier.ChannelUUID    `json:"channel_uuid"             db:"channel_uuid"`
+	ChannelID_    courier.ChannelID      `json:"channel_id"               db:"channel_id"`
+	ID_           courier.MsgID          `json:"msg_id,omitempty"         db:"msg_id"`
+	OldURN_       urns.URN               `json:"old_urn"                  db:"old_urn"`
+	NewURN_       urns.URN               `json:"new_urn"                  db:"new_urn"`
+	ExternalID_   string                 `json:"external_id,omitempty"    db:"external_id"`
+	Status_       courier.MsgStatusValue `json:"status"                   db:"status"`
+	FailedReason_ string                 `json:"failed_reason,omitempty"  db:"failed_reason"`
+	ModifiedOn_   time.Time              `json:"modified_on"              db:"modified_on"`
+	Metadata_     json.RawMessage        `json:"-"                         db:"metadata"`
 
 	logs []*courier.ChannelLog
 }
@@ -388,6 +392,9 @@ func (s *DBMsgStatus) AddLog(log *courier.ChannelLog) { s.logs = append(s.logs, 
 
 func (s *DBMsgStatus) Status() courier.MsgStatusValue          { return s.Status_ }
 func (s *DBMsgStatus) SetStatus(status courier.MsgStatusValue) { s.Status_ = status }
+
+func (s *DBMsgStatus) FailedReason() string          { return s.FailedReason_ }
+func (s *DBMsgStatus) SetFailedReason(reason string) { s.FailedReason_ = reason }
 
 func (s *DBMsgStatus) Metadata() json.RawMessage { return s.Metadata_ }
 func (s *DBMsgStatus) SetMetadata(m json.RawMessage) {

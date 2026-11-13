@@ -667,6 +667,304 @@ func TestReceiveWACThreadOwnerMessages(t *testing.T) {
 	})
 }
 
+func TestReceiveWACStandbyTranscript(t *testing.T) {
+	channel := testChannelsWAC[0]
+	occurredOn := time.Unix(1454119029, 0).UTC()
+	const flowLine = "[outro atendimento] Book Appointment — Schedule your visit with us. — Tap below to continue — Book Now"
+	const templateLine = "[outro atendimento] <image>\nHi Maria, enjoy 25% off!\nLimited time\nShop Now: https://example.com/summer2026"
+	const bareLine = "[outro atendimento] template:summer_sale_2026 <image> | Maria | 25% | summer2026"
+
+	t.Run("shopper text", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, true)
+		body := string(courier.ReadFile("./testdata/wac/standbyShopperTextWAC.json"))
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, nil, addValidSignatureWAC)
+		events := mb.WAHandoverEvents()
+		require.Len(t, events, 1)
+		assert.Equal(t, courier.WAHandoverContextHistory, events[0].ContextType)
+		assert.Equal(t, "[shopper] Test standby message", events[0].ContextText)
+		assert.Equal(t, "whatsapp:5678", events[0].ContactURN.String())
+		assert.True(t, events[0].OccurredOn.Equal(occurredOn))
+		assert.Nil(t, events[0].ContextPayload)
+		assertStandbyDidNotQueue(t, mb)
+		assert.Contains(t, mb.BackendCalls(), "wa_handover")
+		assertStandbyBodyOmitted(t, mb, "Test standby message", "5678")
+	})
+
+	t.Run("echo text", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, true)
+		body := string(courier.ReadFile("./testdata/wac/standbyEchoTextWAC.json"))
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, nil, addValidSignatureWAC)
+		events := mb.WAHandoverEvents()
+		require.Len(t, events, 1)
+		assert.Equal(t, "[outro atendimento] Hello! Your order #12345 has shipped.", events[0].ContextText)
+		assertStandbyDidNotQueue(t, mb)
+	})
+
+	t.Run("flow echo", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, true)
+		body := string(courier.ReadFile("./testdata/wac/standbyEchoFlowWAC.json"))
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, nil, addValidSignatureWAC)
+		events := mb.WAHandoverEvents()
+		require.Len(t, events, 1)
+		assert.Equal(t, flowLine, events[0].ContextText)
+		assertStandbyDidNotQueue(t, mb)
+	})
+
+	t.Run("template with structure", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, true)
+		body := string(courier.ReadFile("./testdata/wac/standbyEchoTemplateWAC.json"))
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, nil, addValidSignatureWAC)
+		events := mb.WAHandoverEvents()
+		require.Len(t, events, 1)
+		assert.Equal(t, templateLine, events[0].ContextText)
+		assertStandbyDidNotQueue(t, mb)
+	})
+
+	t.Run("template without structure", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, true)
+		body := string(courier.ReadFile("./testdata/wac/standbyEchoTemplateNoStructureWAC.json"))
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, nil, addValidSignatureWAC)
+		events := mb.WAHandoverEvents()
+		require.Len(t, events, 1)
+		assert.Equal(t, bareLine, events[0].ContextText)
+		assertStandbyDidNotQueue(t, mb)
+	})
+
+	t.Run("image and audio markers", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, true)
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, string(courier.ReadFile("./testdata/wac/standbyShopperImageWAC.json")), nil, 200, nil, addValidSignatureWAC)
+		events := mb.WAHandoverEvents()
+		require.Len(t, events, 1)
+		assert.Equal(t, "[shopper] <image>", events[0].ContextText)
+
+		mb, s = newWACStandbyHarness(t, true)
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, string(courier.ReadFile("./testdata/wac/standbyShopperAudioWAC.json")), nil, 200, nil, addValidSignatureWAC)
+		events = mb.WAHandoverEvents()
+		require.Len(t, events, 1)
+		assert.Equal(t, "[shopper] <audio>", events[0].ContextText)
+		assert.Equal(t, 0, mb.LenQueuedMsgs())
+	})
+
+	t.Run("flag off ignores shopper text", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, false)
+		body := string(courier.ReadFile("./testdata/wac/standbyShopperTextWAC.json"))
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, Sp("ignoring standby webhook"), addValidSignatureWAC)
+		assert.Empty(t, mb.WAHandoverEvents())
+		assert.Equal(t, 0, mb.LenQueuedMsgs())
+		assertStandbyBodyOmitted(t, mb, "Test standby message", "5678")
+	})
+
+	t.Run("messages field still logs the body", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, false)
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, string(courier.ReadFile("./testdata/wac/helloWAC.json")), nil, 200, Sp("Handled"), addValidSignatureWAC)
+		log, err := mb.GetLastChannelLog()
+		require.NoError(t, err)
+		assert.Contains(t, log.Request, "Hello World")
+	})
+
+	t.Run("WCD does not append transcript lines", func(t *testing.T) {
+		mb := courier.NewMockBackend()
+		s := handlers.NewTestServer(mb)
+		s.Config().EnableWACStandbyContext = true
+		wcd := courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c56ab", "WCD", "12345", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
+		mb.AddChannel(wcd)
+		handler := newWACDemoHandler("WCD", "WhatsApp Cloud Demo")
+		handler.Initialize(s)
+
+		body := string(courier.ReadFile("./testdata/wac/standbyShopperTextWAC.json"))
+		handlers.TestHandlerRequest(t, s, "/c/wcd/8eb23e93-5ecb-45ba-b726-3b064e0c56ab/receive", nil, body, nil, 200, nil, nil)
+		assert.Empty(t, mb.WAHandoverEvents())
+		assert.Equal(t, 0, mb.LenQueuedMsgs())
+	})
+
+	t.Run("older timestamp does not replace owner", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, true)
+		seedThreadOwner(t, mb, channel, "whatsapp:5678", wacThreadOwnerStateOwner, "200")
+		body := strings.Replace(string(courier.ReadFile("./testdata/wac/standbyShopperTextWAC.json")), `"timestamp": "1454119029"`, `"timestamp": "100"`, 1)
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, nil, addValidSignatureWAC)
+		got := threadOwnerHash(t, mb, channel, "whatsapp:5678")
+		assert.Equal(t, wacThreadOwnerStateOwner, got["state"])
+		assert.Equal(t, "200", got["ts"])
+		require.Len(t, mb.WAHandoverEvents(), 1)
+	})
+
+	t.Run("missing key becomes not_owner", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, true)
+		body := strings.Replace(string(courier.ReadFile("./testdata/wac/standbyShopperTextWAC.json")), `"timestamp": "1454119029"`, `"timestamp": "150"`, 1)
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, nil, addValidSignatureWAC)
+		got := threadOwnerHash(t, mb, channel, "whatsapp:5678")
+		assert.Equal(t, wacThreadOwnerStateNone, got["state"])
+		assert.Equal(t, "150", got["ts"])
+	})
+
+	t.Run("newer timestamp sets not_owner", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, true)
+		seedThreadOwner(t, mb, channel, "whatsapp:5678", wacThreadOwnerStateOwner, "100")
+		body := strings.Replace(string(courier.ReadFile("./testdata/wac/standbyShopperTextWAC.json")), `"timestamp": "1454119029"`, `"timestamp": "150"`, 1)
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, nil, addValidSignatureWAC)
+		got := threadOwnerHash(t, mb, channel, "whatsapp:5678")
+		assert.Equal(t, wacThreadOwnerStateNone, got["state"])
+		assert.Equal(t, "150", got["ts"])
+	})
+
+	t.Run("equal timestamp keeps state and appends the second id", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, true)
+		seedThreadOwner(t, mb, channel, "whatsapp:5678", wacThreadOwnerStateOwner, "100")
+		body := strings.Replace(string(courier.ReadFile("./testdata/wac/standbyShopperTextWAC.json")), `"timestamp": "1454119029"`, `"timestamp": "150"`, 1)
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, nil, addValidSignatureWAC)
+		second := strings.Replace(body, "wamid.SHOPPER", "wamid.SHOPPER2", 1)
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, second, nil, 200, nil, addValidSignatureWAC)
+		got := threadOwnerHash(t, mb, channel, "whatsapp:5678")
+		assert.Equal(t, wacThreadOwnerStateNone, got["state"])
+		assert.Equal(t, "150", got["ts"])
+		require.Len(t, mb.WAHandoverEvents(), 2)
+	})
+
+	t.Run("duplicate id does not append", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, true)
+		body := string(courier.ReadFile("./testdata/wac/standbyShopperTextWAC.json"))
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, nil, addValidSignatureWAC)
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, nil, addValidSignatureWAC)
+		require.Len(t, mb.WAHandoverEvents(), 1)
+		ttl := redisDoInt(t, mb, "TTL", fmt.Sprintf("%s:%s:%s", wacStandbySeenKeyPrefix, channel.UUID(), "wamid.SHOPPER"))
+		assert.Greater(t, ttl, 0)
+		assert.LessOrEqual(t, ttl, 86400)
+	})
+
+	t.Run("dedup key is per channel", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, true)
+		other := courier.NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c5699", "WAC", "99999", "", map[string]interface{}{courier.ConfigAuthToken: "a123"})
+		mb.AddChannel(other)
+		body := strings.Replace(string(courier.ReadFile("./testdata/wac/standbyShopperTextWAC.json")), `"phone_number_id": "12345"`, `"phone_number_id": "99999"`, 1)
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, nil, addValidSignatureWAC)
+		events := mb.WAHandoverEvents()
+		require.Len(t, events, 1)
+		assert.Equal(t, other.UUID(), events[0].ChannelUUID)
+		assert.Equal(t, 1, redisDoInt(t, mb, "EXISTS", fmt.Sprintf("%s:%s:%s", wacStandbySeenKeyPrefix, other.UUID(), "wamid.SHOPPER")))
+		assert.Equal(t, 0, redisDoInt(t, mb, "EXISTS", fmt.Sprintf("%s:%s:%s", wacStandbySeenKeyPrefix, channel.UUID(), "wamid.SHOPPER")))
+	})
+
+	t.Run("status records not_owner without a line", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, true)
+		body := string(courier.ReadFile("./testdata/wac/standbyStatusWAC.json"))
+		response := handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, Sp("standby status recorded"), addValidSignatureWAC)
+		assert.NotContains(t, response, "standby without conversation context")
+		assert.Empty(t, mb.WAHandoverEvents())
+		got := threadOwnerHash(t, mb, channel, "whatsapp:5678")
+		assert.Equal(t, wacThreadOwnerStateNone, got["state"])
+		_, err := mb.GetLastMsgStatus()
+		assert.Error(t, err)
+		assert.Equal(t, 0, mb.LenQueuedMsgs())
+		assert.Equal(t, 0, redisDoInt(t, mb, "EXISTS", fmt.Sprintf("%s:%s:%s", wacStandbySeenKeyPrefix, channel.UUID(), "wamid.STATUS")))
+	})
+
+	t.Run("writer error releases the seen key", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, true)
+		mb.SetErrorOnWAHandover(true)
+		body := string(courier.ReadFile("./testdata/wac/standbyShopperTextWAC.json"))
+		hook := handlers.CaptureLogs(t)
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 400, nil, addValidSignatureWAC)
+		assert.Empty(t, mb.WAHandoverEvents())
+		seenKey := fmt.Sprintf("%s:%s:%s", wacStandbySeenKeyPrefix, channel.UUID(), "wamid.SHOPPER")
+		assert.Equal(t, 0, redisDoInt(t, mb, "EXISTS", seenKey))
+
+		var failed *logrus.Entry
+		var requestLogged bool
+		for _, entry := range hook.Entries() {
+			if entry.Data["event"] == "wac_standby_context_write_failed" {
+				failed = entry
+			}
+			request, _ := entry.Data["request"].(string)
+			if strings.Contains(request, "[standby body omitted]") {
+				requestLogged = true
+				assert.NotContains(t, request, "Test standby message")
+			}
+		}
+		require.NotNil(t, failed)
+		assert.Equal(t, channel.UUID(), failed.Data["channel_uuid"])
+		assert.Equal(t, "wamid.SHOPPER", failed.Data["external_id"])
+		_, hasText := failed.Data["context_text"]
+		assert.False(t, hasText)
+		assertNoWACOwnershipPII(t, hook.Entries())
+		assert.True(t, requestLogged)
+
+		mb.SetErrorOnWAHandover(false)
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, nil, addValidSignatureWAC)
+		require.Len(t, mb.WAHandoverEvents(), 1)
+	})
+
+	t.Run("closed redis pool fails the webhook", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, true)
+		mb.RedisPool().Close()
+		body := string(courier.ReadFile("./testdata/wac/standbyShopperTextWAC.json"))
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 400, nil, addValidSignatureWAC)
+		assert.Empty(t, mb.WAHandoverEvents())
+	})
+
+	t.Run("unparseable timestamp still appends", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, true)
+		seedThreadOwner(t, mb, channel, "whatsapp:5678", wacThreadOwnerStateOwner, "200")
+		body := strings.Replace(string(courier.ReadFile("./testdata/wac/standbyShopperTextWAC.json")), `"timestamp": "1454119029"`, `"timestamp": "not-a-number"`, 1)
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, nil, addValidSignatureWAC)
+		got := threadOwnerHash(t, mb, channel, "whatsapp:5678")
+		assert.Equal(t, wacThreadOwnerStateOwner, got["state"])
+		assert.Equal(t, "200", got["ts"])
+		events := mb.WAHandoverEvents()
+		require.Len(t, events, 1)
+		assert.True(t, events[0].OccurredOn.Equal(occurredOn))
+	})
+
+	t.Run("blank text does not append", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, true)
+		body := strings.Replace(string(courier.ReadFile("./testdata/wac/standbyShopperTextWAC.json")), "Test standby message", "   ", 1)
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, nil, addValidSignatureWAC)
+		assert.Empty(t, mb.WAHandoverEvents())
+	})
+
+	t.Run("flag off does not change a seeded owner", func(t *testing.T) {
+		mb, s := newWACStandbyHarness(t, false)
+		seedThreadOwner(t, mb, channel, "whatsapp:5678", wacThreadOwnerStateOwner, "200")
+		body := string(courier.ReadFile("./testdata/wac/handoverStandbyContextWAC.json"))
+		handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, body, nil, 200, Sp("ignoring standby webhook"), addValidSignatureWAC)
+		got := threadOwnerHash(t, mb, channel, "whatsapp:5678")
+		assert.Equal(t, wacThreadOwnerStateOwner, got["state"])
+		assert.Equal(t, "200", got["ts"])
+	})
+}
+
+func newWACStandbyHarness(t *testing.T, flag bool) (*courier.MockBackend, courier.Server) {
+	t.Helper()
+	mb := courier.NewMockBackend()
+	s := handlers.NewTestServer(mb)
+	if flag {
+		s.Config().EnableWACStandbyContext = true
+	}
+	mb.AddChannel(testChannelsWAC[0])
+	handler := newHandler("WAC", "Cloud API WhatsApp", false)
+	handler.Initialize(s)
+	return mb, s
+}
+
+func assertStandbyDidNotQueue(t *testing.T, mb *courier.MockBackend) {
+	t.Helper()
+	assert.Equal(t, 0, mb.LenQueuedMsgs())
+	assert.NotContains(t, mb.BackendCalls(), "msg")
+	_, err := mb.GetLastMsgStatus()
+	assert.Error(t, err)
+	_, err = mb.GetLastChannelEvent()
+	assert.Error(t, err)
+}
+
+func assertStandbyBodyOmitted(t *testing.T, mb *courier.MockBackend, absent ...string) {
+	t.Helper()
+	log, err := mb.GetLastChannelLog()
+	require.NoError(t, err)
+	assert.Contains(t, log.Request, "[standby body omitted]")
+	for _, part := range absent {
+		assert.NotContains(t, log.Request, part)
+	}
+}
+
 func TestReceiveWACStandbyContext(t *testing.T) {
 	channel := testChannelsWAC[0]
 	urn := "whatsapp:5678"
@@ -683,6 +981,7 @@ func TestReceiveWACStandbyContext(t *testing.T) {
 		assert.Equal(t, 0, mb.LenQueuedMsgs())
 		assert.Empty(t, mb.WAHandoverEvents())
 		assert.Empty(t, threadOwnerHash(t, mb, channel, urn))
+		assertStandbyBodyOmitted(t, mb, "Standby summary of the conversation.")
 	})
 
 	t.Run("flag on persists context without redis or inbound msg", func(t *testing.T) {
@@ -699,7 +998,10 @@ func TestReceiveWACStandbyContext(t *testing.T) {
 		require.Len(t, events, 1)
 		assert.Equal(t, courier.WAHandoverContextSummary, events[0].ContextType)
 		assert.Equal(t, "Standby summary of the conversation.", events[0].ContextText)
-		assert.Empty(t, threadOwnerHash(t, mb, channel, urn))
+		assert.Equal(t, 0, mb.LenQueuedMsgs())
+		got := threadOwnerHash(t, mb, channel, urn)
+		assert.Equal(t, wacThreadOwnerStateNone, got["state"])
+		assert.Equal(t, "1454119029", got["ts"])
 	})
 
 	t.Run("flag on writer error fails the webhook", func(t *testing.T) {

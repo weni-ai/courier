@@ -1,0 +1,34 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "8856996819413533",
+      "time": 1454119029,
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "+250 788 123 200",
+              "phone_number_id": "12345"
+            },
+            "standby": {
+              "message_echoes": [
+                {
+                  "id": "wamid.ECHO",
+                  "timestamp": "1454119029",
+                  "message": {
+                    "to": "5678",
+                    "type": "text",
+                    "text": { "body": "Hello! Your order #12345 has shipped." }
+                  }
+                }
+              ]
+            }
+          },
+          "field": "standby"
+        }
+      ]
+    }
+  ]
+}

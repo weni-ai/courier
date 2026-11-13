@@ -307,6 +307,8 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 		// add a 30 second timeout
 		ctx, cancel := context.WithTimeout(baseCtx, time.Second*30)
 		defer cancel()
+		logBody := &channelLogBodyControl{}
+		ctx = context.WithValue(ctx, channelLogBodyContextKey{}, logBody)
 
 		channel, err := handler.GetChannel(ctx, r)
 		if err != nil {
@@ -342,12 +344,18 @@ func (s *server) channelHandleWrapper(handler ChannelHandler, handlerFunc Channe
 			panicLog := recover()
 			if panicLog != nil {
 				debug.PrintStack()
+				if logBody.omit {
+					request = omitChannelLogBody(request)
+				}
 				logrus.WithError(err).WithField("channel_uuid", channel.UUID()).WithField("url", url).WithField("request", string(request)).WithField("trace", panicLog).Error("panic handling request")
 				writeAndLogRequestError(ctx, ww, r, channel, errors.New("panic handling msg"))
 			}
 		}()
 
 		events, err := handlerFunc(ctx, channel, ww, r)
+		if logBody.omit {
+			request = omitChannelLogBody(request)
+		}
 		duration := time.Now().Sub(start)
 		secondDuration := float64(duration) / float64(time.Second)
 		millisecondDuration := float64(duration) / float64(time.Millisecond)
@@ -512,6 +520,35 @@ func (s *server) handleCHealth(w http.ResponseWriter, r *http.Request) {
 		WriteDataResponse(context.Background(), w, http.StatusInternalServerError, "failed to marshal health status", []interface{}{err})
 	}
 	w.Write(hsJSON)
+}
+
+type channelLogBodyControl struct {
+	omit bool
+}
+
+type channelLogBodyContextKey struct{}
+
+const channelLogStandbyBodyOmitted = "[standby body omitted]"
+
+// MarkChannelLogBodyOmitted tells channelHandleWrapper to store a placeholder
+// instead of the HTTP body. It does nothing when the pointer is absent.
+func MarkChannelLogBodyOmitted(ctx context.Context) {
+	ctrl, _ := ctx.Value(channelLogBodyContextKey{}).(*channelLogBodyControl)
+	if ctrl != nil {
+		ctrl.omit = true
+	}
+}
+
+func omitChannelLogBody(dump []byte) []byte {
+	sep := []byte("\r\n\r\n")
+	idx := bytes.Index(dump, sep)
+	if idx < 0 {
+		return []byte(channelLogStandbyBodyOmitted)
+	}
+	out := make([]byte, 0, idx+len(sep)+len(channelLogStandbyBodyOmitted))
+	out = append(out, dump[:idx+len(sep)]...)
+	out = append(out, channelLogStandbyBodyOmitted...)
+	return out
 }
 
 // for use in request.Context

@@ -25,6 +25,15 @@ func threadOwnerHash(t *testing.T, mb *courier.MockBackend, ch courier.Channel, 
 	return got
 }
 
+func redisDoInt(t *testing.T, mb *courier.MockBackend, command string, args ...interface{}) int {
+	t.Helper()
+	rc := mb.RedisPool().Get()
+	defer rc.Close()
+	n, err := redis.Int(rc.Do(command, args...))
+	require.NoError(t, err)
+	return n
+}
+
 func seedThreadOwner(t *testing.T, mb *courier.MockBackend, ch courier.Channel, urnStr, state, ts string) {
 	t.Helper()
 	rc := mb.RedisPool().Get()
@@ -43,7 +52,7 @@ func assertNoWACOwnershipPII(t *testing.T, entries []*logrus.Entry) {
 	for _, entry := range entries {
 		event, _ := entry.Data["event"].(string)
 		switch event {
-		case "wac_thread_owner_applied", "wac_thread_owner_update_failed", "wac_send_blocked", "wac_send_ownership_read_failed", "wac_pending_context_write_failed":
+		case "wac_thread_owner_applied", "wac_thread_owner_update_failed", "wac_send_blocked", "wac_send_ownership_read_failed", "wac_pending_context_write_failed", "wac_standby_context_write_failed", "wac_standby_skipped":
 			_, hasURN := entry.Data["contact_urn"]
 			_, hasPhone := entry.Data["sender_phone_number"]
 			assert.False(t, hasURN, "event %s must not include contact_urn", event)

@@ -315,8 +315,9 @@ type moPayload struct {
 				ControlPassed       *wacHandoverControlPassed `json:"control_passed"`
 				ControlTaken        *wacHandoverControlTaken  `json:"control_taken"`
 				ConversationContext *wacConversationContext   `json:"conversation_context"`
-				Contacts            []moWACValueContact `json:"contacts"`
-				Messages []struct {
+				Standby             json.RawMessage           `json:"standby,omitempty"`
+				Contacts            []moWACValueContact       `json:"contacts"`
+				Messages            []struct {
 					ID               string `json:"id"`
 					From             string `json:"from"`
 					FromUserID       string `json:"from_user_id,omitempty"`
@@ -1145,6 +1146,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 			}
 
 			if change.Field == wacStandbyField {
+				courier.MarkChannelLogBodyOmitted(ctx)
 				if !h.Server().Config().EnableWACStandbyContext {
 					logrus.WithField("channel_uuid", channel.UUID()).Info("ignoring standby webhook")
 					data = append(data, courier.NewInfoData("ignoring standby webhook"))
@@ -1152,18 +1154,28 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				}
 
 				standbyContacts := wacHandoverContactsFromValueContacts(change.Value.Contacts)
-
 				standbyValue := wacHandoverValue{
 					Timestamp:           change.Value.Timestamp,
 					Sender:              change.Value.Sender,
 					ConversationContext: change.Value.ConversationContext,
 					Contacts:            standbyContacts,
 				}
-				info, err := h.persistWAHandoverContext(ctx, channel, standbyValue, entry.Time, w, r)
+				if channel.ChannelType() != "WAC" {
+					info, err := h.persistWAHandoverContext(ctx, channel, standbyValue, entry.Time, w, r)
+					if err != nil {
+						return nil, nil, err
+					}
+					data = append(data, courier.NewInfoData(info))
+					continue
+				}
+
+				infos, err := h.processWACStandby(ctx, channel, change.Value.Standby, standbyValue, entry.Time, w, r)
 				if err != nil {
 					return nil, nil, err
 				}
-				data = append(data, courier.NewInfoData(info))
+				for _, info := range infos {
+					data = append(data, courier.NewInfoData(info))
+				}
 				continue
 			}
 

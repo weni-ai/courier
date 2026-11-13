@@ -73,6 +73,7 @@ CREATE TABLE msgs_msg (
     msg_type character varying(1),
     msg_count integer NOT NULL,
     error_count integer NOT NULL,
+    failed_reason character varying(1),
     next_attempt timestamp with time zone NOT NULL,
     external_id character varying(255),
     attachments character varying(255)[],

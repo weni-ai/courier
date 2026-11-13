@@ -1454,14 +1454,15 @@ func (m *mockMsg) BroadcastID() int64 { return m.broadcastID }
 //-----------------------------------------------------------------------------
 
 type mockMsgStatus struct {
-	channel    Channel
-	id         MsgID
-	oldURN     urns.URN
-	newURN     urns.URN
-	externalID string
-	status     MsgStatusValue
-	createdOn  time.Time
-	metadata   json.RawMessage
+	channel      Channel
+	id           MsgID
+	oldURN       urns.URN
+	newURN       urns.URN
+	externalID   string
+	status       MsgStatusValue
+	failedReason string
+	createdOn    time.Time
+	metadata     json.RawMessage
 
 	logs []*ChannelLog
 }
@@ -1490,6 +1491,9 @@ func (m *mockMsgStatus) SetExternalID(id string) { m.externalID = id }
 
 func (m *mockMsgStatus) Status() MsgStatusValue          { return m.status }
 func (m *mockMsgStatus) SetStatus(status MsgStatusValue) { m.status = status }
+
+func (m *mockMsgStatus) FailedReason() string          { return m.failedReason }
+func (m *mockMsgStatus) SetFailedReason(reason string) { m.failedReason = reason }
 
 func (m *mockMsgStatus) Metadata() json.RawMessage            { return m.metadata }
 func (m *mockMsgStatus) SetMetadata(metadata json.RawMessage) { m.metadata = metadata }

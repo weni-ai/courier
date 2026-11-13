@@ -39,6 +39,8 @@ type MockBackend struct {
 	contacts          map[urns.URN]Contact
 	queueMsgs         []Msg
 	errorOnQueue      bool
+	errorOnWAHandover bool
+	backendCalls      []string
 
 	mutex            sync.RWMutex
 	outgoingMsgs     []Msg
@@ -281,6 +283,23 @@ func (mb *MockBackend) SetErrorOnQueue(shouldError bool) {
 	mb.errorOnQueue = shouldError
 }
 
+// SetErrorOnWAHandover makes WriteWAConversationHandover return an error.
+func (mb *MockBackend) SetErrorOnWAHandover(shouldError bool) {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+	mb.errorOnWAHandover = shouldError
+}
+
+// BackendCalls returns the ordered write calls recorded by the mock.
+func (mb *MockBackend) BackendCalls() []string {
+	mb.mutex.RLock()
+	defer mb.mutex.RUnlock()
+
+	calls := make([]string, len(mb.backendCalls))
+	copy(calls, mb.backendCalls)
+	return calls
+}
+
 // WriteMsg queues the passed in message internally
 func (mb *MockBackend) WriteMsg(ctx context.Context, m Msg) error {
 	mock := m.(*mockMsg)
@@ -302,6 +321,10 @@ func (mb *MockBackend) WriteMsg(ctx context.Context, m Msg) error {
 		uuid, _ := NewContactUUID(string(uuids.New()))
 		mb.contacts[m.URN()] = &mockContact{m.Channel(), m.URN(), m.URNAuth(), uuid}
 	}
+
+	mb.mutex.Lock()
+	mb.backendCalls = append(mb.backendCalls, "msg")
+	mb.mutex.Unlock()
 
 	if fields := m.NewContactFields(); len(fields) > 0 {
 		if mb.contactFieldValues == nil {
@@ -372,6 +395,11 @@ func (mb *MockBackend) WriteCtwaToDB(ctx context.Context, event CtwaEvent) error
 func (mb *MockBackend) WriteWAConversationHandover(ctx context.Context, event WAConversationHandoverEvent) error {
 	mb.mutex.Lock()
 	defer mb.mutex.Unlock()
+
+	mb.backendCalls = append(mb.backendCalls, "wa_handover")
+	if mb.errorOnWAHandover {
+		return errors.New("unable to write wa conversation handover")
+	}
 
 	mb.waHandoverEvents = append(mb.waHandoverEvents, event)
 	return nil

@@ -95,6 +95,7 @@ type Config struct {
 
 	EnableWACStandbyContext     bool `help:"persist renderable conversation context from WAC field=standby into wa_conversation_handover"`
 	EnableWACSendOwnershipBlock bool `help:"skip WAC Graph send when Redis thread ownership is not_owner"`
+	EnableWACThreadOwnerDebug   bool `help:"temporary: log the Redis thread-owner key and URN on WAC send"`
 }
 
 // NewConfig returns a new default configuration object

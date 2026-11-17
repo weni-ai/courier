@@ -103,6 +103,24 @@ func wacAllowedTemplateCategory(templating *MsgTemplating) bool {
 	}
 }
 
+func (h *handler) logWACThreadOwnerDebug(msg courier.Msg, state, decision string) {
+	if !h.Server().Config().EnableWACThreadOwnerDebug {
+		return
+	}
+	urn := msg.URN()
+	logrus.WithFields(logrus.Fields{
+		"event":        "wac_thread_owner_debug",
+		"channel_uuid": msg.Channel().UUID(),
+		"msg_uuid":     msg.UUID().String(),
+		"redis_key":    wacThreadOwnerKey(msg.Channel().UUID(), urn),
+		"urn":          urn.String(),
+		"urn_identity": urn.Identity(),
+		"state":        state,
+		"decision":     decision,
+		"direct_send":  msg.DirectSend(),
+	}).Info("wac thread owner debug")
+}
+
 func (h *handler) blockWACSendIfNotOwner(msg courier.Msg, templating *MsgTemplating) (bool, courier.MsgStatus) {
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
 	rc := h.Backend().RedisPool().Get()
@@ -114,12 +132,18 @@ func (h *handler) blockWACSendIfNotOwner(msg courier.Msg, templating *MsgTemplat
 			"channel_uuid": msg.Channel().UUID(),
 			"msg_uuid":     msg.UUID().String(),
 		}).Error("wac send ownership read failed")
+		h.logWACThreadOwnerDebug(msg, "", "read_failed")
 		return false, nil
 	}
 	if state != wacThreadOwnerStateNone {
+		if state == "" {
+			state = "missing"
+		}
+		h.logWACThreadOwnerDebug(msg, state, "sent")
 		return false, nil
 	}
 	if msg.DirectSend() || wacAllowedTemplateCategory(templating) {
+		h.logWACThreadOwnerDebug(msg, state, "allowed_send")
 		return false, nil
 	}
 
@@ -131,6 +155,7 @@ func (h *handler) blockWACSendIfNotOwner(msg courier.Msg, templating *MsgTemplat
 		"msg_uuid":     msg.UUID().String(),
 		"reason":       "not_owner",
 	}).Info("wac send blocked")
+	h.logWACThreadOwnerDebug(msg, state, "blocked")
 	return true, status
 }
 

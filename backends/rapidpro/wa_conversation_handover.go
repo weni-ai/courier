@@ -12,7 +12,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const upsertWAConversationHandoverSQL = `
+// maxWAConversationHandoverContextRunes matches handlers/facebookapp.maxWAHandoverContextTextLen.
+// The prefix "[truncated]" sits outside the cap, same as truncateWAHandoverContextText.
+const maxWAConversationHandoverContextRunes = 32000
+
+var upsertWAConversationHandoverSQL = fmt.Sprintf(`
 INSERT INTO wa_conversation_handover
 	(org_id, channel_id, contact_id, contact_urn, context_type, context_text, context_payload,
 	 previous_owner_app_id, previous_owner_app_role, previous_owner_business_id, handover_metadata,
@@ -23,30 +27,45 @@ VALUES
 	 :occurred_on, NOW())
 ON CONFLICT (channel_id, contact_id) WHERE consumed_on IS NULL DO UPDATE SET
 	contact_urn = EXCLUDED.contact_urn,
-	context_type = EXCLUDED.context_type,
-	context_text = EXCLUDED.context_text,
+	context_type = CASE
+		WHEN wa_conversation_handover.context_type = 'history' OR EXCLUDED.context_type = 'history' THEN 'history'
+		ELSE 'summary'
+	END,
+	context_text = (
+		SELECT CASE
+			WHEN char_length(c.txt) <= %[1]d THEN c.txt
+			ELSE '[truncated]' || right(c.txt, %[1]d)
+		END
+		FROM (
+			SELECT CASE
+				WHEN wa_conversation_handover.context_text = '' THEN EXCLUDED.context_text
+				WHEN EXCLUDED.context_text = '' THEN wa_conversation_handover.context_text
+				ELSE wa_conversation_handover.context_text || chr(10) || EXCLUDED.context_text
+			END AS txt
+		) AS c
+	),
 	context_payload = EXCLUDED.context_payload,
-	previous_owner_app_id = EXCLUDED.previous_owner_app_id,
-	previous_owner_app_role = EXCLUDED.previous_owner_app_role,
-	previous_owner_business_id = EXCLUDED.previous_owner_business_id,
-	handover_metadata = EXCLUDED.handover_metadata,
+	previous_owner_app_id = COALESCE(EXCLUDED.previous_owner_app_id, wa_conversation_handover.previous_owner_app_id),
+	previous_owner_app_role = COALESCE(EXCLUDED.previous_owner_app_role, wa_conversation_handover.previous_owner_app_role),
+	previous_owner_business_id = COALESCE(EXCLUDED.previous_owner_business_id, wa_conversation_handover.previous_owner_business_id),
+	handover_metadata = COALESCE(EXCLUDED.handover_metadata, wa_conversation_handover.handover_metadata),
 	occurred_on = EXCLUDED.occurred_on,
 	created_on = NOW()
-`
+`, maxWAConversationHandoverContextRunes)
 
 type DBWAConversationHandover struct {
-	OrgID                   OrgID       `db:"org_id"`
+	OrgID                   OrgID             `db:"org_id"`
 	ChannelID               courier.ChannelID `db:"channel_id"`
 	ContactID               ContactID         `db:"contact_id"`
-	ContactURN              string      `db:"contact_urn"`
-	ContextType             string      `db:"context_type"`
-	ContextText             string      `db:"context_text"`
-	ContextPayload          null.String `db:"context_payload"`
-	PreviousOwnerAppID      null.String `db:"previous_owner_app_id"`
-	PreviousOwnerAppRole    null.String `db:"previous_owner_app_role"`
-	PreviousOwnerBusinessID null.String `db:"previous_owner_business_id"`
-	HandoverMetadata        null.String `db:"handover_metadata"`
-	OccurredOn              time.Time   `db:"occurred_on"`
+	ContactURN              string            `db:"contact_urn"`
+	ContextType             string            `db:"context_type"`
+	ContextText             string            `db:"context_text"`
+	ContextPayload          null.String       `db:"context_payload"`
+	PreviousOwnerAppID      null.String       `db:"previous_owner_app_id"`
+	PreviousOwnerAppRole    null.String       `db:"previous_owner_app_role"`
+	PreviousOwnerBusinessID null.String       `db:"previous_owner_business_id"`
+	HandoverMetadata        null.String       `db:"handover_metadata"`
+	OccurredOn              time.Time         `db:"occurred_on"`
 }
 
 func writeWAConversationHandover(ctx context.Context, b *backend, event courier.WAConversationHandoverEvent) error {
@@ -72,13 +91,13 @@ func writeWAConversationHandoverToDB(ctx context.Context, b *backend, event cour
 	}
 
 	row := &DBWAConversationHandover{
-		OrgID:        dbChannel.OrgID_,
-		ChannelID:    dbChannel.ID_,
-		ContactID:    contact.ID_,
-		ContactURN:   event.ContactURN.String(),
-		ContextType:  event.ContextType,
-		ContextText:  event.ContextText,
-		OccurredOn:   event.OccurredOn,
+		OrgID:          dbChannel.OrgID_,
+		ChannelID:      dbChannel.ID_,
+		ContactID:      contact.ID_,
+		ContactURN:     event.ContactURN.String(),
+		ContextType:    event.ContextType,
+		ContextText:    event.ContextText,
+		OccurredOn:     event.OccurredOn,
 		ContextPayload: nullStringFromValue(string(event.ContextPayload)),
 	}
 

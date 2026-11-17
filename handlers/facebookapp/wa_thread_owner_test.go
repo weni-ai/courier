@@ -228,3 +228,42 @@ func TestWACThreadOwner(t *testing.T) {
 		assert.Empty(t, state)
 	})
 }
+
+func TestFailWACSendOnGraph131070RedisWrite(t *testing.T) {
+	channel := testChannelsWAC[0]
+	mb := courier.NewMockBackend()
+	s := handlers.NewTestServer(mb)
+	s.Config().EnableWACSendOwnershipBlock = true
+	mb.AddChannel(channel)
+	h := newHandler("WAC", "Cloud API WhatsApp", false).(*handler)
+	h.Initialize(s)
+	require.NoError(t, mb.RedisPool().Close())
+
+	hook := handlers.CaptureLogs(t)
+	urn := urns.URN("whatsapp:250788123123")
+	msg := mb.NewOutgoingMsg(channel, courier.NewMsgID(10), urn, "Simple Message", false, nil, "", 0, "", "")
+	status := mb.NewMsgStatusForID(channel, msg.ID(), courier.MsgErrored)
+	resp := &wacMTResponse{Error: &struct {
+		Code int `json:"code"`
+	}{Code: wacGraphErrorThreadNotOwned}}
+
+	ok := h.failWACSendOnGraph131070(msg, status, resp)
+	assert.True(t, ok)
+	assert.Equal(t, courier.MsgFailed, status.Status())
+	assert.Equal(t, courier.FailedReasonOtherOwner, status.FailedReason())
+	foundUpdate := false
+	foundBlocked := false
+	for _, entry := range hook.Entries() {
+		if entry.Data["event"] == "wac_thread_owner_update_failed" {
+			foundUpdate = true
+			assert.Equal(t, "graph_131070", entry.Data["source"])
+		}
+		if entry.Data["event"] == "wac_send_blocked" {
+			foundBlocked = true
+			assert.Equal(t, "131070", entry.Data["reason"])
+		}
+	}
+	assert.True(t, foundUpdate)
+	assert.True(t, foundBlocked)
+	assertNoWACOwnershipPII(t, hook.Entries())
+}

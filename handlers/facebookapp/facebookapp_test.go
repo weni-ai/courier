@@ -1135,7 +1135,11 @@ func TestSendWACThreadOwner(t *testing.T) {
 	channel := testChannelsWAC[0]
 	urn := "whatsapp:250788123123"
 
-	runSend := func(t *testing.T, enableBlock bool, seedState, seedTS string, closeRedis bool) (courier.MsgStatus, int, *handlers.LogCaptureHook) {
+	templateMeta := func(category string) json.RawMessage {
+		return json.RawMessage(fmt.Sprintf(`{"templating":{"template":{"name":"t","uuid":"171f8a4d-f725-46d7-85a6-11aceff0bfe3","category":"%s"},"language":"eng"}}`, category))
+	}
+
+	runSendGraph := func(t *testing.T, enableBlock bool, seedState, seedTS string, closeRedis bool, metadata json.RawMessage, graphStatus int, graphBody string) (courier.MsgStatus, int, *handlers.LogCaptureHook, *courier.MockBackend) {
 		t.Helper()
 		mb := courier.NewMockBackend()
 		s := handlers.NewTestServer(mb)
@@ -1151,10 +1155,16 @@ func TestSendWACThreadOwner(t *testing.T) {
 		}
 
 		graphHits := 0
+		if graphStatus == 0 {
+			graphStatus = 201
+		}
+		if graphBody == "" {
+			graphBody = `{ "messages": [{"id": "157b5e14568e8"}] }`
+		}
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			graphHits++
-			w.WriteHeader(201)
-			w.Write([]byte(`{ "messages": [{"id": "157b5e14568e8"}] }`))
+			w.WriteHeader(graphStatus)
+			w.Write([]byte(graphBody))
 		}))
 		t.Cleanup(server.Close)
 		prevGraph := graphURL
@@ -1163,11 +1173,19 @@ func TestSendWACThreadOwner(t *testing.T) {
 
 		hook := handlers.CaptureLogs(t)
 		msg := mb.NewOutgoingMsg(channel, courier.NewMsgID(10), urns.URN(urn), "Simple Message", false, nil, "", 0, "", "")
+		if metadata != nil {
+			msg.WithMetadata(metadata)
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		status, err := handler.SendMsg(ctx, msg)
 		require.NoError(t, err)
-		return status, graphHits, hook
+		return status, graphHits, hook, mb
+	}
+
+	runSend := func(t *testing.T, enableBlock bool, seedState, seedTS string, closeRedis bool) (courier.MsgStatus, int, *handlers.LogCaptureHook) {
+		status, hits, hook, _ := runSendGraph(t, enableBlock, seedState, seedTS, closeRedis, nil, 0, "")
+		return status, hits, hook
 	}
 
 	t.Run("flag off sends even if not_owner", func(t *testing.T) {
@@ -1180,6 +1198,7 @@ func TestSendWACThreadOwner(t *testing.T) {
 		status, hits, hook := runSend(t, true, wacThreadOwnerStateNone, "1", false)
 		assert.Equal(t, 0, hits)
 		assert.Equal(t, courier.MsgFailed, status.Status())
+		assert.Equal(t, courier.FailedReasonOtherOwner, status.FailedReason())
 		found := false
 		for _, entry := range hook.Entries() {
 			if entry.Data["event"] == "wac_send_blocked" {
@@ -1215,6 +1234,66 @@ func TestSendWACThreadOwner(t *testing.T) {
 		}
 		assert.True(t, found)
 		assertNoWACOwnershipPII(t, hook.Entries())
+	})
+
+	for _, cat := range []string{"MARKETING", "UTILITY", "AUTHENTICATION"} {
+		t.Run("flag on not_owner allows "+cat, func(t *testing.T) {
+			status, hits, _, _ := runSendGraph(t, true, wacThreadOwnerStateNone, "1", false, templateMeta(cat), 0, "")
+			assert.Equal(t, 1, hits)
+			assert.Equal(t, courier.MsgWired, status.Status())
+			assert.Equal(t, "", status.FailedReason())
+		})
+	}
+
+	t.Run("flag on not_owner allows DirectSend", func(t *testing.T) {
+		status, hits, _, _ := runSendGraph(t, true, wacThreadOwnerStateNone, "1", false, json.RawMessage(`{"direct_send":true,"direct_send_template_name":"util_t"}`), 0, "")
+		assert.Equal(t, 1, hits)
+		assert.Equal(t, courier.MsgWired, status.Status())
+	})
+
+	t.Run("flag on not_owner empty category blocks", func(t *testing.T) {
+		status, hits, _, _ := runSendGraph(t, true, wacThreadOwnerStateNone, "1", false, templateMeta(""), 0, "")
+		assert.Equal(t, 0, hits)
+		assert.Equal(t, courier.MsgFailed, status.Status())
+		assert.Equal(t, courier.FailedReasonOtherOwner, status.FailedReason())
+	})
+
+	t.Run("flag off 131070 stays errored", func(t *testing.T) {
+		status, hits, _, mb := runSendGraph(t, false, wacThreadOwnerStateOwner, "1", false, nil, 400, `{"error":{"code":131070,"message":"x"}}`)
+		assert.Equal(t, 1, hits)
+		assert.Equal(t, courier.MsgErrored, status.Status())
+		assert.Equal(t, "", status.FailedReason())
+		assert.Equal(t, wacThreadOwnerStateOwner, threadOwnerHash(t, mb, channel, urn)["state"])
+	})
+
+	t.Run("flag on 131070 fails terminal", func(t *testing.T) {
+		status, hits, hook, mb := runSendGraph(t, true, "", "", false, nil, 400, `{"error":{"code":131070,"message":"x"}}`)
+		assert.Equal(t, 1, hits)
+		assert.Equal(t, courier.MsgFailed, status.Status())
+		assert.Equal(t, courier.FailedReasonOtherOwner, status.FailedReason())
+		assert.Equal(t, wacThreadOwnerStateNone, threadOwnerHash(t, mb, channel, urn)["state"])
+		found := false
+		for _, entry := range hook.Entries() {
+			if entry.Data["event"] == "wac_send_blocked" {
+				found = true
+				assert.Equal(t, "131070", entry.Data["reason"])
+			}
+		}
+		assert.True(t, found)
+		assertNoWACOwnershipPII(t, hook.Entries())
+	})
+
+	t.Run("flag on other graph code stays errored", func(t *testing.T) {
+		status, hits, _, mb := runSendGraph(t, true, wacThreadOwnerStateOwner, "1", false, nil, 400, `{"error":{"code":131047}}`)
+		assert.Equal(t, 1, hits)
+		assert.Equal(t, courier.MsgErrored, status.Status())
+		assert.Equal(t, wacThreadOwnerStateOwner, threadOwnerHash(t, mb, channel, urn)["state"])
+	})
+
+	t.Run("flag on non-json graph body stays errored", func(t *testing.T) {
+		status, hits, _, _ := runSendGraph(t, true, "", "", false, nil, 400, `not-json`)
+		assert.Equal(t, 1, hits)
+		assert.Equal(t, courier.MsgErrored, status.Status())
 	})
 }
 

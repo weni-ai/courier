@@ -2,7 +2,7 @@
 
 **Repository**: courier — backend
 
-**Feature Branch**: `[002-whatsapp-coupon-button]`
+**Feature Branch**: `[004-whatsapp-coupon-button]`
 
 **Created**: 2026-10-30
 

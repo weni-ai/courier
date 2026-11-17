@@ -1,3 +1,7 @@
+1.79.0
+----------
+ * feat: implement WhatsApp coupon button functionality
+
 1.78.0
 ----------
  * feat: authenticate WhatsApp Cloud webhook forwards to integrations with COURIER_WHATSAPP_CLOUD_WEBHOOKS_TOKEN, with bounded retry

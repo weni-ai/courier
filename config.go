@@ -92,6 +92,9 @@ type Config struct {
 
 	MailroomURL       string `help:"base URL of mailroom, used to resolve the protocol of an inbound message"`
 	MailroomAuthToken string `help:"token sent as Authorization: Token <value> when resolving a protocol"`
+
+	EnableWACStandbyContext     bool `help:"persist renderable conversation context from WAC field=standby into wa_conversation_handover"`
+	EnableWACSendOwnershipBlock bool `help:"skip WAC Graph send when Redis thread ownership is not_owner"`
 }
 
 // NewConfig returns a new default configuration object

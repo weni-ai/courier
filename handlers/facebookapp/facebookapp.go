@@ -313,6 +313,7 @@ type moPayload struct {
 				Timestamp           string                    `json:"timestamp"`
 				Type                string                    `json:"type"`
 				ControlPassed       *wacHandoverControlPassed `json:"control_passed"`
+				ControlTaken        *wacHandoverControlTaken  `json:"control_taken"`
 				ConversationContext *wacConversationContext   `json:"conversation_context"`
 				Contacts            []struct {
 					Profile struct {
@@ -1152,8 +1153,32 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 			}
 
 			if change.Field == wacStandbyField {
-				logrus.WithField("channel_uuid", channel.UUID()).Info("ignoring standby webhook")
-				data = append(data, courier.NewInfoData("ignoring standby webhook"))
+				if !h.Server().Config().EnableWACStandbyContext {
+					logrus.WithField("channel_uuid", channel.UUID()).Info("ignoring standby webhook")
+					data = append(data, courier.NewInfoData("ignoring standby webhook"))
+					continue
+				}
+
+				standbyContacts := make([]wacHandoverContact, 0, len(change.Value.Contacts))
+				for _, contact := range change.Value.Contacts {
+					standbyContacts = append(standbyContacts, wacHandoverContact{
+						WaID:   contact.WaID,
+						UserID: contact.UserID,
+					})
+					standbyContacts[len(standbyContacts)-1].Profile.Name = contact.Profile.Name
+				}
+
+				standbyValue := wacHandoverValue{
+					Timestamp:           change.Value.Timestamp,
+					Sender:              change.Value.Sender,
+					ConversationContext: change.Value.ConversationContext,
+					Contacts:            standbyContacts,
+				}
+				info, err := h.persistWAHandoverContext(ctx, channel, standbyValue, entry.Time, w, r)
+				if err != nil {
+					return nil, nil, err
+				}
+				data = append(data, courier.NewInfoData(info))
 				continue
 			}
 
@@ -1176,7 +1201,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					ControlPassed:       change.Value.ControlPassed,
 					ConversationContext: change.Value.ConversationContext,
 					Contacts:            handoverContacts,
-				}, entry.Time, r)
+				}, entry.Time, w, r)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -1253,6 +1278,19 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 				}
 				if err != nil {
 					return nil, nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
+				}
+
+				if channel.ChannelType() == "WAC" && change.Field == "messages" {
+					rc := h.Backend().RedisPool().Get()
+					_, applyErr := applyWACThreadOwner(rc, channel.UUID(), urn, date.Unix(), wacThreadOwnerStateOwner, wacThreadOwnerModeUpdate, "messages")
+					rc.Close()
+					if applyErr != nil {
+						logrus.WithError(applyErr).WithFields(logrus.Fields{
+							"event":        "wac_thread_owner_update_failed",
+							"channel_uuid": channel.UUID(),
+							"source":       "messages",
+						}).Error("wac thread owner update failed")
+					}
 				}
 
 				text := ""
@@ -2887,6 +2925,12 @@ func (h *handler) fillWACPayloadByInteractionType(i int, msg courier.Msg, msgPar
 }
 
 func (h *handler) sendCloudAPIWhatsappMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
+	if msg.Channel().ChannelType() == "WAC" && h.Server().Config().EnableWACSendOwnershipBlock {
+		if blocked, status := h.blockWACSendIfNotOwner(msg); blocked {
+			return status, nil
+		}
+	}
+
 	// can't do anything without an access token
 	accessToken := h.Server().Config().WhatsappAdminSystemUserToken
 	userAccessToken := msg.Channel().StringConfigForKey(courier.ConfigUserToken, "")
@@ -4060,19 +4104,21 @@ const (
 	wacParamTypeCouponCode     = "coupon_code"
 )
 
+var errMissingCouponCode = errors.New("missing coupon_code for copy_code button")
+
 func isCopyCodeButton(subType string) bool {
 	return subType == wacButtonSubTypeCopyCode || subType == wacButtonSubTypeCouponCode
 }
 
 func buildCopyCodeParams(button courier.ButtonComponent) ([]*wacParam, error) {
 	if len(button.Parameters) == 0 {
-		return nil, fmt.Errorf("missing coupon_code for copy_code button")
+		return nil, errMissingCouponCode
 	}
 	params := make([]*wacParam, 0, len(button.Parameters))
 	for _, parameter := range button.Parameters {
 		code := strings.TrimSpace(parameter.Text)
 		if code == "" {
-			return nil, fmt.Errorf("missing coupon_code for copy_code button")
+			return nil, errMissingCouponCode
 		}
 		params = append(params, &wacParam{Type: wacParamTypeCouponCode, CouponCode: code})
 	}

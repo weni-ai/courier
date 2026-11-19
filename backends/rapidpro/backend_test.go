@@ -2,6 +2,7 @@ package rapidpro
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -859,6 +860,26 @@ func (ts *BackendTestSuite) TestMsgStatus() {
 	m = readMsgFromDB(ts.b, courier.NewMsgID(10000))
 	ts.Equal(m.Status_, courier.MsgFailed)
 	ts.Equal(m.ErrorCount_, 3)
+
+	ts.b.db.MustExec(`UPDATE msgs_msg SET status = 'Q', failed_reason = NULL WHERE id = $1`, 10001)
+	var prevErrorCount int
+	ts.NoError(ts.b.db.Get(&prevErrorCount, `SELECT error_count FROM msgs_msg WHERE id = 10001`))
+	status = ts.b.NewMsgStatusForID(channel, courier.NewMsgID(10001), courier.MsgFailed)
+	status.SetFailedReason("H")
+	ts.NoError(ts.b.WriteMsgStatus(ctx, status))
+	time.Sleep(time.Second)
+	var failedReason sql.NullString
+	var errorCount int
+	ts.NoError(ts.b.db.QueryRow(`SELECT failed_reason, error_count FROM msgs_msg WHERE id = 10001`).Scan(&failedReason, &errorCount))
+	ts.True(failedReason.Valid)
+	ts.Equal("H", failedReason.String)
+	ts.Equal(prevErrorCount, errorCount)
+	status = ts.b.NewMsgStatusForID(channel, courier.NewMsgID(10001), courier.MsgWired)
+	ts.NoError(ts.b.WriteMsgStatus(ctx, status))
+	time.Sleep(time.Second)
+	ts.NoError(ts.b.db.QueryRow(`SELECT failed_reason FROM msgs_msg WHERE id = 10001`).Scan(&failedReason))
+	ts.True(failedReason.Valid)
+	ts.Equal("H", failedReason.String)
 
 	// update URN when the new doesn't exist
 	tx, _ := ts.b.db.BeginTxx(ctx, nil)

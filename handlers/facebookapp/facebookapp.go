@@ -315,15 +315,7 @@ type moPayload struct {
 				ControlPassed       *wacHandoverControlPassed `json:"control_passed"`
 				ControlTaken        *wacHandoverControlTaken  `json:"control_taken"`
 				ConversationContext *wacConversationContext   `json:"conversation_context"`
-				Contacts            []struct {
-					Profile struct {
-						Name     string `json:"name"`
-						Username string `json:"username,omitempty"`
-					} `json:"profile"`
-					WaID         string `json:"wa_id"`
-					UserID       string `json:"user_id,omitempty"`
-					ParentUserID string `json:"parent_user_id,omitempty"`
-				} `json:"contacts"`
+				Contacts            []moWACValueContact `json:"contacts"`
 				Messages []struct {
 					ID               string `json:"id"`
 					From             string `json:"from"`
@@ -1159,14 +1151,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					continue
 				}
 
-				standbyContacts := make([]wacHandoverContact, 0, len(change.Value.Contacts))
-				for _, contact := range change.Value.Contacts {
-					standbyContacts = append(standbyContacts, wacHandoverContact{
-						WaID:   contact.WaID,
-						UserID: contact.UserID,
-					})
-					standbyContacts[len(standbyContacts)-1].Profile.Name = contact.Profile.Name
-				}
+				standbyContacts := wacHandoverContactsFromValueContacts(change.Value.Contacts)
 
 				standbyValue := wacHandoverValue{
 					Timestamp:           change.Value.Timestamp,
@@ -1183,14 +1168,7 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 			}
 
 			if change.Field == wacMessagingHandoversField {
-				handoverContacts := make([]wacHandoverContact, 0, len(change.Value.Contacts))
-				for _, contact := range change.Value.Contacts {
-					handoverContacts = append(handoverContacts, wacHandoverContact{
-						WaID:   contact.WaID,
-						UserID: contact.UserID,
-					})
-					handoverContacts[len(handoverContacts)-1].Profile.Name = contact.Profile.Name
-				}
+				handoverContacts := wacHandoverContactsFromValueContacts(change.Value.Contacts)
 
 				info, err := h.processMessagingHandover(ctx, channel, wacHandoverValue{
 					Timestamp:           change.Value.Timestamp,
@@ -1226,6 +1204,8 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					}
 				}
 			}
+
+			pendingHandoverContext := resolveWACMessagesPendingContext(channel.ChannelType(), change.Field, change.Value.ConversationContext, change.Value.Contacts)
 
 			for _, msg := range change.Value.Messages {
 				// create our date from the timestamp
@@ -1460,6 +1440,16 @@ func (h *handler) processCloudWhatsAppPayload(ctx context.Context, channel couri
 					}
 					if err := addMetadataWithOverwrite(event, contextMetadata); err != nil {
 						courier.LogRequestError(r, channel, err)
+					}
+				}
+
+				if pendingHandoverContext.OK {
+					if writeErr := h.persistRenderedWAHandover(ctx, channel, urn, wacHandoverContactName(pendingHandoverContext.Contacts, urn), pendingHandoverContext.ContextType, pendingHandoverContext.ContextText, pendingHandoverContext.Context, date, nil); writeErr != nil {
+						logrus.WithError(writeErr).WithFields(logrus.Fields{
+							"event":        "wac_pending_context_write_failed",
+							"channel_uuid": channel.UUID(),
+							"external_id":  msg.ID,
+						}).Error("wac pending context write failed")
 					}
 				}
 

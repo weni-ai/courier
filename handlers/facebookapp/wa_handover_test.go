@@ -268,3 +268,65 @@ func TestWACPhoneNumberID(t *testing.T) {
 	assert.Equal(t, "recipient-id", wacPhoneNumberID(nil, recipient))
 	assert.Equal(t, "", wacPhoneNumberID(nil, nil))
 }
+
+func TestWacHandoverContactsFromValueContacts(t *testing.T) {
+	contacts := []moWACValueContact{
+		{WaID: "5511999999999", UserID: "bsuid-1", Profile: struct {
+			Name     string `json:"name"`
+			Username string `json:"username,omitempty"`
+		}{Name: "Ana"}},
+		{WaID: "5511888888888", Profile: struct {
+			Name     string `json:"name"`
+			Username string `json:"username,omitempty"`
+		}{Name: "Bob"}},
+	}
+
+	got := wacHandoverContactsFromValueContacts(contacts)
+	assert.Len(t, got, 2)
+	assert.Equal(t, "5511999999999", got[0].WaID)
+	assert.Equal(t, "bsuid-1", got[0].UserID)
+	assert.Equal(t, "Ana", got[0].Profile.Name)
+	assert.Equal(t, "Bob", got[1].Profile.Name)
+
+	assert.Empty(t, wacHandoverContactsFromValueContacts(nil))
+}
+
+func TestResolveWACMessagesPendingContext(t *testing.T) {
+	summaryCtx := &wacConversationContext{
+		Type: courier.WAHandoverContextSummary,
+		Summary: &struct {
+			Text string `json:"text"`
+		}{Text: "Customer needs help"},
+	}
+	contacts := []moWACValueContact{
+		{WaID: "5511999999999", Profile: struct {
+			Name     string `json:"name"`
+			Username string `json:"username,omitempty"`
+		}{Name: "Ana"}},
+	}
+
+	t.Run("wrong channel", func(t *testing.T) {
+		got := resolveWACMessagesPendingContext("FBA", "messages", summaryCtx, contacts)
+		assert.False(t, got.OK)
+	})
+
+	t.Run("wrong field", func(t *testing.T) {
+		got := resolveWACMessagesPendingContext("WAC", "standby", summaryCtx, contacts)
+		assert.False(t, got.OK)
+	})
+
+	t.Run("context does not render", func(t *testing.T) {
+		got := resolveWACMessagesPendingContext("WAC", "messages", nil, contacts)
+		assert.False(t, got.OK)
+	})
+
+	t.Run("ok", func(t *testing.T) {
+		got := resolveWACMessagesPendingContext("WAC", "messages", summaryCtx, contacts)
+		assert.True(t, got.OK)
+		assert.Equal(t, courier.WAHandoverContextSummary, got.ContextType)
+		assert.Equal(t, "Customer needs help", got.ContextText)
+		assert.Same(t, summaryCtx, got.Context)
+		assert.Len(t, got.Contacts, 1)
+		assert.Equal(t, "Ana", got.Contacts[0].Profile.Name)
+	})
+}

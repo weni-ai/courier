@@ -89,6 +89,9 @@ type Config struct {
 
 	ConversionEventsURL   string `help:"the Flows URL for POST /conversion/ events (conversation_started)"`
 	ConversionEventsToken string `help:"the fixed access token for Flows /conversion/ calls from Courier"`
+
+	EnableWACStandbyContext     bool `help:"persist renderable conversation context from WAC field=standby into wa_conversation_handover"`
+	EnableWACSendOwnershipBlock bool `help:"skip WAC Graph send when Redis thread ownership is not_owner"`
 }
 
 // NewConfig returns a new default configuration object

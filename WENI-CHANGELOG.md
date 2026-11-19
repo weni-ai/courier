@@ -1,3 +1,10 @@
+1.80.0
+----------
+ * feat: implement WAC thread ownership functionality
+ * feat: accumulate WAC context for WhatsApp messages
+ * feat: enhance WAC standby context handling
+ * feat: add failed reason handling for WAC sends
+
 1.79.0
 ----------
  * feat: implement WhatsApp coupon button functionality

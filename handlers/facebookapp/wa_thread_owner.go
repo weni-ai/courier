@@ -87,7 +87,6 @@ func getWACThreadOwner(rc redis.Conn, channelUUID courier.ChannelUUID, urn urns.
 }
 
 func (h *handler) blockWACSendIfNotOwner(msg courier.Msg) (bool, courier.MsgStatus) {
-	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
 	rc := h.Backend().RedisPool().Get()
 	state, err := getWACThreadOwner(rc, msg.Channel().UUID(), msg.URN())
 	rc.Close()
@@ -103,7 +102,7 @@ func (h *handler) blockWACSendIfNotOwner(msg courier.Msg) (bool, courier.MsgStat
 		return false, nil
 	}
 
-	status.SetStatus(courier.MsgFailed)
+	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgFailed)
 	logrus.WithFields(logrus.Fields{
 		"event":        "wac_send_blocked",
 		"channel_uuid": msg.Channel().UUID(),

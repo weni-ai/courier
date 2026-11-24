@@ -87,7 +87,7 @@ A body is privileged when `author` is `human_agent` or `agent_first_name` is non
 | `human_support_state` | `human_support_state` | `event_id`, `open: true` | `open: false` or a missing `open` is `MsgFailed` and does not POST. |
 | `message_status` | `message_status` | `event_id`, `status` of `delivered` or `read` | `message_ids` optional. Absent is valid only for `read`. Present and empty, more than 100 ids, or `status` `delivered` without ids, is `MsgFailed` and does not POST. `sending` is `MsgFailed` and does not POST. |
 
-`to` is `msg.URN().Path()`. `from` is `msg.Channel().Address()`. `channel_uuid` is the channel UUID. `event_id` longer than 128 characters, or missing, is `MsgFailed` and does not POST. `occurred_at_ms` must be a positive integer. These bodies are always privileged.
+`to` is `msg.URN().Path()`. `from` is `msg.Channel().Address()`. `channel_uuid` is the channel UUID. `event_id` missing, empty, or longer than 128 characters is `MsgFailed` and does not POST. A valid id is 1 to 128 characters. `occurred_at_ms` must be a positive integer. These bodies are always privileged.
 
 **Typing.** `sender.go` sends `typing_indicator` as today, on every channel. For `WWC` only, `typing_stop` uses that same `SendMsgAction` path and returns without a `MsgStatus`. `SendAction` maps `typing_indicator` to JSON `type: typing_start` and `typing_stop` to `typing_stop`. The nameless `typing_start` body stays `{"type":"typing_start","to":"<urn path>","from":"ai-assistant","channel_uuid":"<uuid>"}` with no `Authorization`, so `TestActions` still matches. A non-empty valid `agent_first_name` is added and the request becomes privileged. An invalid name returns an error and does not POST. A typing failure is still logged and not retried by mailroom: a missed indicator is not stored, and the widget's own 10-second hide is the recovery.
 
@@ -225,17 +225,18 @@ Unprivileged chat sends keep today's `MakeHTTPRequestWithRetry` behavior, includ
 - Send `message_status` `read` without `message_ids`, and `delivered` with one id. Each POST matches that shape and is `MsgSent` on 202.
 - Send `typing_indicator` with no name. The body and the lack of `Authorization` match today's `TestActions` case.
 - Send `typing_indicator` with `agent_first_name` `Julia` on WWC. The body is `typing_start` plus the name, with the bearer.
-- Send `typing_stop` on WWC with and without a name. `sender` routing is covered by a WWC `SendAction` case that posts `type: typing_stop`.
+- Send `typing_stop` on WWC with and without a name. `SendAction` posts `type: typing_stop`. The branch that keeps `typing_stop` off `SendMsg` is `TestBestEffortAction` in `sender_test.go`: best-effort only when the channel type is `WWC`.
 
 **Failure paths covered**:
 
 - Privileged send with an empty token: no httptest request is received, status `MsgFailed`.
 - `agent_first_name` `Julia Silva`, and a 101-rune name: no request, `MsgFailed`.
-- `author` `ai_agent` with a name, `author` `shopper`, `human_support_state` with `open: false`, `message_status` `sending`, `message_status` `delivered` without ids, `event_id` of 129 characters: no request, `MsgFailed`.
+- `author` `ai_agent` with a name, `author` `shopper`, `human_support_state` with `open: false`, `message_status` `sending`, `message_status` `delivered` without ids, `event_id` of 129 characters, and `event_id` present and empty: no request, `MsgFailed`.
 - httptest 401, 400, and 409: one request each, `MsgFailed`.
 - httptest 403: one request, `MsgErrored`.
 - `message_status` httptest 404 twice then 202: three requests, then `MsgSent`. `message_status` httptest 404 three times: three requests, then `MsgErrored`.
 - httptest 500 twice then 202: three requests, then `MsgSent`. httptest 500 three times: three requests, then `MsgErrored`.
+- Send context already cancelled or expired: `MsgErrored`, and the httptest hit count does not exceed 3.
 - Nameless `typing_start` against a 500: the existing single `MakeHTTPRequest` error return, no bearer.
 
 **Stubbed at the boundary**: the socket is `httptest`. No Postgres, Redis, or RabbitMQ in the handler tests. `RunChannelTestCases` / `RunChannelSendTestCases` / `RunChannelActionTestCases` in `handlers/test.go` are the seams. Cases that need the token construct the server the way `handlers/facebookapp` tests do and set `server.Config().WwcHumanSupportIngressToken`, because `RunChannelSendTestCases` does not take a config hook.

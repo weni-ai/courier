@@ -1,3 +1,7 @@
+1.81.0
+----------
+ * feat: forward WWC human-support events on privileged /send with COURIER_WWC_HUMAN_SUPPORT_INGRESS_TOKEN, store the shopper message_id on external_id, and retry message_status HTTP 404 inside the send
+
 1.80.0
 ----------
  * feat: implement WAC thread ownership functionality

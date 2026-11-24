@@ -193,9 +193,26 @@ func signAttachments(ctx context.Context, backend Backend, attachments []string,
 	return signed
 }
 
+// bestEffortAction reports actions that must not fall through to SendMsg.
+// typing_indicator is best-effort on every channel. typing_stop is best-effort
+// only for WWC; a missed indicator is not stored and writes no MsgStatus.
+func bestEffortAction(msg Msg) bool {
+	if msg == nil {
+		return false
+	}
+	switch msg.ActionType() {
+	case MsgActionTypingIndicator:
+		return true
+	case MsgActionTypingStop:
+		return msg.Channel() != nil && msg.Channel().ChannelType() == ChannelType("WWC")
+	default:
+		return false
+	}
+}
+
 func (w *Sender) sendMessage(msg Msg) {
 	// --- HANDLE MESSAGE ACTION (non-blocking) ---
-	if msg.ActionType() == MsgActionTypingIndicator {
+	if bestEffortAction(msg) {
 		actionCallCtx, actionCallCancel := context.WithTimeout(context.Background(), time.Second*20)
 		defer actionCallCancel()
 

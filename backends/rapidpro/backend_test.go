@@ -1175,6 +1175,54 @@ func (ts *BackendTestSuite) TestLookupLastMsgByContactURN() {
 	ts.ErrorIs(err, courier.ErrMsgNotFound)
 }
 
+// TestLookupLastMsgByContactURNSkipsQueuedOutbound reproduces step 2 of the
+// email copy flow in the real schema. Mailroom writes the agent reply to
+// msgs_msg (status Q, no email metadata) before courier sends it, so that row
+// is the newest on the URN. A reply the agent could not deliver (status F)
+// has no metadata either. Neither may hide the copy list stored on the
+// inbound message.
+func (ts *BackendTestSuite) TestLookupLastMsgByContactURNSkipsQueuedOutbound() {
+	ctx := context.Background()
+	channel := ts.getChannel("KN", "dbc126ed-66bc-4e28-b67b-81dc3327c95d")
+
+	ts.b.db.MustExec(`
+		INSERT INTO contacts_contact(id, is_active, status, created_on, modified_on, uuid, ticket_count, created_by_id, modified_by_id, org_id)
+		VALUES(505, TRUE, 'A', NOW(), NOW(), 'a984069d-0008-4d8c-a772-b14a8a6ac505', 0, 1, 1, 1)
+	`)
+	ts.b.db.MustExec(`
+		INSERT INTO contacts_contacturn(id, identity, path, scheme, priority, channel_id, contact_id, org_id)
+		VALUES(5005, 'mailto:ana+wt-0123abcd@cliente.com', 'ana+wt-0123abcd@cliente.com', 'mailto', 50, $1, 505, 1)
+	`, channel.ID())
+
+	insert := func(uuid, direction, status string, metadata interface{}) {
+		ts.b.db.MustExec(`
+			INSERT INTO msgs_msg (
+				uuid, text, high_priority, created_on, modified_on, queued_on,
+				direction, status, visibility, msg_count, error_count, next_attempt,
+				channel_id, contact_id, contact_urn_id, org_id, metadata
+			) VALUES (
+				$1, 'texto', true, now(), now(), now(),
+				$2, $3, 'V', 1, 0, now(),
+				$4, 505, 5005, 1, $5
+			)`, uuid, direction, status, channel.ID(), metadata)
+	}
+
+	cc := `{"email":{"subject":"Pedido","cc":["fulano@x.com","outro@y.com"]}}`
+	// 1. Ana opens the thread with a copy list
+	insert("b984069d-0008-4d8c-a772-b14a8a6ac001", "I", "H", cc)
+	// 2. the agent reply, queued by mailroom and not sent yet
+	insert("b984069d-0008-4d8c-a772-b14a8a6ac002", "O", "Q", nil)
+	// 3. an earlier reply that failed for good
+	insert("b984069d-0008-4d8c-a772-b14a8a6ac003", "O", "F", nil)
+
+	urn, err := urns.NewURNFromParts(urns.EmailScheme, "ana+wt-0123abcd@cliente.com", "", "")
+	ts.Require().NoError(err)
+
+	msg, err := ts.b.LookupLastMsgByContactURN(ctx, channel, urn)
+	ts.Require().NoError(err)
+	ts.JSONEq(cc, string(msg.Metadata()))
+}
+
 // TestLookupLastMsgWithExternalIDWithTextMetadata reproduces the production
 // failure where msgs_msg.metadata is text and sqlx Get cannot scan a string
 // into *json.RawMessage — the exact error seen when resolveParentExternalID

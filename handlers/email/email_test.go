@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/nyaruka/courier"
@@ -712,6 +713,54 @@ func TestAccumulateCopyList(t *testing.T) {
 			require.Equal(t, tc.dropped, dropped)
 		})
 	}
+}
+
+// TestCopyThreadReceiveThenSend walks the first two steps of the flow: Ana
+// opens a thread with people in copy, then the agent answers.
+func TestCopyThreadReceiveThenSend(t *testing.T) {
+	var sent map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&sent))
+		_, _ = w.Write([]byte(`{"status":"sent","message_id":"<r1@proxy>"}`))
+	}))
+	defer server.Close()
+
+	mb := courier.NewMockBackend()
+	mb.AddChannel(defaultChannel)
+	cfg := courier.NewConfig()
+	cfg.EmailProxyURL = "http://example"
+	cfg.EmailProxyAuthToken = "test-auth-token"
+	h := newHandler().(*handler)
+	require.NoError(t, h.Initialize(courier.NewServer(cfg, mb)))
+	sendURL = server.URL
+	authToken = "test-auth-token"
+
+	// 1. Ana writes to the channel with two people in copy
+	body := `{"from":"ana@cliente.com","to":"test@example.com","subject":"Pedido","body":"Preciso de ajuda",` +
+		`"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<m1@cliente.com>",` +
+		`"cc":["test@example.com","fulano@x.com","outro@y.com"]}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	_, err := h.receiveEvent(context.Background(), defaultChannel, httptest.NewRecorder(), req)
+	require.NoError(t, err)
+
+	stored, err := mb.GetLastQueueMsg()
+	require.NoError(t, err)
+	require.Equal(t, urnWithTag("ana@cliente.com", "<m1@cliente.com>"), string(stored.URN()))
+	require.Equal(t, "Preciso de ajuda", stored.Text())
+
+	// the backend would now hold that row as the thread's latest copy list
+	mb.AddMsgByExternalID(stored)
+	mb.AddLastMsgByContactURN(stored)
+
+	// 2. the agent answers
+	out := mb.NewOutgoingMsg(defaultChannel, courier.NewMsgID(20), stored.URN(), "Já estou vendo", false, nil, "", 0, "<m1@cliente.com>", "")
+	status, err := h.SendMsg(context.Background(), out)
+	require.NoError(t, err)
+	require.Equal(t, "W", string(status.Status()))
+
+	require.Equal(t, "ana@cliente.com", sent["to"])
+	require.Equal(t, []interface{}{"fulano@x.com", "outro@y.com"}, sent["cc"])
 }
 
 func TestSendHTTPErrorDoesNotStoreCopyList(t *testing.T) {

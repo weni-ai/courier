@@ -163,8 +163,10 @@ type Backend interface {
 	LookupLastMsgWithExternalID(context.Context, Channel, urns.URN) (Msg, error)
 
 	// LookupLastMsgByContactURN returns the latest visible message on the channel
-	// for the contact URN, including rows with an empty external_id. A missing
-	// row returns ErrMsgNotFound. Any other error means the read failed.
+	// for the contact URN whose metadata carries an email "cc" list, including
+	// rows with an empty external_id. Rows without a list (such as the reply being
+	// sent) are skipped. A missing row returns ErrMsgNotFound. Any other error
+	// means the read failed.
 	LookupLastMsgByContactURN(context.Context, Channel, urns.URN) (Msg, error)
 
 	UpdateChannelConfig(context.Context, Channel, map[string]interface{}) error

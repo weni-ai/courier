@@ -178,7 +178,7 @@ Receive body gains:
 
 ## Data Model and Migrations
 
-- **`msgs_msg.metadata.email.cc`**: JSON array of strings on the message row, inbound and outbound. It is not a column and not a contact field. Each new message of the URN stores the list as of that message. The latest visible row (`visibility = 'V'`, highest `id`, both directions) is the list the next send uses.
+- **`msgs_msg.metadata.email.cc`**: JSON array of strings on the message row, inbound and outbound. It is not a column and not a contact field. Each new message of the URN stores the list as of that message. The latest visible row that carries a `cc` key (`visibility = 'V'`, highest `id`, both directions) is the list the next send uses. A row without the key is skipped: the reply being sent is already in `msgs_msg` (status Q, no email metadata) when courier reads the list, and a reply that failed for good never gets metadata. Reading the plain newest row returned that empty row and dropped the list on every send.
 - **`msgs_msg.text`**: for a non-central author, the prefixed body above. The central author's text is unchanged.
 - **`msgs_msg.contact_urn_id`**: copy replies point at the central URN's existing `contacts_contacturn` row. No new URN row is inserted for the copy author.
 - **Contact name**: still the opener's mailbox, because the name written on a copy reply is the central real address and `contactForURN` does not overwrite a non-empty name.

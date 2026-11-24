@@ -1128,6 +1128,53 @@ func (ts *BackendTestSuite) TestLookupContactURNByExternalID() {
 	ts.Equal(urns.NilURN, missing)
 }
 
+// TestLookupLastMsgByContactURN reads the latest visible row even when
+// external_id is NULL. LookupLastMsgWithExternalID must keep ignoring that row.
+func (ts *BackendTestSuite) TestLookupLastMsgByContactURN() {
+	ctx := context.Background()
+	channel := ts.getChannel("KN", "dbc126ed-66bc-4e28-b67b-81dc3327c95d")
+
+	ts.b.db.MustExec(`
+		INSERT INTO contacts_contact(id, is_active, status, created_on, modified_on, uuid, ticket_count, created_by_id, modified_by_id, org_id)
+		VALUES(504, TRUE, 'A', NOW(), NOW(), 'a984069d-0008-4d8c-a772-b14a8a6ac504', 0, 1, 1, 1)
+	`)
+	ts.b.db.MustExec(`
+		INSERT INTO contacts_contacturn(id, identity, path, scheme, priority, channel_id, contact_id, org_id)
+		VALUES(5004, 'mailto:cc-latest-empty-ext@example.com', 'cc-latest-empty-ext@example.com', 'mailto', 50, $1, 504, 1)
+	`, channel.ID())
+
+	expectedMetadata := `{"email":{"subject":"Pedido","cc":["fulano_de_tal@email.com"]}}`
+	ts.b.db.MustExec(`
+		INSERT INTO msgs_msg (
+			uuid, text, high_priority, created_on, modified_on, sent_on, queued_on,
+			direction, status, visibility, msg_count, error_count, next_attempt,
+			external_id, channel_id, contact_id, contact_urn_id, org_id, metadata
+		) VALUES (
+			'a984069d-0008-4d8c-a772-b14a8a6acc04', 'cc snapshot', true, now(), now(), now(), now(),
+			'I', 'H', 'V', 1, 0, now(),
+			NULL, $1, 504, 5004, 1, $2
+		)`, channel.ID(), expectedMetadata)
+
+	urn, err := urns.NewURNFromParts(urns.EmailScheme, "cc-latest-empty-ext@example.com", "", "")
+	ts.Require().NoError(err)
+
+	msg, err := ts.b.LookupLastMsgByContactURN(ctx, channel, urn)
+	ts.NoError(err)
+	if !ts.NotNil(msg) {
+		return
+	}
+	ts.JSONEq(expectedMetadata, string(msg.Metadata()))
+	ts.Equal("", msg.ExternalID())
+
+	_, err = ts.b.LookupLastMsgWithExternalID(ctx, channel, urn)
+	ts.ErrorIs(err, sql.ErrNoRows)
+
+	missingURN, err := urns.NewURNFromParts(urns.EmailScheme, "cc-latest-missing@example.com", "", "")
+	ts.Require().NoError(err)
+	_, err = ts.b.LookupLastMsgByContactURN(ctx, channel, missingURN)
+	ts.ErrorIs(err, courier.ErrMsgNotFound)
+}
+
 // TestLookupLastMsgWithExternalIDWithTextMetadata reproduces the production
 // failure where msgs_msg.metadata is text and sqlx Get cannot scan a string
 // into *json.RawMessage — the exact error seen when resolveParentExternalID

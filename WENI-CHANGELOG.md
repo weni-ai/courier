@@ -1,3 +1,7 @@
+Unreleased
+----------
+ * feat: keep a copy author's reply on the thread contact, prefix the body with their address, and send the accumulated cc list to email-proxy. Deploy email-proxy first so it accepts cc.
+
 1.81.0
 ----------
  * feat: forward WWC human-support events on privileged /send with COURIER_WWC_HUMAN_SUPPORT_INGRESS_TOKEN, store the shopper message_id on external_id, and retry message_status HTTP 404 inside the send

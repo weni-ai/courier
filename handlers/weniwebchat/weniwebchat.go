@@ -16,7 +16,6 @@ import (
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
 	"github.com/nyaruka/gocommon/urns"
-	er "github.com/pkg/errors"
 )
 
 const (
@@ -60,6 +59,7 @@ type miMessage struct {
 	Longitude               string  `json:"longitude,omitempty"`
 	FromConversationStarter bool    `json:"from_conversation_starter,omitempty"`
 	Order                   miOrder `json:"order,omitempty"`
+	MessageID               string  `json:"message_id,omitempty"`
 }
 
 type miProductItem struct {
@@ -153,6 +153,14 @@ func (h *handler) receiveMsg(ctx context.Context, channel courier.Channel, w htt
 		msg.WithMetadata(metadata)
 	}
 
+	if payload.Message.MessageID != "" {
+		if acceptInboundMessageID(payload.Message.MessageID) {
+			msg.WithExternalID(payload.Message.MessageID)
+		} else {
+			noteRejectedMessageID(channel)
+		}
+	}
+
 	return handlers.WriteMsgsAndResponse(ctx, h, []courier.Msg{msg}, w, r)
 }
 
@@ -186,12 +194,14 @@ func incomingMsgMetadata(payload *miPayload) json.RawMessage {
 var timestamp = ""
 
 type moPayload struct {
-	Type        string    `json:"type" validate:"required"`
-	To          string    `json:"to"   validate:"required"`
-	From        string    `json:"from" validate:"required"`
-	Message     moMessage `json:"message"`
-	ChannelUUID string    `json:"channel_uuid" validate:"required"`
-	MessageKind string    `json:"message_kind,omitempty"`
+	Type           string    `json:"type" validate:"required"`
+	To             string    `json:"to"   validate:"required"`
+	From           string    `json:"from" validate:"required"`
+	Message        moMessage `json:"message"`
+	ChannelUUID    string    `json:"channel_uuid" validate:"required"`
+	MessageKind    string    `json:"message_kind,omitempty"`
+	Author         string    `json:"author,omitempty"`
+	AgentFirstName string    `json:"agent_first_name,omitempty"`
 }
 
 type moMessage struct {
@@ -265,13 +275,24 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	sendURL := fmt.Sprintf("%s/send", baseURL)
 	var logs []*courier.ChannelLog
 
+	if handled, st, err := h.sendControlEvent(ctx, msg, status, sendURL); handled {
+		return st, err
+	}
+
+	meta, metaErr := chatAuthorFromMetadata(msg.Metadata())
+	if metaErr != nil {
+		status.SetStatus(courier.MsgFailed)
+		return status, nil
+	}
+
 	// Check for product messages first
-	if len(msg.Products()) > 0 || msg.SendCatalog() || msg.ProductCarousel() {
-		return h.sendProductMessage(ctx, msg, status, sendURL, start)
+	if len(msg.Products()) > 0 || msg.SendCatalog() {
+		return h.sendProductMessage(ctx, msg, status, sendURL, start, meta)
 	}
 
 	payload := newOutgoingMessage("message", msg.URN().Path(), msg.Channel().Address(), msg.QuickReplies(), msg.Channel().UUID().String())
-	payload.MessageKind = messageKind(msg)
+	payload.Author = meta.author
+	payload.AgentFirstName = meta.name
 
 	// sendPayload marshals and sends the payload, collecting logs
 	sendPayload := func() error {
@@ -280,6 +301,14 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 			elapsed := time.Since(start)
 			logs = append(logs, courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, err))
 			return err
+		}
+		if meta.privileged {
+			rr, outcome := h.postPrivileged(ctx, sendURL, body, msg.UUID().String(), false, privilegedFields(msg, ""))
+			if rr != nil {
+				logs = append(logs, courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr))
+			}
+			status.SetStatus(outcome)
+			return nil
 		}
 		req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -338,6 +367,9 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 				status.SetStatus(courier.MsgFailed)
 				break
 			}
+			if status.Status() != courier.MsgSent {
+				break
+			}
 		}
 	} else {
 		payload.Message = moMessage{
@@ -380,37 +412,9 @@ var _ courier.ActionSender = (*handler)(nil)
 // SendAction sends a specific action to the Weni Webchat API.
 // This method is specific to the Weni Webchat handler.
 func (h *handler) SendAction(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
-	baseURL := msg.Channel().StringConfigForKey(courier.ConfigBaseURL, "")
-	if baseURL == "" {
-		return nil, errors.New("blank base_url")
+	if err := h.sendTyping(ctx, msg); err != nil {
+		return nil, err
 	}
-
-	sendURL := fmt.Sprintf("%s/send", baseURL)
-
-	// Create payload for typing indicator
-	payload := map[string]interface{}{
-		"type":         "typing_start",
-		"to":           msg.URN().Path(),
-		"from":         "ai-assistant",
-		"channel_uuid": msg.Channel().UUID().String(),
-	}
-
-	// build request
-	body, err := json.Marshal(&payload)
-	if err != nil {
-		return nil, er.Wrap(err, "HTTP request failed")
-	}
-
-	req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
-	req.Header.Set("Content-Type", "application/json")
-	res, err := utils.MakeHTTPRequest(req)
-	if err != nil {
-		return nil, er.Wrap(err, "HTTP request failed")
-	}
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, fmt.Errorf("weni webchat API error (%d): %s", res.StatusCode, string(res.Body))
-	}
-
 	return nil, nil
 }
 
@@ -476,16 +480,18 @@ func normalizeQuickReplies(quickReplies []string) []string {
 
 // sendProductMessage handles sending product messages
 // All products are sent as product_list with sections containing product_items
-func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, status courier.MsgStatus, sendURL string, start time.Time) (courier.MsgStatus, error) {
+func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, status courier.MsgStatus, sendURL string, start time.Time, meta chatAuthor) (courier.MsgStatus, error) {
 	products := msg.Products()
 
 	// Build base payload
 	basePayload := moPayload{
-		Type:        "message",
-		To:          msg.URN().Path(),
-		From:        msg.Channel().Address(),
-		ChannelUUID: msg.Channel().UUID().String(),
-		MessageKind: messageKind(msg),
+		Type:           "message",
+		To:             msg.URN().Path(),
+		From:           msg.Channel().Address(),
+		ChannelUUID:    msg.Channel().UUID().String(),
+		MessageKind:    messageKind(msg),
+		Author:         meta.author,
+		AgentFirstName: meta.name,
 		Message: moMessage{
 			Type:      "interactive",
 			TimeStamp: getTimestamp(),
@@ -548,7 +554,7 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 		payload.Message.Interactive = &interactive
 		payload.Message.CustomData = customDataFromMetadata(msg.Metadata())
 
-		return h.sendPayload(ctx, payload, status, sendURL, start, msg.Channel(), msg.ID())
+		return h.sendPayload(ctx, payload, status, sendURL, start, msg)
 	}
 
 	// Extract sections with their products
@@ -587,8 +593,8 @@ func (h *handler) sendProductMessage(ctx context.Context, msg courier.Msg, statu
 			payload.Message.CustomData = customDataFromMetadata(msg.Metadata())
 		}
 
-		status, err := h.sendPayload(ctx, payload, status, sendURL, start, msg.Channel(), msg.ID())
-		if err != nil {
+		status, err := h.sendPayload(ctx, payload, status, sendURL, start, msg)
+		if err != nil || status.Status() != courier.MsgSent {
 			return status, err
 		}
 	}
@@ -739,14 +745,23 @@ func buildProductBatches(sections []wwcSection) [][]wwcSection {
 }
 
 // sendPayload sends a payload to the Weni Webchat API
-func (h *handler) sendPayload(ctx context.Context, payload moPayload, status courier.MsgStatus, sendURL string, start time.Time, channel courier.Channel, msgID courier.MsgID) (courier.MsgStatus, error) {
+func (h *handler) sendPayload(ctx context.Context, payload moPayload, status courier.MsgStatus, sendURL string, start time.Time, msg courier.Msg) (courier.MsgStatus, error) {
 	body, err := json.Marshal(&payload)
 	if err != nil {
 		elapsed := time.Since(start)
-		log := courier.NewChannelLogFromError("Error sending message", channel, msgID, elapsed, err)
+		log := courier.NewChannelLogFromError("Error sending message", msg.Channel(), msg.ID(), elapsed, err)
 		status.AddLog(log)
 		status.SetStatus(courier.MsgFailed)
 		return status, err
+	}
+
+	if payload.Author == authorHuman || payload.AgentFirstName != "" {
+		rr, outcome := h.postPrivileged(ctx, sendURL, body, msg.UUID().String(), false, privilegedFields(msg, ""))
+		if rr != nil {
+			status.AddLog(courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), rr))
+		}
+		status.SetStatus(outcome)
+		return status, nil
 	}
 
 	req, _ := http.NewRequest(http.MethodPost, sendURL, bytes.NewBuffer(body))
@@ -754,7 +769,7 @@ func (h *handler) sendPayload(ctx context.Context, payload moPayload, status cou
 	idempotencyKey := fmt.Sprintf("%s-%d", payload.ChannelUUID, time.Now().UnixNano())
 	res, err := utils.MakeHTTPRequestWithRetry(ctx, req, 3, 500*time.Millisecond, idempotencyKey)
 	if res != nil {
-		log := courier.NewChannelLogFromRR("Message Sent", channel, msgID, res).WithError("Message Send Error", err)
+		log := courier.NewChannelLogFromRR("Message Sent", msg.Channel(), msg.ID(), res).WithError("Message Send Error", err)
 		status.AddLog(log)
 	}
 	if err != nil {

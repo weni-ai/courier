@@ -36,6 +36,16 @@ const (
 	MsgActionNone MsgActionType = ""
 	// MsgActionTypingIndicator indicates that a "typing on" should be sent.
 	MsgActionTypingIndicator MsgActionType = "typing_indicator"
+	// MsgActionTypingStop indicates that a "typing off" should be sent.
+	MsgActionTypingStop MsgActionType = "typing_stop"
+	// MsgActionHumanSupportStarted opens a human-support session on WWC.
+	MsgActionHumanSupportStarted MsgActionType = "human_support_started"
+	// MsgActionHumanSupportEnded closes a human-support session on WWC.
+	MsgActionHumanSupportEnded MsgActionType = "human_support_ended"
+	// MsgActionHumanSupportState releases an already-open human-support session on WWC.
+	MsgActionHumanSupportState MsgActionType = "human_support_state"
+	// MsgActionMessageStatus forwards a shopper delivery status on WWC.
+	MsgActionMessageStatus MsgActionType = "message_status"
 )
 
 // String satisfies the Stringer interface

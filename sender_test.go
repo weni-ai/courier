@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -143,4 +144,30 @@ func TestSignAttachmentsWithoutSigner(t *testing.T) {
 	signed := signAttachments(context.Background(), &MockBackend{}, attachments, logrus.NewEntry(logrus.New()))
 
 	assert.Equal(t, attachments, signed)
+}
+
+func TestBestEffortAction(t *testing.T) {
+	wwc := NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "WWC", "250788383383", "", map[string]interface{}{})
+	other := NewMockChannel("8eb23e93-5ecb-45ba-b726-3b064e0c568c", "WAC", "250788383383", "", map[string]interface{}{})
+	cases := []struct {
+		name    string
+		channel Channel
+		action  string
+		want    bool
+	}{
+		{name: "typing indicator wwc", channel: wwc, action: "typing_indicator", want: true},
+		{name: "typing indicator other", channel: other, action: "typing_indicator", want: true},
+		{name: "typing stop wwc", channel: wwc, action: "typing_stop", want: true},
+		{name: "typing stop other", channel: other, action: "typing_stop", want: false},
+		{name: "human support started", channel: wwc, action: "human_support_started", want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := &mockMsg{
+				channel:  tc.channel,
+				metadata: json.RawMessage(fmt.Sprintf(`{"action_type":%q}`, tc.action)),
+			}
+			assert.Equal(t, tc.want, bestEffortAction(msg))
+		})
+	}
 }

@@ -43,6 +43,7 @@ type Config struct {
 	WhatsappCloudWebhooksToken      string `help:"bearer token sent to integrations on forwarded WhatsApp Cloud webhooks; empty disables the forward"`
 	WhatsappCloudWebhooksUrlFlows   string `help:"the url where WhatsApp Cloud flow_message webhooks will be sent to Flows"`
 	WhatsappCloudWebhooksTokenFlows string `help:"the token for sending WhatsApp Cloud flow_message webhooks that will be sent to Flows"`
+	WwcHumanSupportIngressToken     string `help:"bearer token for privileged Weni Web Chat /send (COURIER_WWC_HUMAN_SUPPORT_INGRESS_TOKEN); empty disables privileged sends"`
 
 	// IncludeChannels is the list of channels to enable, empty means include all
 	IncludeChannels []string

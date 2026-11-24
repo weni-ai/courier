@@ -48,6 +48,19 @@ const (
 	}
 	`
 
+	textMsgWithIDTemplate = `
+	{
+		"type":"message",
+		"from":%q,
+		"message":{
+			"type":"text",
+			"timestamp":%q,
+			"text":%q,
+			"message_id":%q
+		}
+	}
+	`
+
 	textMsgWithStarterTemplate = `
 	{
 		"type":"message",
@@ -189,6 +202,50 @@ var testCases = []ChannelHandleTestCase{
 		Text:     Sp("Hello Test!"),
 		Status:   200,
 		Response: "Accepted",
+	},
+	{
+		Label:      "Receive Text Msg With Message ID",
+		URL:        receiveURL,
+		Data:       fmt.Sprintf(textMsgWithIDTemplate, "2345678", "1616586927", "Hello Test!", "3f1a8c0e-6b2d-4e5a-9c7d-1b0e4a6c8d20"),
+		Name:       Sp("2345678"),
+		URN:        Sp("ext:2345678"),
+		Text:       Sp("Hello Test!"),
+		ExternalID: Sp("3f1a8c0e-6b2d-4e5a-9c7d-1b0e4a6c8d20"),
+		Status:     200,
+		Response:   "Accepted",
+	},
+	{
+		Label:      "Receive Text Msg Without Message ID",
+		URL:        receiveURL,
+		Data:       fmt.Sprintf(textMsgTemplate, "2345678", "1616586927", "Hello Test!"),
+		Name:       Sp("2345678"),
+		URN:        Sp("ext:2345678"),
+		Text:       Sp("Hello Test!"),
+		ExternalID: Sp(""),
+		Status:     200,
+		Response:   "Accepted",
+	},
+	{
+		Label:      "Receive Text Msg With Overlong Message ID",
+		URL:        receiveURL,
+		Data:       fmt.Sprintf(textMsgWithIDTemplate, "2345678", "1616586927", "Hello Test!", strings.Repeat("a", 65)),
+		Name:       Sp("2345678"),
+		URN:        Sp("ext:2345678"),
+		Text:       Sp("Hello Test!"),
+		ExternalID: Sp(""),
+		Status:     200,
+		Response:   "Accepted",
+	},
+	{
+		Label:      "Receive Text Msg With Spaced Message ID",
+		URL:        receiveURL,
+		Data:       fmt.Sprintf(textMsgWithIDTemplate, "2345678", "1616586927", "Hello Test!", "bad id"),
+		Name:       Sp("2345678"),
+		URN:        Sp("ext:2345678"),
+		Text:       Sp("Hello Test!"),
+		ExternalID: Sp(""),
+		Status:     200,
+		Response:   "Accepted",
 	},
 	{
 		Label:    "Receive Text Msg From Conversation Starter",

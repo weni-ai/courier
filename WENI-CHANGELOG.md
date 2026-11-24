@@ -1,3 +1,14 @@
+1.81.0
+----------
+ * feat: forward WWC human-support events on privileged /send with COURIER_WWC_HUMAN_SUPPORT_INGRESS_TOKEN, store the shopper message_id on external_id, and retry message_status HTTP 404 inside the send
+
+1.80.0
+----------
+ * feat: implement WAC thread ownership functionality
+ * feat: accumulate WAC context for WhatsApp messages
+ * feat: enhance WAC standby context handling
+ * feat: add failed reason handling for WAC sends
+
 1.79.0
 ----------
  * feat: implement WhatsApp coupon button functionality

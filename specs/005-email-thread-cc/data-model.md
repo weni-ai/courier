@@ -35,7 +35,7 @@ Contacts split before this deploy are not merged.
 
 ## Copy list
 
-The list on a message is a snapshot. The latest visible row of the channel + URN identity (`ORDER BY id DESC LIMIT 1`) is the snapshot the next send uses.
+The list on a message is a snapshot. The latest visible row of the channel + URN identity whose metadata contains a `cc` key (`ORDER BY id DESC LIMIT 1`) is the snapshot the next send and the next receive use. Rows without the key, such as the queued reply being sent, are skipped. The key test is `m.metadata::text LIKE '%"cc"%'`, which works for a text or jsonb column. The scan is bounded by the rows of one URN.
 
 **Start**: first message of the URN, previous snapshot empty. Seed with that message's `cc`.
 

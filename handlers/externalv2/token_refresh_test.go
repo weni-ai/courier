@@ -2,12 +2,17 @@ package externalv2
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/utils"
+	"github.com/nyaruka/gocommon/dates"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -373,4 +378,340 @@ func TestParseExpiresInSeconds(t *testing.T) {
 			assert.Equal(t, tc.seconds, seconds)
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: token call
+// ---------------------------------------------------------------------------
+
+func customOptions(tokenURL string) *tokenRefreshOptions {
+	return &tokenRefreshOptions{
+		Type: tokenRefreshTypeCustom,
+		Config: tokenRefreshConfig{
+			When:       tokenRefreshWhen{Match: tokenRefreshMatchAny},
+			Method:     http.MethodPost,
+			URL:        tokenURL,
+			Body:       "grant_type=password&client_secret=" + fixtureClientSecret,
+			TokenField: "access_token",
+		},
+	}
+}
+
+func refreshOptions(tokenURL string) *tokenRefreshOptions {
+	return &tokenRefreshOptions{
+		Type:         tokenRefreshTypeRefresh,
+		Config:       tokenRefreshConfig{When: tokenRefreshWhen{Match: tokenRefreshMatchAny}, Method: http.MethodPost, URL: tokenURL, TokenField: "access_token"},
+		RefreshToken: fixtureRefreshToken,
+		ClientID:     "abc",
+		ClientSecret: fixtureClientSecret,
+	}
+}
+
+func TestBuildTokenRequestRefresh(t *testing.T) {
+	read := func(t *testing.T, req *http.Request) url.Values {
+		body, err := io.ReadAll(req.Body)
+		require.NoError(t, err)
+		values, err := url.ParseQuery(string(body))
+		require.NoError(t, err)
+		return values
+	}
+
+	t.Run("form fields and default content type", func(t *testing.T) {
+		req, err := buildTokenRequest(refreshOptions(fixtureTokenURL), "rotated-refresh-token")
+		require.NoError(t, err)
+
+		assert.Equal(t, http.MethodPost, req.Method)
+		assert.Equal(t, fixtureTokenURL, req.URL.String())
+		assert.Equal(t, "application/x-www-form-urlencoded", req.Header.Get("Content-Type"))
+
+		values := read(t, req)
+		assert.Equal(t, "refresh_token", values.Get("grant_type"))
+		assert.Equal(t, "rotated-refresh-token", values.Get("refresh_token"))
+		assert.Equal(t, "abc", values.Get("client_id"))
+		assert.Equal(t, fixtureClientSecret, values.Get("client_secret"))
+	})
+
+	t.Run("client id and secret omitted when empty", func(t *testing.T) {
+		opts := refreshOptions(fixtureTokenURL)
+		opts.ClientID, opts.ClientSecret = "", ""
+		req, err := buildTokenRequest(opts, fixtureRefreshToken)
+		require.NoError(t, err)
+
+		values := read(t, req)
+		assert.False(t, values.Has("client_id"))
+		assert.False(t, values.Has("client_secret"))
+		assert.Equal(t, fixtureRefreshToken, values.Get("refresh_token"))
+	})
+
+	t.Run("operator content type is kept in any letter case", func(t *testing.T) {
+		opts := refreshOptions(fixtureTokenURL)
+		opts.Config.Headers = map[string]string{"content-type": "application/x-custom"}
+		req, err := buildTokenRequest(opts, fixtureRefreshToken)
+		require.NoError(t, err)
+
+		assert.Equal(t, []string{"application/x-custom"}, req.Header.Values("Content-Type"))
+	})
+}
+
+func TestBuildTokenRequestCustom(t *testing.T) {
+	opts := customOptions(fixtureTokenURL)
+	opts.Config.Method = http.MethodPut
+	opts.Config.Headers = map[string]string{"X-Api": "abc", "Content-Type": "application/json"}
+	opts.Config.Body = `{"grant":"password"}`
+
+	req, err := buildTokenRequest(opts, "ignored")
+	require.NoError(t, err)
+
+	assert.Equal(t, http.MethodPut, req.Method)
+	assert.Equal(t, fixtureTokenURL, req.URL.String())
+	assert.Equal(t, "abc", req.Header.Get("X-Api"))
+	assert.Equal(t, "application/json", req.Header.Get("Content-Type"))
+	body, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+	assert.Equal(t, `{"grant":"password"}`, string(body))
+
+	t.Run("default method", func(t *testing.T) {
+		opts := customOptions(fixtureTokenURL)
+		req, err := buildTokenRequest(opts, "")
+		require.NoError(t, err)
+		assert.Equal(t, http.MethodPost, req.Method)
+		assert.Empty(t, req.Header.Get("Content-Type"), "custom sends only the configured headers")
+	})
+}
+
+func tokenServer(t *testing.T, status int, body string) *httptest.Server {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func tokenChannel() courier.Channel {
+	return newRefreshChannel(map[string]interface{}{})
+}
+
+func TestRequestAccessTokenFields(t *testing.T) {
+	msgID := courier.NewMsgID(10)
+
+	t.Run("default access_token", func(t *testing.T) {
+		server := tokenServer(t, 200, `{"access_token":"`+fixtureAccessToken2+`"}`)
+		result, log, err := requestAccessToken(tokenChannel(), msgID, customOptions(server.URL), "")
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.NotNil(t, log)
+		assert.Equal(t, fixtureAccessToken2, result.AccessToken)
+		assert.Empty(t, result.RefreshToken)
+		assert.Zero(t, result.ExpiresAt)
+	})
+
+	t.Run("dotted token_field", func(t *testing.T) {
+		server := tokenServer(t, 200, `{"data":{"token":"`+fixtureAccessToken2+`"}}`)
+		opts := customOptions(server.URL)
+		opts.Config.TokenField = "data.token"
+		result, _, err := requestAccessToken(tokenChannel(), msgID, opts, "")
+		require.NoError(t, err)
+		assert.Equal(t, fixtureAccessToken2, result.AccessToken)
+	})
+
+	t.Run("refresh token present", func(t *testing.T) {
+		server := tokenServer(t, 200, `{"access_token":"a","refresh_token":"rotated"}`)
+		opts := customOptions(server.URL)
+		opts.Config.RefreshTokenField = "refresh_token"
+		result, _, err := requestAccessToken(tokenChannel(), msgID, opts, "")
+		require.NoError(t, err)
+		assert.Equal(t, "rotated", result.RefreshToken)
+	})
+
+	for label, body := range map[string]string{
+		"absent": `{"access_token":"a"}`,
+		"empty":  `{"access_token":"a","refresh_token":""}`,
+	} {
+		t.Run("refresh token "+label+" means unchanged", func(t *testing.T) {
+			server := tokenServer(t, 200, body)
+			opts := customOptions(server.URL)
+			opts.Config.RefreshTokenField = "refresh_token"
+			result, _, err := requestAccessToken(tokenChannel(), msgID, opts, "")
+			require.NoError(t, err)
+			assert.Empty(t, result.RefreshToken)
+		})
+	}
+
+	t.Run("refresh token field not configured", func(t *testing.T) {
+		server := tokenServer(t, 200, `{"access_token":"a","refresh_token":"ignored"}`)
+		result, _, err := requestAccessToken(tokenChannel(), msgID, customOptions(server.URL), "")
+		require.NoError(t, err)
+		assert.Empty(t, result.RefreshToken)
+	})
+}
+
+func TestRequestAccessTokenExpiry(t *testing.T) {
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	dates.SetNowSource(dates.NewFixedNowSource(now))
+	defer dates.SetNowSource(dates.DefaultNowSource)
+
+	msgID := courier.NewMsgID(10)
+	call := func(t *testing.T, body string, field string, def int64) *tokenResult {
+		server := tokenServer(t, 200, body)
+		opts := customOptions(server.URL)
+		opts.Config.ExpiresInField = field
+		opts.Config.ExpiresInDefault = def
+		result, _, err := requestAccessToken(tokenChannel(), msgID, opts, "")
+		require.NoError(t, err)
+		return result
+	}
+
+	t.Run("field in seconds", func(t *testing.T) {
+		result := call(t, `{"access_token":"a","expires_in":3600}`, "expires_in", 0)
+		assert.Equal(t, now.Unix()+3600, result.ExpiresAt)
+	})
+
+	t.Run("default when the field is absent", func(t *testing.T) {
+		result := call(t, `{"access_token":"a"}`, "expires_in", 7200)
+		assert.Equal(t, now.Unix()+7200, result.ExpiresAt)
+	})
+
+	t.Run("default when the field is not a positive number", func(t *testing.T) {
+		result := call(t, `{"access_token":"a","expires_in":"3600"}`, "expires_in", 7200)
+		assert.Equal(t, now.Unix()+7200, result.ExpiresAt)
+		result = call(t, `{"access_token":"a","expires_in":0}`, "expires_in", 7200)
+		assert.Equal(t, now.Unix()+7200, result.ExpiresAt)
+	})
+
+	t.Run("field wins over default", func(t *testing.T) {
+		result := call(t, `{"access_token":"a","expires_in":60}`, "expires_in", 7200)
+		assert.Equal(t, now.Unix()+60, result.ExpiresAt)
+	})
+
+	t.Run("neither means unchanged", func(t *testing.T) {
+		result := call(t, `{"access_token":"a"}`, "", 0)
+		assert.Zero(t, result.ExpiresAt)
+	})
+}
+
+func TestRequestAccessTokenFailures(t *testing.T) {
+	msgID := courier.NewMsgID(10)
+
+	tcs := []struct {
+		label  string
+		status int
+		body   string
+		reason string
+	}{
+		{"400", 400, `{"access_token":"` + fixtureAccessToken2 + `"}`, tokenFailureStatus4xx},
+		{"401", 401, `{"access_token":"` + fixtureAccessToken2 + `"}`, tokenFailureStatus4xx},
+		{"500", 500, `{"access_token":"` + fixtureAccessToken2 + `"}`, tokenFailureStatus5xx},
+		{"missing token field", 200, `{"other":"x"}`, tokenFailureMissingField},
+		{"empty token field", 200, `{"access_token":""}`, tokenFailureMissingField},
+		{"non scalar token field", 200, `{"access_token":{"a":"b"}}`, tokenFailureMissingField},
+		{"not json", 200, `not json`, tokenFailureInvalidJSON},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.label, func(t *testing.T) {
+			server := tokenServer(t, tc.status, tc.body)
+			result, log, err := requestAccessToken(tokenChannel(), msgID, customOptions(server.URL), "")
+			assert.Nil(t, result)
+			require.Error(t, err)
+			require.NotNil(t, log)
+			assert.Equal(t, tc.reason, log.Error)
+			assert.NotContains(t, err.Error(), fixtureAccessToken2)
+		})
+	}
+
+	t.Run("connection failure", func(t *testing.T) {
+		server := httptest.NewServer(http.NotFoundHandler())
+		closedURL := server.URL
+		server.Close()
+
+		result, log, err := requestAccessToken(tokenChannel(), msgID, customOptions(closedURL), "")
+		assert.Nil(t, result)
+		require.Error(t, err)
+		require.NotNil(t, log)
+		assert.Equal(t, tokenFailureConnection, log.Error)
+		assert.Zero(t, log.StatusCode)
+	})
+
+	t.Run("final 3xx status below 400 is parsed like a success", func(t *testing.T) {
+		server := tokenServer(t, http.StatusMultipleChoices, `{"access_token":"`+fixtureAccessToken2+`"}`)
+		result, _, err := requestAccessToken(tokenChannel(), msgID, customOptions(server.URL), "")
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.Equal(t, fixtureAccessToken2, result.AccessToken)
+	})
+
+	t.Run("refresh failure keeps the reason out of the error text", func(t *testing.T) {
+		server := tokenServer(t, 500, "boom "+fixtureClientSecret)
+		_, _, err := requestAccessToken(tokenChannel(), msgID, customOptions(server.URL), "")
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), fixtureClientSecret)
+	})
+}
+
+func TestRequestAccessTokenLog(t *testing.T) {
+	msgID := courier.NewMsgID(10)
+	secrets := []string{fixtureClientSecret, fixtureRefreshToken, fixtureAccessToken1, "fake-key", "fake-pass"}
+
+	assertClean := func(t *testing.T, log *courier.ChannelLog) {
+		fields := []string{log.Description, log.Method, log.URL, log.Error, log.Request, log.Response}
+		for _, f := range fields {
+			for _, secret := range secrets {
+				assert.NotContains(t, f, secret)
+			}
+		}
+		assert.Empty(t, log.Request)
+		assert.Empty(t, log.Response)
+		assert.Equal(t, tokenRefreshLogDescription, log.Description)
+		assert.Equal(t, http.MethodPost, log.Method)
+	}
+
+	withCredentials := func(rawURL string) string {
+		u, err := url.Parse(rawURL)
+		require.NoError(t, err)
+		u.User = url.UserPassword("user", "fake-pass")
+		u.Path = "/oauth/token"
+		u.RawQuery = "api_key=fake-key"
+		return u.String()
+	}
+
+	t.Run("success", func(t *testing.T) {
+		server := tokenServer(t, 200, `{"access_token":"`+fixtureAccessToken1+`","refresh_token":"`+fixtureRefreshToken+`"}`)
+		opts := customOptions(withCredentials(server.URL))
+		opts.Config.RefreshTokenField = "refresh_token"
+
+		result, log, err := requestAccessToken(tokenChannel(), msgID, opts, fixtureRefreshToken)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assertClean(t, log)
+		assert.Empty(t, log.Error)
+		assert.Equal(t, http.StatusOK, log.StatusCode)
+		assert.Equal(t, server.URL+"/oauth/token", log.URL)
+		assert.Equal(t, msgID, log.MsgID)
+	})
+
+	t.Run("each failure", func(t *testing.T) {
+		for _, status := range []int{400, 500} {
+			server := tokenServer(t, status, `{"error":"`+fixtureClientSecret+`"}`)
+			_, log, err := requestAccessToken(tokenChannel(), msgID, customOptions(withCredentials(server.URL)), fixtureRefreshToken)
+			require.Error(t, err)
+			assertClean(t, log)
+			assert.NotEmpty(t, log.Error)
+			assert.Equal(t, status, log.StatusCode)
+		}
+
+		server := tokenServer(t, 200, `not json`)
+		_, log, err := requestAccessToken(tokenChannel(), msgID, customOptions(withCredentials(server.URL)), fixtureRefreshToken)
+		require.Error(t, err)
+		assertClean(t, log)
+
+		closed := httptest.NewServer(http.NotFoundHandler())
+		closedURL := withCredentials(closed.URL)
+		closed.Close()
+		_, log, err = requestAccessToken(tokenChannel(), msgID, customOptions(closedURL), fixtureRefreshToken)
+		require.Error(t, err)
+		assertClean(t, log)
+		assert.Zero(t, log.StatusCode)
+		assert.Equal(t, tokenFailureConnection, log.Error)
+	})
 }

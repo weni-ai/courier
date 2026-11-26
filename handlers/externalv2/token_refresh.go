@@ -3,16 +3,19 @@ package externalv2
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/utils"
+	"github.com/nyaruka/gocommon/dates"
 )
 
 const (
@@ -102,6 +105,15 @@ type tokenResult struct {
 	AccessToken  string
 	RefreshToken string
 	ExpiresAt    int64
+}
+
+// tokenRefreshError is a failed token call. Its text is a fixed reason, never the underlying error.
+type tokenRefreshError struct {
+	Reason string
+}
+
+func (e *tokenRefreshError) Error() string {
+	return "token refresh failed: " + e.Reason
 }
 
 // parseTokenRefreshOptions reads the opt-in keys from the channel config. It returns (nil, nil) when the feature is
@@ -316,4 +328,117 @@ func parseExpiresInSeconds(raw []byte, field string) (int64, bool) {
 		return 0, false
 	}
 	return secondsAtPath(doc, field)
+}
+
+// buildTokenRequest builds the token call. refreshToken is the current refresh token, which may have been rotated
+// since the config was loaded.
+func buildTokenRequest(opts *tokenRefreshOptions, refreshToken string) (*http.Request, error) {
+	var body string
+	if opts.Type == tokenRefreshTypeRefresh {
+		form := url.Values{}
+		form.Set(formFieldGrantType, refreshTokenGrantType)
+		form.Set(formFieldRefreshToken, refreshToken)
+		if opts.ClientID != "" {
+			form.Set(formFieldClientID, opts.ClientID)
+		}
+		if opts.ClientSecret != "" {
+			form.Set(formFieldClientSecret, opts.ClientSecret)
+		}
+		body = form.Encode()
+	} else {
+		body = opts.Config.Body
+	}
+
+	req, err := http.NewRequest(opts.Config.Method, opts.Config.URL, strings.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	for name, value := range opts.Config.Headers {
+		req.Header.Set(name, value)
+	}
+
+	// Header.Get is case-insensitive, so a content-type set by the operator in any letter case is kept
+	if opts.Type == tokenRefreshTypeRefresh && req.Header.Get(headerContentType) == "" {
+		req.Header.Set(headerContentType, contentTypeMappings[contentURLEncoded])
+	}
+
+	return req, nil
+}
+
+// requestAccessToken calls the token endpoint. It always returns a body-less Token Refresh channel log, even on
+// failure. A nil result comes with a *tokenRefreshError whose text is a fixed reason.
+func requestAccessToken(channel courier.Channel, msgID courier.MsgID, opts *tokenRefreshOptions, refreshToken string) (*tokenResult, *courier.ChannelLog, error) {
+	logURL := tokenLogURL(opts.Config.URL)
+
+	fail := func(statusCode int, elapsed time.Duration, reason string) (*tokenResult, *courier.ChannelLog, error) {
+		err := &tokenRefreshError{Reason: reason}
+		log := courier.NewChannelLog(tokenRefreshLogDescription, channel, msgID, opts.Config.Method, logURL, statusCode, "", "", elapsed, errors.New(reason))
+		return nil, log, err
+	}
+
+	req, err := buildTokenRequest(opts, refreshToken)
+	if err != nil {
+		// the request never left: reported as a connection failure, because the Go error would echo the URL
+		return fail(0, 0, tokenFailureConnection)
+	}
+
+	// classify from the RequestResponse and not from err: MakeHTTPRequest also returns an error for a final 3xx,
+	// which the spec treats as a success (research R4)
+	rr, _ := utils.MakeHTTPRequest(req)
+	if rr == nil || rr.StatusCode == 0 {
+		elapsed := time.Duration(0)
+		if rr != nil {
+			elapsed = rr.Elapsed
+		}
+		return fail(0, elapsed, tokenFailureConnection)
+	}
+
+	// the body of an error response is never read
+	if rr.StatusCode >= http.StatusInternalServerError {
+		return fail(rr.StatusCode, rr.Elapsed, tokenFailureStatus5xx)
+	}
+	if rr.StatusCode >= http.StatusBadRequest {
+		return fail(rr.StatusCode, rr.Elapsed, tokenFailureStatus4xx)
+	}
+
+	doc, ok := decodeJSON(rr.Body)
+	if !ok {
+		return fail(rr.StatusCode, rr.Elapsed, tokenFailureInvalidJSON)
+	}
+
+	accessToken, ok := scalarAtPath(doc, opts.Config.TokenField)
+	if !ok {
+		return fail(rr.StatusCode, rr.Elapsed, tokenFailureMissingField)
+	}
+
+	result := &tokenResult{AccessToken: accessToken}
+
+	if opts.Config.RefreshTokenField != "" {
+		// a missing or empty value leaves RefreshToken empty, which keeps the current refresh token
+		result.RefreshToken, _ = scalarAtPath(doc, opts.Config.RefreshTokenField)
+	}
+
+	now := dates.Now().Unix()
+	if seconds, ok := secondsAtPath(doc, opts.Config.ExpiresInField); ok {
+		result.ExpiresAt = now + seconds
+	} else if opts.Config.ExpiresInDefault > 0 {
+		result.ExpiresAt = now + opts.Config.ExpiresInDefault
+	}
+
+	log := courier.NewChannelLog(tokenRefreshLogDescription, channel, msgID, opts.Config.Method, logURL, rr.StatusCode, "", "", rr.Elapsed, nil)
+	return result, log, nil
+}
+
+// tokenLogURL drops the query string, fragment and user info from the token URL, so a credential placed in the URL
+// is not stored in the channel log
+func tokenLogURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	parsed.User = nil
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
 }

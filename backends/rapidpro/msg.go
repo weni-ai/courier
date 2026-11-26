@@ -883,6 +883,67 @@ func GetLastMsgWithExternalID(ctx context.Context, b *backend, channelID courier
 	return scanDBMsgWithMetadata(row)
 }
 
+// selectLastMsgByContactURNSQL is selectLastMsgWithExternalIDSQL without the
+// external_id predicates. A Message-ID longer than the column is stored with
+// an empty external_id and must still be readable as the latest cc snapshot.
+//
+// It keeps only rows whose metadata carries a "cc" key. The reply being sent
+// is already in msgs_msg (status Q, no email metadata) when courier reads the
+// list, and a reply that failed for good never gets metadata. Without this
+// predicate either row would be the newest on the URN and hide the list.
+// The cast to text works for both a text and a jsonb metadata column.
+const selectLastMsgByContactURNSQL = `
+SELECT
+	m.id,
+	m.uuid,
+	m.org_id,
+	m.direction,
+	m.text,
+	m.attachments,
+	m.msg_count,
+	m.error_count,
+	m.high_priority,
+	m.status,
+	m.visibility,
+	m.external_id,
+	m.channel_id,
+	m.contact_id,
+	m.contact_urn_id,
+	m.created_on,
+	m.modified_on,
+	m.queued_on,
+	m.sent_on,
+	m.metadata
+FROM
+	msgs_msg m
+INNER JOIN contacts_contacturn u ON m.contact_urn_id = u.id
+WHERE
+	m.channel_id = $1
+	AND u.identity = $2
+	AND m.visibility = 'V'
+	AND m.metadata IS NOT NULL
+
+
+	AND m.metadata::text LIKE '%"cc"%'
+
+
+ORDER BY
+	m.id DESC
+LIMIT 1
+`
+
+// GetLastMsgByContactURN returns the latest visible message on the channel for
+// the contact URN whose metadata carries a "cc" key. sql.ErrNoRows becomes
+// courier.ErrMsgNotFound.
+func GetLastMsgByContactURN(ctx context.Context, b *backend, channelID courier.ChannelID, urnIdentity string) (*DBMsg, error) {
+	row := b.db.QueryRowxContext(ctx, selectLastMsgByContactURNSQL, channelID, urnIdentity)
+	msg, err := scanDBMsgWithMetadata(row)
+	if err == sql.ErrNoRows {
+		return nil, courier.ErrMsgNotFound
+	}
+	return msg, err
+}
+
 // msgRow is the Scan surface shared by sql.Row / sqlx.Row.
 type msgRow interface {
 	Scan(dest ...interface{}) error

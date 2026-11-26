@@ -1,3 +1,7 @@
+1.81.0
+----------
+ * feat: email channel support for messages with cc, handle in copy participants reply, and handle channel send message to in copy participants.
+
 1.80.0
 ----------
  * feat: implement WAC thread ownership functionality

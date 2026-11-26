@@ -1,3 +1,7 @@
+1.81.0
+----------
+ * feat: write an empty inbound message when a WAC control_passed leaves pending conversation context, so Mailroom delivers the context without waiting for the contact to write (deduplicated per channel, URN and timestamp in Redis)
+
 1.80.0
 ----------
  * feat: implement WAC thread ownership functionality

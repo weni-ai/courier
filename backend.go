@@ -95,6 +95,10 @@ type Backend interface {
 	// WriteWAConversationHandover writes the passed in WA conversation handover to our backend
 	WriteWAConversationHandover(context.Context, WAConversationHandoverEvent) error
 
+	// HasPendingWAConversationHandover returns whether an unconsumed wa_conversation_handover row with
+	// non-empty context exists for the channel and URN. It never creates a contact.
+	HasPendingWAConversationHandover(context.Context, ChannelUUID, urns.URN) (bool, error)
+
 	// PopNextOutgoingMsg returns the next message that needs to be sent, callers should call MarkOutgoingMsgComplete with the
 	// returned message when they have dealt with the message (regardless of whether it was sent or not)
 	PopNextOutgoingMsg(context.Context) (Msg, error)

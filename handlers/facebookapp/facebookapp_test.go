@@ -575,7 +575,8 @@ func TestReceiveWACHandover(t *testing.T) {
 				return
 			}
 
-			assert.Equal(t, 0, mb.LenQueuedMsgs())
+			// a persisted context leaves a pending row, so WAC also writes the empty handover message
+			assert.Equal(t, tc.eventCount, mb.LenQueuedMsgs())
 			events := mb.WAHandoverEvents()
 			assert.Len(t, events, tc.eventCount)
 
@@ -595,7 +596,8 @@ func TestReceiveWACHandover(t *testing.T) {
 			assert.Equal(t, tc.wantTS, got["ts"])
 
 			if tc.repost {
-				handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, string(courier.ReadFile(tc.fixture)), nil, 200, Sp(tc.response), addValidSignatureWAC)
+				// same channel, URN and timestamp: Meta's redelivery is ignored but ownership stays applied
+				handlers.TestHandlerRequest(t, s, wacReceiveURL, nil, string(courier.ReadFile(tc.fixture)), nil, 200, Sp(wacHandoverInfoDuplicate), addValidSignatureWAC)
 				again := threadOwnerHash(t, mb, testChannelsWAC[0], expectedURN)
 				assert.Equal(t, tc.wantState, again["state"])
 				assert.Equal(t, tc.wantTS, again["ts"])

@@ -42,6 +42,12 @@ type MockBackend struct {
 	errorOnWAHandover bool
 	backendCalls      []string
 
+	// pendingWAHandovers mirrors unconsumed wa_conversation_handover rows with non-empty context,
+	// keyed "<channelUUID>|<urnIdentity>".
+	pendingWAHandovers    map[string]bool
+	errorOnWAPendingCheck bool
+	waPendingCheckCalls   int
+
 	mutex            sync.RWMutex
 	outgoingMsgs     []Msg
 	msgStatuses      []MsgStatus
@@ -402,7 +408,63 @@ func (mb *MockBackend) WriteWAConversationHandover(ctx context.Context, event WA
 	}
 
 	mb.waHandoverEvents = append(mb.waHandoverEvents, event)
+	if event.ContextText != "" {
+		mb.setPendingWAHandoverLocked(event.ChannelUUID, event.ContactURN, true)
+	}
 	return nil
+}
+
+func pendingWAHandoverKey(channelUUID ChannelUUID, urn urns.URN) string {
+	return channelUUID.String() + "|" + string(urn.Identity())
+}
+
+// setPendingWAHandoverLocked requires mb.mutex to be held for writing.
+func (mb *MockBackend) setPendingWAHandoverLocked(channelUUID ChannelUUID, urn urns.URN, pending bool) {
+	if mb.pendingWAHandovers == nil {
+		mb.pendingWAHandovers = make(map[string]bool)
+	}
+	mb.pendingWAHandovers[pendingWAHandoverKey(channelUUID, urn)] = pending
+}
+
+// HasPendingWAConversationHandover reports whether a pending row with context exists (mock implementation)
+func (mb *MockBackend) HasPendingWAConversationHandover(ctx context.Context, channelUUID ChannelUUID, urn urns.URN) (bool, error) {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+
+	mb.waPendingCheckCalls++
+	if mb.errorOnWAPendingCheck {
+		return false, errors.New("unable to check pending wa conversation handover")
+	}
+	return mb.pendingWAHandovers[pendingWAHandoverKey(channelUUID, urn)], nil
+}
+
+// SeedPendingWAConversationHandover marks a pending row with context for the channel and URN, as standby
+// or messages accumulation would.
+func (mb *MockBackend) SeedPendingWAConversationHandover(channelUUID ChannelUUID, urn urns.URN) {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+	mb.setPendingWAHandoverLocked(channelUUID, urn, true)
+}
+
+// ConsumePendingWAConversationHandover clears the pending row, as Mailroom does when it consumes it.
+func (mb *MockBackend) ConsumePendingWAConversationHandover(channelUUID ChannelUUID, urn urns.URN) {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+	mb.setPendingWAHandoverLocked(channelUUID, urn, false)
+}
+
+// SetErrorOnWAPendingCheck makes HasPendingWAConversationHandover return an error.
+func (mb *MockBackend) SetErrorOnWAPendingCheck(shouldError bool) {
+	mb.mutex.Lock()
+	defer mb.mutex.Unlock()
+	mb.errorOnWAPendingCheck = shouldError
+}
+
+// PendingCheckCalls returns how many times HasPendingWAConversationHandover was called.
+func (mb *MockBackend) PendingCheckCalls() int {
+	mb.mutex.RLock()
+	defer mb.mutex.RUnlock()
+	return mb.waPendingCheckCalls
 }
 
 // CtwaEvents returns CTWA events written through the mock backend.

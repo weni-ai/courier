@@ -1,0 +1,35 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "123456789012345",
+      "changes": [
+        {
+          "field": "messaging_handovers",
+          "value": {
+            "messaging_product": "whatsapp",
+            "sender": {
+              "phone_number": "5588991234567"
+            },
+            "recipient": {
+              "phone_number_id": "987654321098765",
+              "display_phone_number": "558833123456"
+            },
+            "type": "control_passed",
+            "control_passed": {
+              "previous_owner_role": "ai_agent",
+              "new_owner_role": "escalation",
+              "metadata": "Cliente solicitou atendimento humano",
+              "conversation_context": {
+                "type": "summary",
+                "summary": {
+                  "text": "O cliente informou que o pedido chegou com um item faltando e pediu ajuda para receber o produto."
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

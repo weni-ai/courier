@@ -3,11 +3,14 @@ package rapidpro
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
+	"github.com/gomodule/redigo/redis"
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/gocommon/urns"
+	"github.com/nyaruka/null"
 )
 
 const whatsappCloudChannelUUID = "dbc126ed-66bc-4e28-b67b-81dc3327c95d"
@@ -234,4 +237,108 @@ func (ts *BackendTestSuite) TestWriteWAConversationHandoverEmptyTextNewline() {
 	rows = ts.pendingHandoverRows()
 	ts.Len(rows, 1)
 	ts.Equal("hi", rows[0].ContextText)
+}
+
+func (ts *BackendTestSuite) hasPendingWAHandover(channelUUID courier.ChannelUUID, urn urns.URN) bool {
+	pending, err := ts.b.HasPendingWAConversationHandover(context.Background(), channelUUID, urn)
+	ts.NoError(err)
+	return pending
+}
+
+func (ts *BackendTestSuite) TestHasPendingWAConversationHandover() {
+	ts.deleteWAHandoverRows()
+
+	uuid, err := courier.NewChannelUUID(whatsappCloudChannelUUID)
+	ts.NoError(err)
+	event := newTestWAHandoverEvent(uuid, courier.WAHandoverContextSummary, "Summary text")
+
+	// nothing written yet
+	ts.False(ts.hasPendingWAHandover(uuid, event.ContactURN))
+
+	ts.NoError(writeWAConversationHandoverToDB(context.Background(), ts.b, event))
+	ts.True(ts.hasPendingWAHandover(uuid, event.ContactURN))
+
+	// another URN on the same channel has nothing pending, and the check must not create a contact for it
+	other, err := urns.NewWhatsAppURN("5588000000000")
+	ts.NoError(err)
+	ts.False(ts.hasPendingWAHandover(uuid, other))
+	var urnCount int
+	ts.NoError(ts.b.db.Get(&urnCount, `SELECT count(*) FROM contacts_contacturn WHERE identity = $1`, string(other.Identity())))
+	ts.Equal(0, urnCount)
+
+	// the same URN on another channel has nothing pending
+	otherChannel, err := courier.NewChannelUUID("8eb23e93-5ecb-45ba-b726-3b064e0c568c")
+	ts.NoError(err)
+	ts.False(ts.hasPendingWAHandover(otherChannel, event.ContactURN))
+
+	// a row without context does not count
+	_, err = ts.b.db.Exec(`UPDATE wa_conversation_handover SET context_text = '' WHERE consumed_on IS NULL AND channel_id = (SELECT id FROM channels_channel WHERE uuid = $1)`, whatsappCloudChannelUUID)
+	ts.NoError(err)
+	ts.False(ts.hasPendingWAHandover(uuid, event.ContactURN))
+
+	// a consumed row does not count
+	_, err = ts.b.db.Exec(`UPDATE wa_conversation_handover SET context_text = 'Summary text', consumed_on = NOW() WHERE channel_id = (SELECT id FROM channels_channel WHERE uuid = $1)`, whatsappCloudChannelUUID)
+	ts.NoError(err)
+	ts.False(ts.hasPendingWAHandover(uuid, event.ContactURN))
+
+	// a new pending row after consumption counts again
+	ts.NoError(writeWAConversationHandoverToDB(context.Background(), ts.b, event))
+	ts.True(ts.hasPendingWAHandover(uuid, event.ContactURN))
+}
+
+// The synthetic handover message has empty text and no external id; both must be accepted by the write and by the
+// msg_event queued to Mailroom.
+func (ts *BackendTestSuite) TestWriteMsgWithoutExternalIDAndText() {
+	ctx := context.Background()
+	channel := ts.getChannel("KN", whatsappCloudChannelUUID)
+	urn, err := urns.NewWhatsAppURN("5588991234567")
+	ts.NoError(err)
+
+	metadata := json.RawMessage(`{"new_owner_role":"escalation","previous_owner_app_role":"marketing","wa_handover":true}`)
+	msg := ts.b.NewIncomingMsg(channel, urn, "").WithMetadata(metadata).(*DBMsg)
+	ts.NoError(ts.b.WriteMsg(ctx, msg))
+	ts.NotZero(msg.ID())
+
+	var row struct {
+		ExternalIDIsNull bool        `db:"external_id_is_null"`
+		Text             string      `db:"text"`
+		Metadata         null.String `db:"metadata"`
+	}
+	ts.NoError(ts.b.db.Get(&row, `SELECT external_id IS NULL AS external_id_is_null, text, metadata FROM msgs_msg WHERE id = $1`, msg.ID()))
+	ts.True(row.ExternalIDIsNull)
+	ts.Equal("", row.Text)
+	ts.JSONEq(string(metadata), string(row.Metadata))
+
+	rc := ts.b.redisPool.Get()
+	defer rc.Close()
+	data, err := redis.Bytes(rc.Do("LPOP", fmt.Sprintf("c:1:%d", msg.ContactID_)))
+	ts.NoError(err)
+
+	var body struct {
+		Type string                 `json:"type"`
+		Task map[string]interface{} `json:"task"`
+	}
+	ts.NoError(json.Unmarshal(data, &body))
+	ts.Equal("msg_event", body.Type)
+	ts.Equal("", body.Task["msg_external_id"])
+	ts.Equal("", body.Task["text"])
+	ts.Equal(map[string]interface{}{"new_owner_role": "escalation", "previous_owner_app_role": "marketing", "wa_handover": true}, body.Task["metadata"])
+}
+
+// Known limit recorded in spec 009: with empty text the backend's seen-window cannot tell two handover messages
+// apart, so the second WriteMsg inside the window is a no-op. Its context is already in the pending row.
+func (ts *BackendTestSuite) TestEmptyHandoverMsgsCollapseInSeenWindow() {
+	ctx := context.Background()
+	channel := ts.getChannel("KN", whatsappCloudChannelUUID)
+	urn, err := urns.NewWhatsAppURN("5588991230000")
+	ts.NoError(err)
+
+	first := ts.b.NewIncomingMsg(channel, urn, "").(*DBMsg)
+	ts.False(first.alreadyWritten)
+	ts.NoError(ts.b.WriteMsg(ctx, first))
+
+	second := ts.b.NewIncomingMsg(channel, urn, "").(*DBMsg)
+	ts.True(second.alreadyWritten)
+	ts.Equal(first.UUID(), second.UUID())
+	ts.NoError(ts.b.WriteMsg(ctx, second))
 }

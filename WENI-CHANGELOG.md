@@ -1,3 +1,7 @@
+1.82.0
+----------
+ * feat: send WAC handover context to Nexus on control_passed
+
 1.81.0
 ----------
  * feat: email channel support for messages with cc, handle in copy participants reply, and handle channel send message to in copy participants.

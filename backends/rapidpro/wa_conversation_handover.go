@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nyaruka/courier"
+	"github.com/nyaruka/gocommon/urns"
 	"github.com/nyaruka/null"
 	"github.com/sirupsen/logrus"
 )
@@ -116,6 +117,30 @@ func writeWAConversationHandoverToDB(ctx context.Context, b *backend, event cour
 
 	_, err = b.db.NamedExecContext(ctx, upsertWAConversationHandoverSQL, row)
 	return err
+}
+
+// hasPendingWAConversationHandoverSQL is read-only: it resolves the contact through the URN identity
+// (the same key the upsert resolves through) and never creates a contact.
+const hasPendingWAConversationHandoverSQL = `
+SELECT EXISTS (
+	SELECT 1
+	  FROM wa_conversation_handover h
+	  JOIN channels_channel ch ON ch.id = h.channel_id
+	  JOIN contacts_contacturn u ON u.contact_id = h.contact_id AND u.org_id = h.org_id
+	 WHERE ch.uuid = $1
+	   AND u.identity = $2
+	   AND h.consumed_on IS NULL
+	   AND h.context_text <> ''
+)`
+
+// HasPendingWAConversationHandover returns whether an unconsumed row with non-empty context exists for the channel and URN
+func (b *backend) HasPendingWAConversationHandover(ctx context.Context, channelUUID courier.ChannelUUID, urn urns.URN) (bool, error) {
+	timeout, cancel := context.WithTimeout(ctx, backendTimeout)
+	defer cancel()
+
+	var pending bool
+	err := b.db.GetContext(timeout, &pending, hasPendingWAConversationHandoverSQL, channelUUID.String(), string(urn.Identity()))
+	return pending, err
 }
 
 func (b *backend) flushWAConversationHandoverFile(filename string, contents []byte) error {

@@ -425,6 +425,10 @@ func (h *handler) processMessagingHandover(
 		return "control_taken recorded", nil
 	}
 
+	if channel.ChannelType() == "WAC" {
+		return h.processWACControlPassed(ctx, channel, urn, value, occurredOn)
+	}
+
 	contextType, contextText, ok := renderWAHandoverContextText(resolveWAHandoverConversationContext(value))
 	if !ok {
 		logMessagingHandoverReceived(channel, messagingHandoverLogFields(value, occurredOn, string(urn.Identity()), "", "", "skipped_no_context"))

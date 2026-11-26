@@ -922,7 +922,9 @@ WHERE
 	AND u.identity = $2
 	AND m.visibility = 'V'
 	AND m.metadata IS NOT NULL
-	AND m.metadata::text LIKE '%"cc"%'
+
+	AND jsonb_typeof(m.metadata::jsonb->'email'->'cc') = 'array'
+
 ORDER BY
 	m.id DESC
 LIMIT 1

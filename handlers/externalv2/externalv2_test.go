@@ -1,12 +1,24 @@
 package externalv2
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/nyaruka/courier"
 	. "github.com/nyaruka/courier/handlers"
+	"github.com/nyaruka/gocommon/dates"
+	"github.com/nyaruka/gocommon/urns"
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -303,6 +315,772 @@ func TestSendingWithCustomURL(t *testing.T) {
 
 func setSendCustomURL(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
 	c.(*courier.MockChannel).SetConfig(configSendUrlTemplate, s.URL+"/{{.urn_auth}}")
+}
+
+// ---------------------------------------------------------------------------
+// OAuth2 token refresh on the send path
+// ---------------------------------------------------------------------------
+
+const (
+	partnerPath = "/send"
+	mediaPath   = "/media"
+	tokenPath   = "/token"
+
+	// a unix expiry in the past (2001), so the stored token counts as expired
+	pastExpiry = "1000000000"
+
+	testURNPath = "+250788383383"
+)
+
+var (
+	tokenReq   = MockedRequest{Method: "POST", Path: tokenPath, BodyContains: "grant_type"}
+	partnerReq = MockedRequest{Method: "POST", Path: partnerPath, BodyContains: `"to"`}
+	tokenOK    = MockedResponse{Status: 200, Body: `{"access_token":"` + fixtureAccessToken2 + `"}`}
+	partnerOK  = MockedResponse{Status: 200, Body: `{"status":"success"}`}
+)
+
+func futureExpiry() string {
+	return strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
+}
+
+func mustJSON(v interface{}) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}
+
+// newSendRefreshChannel returns a channel with the feature on and an expired token. Tests that refresh use their own
+// channel: the mock backend replaces the channel config on save, so a shared channel would leak into the next case.
+func newSendRefreshChannel(extra map[string]interface{}) *courier.MockChannel {
+	config := map[string]interface{}{
+		courier.ConfigSendMethod:        "POST",
+		courier.ConfigContentType:       "json",
+		configSendTemplate:              `{"to":"{{.urn.path}}","text":"{{.text}}"}`,
+		courier.ConfigSendAuthorization: "Bearer " + fixtureAccessToken1,
+		configTokenRefreshEnabled:       "true",
+		configTokenRefreshType:          tokenRefreshTypeCustom,
+		configExpiresIn:                 pastExpiry,
+	}
+	for k, v := range extra {
+		config[k] = v
+	}
+	return courier.NewMockChannel(testChannelUUID, "E2", "2020", "US", config)
+}
+
+func tokenRefreshJSON(tokenURL, tokenType string, expired bool, statusCodes []int, bodyContains []string) string {
+	cfg := map[string]interface{}{
+		"when": map[string]interface{}{
+			"match":         "any",
+			"status_codes":  statusCodes,
+			"body_contains": bodyContains,
+			"expired":       expired,
+		},
+		"url":                 tokenURL,
+		"token_field":         "access_token",
+		"refresh_token_field": "refresh_token",
+		"expires_in_field":    "expires_in",
+	}
+	if tokenType == tokenRefreshTypeCustom {
+		cfg["body"] = "grant_type=password&client_secret=" + fixtureClientSecret
+	}
+	return mustJSON(cfg)
+}
+
+// prepRefresh points the channel at the test server for both the partner and the token endpoint
+func prepRefresh(tokenType string, expired bool, statusCodes []int) SendPrepFunc {
+	return func(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+		ch := c.(*courier.MockChannel)
+		ch.SetConfig(courier.ConfigSendURL, s.URL+partnerPath)
+		ch.SetConfig(configSendMediaURL, s.URL+mediaPath)
+		ch.SetConfig(configTokenRefreshType, tokenType)
+		ch.SetConfig(configTokenRefreshConfig, tokenRefreshJSON(s.URL+tokenPath, tokenType, expired, statusCodes, nil))
+	}
+}
+
+func TestSendingTokenRefreshDisabled(t *testing.T) {
+	// a token URL on a closed port: had the handler called it, the send would end in E
+	closedTokenURL := "http://127.0.0.1:1" + tokenPath
+
+	variants := map[string]string{"unset": "", "false": "false", "no": "no"}
+	for label, value := range variants {
+		t.Run(label, func(t *testing.T) {
+			channel := newSendRefreshChannel(map[string]interface{}{courier.ConfigSendAuthorization: "Basic dGVzdDp0ZXN0"})
+			if value == "" {
+				delete(channel.Config(), configTokenRefreshEnabled)
+			} else {
+				channel.SetConfig(configTokenRefreshEnabled, value)
+			}
+
+			RunChannelSendTestCases(t, channel, newHandler(), []ChannelSendTestCase{{
+				Label: "refresh disabled", Text: "Hello", URN: "tel:" + testURNPath,
+				Status:       "W",
+				ResponseBody: `{"status":"success"}`, ResponseStatus: 200,
+				Headers: map[string]string{"Authorization": "Basic dGVzdDp0ZXN0"},
+				Path:    partnerPath,
+				SendPrep: func(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+					ch := c.(*courier.MockChannel)
+					ch.SetConfig(courier.ConfigSendURL, s.URL+partnerPath)
+					ch.SetConfig(configTokenRefreshConfig, tokenRefreshJSON(closedTokenURL, tokenRefreshTypeCustom, true, []int{200}, nil))
+				},
+			}}, nil)
+		})
+	}
+}
+
+func TestSendingTokenRefreshExpired(t *testing.T) {
+	for _, tokenType := range []string{tokenRefreshTypeCustom, tokenRefreshTypeRefresh} {
+		t.Run(tokenType, func(t *testing.T) {
+			channel := newSendRefreshChannel(map[string]interface{}{configRefreshToken: fixtureRefreshToken})
+
+			RunChannelSendTestCases(t, channel, newHandler(), []ChannelSendTestCase{{
+				Label: "expired token is refreshed before the partner call", Text: "Hello", URN: "tel:" + testURNPath,
+				Status:    "W",
+				Responses: map[MockedRequest]MockedResponse{tokenReq: tokenOK, partnerReq: partnerOK},
+				Headers:   map[string]string{"Authorization": "Bearer " + fixtureAccessToken2},
+				Path:      partnerPath,
+				SendPrep:  prepRefresh(tokenType, true, nil),
+			}}, nil)
+		})
+	}
+}
+
+func TestSendingTokenRefreshTokenFailure(t *testing.T) {
+	failures := map[string]MockedResponse{
+		"token 400":     {Status: 400, Body: `{"error":"invalid_grant"}`},
+		"token 500":     {Status: 500, Body: `boom`},
+		"no token":      {Status: 200, Body: `{"other":"x"}`},
+		"invalid json":  {Status: 200, Body: `not json`},
+		"empty token":   {Status: 200, Body: `{"access_token":""}`},
+		"non scalar":    {Status: 200, Body: `{"access_token":["x"]}`},
+		"error w/ body": {Status: 401, Body: `{"access_token":"` + fixtureAccessToken2 + `"}`},
+	}
+
+	for label, response := range failures {
+		t.Run(label, func(t *testing.T) {
+			channel := newSendRefreshChannel(nil)
+
+			RunChannelSendTestCases(t, channel, newHandler(), []ChannelSendTestCase{{
+				Label: "token failure never reaches the partner", Text: "Hello", URN: "tel:" + testURNPath,
+				Status:    "E",
+				Responses: map[MockedRequest]MockedResponse{tokenReq: response},
+				// the partner was not called: the token request is the last one the server saw
+				Path:     tokenPath,
+				SendPrep: prepRefresh(tokenRefreshTypeCustom, true, nil),
+			}}, nil)
+		})
+	}
+}
+
+func TestSendingTokenRefreshInvalidConfig(t *testing.T) {
+	valid := tokenRefreshJSON("https://auth.example.invalid/token", tokenRefreshTypeCustom, true, nil, nil)
+
+	tcs := []struct {
+		label string
+		set   map[string]interface{}
+		err   string
+	}{
+		{"missing type", map[string]interface{}{configTokenRefreshType: ""}, "token_refresh_type must be custom or refresh"},
+		{"unknown type", map[string]interface{}{configTokenRefreshType: "oauth"}, "token_refresh_type must be custom or refresh"},
+		{"empty config", map[string]interface{}{configTokenRefreshConfig: ""}, "missing token_refresh_config in E2 channel config"},
+		{"missing url", map[string]interface{}{configTokenRefreshConfig: `{"body":"x"}`}, "token_refresh_config.url is required"},
+		{"bad match", map[string]interface{}{configTokenRefreshConfig: `{"when":{"match":"all"},"url":"https://auth.example.invalid/t","body":"x"}`}, "token_refresh_config.when.match must be any"},
+		{"custom without body", map[string]interface{}{configTokenRefreshConfig: `{"url":"https://auth.example.invalid/t"}`}, "token_refresh_config.body is required when token_refresh_type is custom"},
+		{"refresh without refresh_token", map[string]interface{}{configTokenRefreshType: "refresh"}, "refresh_token is required when token_refresh_type is refresh"},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.label, func(t *testing.T) {
+			channel := newSendRefreshChannel(map[string]interface{}{configTokenRefreshConfig: valid})
+			for k, v := range tc.set {
+				channel.SetConfig(k, v)
+			}
+
+			RunChannelSendTestCases(t, channel, newHandler(), []ChannelSendTestCase{{
+				Label: "invalid enabled config", Text: "Hello", URN: "tel:" + testURNPath,
+				Error: tc.err,
+				SendPrep: func(s *httptest.Server, h courier.ChannelHandler, c courier.Channel, m courier.Msg) {
+					c.(*courier.MockChannel).SetConfig(courier.ConfigSendURL, s.URL+partnerPath)
+				},
+			}}, nil)
+		})
+	}
+}
+
+// ---- direct tests: stateful servers, counters and logs ----
+
+type stubResponse struct {
+	status int
+	body   string
+}
+
+// stubServer answers the partner path from a queue (the last answer repeats) and the token path with one answer, and
+// counts the calls. The harness Responses map cannot answer one request shape twice, so it cannot express a 401 that
+// is followed by a 200.
+type stubServer struct {
+	*httptest.Server
+
+	mu           sync.Mutex
+	partner      []stubResponse
+	token        stubResponse
+	partnerCalls int
+	tokenCalls   int
+	partnerAuth  []string
+}
+
+func newStubServer(t *testing.T, partner []stubResponse, token stubResponse) *stubServer {
+	stub := &stubServer{partner: partner, token: token}
+	stub.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+
+		stub.mu.Lock()
+		defer stub.mu.Unlock()
+
+		answer := stub.token
+		if r.URL.Path == tokenPath {
+			stub.tokenCalls++
+		} else {
+			answer = stub.partner[min(stub.partnerCalls, len(stub.partner)-1)]
+			stub.partnerCalls++
+			stub.partnerAuth = append(stub.partnerAuth, r.Header.Get("Authorization"))
+		}
+		w.WriteHeader(answer.status)
+		_, _ = w.Write([]byte(answer.body))
+	}))
+	t.Cleanup(stub.Close)
+	return stub
+}
+
+func (s *stubServer) counts() (partnerCalls, tokenCalls int, auth []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.partnerCalls, s.tokenCalls, append([]string(nil), s.partnerAuth...)
+}
+
+type directSetup struct {
+	partnerURL   string
+	tokenURL     string
+	tokenType    string
+	expired      bool
+	statusCodes  []int
+	bodyContains []string
+	extra        map[string]interface{}
+}
+
+// channel builds a channel with a future expiry (no proactive refresh) unless extra says otherwise
+func (d directSetup) channel() *courier.MockChannel {
+	tokenType := d.tokenType
+	if tokenType == "" {
+		tokenType = tokenRefreshTypeCustom
+	}
+	config := map[string]interface{}{
+		configExpiresIn:          futureExpiry(),
+		configRefreshToken:       fixtureRefreshToken,
+		courier.ConfigSendURL:    d.partnerURL + partnerPath,
+		configSendMediaURL:       d.partnerURL + partnerPath,
+		configTokenRefreshType:   tokenType,
+		configTokenRefreshConfig: tokenRefreshJSON(d.tokenURL+tokenPath, tokenType, d.expired, d.statusCodes, d.bodyContains),
+		configSendTemplate:       `{"to":"{{.urn.path}}","text":"{{.text}}"{{range .attachments}},"media":"{{attURL .}}"{{end}}}`,
+	}
+	for k, v := range d.extra {
+		config[k] = v
+	}
+	return newSendRefreshChannel(config)
+}
+
+func stubSetup(stub *stubServer) directSetup {
+	return directSetup{partnerURL: stub.URL, tokenURL: stub.URL}
+}
+
+func directSend(t *testing.T, mb *courier.MockBackend, backend courier.Backend, channel *courier.MockChannel, text string, attachments ...string) (courier.MsgStatus, error) {
+	t.Helper()
+
+	mb.AddChannel(channel)
+	handler := newHandler()
+	require.NoError(t, handler.Initialize(NewTestServer(backend)))
+
+	msg := mb.NewOutgoingMsg(channel, courier.NewMsgID(10), urns.URN("tel:"+testURNPath), text, false, nil, "", 0, "", "")
+	for _, attachment := range attachments {
+		msg.WithAttachment(attachment)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return handler.SendMsg(ctx, msg)
+}
+
+func sendDirect(t *testing.T, channel *courier.MockChannel, text string, attachments ...string) (courier.MsgStatus, error) {
+	t.Helper()
+	mb := courier.NewMockBackend()
+	return directSend(t, mb, mb, channel, text, attachments...)
+}
+
+func bearer(token string) string { return "Bearer " + token }
+
+func TestSendingTokenRefreshReplay(t *testing.T) {
+	t.Run("401 then token then 200", func(t *testing.T) {
+		stub := newStubServer(t, []stubResponse{{401, `{"error":"expired"}`}, {200, `{"status":"success"}`}}, stubResponse{200, tokenOK.Body})
+		setup := stubSetup(stub)
+		setup.statusCodes = []int{401}
+
+		status, err := sendDirect(t, setup.channel(), "Hello")
+		require.NoError(t, err)
+		assert.Equal(t, courier.MsgWired, status.Status())
+
+		partnerCalls, tokenCalls, auth := stub.counts()
+		assert.Equal(t, 2, partnerCalls)
+		assert.Equal(t, 1, tokenCalls)
+		assert.Equal(t, []string{bearer(fixtureAccessToken1), bearer(fixtureAccessToken2)}, auth)
+	})
+
+	t.Run("two consecutive 401 end errored with one token call", func(t *testing.T) {
+		stub := newStubServer(t, []stubResponse{{401, `{"error":"expired"}`}}, stubResponse{200, tokenOK.Body})
+		setup := stubSetup(stub)
+		setup.statusCodes = []int{401}
+
+		status, err := sendDirect(t, setup.channel(), "Hello")
+		require.NoError(t, err)
+		assert.Equal(t, courier.MsgErrored, status.Status())
+
+		partnerCalls, tokenCalls, _ := stub.counts()
+		assert.Equal(t, 2, partnerCalls)
+		assert.Equal(t, 1, tokenCalls)
+	})
+}
+
+func TestSendingTokenRefreshReplayBody(t *testing.T) {
+	t.Run("non-2xx with the needle is replayed once", func(t *testing.T) {
+		stub := newStubServer(t, []stubResponse{{400, `{"error":"token_expired"}`}, {200, `{"status":"success"}`}}, stubResponse{200, tokenOK.Body})
+		setup := stubSetup(stub)
+		setup.bodyContains = []string{"token_expired"}
+
+		status, err := sendDirect(t, setup.channel(), "Hello")
+		require.NoError(t, err)
+		assert.Equal(t, courier.MsgWired, status.Status())
+
+		partnerCalls, tokenCalls, _ := stub.counts()
+		assert.Equal(t, 2, partnerCalls)
+		assert.Equal(t, 1, tokenCalls)
+	})
+
+	t.Run("5xx with the needle is replayed once", func(t *testing.T) {
+		stub := newStubServer(t, []stubResponse{{500, `token_expired`}, {200, `{"status":"success"}`}}, stubResponse{200, tokenOK.Body})
+		setup := stubSetup(stub)
+		setup.statusCodes = []int{401}
+		setup.bodyContains = []string{"token_expired"}
+
+		status, err := sendDirect(t, setup.channel(), "Hello")
+		require.NoError(t, err)
+		assert.Equal(t, courier.MsgWired, status.Status())
+
+		partnerCalls, tokenCalls, _ := stub.counts()
+		assert.Equal(t, 2, partnerCalls)
+		assert.Equal(t, 1, tokenCalls)
+	})
+
+	t.Run("200 with the needle is not replayed", func(t *testing.T) {
+		stub := newStubServer(t, []stubResponse{{200, `{"note":"token_expired"}`}}, stubResponse{200, tokenOK.Body})
+		setup := stubSetup(stub)
+		setup.bodyContains = []string{"token_expired"}
+
+		status, err := sendDirect(t, setup.channel(), "Hello")
+		require.NoError(t, err)
+		assert.Equal(t, courier.MsgWired, status.Status())
+
+		partnerCalls, tokenCalls, _ := stub.counts()
+		assert.Equal(t, 1, partnerCalls)
+		assert.Equal(t, 0, tokenCalls)
+	})
+
+	t.Run("a listed status replays whatever the body says", func(t *testing.T) {
+		stub := newStubServer(t, []stubResponse{{418, `short and stout`}, {200, `{"status":"success"}`}}, stubResponse{200, tokenOK.Body})
+		setup := stubSetup(stub)
+		setup.statusCodes = []int{418}
+
+		status, err := sendDirect(t, setup.channel(), "Hello")
+		require.NoError(t, err)
+		assert.Equal(t, courier.MsgWired, status.Status())
+
+		partnerCalls, tokenCalls, _ := stub.counts()
+		assert.Equal(t, 2, partnerCalls)
+		assert.Equal(t, 1, tokenCalls)
+	})
+}
+
+func TestSendingTokenRefreshConnectionError(t *testing.T) {
+	partner := httptest.NewServer(http.NotFoundHandler())
+	closedURL := partner.URL
+	partner.Close()
+
+	tokens := newStubServer(t, []stubResponse{{200, ""}}, stubResponse{200, tokenOK.Body})
+	setup := directSetup{partnerURL: closedURL, tokenURL: tokens.URL, statusCodes: []int{401}, bodyContains: []string{"token_expired"}}
+
+	status, err := sendDirect(t, setup.channel(), "Hello")
+	require.NoError(t, err)
+	assert.Equal(t, courier.MsgErrored, status.Status())
+
+	_, tokenCalls, _ := tokens.counts()
+	assert.Equal(t, 0, tokenCalls)
+}
+
+func TestSendingTokenRefreshReplayFailure(t *testing.T) {
+	t.Run("token call fails after a match", func(t *testing.T) {
+		stub := newStubServer(t, []stubResponse{{401, `{"error":"expired"}`}}, stubResponse{500, `boom`})
+		setup := stubSetup(stub)
+		setup.statusCodes = []int{401}
+
+		status, err := sendDirect(t, setup.channel(), "Hello")
+		require.NoError(t, err)
+		assert.Equal(t, courier.MsgErrored, status.Status())
+
+		partnerCalls, tokenCalls, _ := stub.counts()
+		assert.Equal(t, 1, partnerCalls)
+		assert.Equal(t, 1, tokenCalls)
+	})
+
+	t.Run("matching 2xx status whose refresh fails is still an error", func(t *testing.T) {
+		stub := newStubServer(t, []stubResponse{{200, `{"status":"success"}`}}, stubResponse{500, `boom`})
+		setup := stubSetup(stub)
+		setup.statusCodes = []int{200}
+
+		status, err := sendDirect(t, setup.channel(), "Hello")
+		require.NoError(t, err)
+		assert.Equal(t, courier.MsgErrored, status.Status())
+	})
+
+	t.Run("per part bound: 2 token calls and 2 partner calls", func(t *testing.T) {
+		stub := newStubServer(t, []stubResponse{{401, `{"error":"expired"}`}}, stubResponse{200, tokenOK.Body})
+		setup := stubSetup(stub)
+		setup.statusCodes = []int{401}
+		setup.expired = true
+		setup.extra = map[string]interface{}{configExpiresIn: pastExpiry}
+
+		status, err := sendDirect(t, setup.channel(), "Hello")
+		require.NoError(t, err)
+		assert.Equal(t, courier.MsgErrored, status.Status())
+
+		partnerCalls, tokenCalls, _ := stub.counts()
+		assert.Equal(t, 2, partnerCalls, "one send and one replay")
+		assert.Equal(t, 2, tokenCalls, "one proactive and one after the match")
+	})
+}
+
+func TestSendingTokenRefreshPartnerServerError(t *testing.T) {
+	channel := newSendRefreshChannel(map[string]interface{}{configExpiresIn: futureExpiry()})
+
+	RunChannelSendTestCases(t, channel, newHandler(), []ChannelSendTestCase{{
+		Label: "partner 5xx that does not match when", Text: "Hello", URN: "tel:" + testURNPath,
+		Status:    "E",
+		Responses: map[MockedRequest]MockedResponse{partnerReq: {Status: 500, Body: `{"error":"boom"}`}},
+		Headers:   map[string]string{"Authorization": bearer(fixtureAccessToken1)},
+		// a token call after the 500 would make the token path the last one the server saw
+		Path:     partnerPath,
+		SendPrep: prepRefresh(tokenRefreshTypeCustom, true, []int{401}),
+	}}, nil)
+}
+
+func TestSendingTokenRefreshInParts(t *testing.T) {
+	channel := newSendRefreshChannel(map[string]interface{}{
+		configSendAttachmentInParts: "true",
+		configSendTemplate:          `{"to":"{{.urn.path}}","text":"{{.text}}",{{range .attachments}}"media":"{{attURL .}}"{{end}}}`,
+	})
+
+	RunChannelSendTestCases(t, channel, newHandler(), []ChannelSendTestCase{{
+		Label: "one token call for every part", Text: "Hello", URN: "tel:" + testURNPath,
+		Attachments: []string{"image/jpeg:https://foo.bar/1.jpg", "image/jpeg:https://foo.bar/2.jpg"},
+		Status:      "W",
+		Responses: map[MockedRequest]MockedResponse{
+			tokenReq: tokenOK,
+			{Method: "POST", Path: mediaPath, BodyContains: "1.jpg"}:            partnerOK,
+			{Method: "POST", Path: mediaPath, BodyContains: "2.jpg"}:            partnerOK,
+			{Method: "POST", Path: partnerPath, BodyContains: `"text":"Hello"`}: partnerOK,
+		},
+		Headers:  map[string]string{"Authorization": bearer(fixtureAccessToken2)},
+		SendPrep: prepRefresh(tokenRefreshTypeCustom, true, nil),
+	}}, nil)
+}
+
+func TestSendingTokenRefreshPartsReplay(t *testing.T) {
+	// part 1 (attachment): 401, replay 200. part 2 (attachment) and the text part: 200.
+	stub := newStubServer(t, []stubResponse{{401, `{"error":"expired"}`}, {200, `{"status":"success"}`}}, stubResponse{200, tokenOK.Body})
+	// the queue repeats its last answer, so everything after the replay is a 200
+	setup := stubSetup(stub)
+	setup.statusCodes = []int{401}
+	setup.extra = map[string]interface{}{configSendAttachmentInParts: "true"}
+
+	status, err := sendDirect(t, setup.channel(), "Hello", "image/jpeg:https://foo.bar/1.jpg", "image/jpeg:https://foo.bar/2.jpg")
+	require.NoError(t, err)
+	assert.Equal(t, courier.MsgWired, status.Status())
+
+	partnerCalls, tokenCalls, auth := stub.counts()
+	assert.Equal(t, 1, tokenCalls)
+	assert.Equal(t, 4, partnerCalls)
+	assert.Equal(t, []string{
+		bearer(fixtureAccessToken1), // part 1, first attempt
+		bearer(fixtureAccessToken2), // part 1, replay
+		bearer(fixtureAccessToken2), // part 2, no further token call
+		bearer(fixtureAccessToken2), // text part
+	}, auth)
+}
+
+// ---- persistence ----
+
+func TestSendingTokenRefreshPersists(t *testing.T) {
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	dates.SetNowSource(dates.NewFixedNowSource(now))
+	defer dates.SetNowSource(dates.DefaultNowSource)
+
+	run := func(t *testing.T, tokenBody string) (before, after map[string]interface{}) {
+		channel := newSendRefreshChannel(map[string]interface{}{
+			configRefreshToken:    fixtureRefreshToken,
+			configMTResponseCheck: "success",
+		})
+		before = channel.Config()
+
+		RunChannelSendTestCases(t, channel, newHandler(), []ChannelSendTestCase{{
+			Label: "refresh and persist", Text: "Hello", URN: "tel:" + testURNPath,
+			Status: "W",
+			Responses: map[MockedRequest]MockedResponse{
+				tokenReq:   {Status: 200, Body: tokenBody},
+				partnerReq: partnerOK,
+			},
+			SendPrep: prepRefresh(tokenRefreshTypeCustom, true, nil),
+		}}, nil)
+		return before, channel.Config()
+	}
+
+	t.Run("token response with refresh token and expiry", func(t *testing.T) {
+		before, after := run(t, `{"access_token":"`+fixtureAccessToken2+`","refresh_token":"rotated-refresh-token","expires_in":3600}`)
+
+		assert.Equal(t, bearer(fixtureAccessToken2), after[courier.ConfigSendAuthorization])
+		assert.Equal(t, "rotated-refresh-token", after[configRefreshToken])
+		assert.Equal(t, strconv.FormatInt(now.Unix()+3600, 10), after[configExpiresIn])
+
+		// every other key is kept
+		for key, value := range before {
+			switch key {
+			case courier.ConfigSendAuthorization, configRefreshToken, configExpiresIn:
+				continue
+			}
+			assert.Equal(t, value, after[key], key)
+		}
+		assert.Equal(t, "success", after[configMTResponseCheck])
+
+		// the map read before the run still holds the old values: the handler saved a clone and did not mutate
+		// the shared channel config
+		assert.Equal(t, bearer(fixtureAccessToken1), before[courier.ConfigSendAuthorization])
+		assert.Equal(t, fixtureRefreshToken, before[configRefreshToken])
+		assert.Equal(t, pastExpiry, before[configExpiresIn])
+	})
+
+	t.Run("token response without refresh token or expiry", func(t *testing.T) {
+		_, after := run(t, tokenOK.Body)
+
+		assert.Equal(t, bearer(fixtureAccessToken2), after[courier.ConfigSendAuthorization])
+		assert.Equal(t, fixtureRefreshToken, after[configRefreshToken])
+		assert.Equal(t, pastExpiry, after[configExpiresIn])
+	})
+}
+
+// failingConfigBackend fails every config save and counts the attempts
+type failingConfigBackend struct {
+	*courier.MockBackend
+	saves int
+}
+
+func (b *failingConfigBackend) UpdateChannelConfig(ctx context.Context, channel courier.Channel, config map[string]interface{}) error {
+	b.saves++
+	return errors.New("backend unavailable")
+}
+
+func TestSendingTokenRefreshSaveFailure(t *testing.T) {
+	logs := CaptureLogs(t)
+
+	stub := newStubServer(t, []stubResponse{{200, `{"status":"success"}`}}, stubResponse{200, tokenOK.Body})
+	setup := stubSetup(stub)
+	setup.expired = true
+	setup.extra = map[string]interface{}{configExpiresIn: pastExpiry}
+
+	mb := courier.NewMockBackend()
+	backend := &failingConfigBackend{MockBackend: mb}
+
+	status, err := directSend(t, mb, backend, setup.channel(), "Hello")
+	require.NoError(t, err)
+	assert.Equal(t, courier.MsgWired, status.Status(), "the send continues with the in-memory token")
+
+	_, tokenCalls, auth := stub.counts()
+	assert.Equal(t, 1, tokenCalls)
+	assert.Equal(t, []string{bearer(fixtureAccessToken2)}, auth)
+	assert.Equal(t, tokenCalls, backend.saves, "one save per successful token call")
+
+	var saveErrors []*logrus.Entry
+	for _, entry := range logs.Entries() {
+		if entry.Data["event"] == logEventTokenRefreshSave {
+			saveErrors = append(saveErrors, entry)
+		}
+	}
+	require.Len(t, saveErrors, 1)
+	assert.Equal(t, logrus.ErrorLevel, saveErrors[0].Level)
+	assert.Equal(t, testChannelUUID, saveErrors[0].Data["channel_uuid"])
+	assert.NotEmpty(t, saveErrors[0].Data["msg_uuid"])
+
+	for _, line := range logs.Lines(t) {
+		for _, secret := range []string{fixtureAccessToken1, fixtureAccessToken2, fixtureRefreshToken, fixtureClientSecret} {
+			assert.NotContains(t, line, secret)
+		}
+	}
+}
+
+// ---- redaction and logs ----
+
+func TestRedactAuthorizationHeader(t *testing.T) {
+	tcs := []struct {
+		label string
+		dump  string
+		want  string
+	}{
+		{"bearer", "POST /send HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer abc\r\nContent-Type: application/json\r\n\r\n{\"a\":1}",
+			"POST /send HTTP/1.1\r\nHost: x\r\nAuthorization: [REDACTED]\r\nContent-Type: application/json\r\n\r\n{\"a\":1}"},
+		{"non bearer", "GET / HTTP/1.1\r\nAuthorization: Basic dGVzdDp0ZXN0\r\nAccept: */*\r\n\r\n",
+			"GET / HTTP/1.1\r\nAuthorization: [REDACTED]\r\nAccept: */*\r\n\r\n"},
+		{"lower case name", "GET / HTTP/1.1\r\nauthorization: Bearer abc\r\n\r\n", "GET / HTTP/1.1\r\nauthorization: [REDACTED]\r\n\r\n"},
+		{"upper case name", "GET / HTTP/1.1\r\nAUTHORIZATION: Bearer abc\r\n\r\n", "GET / HTTP/1.1\r\nAUTHORIZATION: [REDACTED]\r\n\r\n"},
+		{"lf endings", "GET / HTTP/1.1\nAuthorization: Bearer abc\nAccept: */*\n", "GET / HTTP/1.1\nAuthorization: [REDACTED]\nAccept: */*\n"},
+		{"other headers untouched", "GET / HTTP/1.1\r\nX-Authorization-Hint: keep\r\nAuthorization: Bearer abc\r\n\r\n",
+			"GET / HTTP/1.1\r\nX-Authorization-Hint: keep\r\nAuthorization: [REDACTED]\r\n\r\n"},
+		{"no header", "GET / HTTP/1.1\r\nAccept: */*\r\n\r\n", "GET / HTTP/1.1\r\nAccept: */*\r\n\r\n"},
+		{"empty", "", ""},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.label, func(t *testing.T) {
+			assert.Equal(t, tc.want, redactAuthorizationHeader(tc.dump))
+		})
+	}
+}
+
+var fixtureSecrets = []string{fixtureAccessToken1, fixtureAccessToken2, fixtureRefreshToken, fixtureClientSecret}
+
+func assertSendLogsRedacted(t *testing.T, status courier.MsgStatus, wantPartnerLogs int) {
+	t.Helper()
+
+	partnerLogs := 0
+	for _, log := range status.Logs() {
+		for _, secret := range fixtureSecrets {
+			assert.NotContains(t, log.Request, secret)
+			assert.NotContains(t, log.Response, secret)
+			assert.NotContains(t, log.Error, secret)
+			assert.NotContains(t, log.URL, secret)
+		}
+
+		if log.Description == tokenRefreshLogDescription {
+			assert.Empty(t, log.Request)
+			assert.Empty(t, log.Response)
+			continue
+		}
+		partnerLogs++
+		assert.Contains(t, log.Request, "Authorization: [REDACTED]")
+	}
+	assert.Equal(t, wantPartnerLogs, partnerLogs)
+}
+
+func TestSendingTokenRefreshSendLogs(t *testing.T) {
+	t.Run("both attempts of a replayed part", func(t *testing.T) {
+		stub := newStubServer(t, []stubResponse{{401, `{"error":"expired"}`}, {200, `{"status":"success"}`}}, stubResponse{200, tokenOK.Body})
+		setup := stubSetup(stub)
+		setup.statusCodes = []int{401}
+
+		status, err := sendDirect(t, setup.channel(), "Hello")
+		require.NoError(t, err)
+		assertSendLogsRedacted(t, status, 2)
+	})
+
+	t.Run("every attachment part", func(t *testing.T) {
+		stub := newStubServer(t, []stubResponse{{200, `{"status":"success"}`}}, stubResponse{200, tokenOK.Body})
+		setup := stubSetup(stub)
+		setup.expired = true
+		setup.extra = map[string]interface{}{configExpiresIn: pastExpiry, configSendAttachmentInParts: "true"}
+
+		status, err := sendDirect(t, setup.channel(), "Hello", "image/jpeg:https://foo.bar/1.jpg", "image/jpeg:https://foo.bar/2.jpg")
+		require.NoError(t, err)
+		assertSendLogsRedacted(t, status, 3)
+	})
+
+	t.Run("refresh disabled with a static send_authorization", func(t *testing.T) {
+		stub := newStubServer(t, []stubResponse{{200, `{"status":"success"}`}}, stubResponse{200, tokenOK.Body})
+		setup := stubSetup(stub)
+		setup.extra = map[string]interface{}{configTokenRefreshEnabled: "false"}
+
+		status, err := sendDirect(t, setup.channel(), "Hello")
+		require.NoError(t, err)
+		assertSendLogsRedacted(t, status, 1)
+
+		_, tokenCalls, auth := stub.counts()
+		assert.Equal(t, 0, tokenCalls)
+		assert.Equal(t, []string{bearer(fixtureAccessToken1)}, auth, "the request on the wire is unchanged")
+	})
+}
+
+func TestSendingTokenRefreshAppLogs(t *testing.T) {
+	logs := CaptureLogs(t)
+
+	tokenEntries := func() []*logrus.Entry {
+		var entries []*logrus.Entry
+		for _, entry := range logs.Entries() {
+			if entry.Data["event"] == logEventTokenRefresh {
+				entries = append(entries, entry)
+			}
+		}
+		return entries
+	}
+
+	// proactive refresh succeeds, then the partner matches and the replay refresh succeeds
+	stub := newStubServer(t, []stubResponse{{401, `{"error":"expired"}`}, {200, `{"status":"success"}`}}, stubResponse{200, tokenOK.Body})
+	setup := stubSetup(stub)
+	setup.statusCodes = []int{401}
+	setup.expired = true
+	setup.extra = map[string]interface{}{configExpiresIn: pastExpiry}
+	_, err := sendDirect(t, setup.channel(), "Hello text")
+	require.NoError(t, err)
+
+	// a failed token call
+	failing := newStubServer(t, []stubResponse{{200, `{"status":"success"}`}}, stubResponse{500, "boom " + fixtureClientSecret})
+	failSetup := stubSetup(failing)
+	failSetup.expired = true
+	failSetup.extra = map[string]interface{}{configExpiresIn: pastExpiry}
+	_, err = sendDirect(t, failSetup.channel(), "Hello text")
+	require.NoError(t, err)
+
+	entries := tokenEntries()
+	require.Len(t, entries, 3)
+
+	for _, entry := range entries {
+		assert.Equal(t, "externalv2", entry.Data["comp"])
+		assert.Equal(t, testChannelUUID, entry.Data["channel_uuid"])
+		assert.NotEmpty(t, entry.Data["msg_uuid"])
+		assert.Contains(t, entry.Data, "status_code")
+		assert.Contains(t, entry.Data, "elapsed")
+	}
+
+	assert.Equal(t, tokenTriggerExpired, entries[0].Data["trigger"])
+	assert.Equal(t, tokenOutcomeOK, entries[0].Data["outcome"])
+	assert.Equal(t, logrus.InfoLevel, entries[0].Level)
+	assert.NotContains(t, entries[0].Data, "reason")
+
+	assert.Equal(t, tokenTriggerMatch, entries[1].Data["trigger"])
+	assert.Equal(t, tokenOutcomeOK, entries[1].Data["outcome"])
+
+	assert.Equal(t, tokenTriggerExpired, entries[2].Data["trigger"])
+	assert.Equal(t, tokenOutcomeFailed, entries[2].Data["outcome"])
+	assert.Equal(t, tokenFailureStatus5xx, entries[2].Data["reason"])
+	assert.Equal(t, logrus.WarnLevel, entries[2].Level)
+
+	for _, line := range logs.Lines(t) {
+		for _, forbidden := range append([]string{testURNPath, "Hello text", "grant_type"}, fixtureSecrets...) {
+			assert.NotContains(t, line, forbidden)
+		}
+	}
 }
 
 // BenchmarkHandler runs benchmarks on our handler

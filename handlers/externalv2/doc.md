@@ -38,6 +38,91 @@ O canal ExternalV2 (tipo `E2`) é um handler flexível que permite integração 
 | Tipo de Resposta MO | `mo_response_content_type` | - | Content-type da resposta MO |
 | Anexos em Partes | `send_attachment_in_parts` | `false` | Enviar anexos separadamente |
 
+## Renovação de token OAuth2 (opcional)
+
+Por padrão o E2 envia `send_authorization` exatamente como foi configurado. Para parceiros que emitem access tokens OAuth2 de curta duração, o canal pode renovar o token sozinho. O recurso é **opt-in por canal**: sem `token_refresh_enabled` o canal envia a mesma requisição de hoje e nenhum endpoint de token é chamado.
+
+### Chaves de configuração
+
+Todas as chaves são strings no config do canal (um número JSON é tratado como ausente). Elas não aparecem no formulário do Flows: grave-as pelo shell ou pela API do canal.
+
+| Chave | Descrição |
+|-------|-----------|
+| `token_refresh_enabled` | `true`, `1` ou `yes` (sem diferenciar maiúsculas, após remover espaços) liga o recurso. Qualquer outro valor, ou ausente, mantém o comportamento atual |
+| `token_refresh_type` | `custom` ou `refresh`. Obrigatório quando ligado |
+| `token_refresh_config` | Objeto JSON serializado como string (campos abaixo). Obrigatório quando ligado |
+| `refresh_token` | Obrigatório quando o tipo é `refresh`. É reescrito quando a renovação devolve um refresh token novo |
+| `expires_in` | Timestamp unix, em segundos, de quando o `send_authorization` expira. **Não é uma duração**. É reescrito após cada renovação |
+| `client_id`, `client_secret` | Enviados no corpo do formulário apenas no tipo `refresh`, quando não vazios |
+| `send_authorization` | Com o recurso ligado, é reescrito como `Bearer <access token>` após cada renovação |
+
+Campos de `token_refresh_config`:
+
+| Campo | Padrão | Descrição |
+|-------|--------|-----------|
+| `when.match` | `any` | Só `any` (OU) é aceito |
+| `when.status_codes` | - | Renova quando o status da resposta do parceiro está na lista |
+| `when.body_contains` | - | Renova quando a resposta do parceiro **não é 2xx** e o corpo contém algum dos textos. Uma resposta 2xx nunca é reenviada por causa do corpo |
+| `when.expired` | `false` | Renova antes do envio quando `agora >= expires_in` |
+| `method` | `POST` | Método HTTP da chamada de token |
+| `url` | - | URL do endpoint de token. Obrigatório |
+| `headers` | - | Headers da chamada de token |
+| `body` | - | Corpo literal. Obrigatório no tipo `custom`, ignorado no tipo `refresh` |
+| `token_field` | `access_token` | Caminho (com pontos, por objetos JSON) do access token na resposta |
+| `refresh_token_field` | - | Caminho do refresh token novo. Vazio: o refresh token não é atualizado |
+| `expires_in_field` | - | Caminho de uma duração em segundos. Só vale um número JSON inteiro e maior que zero (`3600` ou `3600.0`). Texto (`"3600"`), fração, zero ou negativo contam como ausente |
+| `expires_in_default` | `0` | Segundos usados quando `expires_in_field` está ausente ou inválido |
+
+No tipo `refresh` a chamada é um formulário com `grant_type=refresh_token`, `refresh_token`, `client_id` e `client_secret` (os dois últimos só quando não vazios), com `Content-Type: application/x-www-form-urlencoded` quando você não define outro. No tipo `custom` são enviados `method`, `url`, `headers` e `body` como configurados.
+
+### Exemplo `custom`
+
+```json
+{
+  "token_refresh_enabled": "true",
+  "token_refresh_type": "custom",
+  "token_refresh_config": "{\"when\":{\"match\":\"any\",\"status_codes\":[401,403],\"body_contains\":[\"token_expired\"],\"expired\":true},\"method\":\"POST\",\"url\":\"https://auth.exemplo.com/oauth/token\",\"headers\":{\"Content-Type\":\"application/x-www-form-urlencoded\"},\"body\":\"grant_type=password&client_id=abc&client_secret=<SEGREDO>\",\"token_field\":\"access_token\",\"refresh_token_field\":\"refresh_token\",\"expires_in_field\":\"expires_in\",\"expires_in_default\":7200}",
+  "send_authorization": "Bearer <access token atual>",
+  "expires_in": "1731500000"
+}
+```
+
+### Exemplo `refresh`
+
+```json
+{
+  "token_refresh_enabled": "true",
+  "token_refresh_type": "refresh",
+  "token_refresh_config": "{\"when\":{\"match\":\"any\",\"status_codes\":[401],\"expired\":true},\"url\":\"https://auth.exemplo.com/oauth/token\",\"token_field\":\"access_token\",\"expires_in_field\":\"expires_in\"}",
+  "refresh_token": "<refresh token>",
+  "client_id": "abc",
+  "client_secret": "<SEGREDO>",
+  "send_authorization": "Bearer <access token atual>"
+}
+```
+
+Substitua os valores entre `<...>` pelos reais. Não coloque credenciais reais em documentos nem em repositórios.
+
+### Como funciona
+
+1. Com `when.expired` ligado e `expires_in` no passado, o token é renovado **antes** de chamar o parceiro.
+2. Se a resposta do parceiro casar com `when`, o token é renovado e a parte é reenviada **uma única vez** com o novo token. Um segundo casamento não renova de novo e a mensagem termina com erro (o Mailroom decide a nova tentativa).
+3. Uma chamada de token que falha (status 400 ou maior, JSON inválido, campo ausente, erro de conexão) nunca chega ao parceiro com um token vencido: a mensagem termina com erro e o log `Token Refresh` mostra o motivo.
+4. Com `send_attachment_in_parts`, a renovação de uma parte é reaproveitada pelas partes seguintes, sem outra chamada de token.
+5. Depois de cada renovação, `send_authorization`, `refresh_token` e `expires_in` são gravados no config do canal e as demais chaves são mantidas. Se a gravação falhar, o erro é registrado e o envio continua com o token em memória.
+
+Um config inválido com o recurso ligado faz o envio falhar antes de qualquer chamada ao parceiro, com uma mensagem de erro como `token_refresh_type must be custom or refresh`. O erro é permanente até um operador corrigir o config.
+
+### Limites que o operador precisa conhecer
+
+- **`body_contains` só vale para respostas não 2xx.** Um parceiro que responde 200 com um erro no corpo não é coberto pela renovação reativa: use `when.expired` com `expires_in`.
+- **Use `401` e `403` em `status_codes`.** Listar outro status (um 5xx ou um 2xx, por exemplo) pode fazer o parceiro receber a mesma mensagem duas vezes, porque ele pode já ter processado a primeira requisição. O E2 não envia chave de idempotência.
+- **Defina `expires_in_field` ou `expires_in_default`.** Sem nenhum dos dois o `expires_in` gravado continua no passado e **toda mensagem renova o token**.
+- **Vários workers podem renovar ao mesmo tempo e vale a última gravação.** Se o parceiro rotaciona o refresh token, um refresh token antigo pode sobrescrever um mais novo e quebrar a cadeia até um operador emitir outro. Outras instâncias do Courier podem manter o config anterior em cache por até 5 minutos e renovar de novo. Se o seu parceiro rotaciona refresh tokens, escolha uma configuração sem rotação ou aceite esse risco.
+- **O header passa a ser sempre `Bearer <token>`.** Um `send_authorization` que não começa com `Bearer ` (por exemplo `Basic ...`) é tomado como o token e enviado como `Bearer Basic ...`.
+- **O valor de `Authorization` é ocultado nos logs de envio de todos os canais E2**, tenham ou não o recurso ligado: o log guarda `Authorization: [REDACTED]`. O config do canal continua guardando a credencial. Os logs `Token Refresh` guardam só método, URL (sem query string nem usuário), status e tempo, sem corpos.
+- **Ative primeiro em um canal piloto.** Confira nos logs `Token Refresh` que as chamadas de token ficam em torno de uma por janela de expiração antes de ligar outros canais.
+
 ## Template
 
 Os templates funcionam de acordo com o pacote [https://pkg.go.dev/text/template](https://pkg.go.dev/text/template)

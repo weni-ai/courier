@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
@@ -16,9 +17,11 @@ import (
 	"github.com/nyaruka/courier"
 	"github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/courier/utils"
+	"github.com/nyaruka/gocommon/dates"
 	"github.com/nyaruka/gocommon/urns"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -40,9 +43,76 @@ const (
 	configSendUrlTemplate = "send_url_template"
 )
 
+const (
+	// redactedHeaderValue replaces the Authorization value in every E2 partner send log, so a live token is never stored
+	redactedHeaderValue = "[REDACTED]"
+
+	logComp                  = "externalv2"
+	logEventTokenRefresh     = "token_refresh"
+	logEventTokenRefreshSave = "token_refresh_save"
+	logMessageTokenRefresh   = "token refresh attempt"
+	logMessageTokenSaveError = "error saving refreshed token in channel config"
+
+	tokenTriggerExpired = "expired"
+	tokenTriggerMatch   = "match"
+	tokenOutcomeOK      = "ok"
+	tokenOutcomeFailed  = "failed"
+)
+
 var contentTypeMappings = map[string]string{
 	contentURLEncoded: "application/x-www-form-urlencoded",
 	contentJSON:       "application/json",
+}
+
+// authorizationHeaderPattern matches an Authorization header line of a request dump, in any letter case, up to the end
+// of the line, so line endings and the rest of the dump are untouched
+var authorizationHeaderPattern = regexp.MustCompile(`(?im)^(authorization:[ \t]*)[^\r\n]*`)
+
+// redactAuthorizationHeader replaces the value of every Authorization header line with redactedHeaderValue
+func redactAuthorizationHeader(dump string) string {
+	return authorizationHeaderPattern.ReplaceAllString(dump, "${1}"+redactedHeaderValue)
+}
+
+// tokenAuth is the OAuth2 state of one SendMsg, shared by all its parts. It lives only in memory for the call: the
+// channel the handler receives is a shared cached object and still holds the old token after a refresh.
+// A SendMsg sends its parts one after another in one goroutine, so it needs no lock.
+type tokenAuth struct {
+	options      *tokenRefreshOptions
+	accessToken  string
+	refreshToken string
+	expiresAt    int64
+
+	// refreshedInThisSend skips the proactive check for the next parts: a token response without expiry information
+	// leaves the old (past) expiry in place, and every part would refresh again
+	refreshedInThisSend bool
+}
+
+// newTokenAuth returns nil when the feature is off. The raw access token is send_authorization with one leading
+// case-sensitive "Bearer " removed.
+func newTokenAuth(channel courier.Channel, options *tokenRefreshOptions) *tokenAuth {
+	if options == nil {
+		return nil
+	}
+
+	raw := strings.TrimPrefix(strings.TrimSpace(channel.StringConfigForKey(courier.ConfigSendAuthorization, "")), bearerPrefix)
+	return &tokenAuth{options: options, accessToken: raw, refreshToken: options.RefreshToken, expiresAt: options.ExpiresAt}
+}
+
+// needsProactiveRefresh is true when when.expired is on and the stored expiry has passed
+func (a *tokenAuth) needsProactiveRefresh() bool {
+	return a.options.Config.When.Expired && !a.refreshedInThisSend && a.expiresAt > 0 && dates.Now().Unix() >= a.expiresAt
+}
+
+// apply takes a token result: an empty refresh token and a zero expiry mean "unchanged"
+func (a *tokenAuth) apply(result *tokenResult) {
+	a.accessToken = result.AccessToken
+	if result.RefreshToken != "" {
+		a.refreshToken = result.RefreshToken
+	}
+	if result.ExpiresAt > 0 {
+		a.expiresAt = result.ExpiresAt
+	}
+	a.refreshedInThisSend = true
 }
 
 func init() {
@@ -273,13 +343,20 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		return nil, errors.Wrapf(err, "invalid send attachment in parts")
 	}
 
+	// an invalid enabled config is a permanent error: fail before any partner call
+	tokenOptions, err := parseTokenRefreshOptions(msg.Channel())
+	if err != nil {
+		return nil, err
+	}
+	auth := newTokenAuth(msg.Channel(), tokenOptions)
+
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
 
 	// If sending attachments in parts, handle each attachment separately then text
 	if sendAttachmentInPartsBool && len(msg.Attachments()) > 0 {
 		// Send each attachment in a separate request
 		for i, attachment := range msg.Attachments() {
-			attachmentStatus, err := h.sendMsgPart(ctx, msg, sendMediaURL, sendMethod, sendBody, contentTypeHeader, responseContent, []string{attachment}, "", fmt.Sprintf("Attachment %d Sent", i+1))
+			attachmentStatus, err := h.sendMsgPart(ctx, msg, auth, sendMediaURL, sendMethod, sendBody, contentTypeHeader, responseContent, []string{attachment}, "", fmt.Sprintf("Attachment %d Sent", i+1))
 			if err != nil {
 				for _, log := range attachmentStatus.Logs() {
 					status.AddLog(log)
@@ -293,7 +370,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 		// Send text in final request (without attachments)
 		if msg.Text() != "" {
-			textStatus, err := h.sendMsgPart(ctx, msg, sendURL, sendMethod, sendBody, contentTypeHeader, responseContent, []string{}, msg.Text(), "Text Sent")
+			textStatus, err := h.sendMsgPart(ctx, msg, auth, sendURL, sendMethod, sendBody, contentTypeHeader, responseContent, []string{}, msg.Text(), "Text Sent")
 			if err != nil {
 				for _, log := range textStatus.Logs() {
 					status.AddLog(log)
@@ -310,7 +387,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 	}
 
 	// Default behavior: send everything in one request
-	singleStatus, err := h.sendMsgPart(ctx, msg, sendURL, sendMethod, sendBody, contentTypeHeader, responseContent, msg.Attachments(), msg.Text(), "Message Sent")
+	singleStatus, err := h.sendMsgPart(ctx, msg, auth, sendURL, sendMethod, sendBody, contentTypeHeader, responseContent, msg.Attachments(), msg.Text(), "Message Sent")
 	if err != nil {
 		return singleStatus, nil
 	}
@@ -319,7 +396,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 }
 
 // sendMsgPart sends a single HTTP request with the specified attachments and text
-func (h *handler) sendMsgPart(ctx context.Context, msg courier.Msg, sendURL, sendMethod, sendBody, contentTypeHeader, responseContent string, attachments []string, text, logDescription string) (courier.MsgStatus, error) {
+func (h *handler) sendMsgPart(ctx context.Context, msg courier.Msg, auth *tokenAuth, sendURL, sendMethod, sendBody, contentTypeHeader, responseContent string, attachments []string, text, logDescription string) (courier.MsgStatus, error) {
 	status := h.Backend().NewMsgStatusForID(msg.Channel(), msg.ID(), courier.MsgErrored)
 
 	urnQuery, err := msg.URN().Query()
@@ -390,50 +467,96 @@ func (h *handler) sendMsgPart(ctx context.Context, msg courier.Msg, sendURL, sen
 		sendURL = urlOutputBuffer.String()
 	}
 
-	var req *http.Request
+	// newRequest builds the request from the body rendered above, so a replay can send the part again with a new token
+	// (the body of a request that was already sent cannot be read twice)
+	newRequest := func(authorization string) (*http.Request, error) {
+		var req *http.Request
+		var err error
 
-	switch contentTypeHeader {
-	case "application/x-www-form-urlencoded":
-		var body map[string]any
-		if err := json.Unmarshal(outputBuffer.Bytes(), &body); err != nil {
-			return status, err
+		switch contentTypeHeader {
+		case "application/x-www-form-urlencoded":
+			var body map[string]any
+			if err := json.Unmarshal(outputBuffer.Bytes(), &body); err != nil {
+				return nil, err
+			}
+
+			// body from map[string]any to url.Values
+			bodyValues := url.Values{}
+			for k, v := range body {
+				bodyValues.Add(k, fmt.Sprintf("%v", v))
+			}
+
+			req, err = http.NewRequest(sendMethod, sendURL, strings.NewReader(bodyValues.Encode()))
+			if err != nil {
+				return nil, err
+			}
+		case "application/json":
+			var body io.Reader
+			if sendMethod == http.MethodPost || sendMethod == http.MethodPut {
+				body = strings.NewReader(outputBuffer.String())
+			}
+			req, err = http.NewRequest(sendMethod, sendURL, body)
+			if err != nil {
+				return nil, err
+			}
+		default:
+			return nil, fmt.Errorf("unsupported content type: %s", contentTypeHeader)
 		}
 
-		// body from map[string]any to url.Values
-		bodyValues := url.Values{}
-		for k, v := range body {
-			bodyValues.Add(k, fmt.Sprintf("%v", v))
-		}
+		req.Header.Set("Content-Type", contentTypeHeader)
 
-		req, err = http.NewRequest(sendMethod, sendURL, strings.NewReader(bodyValues.Encode()))
-		if err != nil {
-			return status, err
+		if authorization != "" {
+			req.Header.Set("Authorization", authorization)
 		}
-	case "application/json":
-		var body io.Reader
-		if sendMethod == http.MethodPost || sendMethod == http.MethodPut {
-			body = strings.NewReader(outputBuffer.String())
-		}
-		req, err = http.NewRequest(sendMethod, sendURL, body)
-		if err != nil {
-			return status, err
-		}
-	default:
-		return status, fmt.Errorf("unsupported content type: %s", contentTypeHeader)
+		return req, nil
 	}
 
-	req.Header.Set("Content-Type", contentTypeHeader)
-
-	authorization := msg.Channel().StringConfigForKey(courier.ConfigSendAuthorization, "")
-	if authorization != "" {
-		req.Header.Set("Authorization", authorization)
+	// the Authorization value of the next attempt: always Bearer when the refresh is on (even for an empty token),
+	// send_authorization as it is otherwise
+	authorization := func() string {
+		if auth != nil {
+			return bearerPrefix + auth.accessToken
+		}
+		return msg.Channel().StringConfigForKey(courier.ConfigSendAuthorization, "")
 	}
 
-	rr, err := utils.MakeHTTPRequest(req)
+	// the partner is never called with a token we know has expired
+	if auth != nil && auth.needsProactiveRefresh() {
+		if err := h.refreshAccessToken(ctx, msg, auth, status, tokenTriggerExpired); err != nil {
+			return status, err
+		}
+	}
 
-	// record our status and log
-	log := courier.NewChannelLogFromRR(logDescription, msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
-	status.AddLog(log)
+	var rr *utils.RequestResponse
+	var log *courier.ChannelLog
+	for attempt := 0; ; attempt++ {
+		req, reqErr := newRequest(authorization())
+		if reqErr != nil {
+			return status, reqErr
+		}
+
+		rr, err = utils.MakeHTTPRequest(req)
+
+		// record our status and log
+		log = newPartnerSendLog(logDescription, msg, rr).WithError("Message Send Error", err)
+		status.AddLog(log)
+
+		// matches runs even when MakeHTTPRequest returned an error: a 401 comes with both
+		if auth == nil || !auth.options.matches(rr) {
+			break
+		}
+
+		// the replay carries a new credential and the partner may already have seen the request, so it is capped
+		if attempt >= maxTokenRefreshReplays {
+			return status, partnerResponseError(err, rr)
+		}
+		if refreshErr := h.refreshAccessToken(ctx, msg, auth, status, tokenTriggerMatch); refreshErr != nil {
+			// the failure to report is the partner's, not the token endpoint's
+			return status, partnerResponseError(err, rr)
+		}
+		time.Sleep(tokenRefreshReplayDelay)
+	}
+
 	if err != nil {
 		return status, err
 	}
@@ -446,6 +569,102 @@ func (h *handler) sendMsgPart(ctx context.Context, msg courier.Msg, sendURL, sen
 	}
 
 	return status, nil
+}
+
+// newPartnerSendLog builds the partner send log from a copy of the response whose request dump has the Authorization
+// value redacted. The request on the wire is unchanged: only what is stored changes.
+func newPartnerSendLog(description string, msg courier.Msg, rr *utils.RequestResponse) *courier.ChannelLog {
+	redacted := *rr
+	redacted.Request = redactAuthorizationHeader(rr.Request)
+	return courier.NewChannelLogFromRR(description, msg.Channel(), msg.ID(), &redacted)
+}
+
+// partnerResponseError is the error of a partner response that matched the refresh rules. A matching 2xx status has no
+// error from MakeHTTPRequest, but the part still failed.
+func partnerResponseError(err error, rr *utils.RequestResponse) error {
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("received status %d, token refresh did not recover it", rr.StatusCode)
+}
+
+// refreshAccessToken calls the token endpoint for one SendMsg. The Token Refresh log is added to the part's status for
+// every attempt. On success the shared auth state is updated and the new values are saved in the channel config.
+func (h *handler) refreshAccessToken(ctx context.Context, msg courier.Msg, auth *tokenAuth, status courier.MsgStatus, trigger string) error {
+	result, tokenLog, err := requestAccessToken(msg.Channel(), msg.ID(), auth.options, auth.refreshToken)
+	status.AddLog(tokenLog)
+	logTokenAttempt(msg, trigger, tokenLog, err)
+	if err != nil {
+		return err
+	}
+
+	auth.apply(result)
+	h.persistRefreshedToken(ctx, msg, auth)
+	return nil
+}
+
+// logTokenAttempt writes one application log per token attempt. Fields only, never interpolated text, and never a
+// URN, message text, body or credential.
+func logTokenAttempt(msg courier.Msg, trigger string, tokenLog *courier.ChannelLog, err error) {
+	fields := logrus.Fields{
+		"comp":         logComp,
+		"channel_uuid": msg.Channel().UUID().String(),
+		"msg_uuid":     msg.UUID().String(),
+		"event":        logEventTokenRefresh,
+		"trigger":      trigger,
+		"status_code":  tokenLog.StatusCode,
+		"elapsed":      tokenLog.Elapsed,
+	}
+
+	if err == nil {
+		fields["outcome"] = tokenOutcomeOK
+		logrus.WithFields(fields).Info(logMessageTokenRefresh)
+		return
+	}
+
+	// the log error is the fixed failure reason, never the raw error
+	fields["outcome"] = tokenOutcomeFailed
+	fields["reason"] = tokenLog.Error
+	logrus.WithFields(fields).Warn(logMessageTokenRefresh)
+}
+
+func cloneChannelConfig(channel courier.Channel) map[string]interface{} {
+	existing := channel.Config()
+	cloned := make(map[string]interface{}, len(existing))
+	for k, v := range existing {
+		cloned[k] = v
+	}
+	return cloned
+}
+
+// persistRefreshedToken saves the auth state in the channel config. A failed save does not fail the send: the message
+// goes on with the in-memory token.
+func (h *handler) persistRefreshedToken(ctx context.Context, msg courier.Msg, auth *tokenAuth) {
+	// UpdateChannelConfig replaces the whole config, and channel.Config() is shared with concurrent sends (the channel
+	// comes from a cache), so the save takes a clone and the shared map is never written
+	config := cloneChannelConfig(msg.Channel())
+
+	// the values come from the auth state, not from the last token result: after two refreshes in one send the clone
+	// still holds the config of the first, and a result without a rotated refresh token would put the old one back
+	config[courier.ConfigSendAuthorization] = bearerPrefix + auth.accessToken
+	if auth.refreshToken != "" {
+		config[configRefreshToken] = auth.refreshToken
+	}
+	if auth.expiresAt > 0 {
+		config[configExpiresIn] = strconv.FormatInt(auth.expiresAt, 10)
+	}
+
+	err := h.Backend().UpdateChannelConfig(ctx, msg.Channel(), config)
+	if err != nil {
+		// error level on purpose: a rotated refresh token that was not saved is lost, and every later refresh then uses
+		// a stale one, so the Sentry hook must report it
+		logrus.WithFields(logrus.Fields{
+			"comp":         logComp,
+			"event":        logEventTokenRefreshSave,
+			"channel_uuid": msg.Channel().UUID().String(),
+			"msg_uuid":     msg.UUID().String(),
+		}).WithError(err).Error(logMessageTokenSaveError)
+	}
 }
 
 type receivePayload struct {

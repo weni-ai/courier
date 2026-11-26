@@ -41,3 +41,5 @@ _storage
 *.rdb
 
 vendor/
+# Python bytecode caches (Spec Kit git extension scripts)
+__pycache__/

@@ -1,3 +1,8 @@
+1.81.0
+----------
+ * feat: add opt-in OAuth2 access token refresh for E2 channels (token_refresh_enabled)
+ * feat: redact the Authorization header in E2 send logs
+
 1.80.0
 ----------
  * feat: implement WAC thread ownership functionality

@@ -20,6 +20,7 @@ import (
 	"github.com/nyaruka/gocommon/urns"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -42,6 +43,10 @@ const (
 )
 
 const (
+	logComp                  = "externalv2"
+	logEventTokenRefreshSave = "token_refresh_save"
+	logMessageTokenSaveError = "error saving refreshed token in channel config"
+
 	tokenTriggerExpired = "expired"
 	tokenTriggerMatch   = "match"
 )
@@ -568,7 +573,47 @@ func (h *handler) refreshAccessToken(ctx context.Context, msg courier.Msg, auth 
 	}
 
 	auth.apply(result)
+	h.persistRefreshedToken(ctx, msg, auth)
 	return nil
+}
+
+func cloneChannelConfig(channel courier.Channel) map[string]interface{} {
+	existing := channel.Config()
+	cloned := make(map[string]interface{}, len(existing))
+	for k, v := range existing {
+		cloned[k] = v
+	}
+	return cloned
+}
+
+// persistRefreshedToken saves the auth state in the channel config. A failed save does not fail the send: the message
+// goes on with the in-memory token.
+func (h *handler) persistRefreshedToken(ctx context.Context, msg courier.Msg, auth *tokenAuth) {
+	// UpdateChannelConfig replaces the whole config, and channel.Config() is shared with concurrent sends (the channel
+	// comes from a cache), so the save takes a clone and the shared map is never written
+	config := cloneChannelConfig(msg.Channel())
+
+	// the values come from the auth state, not from the last token result: after two refreshes in one send the clone
+	// still holds the config of the first, and a result without a rotated refresh token would put the old one back
+	config[courier.ConfigSendAuthorization] = bearerPrefix + auth.accessToken
+	if auth.refreshToken != "" {
+		config[configRefreshToken] = auth.refreshToken
+	}
+	if auth.expiresAt > 0 {
+		config[configExpiresIn] = strconv.FormatInt(auth.expiresAt, 10)
+	}
+
+	err := h.Backend().UpdateChannelConfig(ctx, msg.Channel(), config)
+	if err != nil {
+		// error level on purpose: a rotated refresh token that was not saved is lost, and every later refresh then uses
+		// a stale one, so the Sentry hook must report it
+		logrus.WithFields(logrus.Fields{
+			"comp":         logComp,
+			"event":        logEventTokenRefreshSave,
+			"channel_uuid": msg.Channel().UUID().String(),
+			"msg_uuid":     msg.UUID().String(),
+		}).WithError(err).Error(logMessageTokenSaveError)
+	}
 }
 
 type receivePayload struct {

@@ -3,6 +3,7 @@ package externalv2
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +14,9 @@ import (
 
 	"github.com/nyaruka/courier"
 	. "github.com/nyaruka/courier/handlers"
+	"github.com/nyaruka/gocommon/dates"
 	"github.com/nyaruka/gocommon/urns"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -819,6 +822,114 @@ func TestSendingTokenRefreshPartsReplay(t *testing.T) {
 		bearer(fixtureAccessToken2), // part 2, no further token call
 		bearer(fixtureAccessToken2), // text part
 	}, auth)
+}
+
+// ---- persistence ----
+
+func TestSendingTokenRefreshPersists(t *testing.T) {
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	dates.SetNowSource(dates.NewFixedNowSource(now))
+	defer dates.SetNowSource(dates.DefaultNowSource)
+
+	run := func(t *testing.T, tokenBody string) (before, after map[string]interface{}) {
+		channel := newSendRefreshChannel(map[string]interface{}{
+			configRefreshToken:    fixtureRefreshToken,
+			configMTResponseCheck: "success",
+		})
+		before = channel.Config()
+
+		RunChannelSendTestCases(t, channel, newHandler(), []ChannelSendTestCase{{
+			Label: "refresh and persist", Text: "Hello", URN: "tel:" + testURNPath,
+			Status: "W",
+			Responses: map[MockedRequest]MockedResponse{
+				tokenReq:   {Status: 200, Body: tokenBody},
+				partnerReq: partnerOK,
+			},
+			SendPrep: prepRefresh(tokenRefreshTypeCustom, true, nil),
+		}}, nil)
+		return before, channel.Config()
+	}
+
+	t.Run("token response with refresh token and expiry", func(t *testing.T) {
+		before, after := run(t, `{"access_token":"`+fixtureAccessToken2+`","refresh_token":"rotated-refresh-token","expires_in":3600}`)
+
+		assert.Equal(t, bearer(fixtureAccessToken2), after[courier.ConfigSendAuthorization])
+		assert.Equal(t, "rotated-refresh-token", after[configRefreshToken])
+		assert.Equal(t, strconv.FormatInt(now.Unix()+3600, 10), after[configExpiresIn])
+
+		// every other key is kept
+		for key, value := range before {
+			switch key {
+			case courier.ConfigSendAuthorization, configRefreshToken, configExpiresIn:
+				continue
+			}
+			assert.Equal(t, value, after[key], key)
+		}
+		assert.Equal(t, "success", after[configMTResponseCheck])
+
+		// the map read before the run still holds the old values: the handler saved a clone and did not mutate
+		// the shared channel config
+		assert.Equal(t, bearer(fixtureAccessToken1), before[courier.ConfigSendAuthorization])
+		assert.Equal(t, fixtureRefreshToken, before[configRefreshToken])
+		assert.Equal(t, pastExpiry, before[configExpiresIn])
+	})
+
+	t.Run("token response without refresh token or expiry", func(t *testing.T) {
+		_, after := run(t, tokenOK.Body)
+
+		assert.Equal(t, bearer(fixtureAccessToken2), after[courier.ConfigSendAuthorization])
+		assert.Equal(t, fixtureRefreshToken, after[configRefreshToken])
+		assert.Equal(t, pastExpiry, after[configExpiresIn])
+	})
+}
+
+// failingConfigBackend fails every config save and counts the attempts
+type failingConfigBackend struct {
+	*courier.MockBackend
+	saves int
+}
+
+func (b *failingConfigBackend) UpdateChannelConfig(ctx context.Context, channel courier.Channel, config map[string]interface{}) error {
+	b.saves++
+	return errors.New("backend unavailable")
+}
+
+func TestSendingTokenRefreshSaveFailure(t *testing.T) {
+	logs := CaptureLogs(t)
+
+	stub := newStubServer(t, []stubResponse{{200, `{"status":"success"}`}}, stubResponse{200, tokenOK.Body})
+	setup := stubSetup(stub)
+	setup.expired = true
+	setup.extra = map[string]interface{}{configExpiresIn: pastExpiry}
+
+	mb := courier.NewMockBackend()
+	backend := &failingConfigBackend{MockBackend: mb}
+
+	status, err := directSend(t, mb, backend, setup.channel(), "Hello")
+	require.NoError(t, err)
+	assert.Equal(t, courier.MsgWired, status.Status(), "the send continues with the in-memory token")
+
+	_, tokenCalls, auth := stub.counts()
+	assert.Equal(t, 1, tokenCalls)
+	assert.Equal(t, []string{bearer(fixtureAccessToken2)}, auth)
+	assert.Equal(t, tokenCalls, backend.saves, "one save per successful token call")
+
+	var saveErrors []*logrus.Entry
+	for _, entry := range logs.Entries() {
+		if entry.Data["event"] == logEventTokenRefreshSave {
+			saveErrors = append(saveErrors, entry)
+		}
+	}
+	require.Len(t, saveErrors, 1)
+	assert.Equal(t, logrus.ErrorLevel, saveErrors[0].Level)
+	assert.Equal(t, testChannelUUID, saveErrors[0].Data["channel_uuid"])
+	assert.NotEmpty(t, saveErrors[0].Data["msg_uuid"])
+
+	for _, line := range logs.Lines(t) {
+		for _, secret := range []string{fixtureAccessToken1, fixtureAccessToken2, fixtureRefreshToken, fixtureClientSecret} {
+			assert.NotContains(t, line, secret)
+		}
+	}
 }
 
 // BenchmarkHandler runs benchmarks on our handler

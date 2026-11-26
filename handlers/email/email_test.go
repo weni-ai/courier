@@ -1,13 +1,18 @@
 package email
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/nyaruka/courier"
 	. "github.com/nyaruka/courier/handlers"
 	"github.com/nyaruka/gocommon/urns"
+	"github.com/stretchr/testify/require"
 )
 
 var testChannels = []courier.Channel{
@@ -206,7 +211,7 @@ var receiveTestCases = []ChannelHandleTestCase{
 	{Label: "Direct reply to a threaded message ignores an older legacy reference",
 		URL: receiveURL, Data: mixedParentReply, Status: 200, Response: "Message Accepted",
 		Name: Sp("fulano123@gmail.com"), Text: Sp("Resposta da thread"),
-		URN:        Sp(urnWithTag("fulano123@gmail.com", "<produto@example.com>")),
+		URN:        Sp("mailto:fulano123+wt-aaaaaaaa@gmail.com"),
 		ExternalID: Sp("<mixed@example.com>"),
 		PrepBackend: func(mb *courier.MockBackend) {
 			threaded := mb.NewIncomingMsg(testChannels[0], urns.URN("mailto:fulano123+wt-aaaaaaaa@gmail.com"), "Produto").
@@ -220,11 +225,125 @@ var receiveTestCases = []ChannelHandleTestCase{
 	{Label: "Reply that cites a threaded contact keeps the thread URN",
 		URL: receiveURL, Data: replyToProduct, Status: 200, Response: "Message Accepted",
 		Name: Sp("fulano123@gmail.com"), Text: Sp("Resposta produto"),
-		URN:        Sp(urnWithTag("fulano123@gmail.com", "<produto@example.com>")),
+		URN:        Sp("mailto:fulano123+wt-aaaaaaaa@gmail.com"),
 		ExternalID: Sp("<produto-reply@example.com>"),
 		PrepBackend: func(mb *courier.MockBackend) {
 			parent := mb.NewIncomingMsg(testChannels[0], urns.URN("mailto:fulano123+wt-aaaaaaaa@gmail.com"), "Produto").
 				WithExternalID("<agent-produto@ourdomain.com>")
+			mb.AddMsgByExternalID(parent)
+		}},
+
+	{Label: "Copy reply cites a stored thread Message-ID and stays on the central URN",
+		URL: receiveURL, Status: 200, Response: "Message Accepted",
+		Data: `{"from":"copy-author@example.com","to":"support@company.com","body":"Estou de acordo","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<copy-reply@example.com>","in_reply_to":"<copy-root@example.com>"}`,
+		Name: Sp("copy-opener@example.com"),
+		Text: Sp("copy-author@example.com:\n\nEstou de acordo"),
+		URN:  Sp(urnWithTag("copy-opener@example.com", "<copy-root@example.com>")),
+		PrepBackend: func(mb *courier.MockBackend) {
+			parent := mb.NewIncomingMsg(testChannels[0], urns.URN(urnWithTag("copy-opener@example.com", "<copy-root@example.com>")), "Abertura").
+				WithExternalID("<copy-root@example.com>")
+			mb.AddMsgByExternalID(parent)
+		}},
+
+	{Label: "Central author body is stored unchanged",
+		URL: receiveURL, Status: 200, Response: "Message Accepted",
+		Data: `{"from":"Central-Opener@Example.com","to":"support@company.com","body":"Continuo eu","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<central-root@example.com>"}`,
+		Name: Sp("Central-Opener@Example.com"),
+		Text: Sp("Continuo eu"),
+		URN:  Sp(urnWithTag("central-opener@example.com", "<central-root@example.com>")),
+		PrepBackend: func(mb *courier.MockBackend) {
+			parent := mb.NewIncomingMsg(testChannels[0], urns.URN(urnWithTag("central-opener@example.com", "<central-root@example.com>")), "Abertura").
+				WithExternalID("<central-root@example.com>")
+			mb.AddMsgByExternalID(parent)
+		}},
+
+	{Label: "First message with cc stores the copy list without the channel mailbox or the opener",
+		URL: receiveURL, Status: 200, Response: "Message Accepted",
+		Data: `{"from":"list-opener@example.com","to":"support@company.com","subject":"Pedido","body":"Oi","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<list-first@example.com>","cc":["support@company.com","fulano_de_tal@email.com","other@example.com"]}`,
+		Name: Sp("list-opener@example.com"), Text: Sp("Oi"),
+		URN: Sp(urnWithTag("list-opener@example.com", "<list-first@example.com>")),
+		Metadata: Jp(map[string]interface{}{
+			"email": map[string]interface{}{
+				"subject": "Pedido",
+				"cc":      []string{"fulano_de_tal@email.com", "other@example.com"},
+			},
+		})},
+
+	{Label: "Copy reply grows the list and keeps earlier addresses",
+		URL: receiveURL, Status: 200, Response: "Message Accepted",
+		Data: `{"from":"grow-other@example.com","to":"support@company.com","body":"Aguardo retorno","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<grow-root@example.com>","cc":["fulano_de_tal@email.com","third@example.com"]}`,
+		Name: Sp("grow-opener@example.com"),
+		Text: Sp("grow-other@example.com:\n\nAguardo retorno"),
+		URN:  Sp(urnWithTag("grow-opener@example.com", "<grow-root@example.com>")),
+		Metadata: Jp(map[string]interface{}{
+			"email": map[string]interface{}{
+				"in_reply_to": "<grow-root@example.com>",
+				"cc":          []string{"fulano_de_tal@email.com", "third@example.com", "grow-other@example.com"},
+			},
+		}),
+		PrepBackend: func(mb *courier.MockBackend) {
+			urn := urns.URN(urnWithTag("grow-opener@example.com", "<grow-root@example.com>"))
+			parent := mb.NewIncomingMsg(testChannels[0], urn, "Abertura").WithExternalID("<grow-root@example.com>")
+			mb.AddMsgByExternalID(parent)
+			latest := mb.NewIncomingMsg(testChannels[0], urn, "antes").
+				WithMetadata(json.RawMessage(`{"email":{"cc":["fulano_de_tal@email.com"]}}`))
+			mb.AddLastMsgByContactURN(latest)
+		}},
+
+	{Label: "Copy list keeps an address the new message no longer repeats",
+		URL: receiveURL, Status: 200, Response: "Message Accepted",
+		Data: `{"from":"subset-opener@example.com","to":"support@company.com","body":"Segue","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<subset-root@example.com>","cc":["new@example.com"]}`,
+		Name: Sp("subset-opener@example.com"), Text: Sp("Segue"),
+		URN: Sp(urnWithTag("subset-opener@example.com", "<subset-root@example.com>")),
+		Metadata: Jp(map[string]interface{}{
+			"email": map[string]interface{}{
+				"in_reply_to": "<subset-root@example.com>",
+				"cc":          []string{"kept@example.com", "new@example.com"},
+			},
+		}),
+		PrepBackend: func(mb *courier.MockBackend) {
+			urn := urns.URN(urnWithTag("subset-opener@example.com", "<subset-root@example.com>"))
+			parent := mb.NewIncomingMsg(testChannels[0], urn, "Abertura").WithExternalID("<subset-root@example.com>")
+			mb.AddMsgByExternalID(parent)
+			latest := mb.NewIncomingMsg(testChannels[0], urn, "antes").
+				WithMetadata(json.RawMessage(`{"email":{"cc":["kept@example.com"]}}`))
+			mb.AddLastMsgByContactURN(latest)
+		}},
+
+	{Label: "cc that is not an array is rejected",
+		URL: receiveURL, Status: 400, Response: "cannot unmarshal",
+		Data: `{"from":"badcc@example.com","to":"support@company.com","body":"oi","cc":"fulano@example.com","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab"}`},
+
+	{Label: "Latest-message lookup failure on receive writes nothing",
+		URL: receiveURL, Status: 400, Response: "reading email cc list",
+		Data: `{"from":"err-opener@example.com","to":"support@company.com","body":"oi","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<err-root@example.com>"}`,
+		PrepBackend: func(mb *courier.MockBackend) {
+			urn := urns.URN(urnWithTag("err-opener@example.com", "<err-root@example.com>"))
+			parent := mb.NewIncomingMsg(testChannels[0], urn, "Abertura").WithExternalID("<err-root@example.com>")
+			mb.AddMsgByExternalID(parent)
+			mb.SetLastMsgByContactURNErr(testChannels[0], urn, errors.New("db down"))
+		}},
+
+	{Label: "Sender with no stored Message-ID opens a new conversation",
+		URL: receiveURL, Status: 200, Response: "Message Accepted",
+		Data: `{"from":"cc-only-sender@example.com","to":"support@company.com","body":"Nova conversa","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<newconv@x>"}`,
+		Name: Sp("cc-only-sender@example.com"), Text: Sp("Nova conversa"),
+		URN: Sp(urnWithTag("cc-only-sender@example.com", "<newconv@x>")),
+		PrepBackend: func(mb *courier.MockBackend) {
+			other := urns.URN(urnWithTag("someone-else@example.com", "<other-root@x>"))
+			parent := mb.NewIncomingMsg(testChannels[0], other, "Outra").
+				WithExternalID("<other-root@x>").
+				WithMetadata(json.RawMessage(`{"email":{"cc":["cc-only-sender@example.com"]}}`))
+			mb.AddMsgByExternalID(parent)
+		}},
+
+	{Label: "Blocked copy author is ignored on a thread reply",
+		URL: receiveURL, Status: 200, Response: "",
+		Data: `{"from":"copy-blocked@example.com","to":"support@company.com","body":"oi","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<blocked-root@example.com>"}`,
+		PrepBackend: func(mb *courier.MockBackend) {
+			mb.SetEmailMailboxBlocked("copy-blocked@example.com", true)
+			urn := urns.URN(urnWithTag("blocked-opener@example.com", "<blocked-root@example.com>"))
+			parent := mb.NewIncomingMsg(testChannels[0], urn, "Abertura").WithExternalID("<blocked-root@example.com>")
 			mb.AddMsgByExternalID(parent)
 		}},
 }
@@ -386,6 +505,53 @@ var defaultSendTestCases = []ChannelSendTestCase{
 		RequestBody:  `{"uuid":"00000000-0000-0000-0000-000000000000","from":"test@example.com","to":"person+work@gmail.com","body":"Reply body","subject":"Reply body","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab"}`,
 		ResponseBody: `{"status":"sent"}`, ResponseStatus: 200,
 		SendPrep: setSendURL},
+
+	{Label: "Send uses the central address and the cc of the latest message on the URN",
+		Text: "Agent reply", URN: "mailto:send-opener+wt-0123abcd@example.com",
+		ResponseToExternalID: "<cc-parent@x>",
+		Status:               "W",
+		RequestBody:          `{"uuid":"00000000-0000-0000-0000-000000000000","from":"test@example.com","to":"send-opener@example.com","cc":["fulano_de_tal@email.com","other@example.com"],"body":"Agent reply","subject":"Re: Pedido","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<cc-parent@x>","references":["<cc-parent@x>"]}`,
+		StatusMetadata:       json.RawMessage(`{"email":{"in_reply_to":"<cc-parent@x>","references":["<cc-parent@x>"],"subject":"Re: Pedido","cc":["fulano_de_tal@email.com","other@example.com"]}}`),
+		ResponseBody:         `{"status":"sent"}`, ResponseStatus: 200,
+		SendPrep: setSendURL,
+		PrepBackend: func(mb *courier.MockBackend) {
+			urn := urns.URN("mailto:send-opener+wt-0123abcd@example.com")
+			parent := mb.NewIncomingMsg(defaultChannel, urn, "Pedido").
+				WithExternalID("<cc-parent@x>").
+				WithMetadata(json.RawMessage(`{"email":{"subject":"Pedido"}}`))
+			mb.AddMsgByExternalID(parent)
+			latest := mb.NewIncomingMsg(defaultChannel, urn, "later").
+				WithMetadata(json.RawMessage(`{"email":{"cc":["fulano_de_tal@email.com","other@example.com"]}}`))
+			mb.AddLastMsgByContactURN(latest)
+		}},
+
+	{Label: "Latest message on the URN without cc omits the key",
+		Text: "Follow up", URN: "mailto:omit-cc+wt-0123abcd@example.com",
+		ResponseToExternalID: "<omit-parent@x>",
+		Status:               "W",
+		RequestBody:          `{"uuid":"00000000-0000-0000-0000-000000000000","from":"test@example.com","to":"omit-cc@example.com","body":"Follow up","subject":"Re: Pedido","channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","in_reply_to":"<omit-parent@x>","references":["<omit-parent@x>"]}`,
+		ResponseBody:         `{"status":"sent"}`, ResponseStatus: 200,
+		SendPrep: setSendURL,
+		PrepBackend: func(mb *courier.MockBackend) {
+			urn := urns.URN("mailto:omit-cc+wt-0123abcd@example.com")
+			parent := mb.NewIncomingMsg(defaultChannel, urn, "Pedido").
+				WithExternalID("<omit-parent@x>").
+				WithMetadata(json.RawMessage(`{"email":{"subject":"Pedido"}}`))
+			mb.AddMsgByExternalID(parent)
+			latest := mb.NewIncomingMsg(defaultChannel, urn, "later").
+				WithMetadata(json.RawMessage(`{"email":{"subject":"Pedido"}}`))
+			mb.AddLastMsgByContactURN(latest)
+		}},
+
+	{Label: "Latest-message lookup failure on send does not call the proxy",
+		Text: "Agent reply", URN: "mailto:fail-lookup+wt-0123abcd@example.com",
+		Status:         "E",
+		ResponseBody:   `{"status":"sent"}`,
+		ResponseStatus: 200,
+		SendPrep:       setSendURL,
+		PrepBackend: func(mb *courier.MockBackend) {
+			mb.SetLastMsgByContactURNErr(defaultChannel, urns.URN("mailto:fail-lookup+wt-0123abcd@example.com"), errors.New("db down"))
+		}},
 }
 
 // seedParents pre-populates the mock backend with parent inbound messages so
@@ -484,4 +650,144 @@ func assertJSONEqual(t *testing.T, want, got json.RawMessage) {
 	if string(wantJSON) != string(gotJSON) {
 		t.Fatalf("mismatch\nwant: %s\ngot:  %s", wantJSON, gotJSON)
 	}
+}
+
+func TestAccumulateCopyList(t *testing.T) {
+	central := urns.URN("mailto:opener+wt-0123abcd@example.com")
+	mailboxes := []string{"support@company.com"}
+	base := &moPayload{From: "author@example.com"}
+
+	cases := []struct {
+		name    string
+		prev    []string
+		payload *moPayload
+		boxes   []string
+		want    []string
+		dropped int
+	}{
+		{
+			name:    "previous order kept and payload cc appended",
+			prev:    []string{"a@example.com", "b@example.com"},
+			payload: &moPayload{From: "author@example.com", CC: []string{"c@example.com"}},
+			boxes:   mailboxes,
+			want:    []string{"a@example.com", "b@example.com", "c@example.com", "author@example.com"},
+		},
+		{
+			name:    "from not appended when it is the central contact",
+			payload: &moPayload{From: "Opener@Example.com", CC: []string{"a@example.com"}},
+			boxes:   mailboxes,
+			want:    []string{"a@example.com"},
+		},
+		{
+			name:    "channel mailbox and opener dropped",
+			payload: &moPayload{From: "author@example.com", CC: []string{"support@company.com", "opener@example.com", "a@example.com"}},
+			boxes:   mailboxes,
+			want:    []string{"a@example.com", "author@example.com"},
+			dropped: 2,
+		},
+		{
+			name:    "inbound To is excluded even when it differs from username",
+			payload: &moPayload{From: "author@example.com", To: "alias-box@example.com", CC: []string{"alias-box@example.com", "a@example.com"}},
+			boxes:   []string{"support@company.com", "alias-box@example.com"},
+			want:    []string{"a@example.com", "author@example.com"},
+			dropped: 1,
+		},
+		{
+			name:    "plus tag stripped and case-insensitive first spelling kept",
+			prev:    []string{"fulano@x.com"},
+			payload: &moPayload{From: "author@example.com", CC: []string{"FULANO+wt-deadbeef@x.com", "  ", "not an email", "Name <bad@x.com>"}},
+			boxes:   mailboxes,
+			want:    []string{"fulano@x.com", "author@example.com"},
+			dropped: 4,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := tc.payload
+			if payload == nil {
+				payload = base
+			}
+			got, dropped := accumulateCopyList(tc.prev, payload, central, tc.boxes)
+			require.Equal(t, tc.want, got)
+			require.Equal(t, tc.dropped, dropped)
+		})
+	}
+}
+
+// TestCopyThreadReceiveThenSend walks the first two steps of the flow: Ana
+// opens a thread with people in copy, then the agent answers.
+func TestCopyThreadReceiveThenSend(t *testing.T) {
+	var sent map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&sent))
+		_, _ = w.Write([]byte(`{"status":"sent","message_id":"<r1@proxy>"}`))
+	}))
+	defer server.Close()
+
+	mb := courier.NewMockBackend()
+	mb.AddChannel(defaultChannel)
+	cfg := courier.NewConfig()
+	cfg.EmailProxyURL = "http://example"
+	cfg.EmailProxyAuthToken = "test-auth-token"
+	h := newHandler().(*handler)
+	require.NoError(t, h.Initialize(courier.NewServer(cfg, mb)))
+	sendURL = server.URL
+	authToken = "test-auth-token"
+
+	// 1. Ana writes to the channel with two people in copy
+	body := `{"from":"ana@cliente.com","to":"test@example.com","subject":"Pedido","body":"Preciso de ajuda",` +
+		`"channel_uuid":"8eb23e93-5ecb-45ba-b726-3b064e0c56ab","message_id":"<m1@cliente.com>",` +
+		`"cc":["test@example.com","fulano@x.com","outro@y.com"]}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	_, err := h.receiveEvent(context.Background(), defaultChannel, httptest.NewRecorder(), req)
+	require.NoError(t, err)
+
+	stored, err := mb.GetLastQueueMsg()
+	require.NoError(t, err)
+	require.Equal(t, urnWithTag("ana@cliente.com", "<m1@cliente.com>"), string(stored.URN()))
+	require.Equal(t, "Preciso de ajuda", stored.Text())
+
+	// the backend would now hold that row as the thread's latest copy list
+	mb.AddMsgByExternalID(stored)
+	mb.AddLastMsgByContactURN(stored)
+
+	// 2. the agent answers
+	out := mb.NewOutgoingMsg(defaultChannel, courier.NewMsgID(20), stored.URN(), "Já estou vendo", false, nil, "", 0, "<m1@cliente.com>", "")
+	status, err := h.SendMsg(context.Background(), out)
+	require.NoError(t, err)
+	require.Equal(t, "W", string(status.Status()))
+
+	require.Equal(t, "ana@cliente.com", sent["to"])
+	require.Equal(t, []interface{}{"fulano@x.com", "outro@y.com"}, sent["cc"])
+}
+
+func TestSendHTTPErrorDoesNotStoreCopyList(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"API Error"}`))
+	}))
+	defer server.Close()
+
+	mb := courier.NewMockBackend()
+	mb.AddChannel(defaultChannel)
+	cfg := courier.NewConfig()
+	cfg.EmailProxyURL = "http://example"
+	cfg.EmailProxyAuthToken = "test-auth-token"
+	h := newHandler().(*handler)
+	require.NoError(t, h.Initialize(courier.NewServer(cfg, mb)))
+	sendURL = server.URL
+	authToken = "test-auth-token"
+
+	urn := urns.URN("mailto:err-send+wt-0123abcd@example.com")
+	latest := mb.NewIncomingMsg(defaultChannel, urn, "antes").
+		WithMetadata(json.RawMessage(`{"email":{"cc":["fulano_de_tal@email.com"]}}`))
+	mb.AddLastMsgByContactURN(latest)
+
+	msg := mb.NewOutgoingMsg(defaultChannel, courier.NewMsgID(10), urn, "resposta", false, nil, "", 0, "", "")
+	status, err := h.SendMsg(context.Background(), msg)
+	require.NoError(t, err)
+	require.Equal(t, "E", string(status.Status()))
+	require.Empty(t, status.Metadata())
 }

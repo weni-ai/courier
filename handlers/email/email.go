@@ -91,7 +91,24 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r, err)
 	}
 
-	msg := h.Backend().NewIncomingMsg(channel, urn, payload.Body).WithContactName(payload.From)
+	previous, err := h.copyListForURN(ctx, channel, urn)
+	if err != nil {
+		return nil, handlers.WriteAndLogRequestError(ctx, h, channel, w, r,
+			fmt.Errorf("reading email cc list: %w", err))
+	}
+	cc, dropped := accumulateCopyList(previous, payload, urn, channelMailboxes(channel, payload.To))
+	if dropped > 0 {
+		logrus.WithFields(logrus.Fields{
+			"channel_uuid": channel.UUID().String(),
+			"cc_dropped":   dropped,
+		}).Info("dropped email cc entries")
+	}
+
+	name := payload.From
+	if !sameEmailAddress(payload.From, realAddressFromURNPath(urn.Path())) {
+		name = realAddressFromURNPath(urn.Path())
+	}
+	msg := h.Backend().NewIncomingMsg(channel, urn, inboundText(payload.From, urn, payload.Body)).WithContactName(name)
 
 	for _, attachment := range payload.Attachments {
 		msg.WithAttachment(attachment)
@@ -101,7 +118,7 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 		msg.WithExternalID(messageID)
 	}
 
-	if metadata := buildThreadMetadata(payload); metadata != nil {
+	if metadata := buildThreadMetadata(payload, cc); metadata != nil {
 		msg.WithMetadata(metadata)
 	}
 
@@ -112,12 +129,15 @@ func (h *handler) receiveEvent(ctx context.Context, channel courier.Channel, w h
 // the incoming message, or nil when the payload carries no email context.
 // Subject is always stored when present so outbound replies can reuse it even
 // when the inbound message is not itself a reply.
-func buildThreadMetadata(payload *moPayload) json.RawMessage {
+func buildThreadMetadata(payload *moPayload, cc []string) json.RawMessage {
 	inReplyTo := normalizeMessageID(payload.InReplyTo)
 	references := normalizeReferences(payload.References)
 	subject := strings.TrimSpace(payload.Subject)
+	if len(cc) == 0 {
+		cc = nil
+	}
 
-	if inReplyTo == "" && len(references) == 0 && subject == "" {
+	if inReplyTo == "" && len(references) == 0 && subject == "" && len(cc) == 0 {
 		return nil
 	}
 
@@ -126,6 +146,7 @@ func buildThreadMetadata(payload *moPayload) json.RawMessage {
 			InReplyTo:  inReplyTo,
 			References: references,
 			Subject:    subject,
+			CC:         cc,
 		},
 	})
 	if err != nil {
@@ -156,7 +177,12 @@ func (h *handler) contactURNForInbound(ctx context.Context, channel courier.Chan
 		if parentURN == urns.NilURN {
 			continue
 		}
-		if !threadTagPattern.MatchString(parentURN.Path()) && sameEmailAddress(realAddressFromURNPath(parentURN.Path()), payload.From) {
+		// A +wt- URN is the central contact of that thread. A copy author
+		// stays on it instead of receiving a URN of their own.
+		if threadTagPattern.MatchString(parentURN.Path()) {
+			return parentURN, nil
+		}
+		if sameEmailAddress(realAddressFromURNPath(parentURN.Path()), payload.From) {
 			return parentURN, nil
 		}
 		// The message being answered belongs to another contact. Older
@@ -191,6 +217,120 @@ func replyParentIDs(payload *moPayload) []string {
 
 func sameEmailAddress(a, b string) bool {
 	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
+}
+
+// inboundText prefixes a copy author's address. The central contact's own
+// mail, including a case-only difference, is stored unchanged.
+func inboundText(from string, central urns.URN, body string) string {
+	if sameEmailAddress(from, realAddressFromURNPath(central.Path())) {
+		return body
+	}
+	return strings.TrimSpace(from) + ":\n\n" + body
+}
+
+// channelMailboxes is the channel username and, when set, the inbound To.
+// Both are excluded from the copy list.
+func channelMailboxes(channel courier.Channel, to string) []string {
+	var out []string
+	if username := strings.TrimSpace(channel.StringConfigForKey(courier.ConfigUsername, "")); username != "" {
+		out = append(out, username)
+	}
+	if to = strings.TrimSpace(to); to != "" {
+		out = append(out, to)
+	}
+	return out
+}
+
+// copyListForURN reads email.cc from the latest visible message of the URN.
+// A missing row is an empty list. Any other error is returned.
+func (h *handler) copyListForURN(ctx context.Context, channel courier.Channel, urn urns.URN) ([]string, error) {
+	row, err := h.Backend().LookupLastMsgByContactURN(ctx, channel, urn)
+	if err != nil {
+		if errors.Is(err, courier.ErrMsgNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if row == nil {
+		return nil, nil
+	}
+	meta := parseEmailThreadMetadata(row.Metadata())
+	if meta == nil || len(meta.CC) == 0 {
+		return nil, nil
+	}
+	return meta.CC, nil
+}
+
+// accumulateCopyList keeps prev, then appends new cc addresses, then from when
+// from is not the central contact. dropped counts payload cc entries that were
+// not appended. from is never counted.
+func accumulateCopyList(prev []string, payload *moPayload, central urns.URN, mailboxes []string) ([]string, int) {
+	centralReal := realAddressFromURNPath(central.Path())
+	out := make([]string, 0, len(prev)+len(payload.CC)+1)
+	seen := make(map[string]struct{}, len(prev)+len(payload.CC)+1)
+	dropped := 0
+
+	appendAddr := func(raw string, countDrop bool) {
+		addr := normalizeMailbox(raw)
+		if addr == "" || excludedMailbox(addr, centralReal, mailboxes) || alreadySeen(seen, addr) {
+			if countDrop {
+				dropped++
+			}
+			return
+		}
+		seen[strings.ToLower(addr)] = struct{}{}
+		out = append(out, addr)
+	}
+
+	for _, addr := range prev {
+		appendAddr(addr, false)
+	}
+	for _, addr := range payload.CC {
+		appendAddr(addr, true)
+	}
+	if !sameEmailAddress(payload.From, centralReal) {
+		appendAddr(payload.From, false)
+	}
+	if len(out) == 0 {
+		return nil, dropped
+	}
+	return out, dropped
+}
+
+func normalizeMailbox(raw string) string {
+	addr := realAddressFromURNPath(strings.TrimSpace(raw))
+	if !validMailbox(addr) {
+		return ""
+	}
+	return addr
+}
+
+func validMailbox(addr string) bool {
+	if addr == "" || strings.ContainsAny(addr, " \t<>") {
+		return false
+	}
+	at := strings.IndexByte(addr, '@')
+	if at <= 0 || at != strings.LastIndexByte(addr, '@') || at == len(addr)-1 {
+		return false
+	}
+	return true
+}
+
+func excludedMailbox(addr, central string, mailboxes []string) bool {
+	if sameEmailAddress(addr, central) {
+		return true
+	}
+	for _, mailbox := range mailboxes {
+		if sameEmailAddress(addr, realAddressFromURNPath(strings.TrimSpace(mailbox))) {
+			return true
+		}
+	}
+	return false
+}
+
+func alreadySeen(seen map[string]struct{}, addr string) bool {
+	_, ok := seen[strings.ToLower(addr)]
+	return ok
 }
 
 // buildContactURN derives the URN used to identify the contact for an inbound
@@ -303,6 +443,7 @@ type moPayload struct {
 	UUID        courier.MsgUUID     `json:"uuid,omitempty"`
 	From        string              `json:"from,omitempty"`
 	To          string              `json:"to,omitempty"`
+	CC          []string            `json:"cc,omitempty"`
 	Body        string              `json:"body,omitempty"`
 	Subject     string              `json:"subject,omitempty"`
 	Attachments []string            `json:"attachments,omitempty"`
@@ -322,6 +463,7 @@ type emailThreadMetadata struct {
 	InReplyTo  string   `json:"in_reply_to,omitempty"`
 	References []string `json:"references,omitempty"`
 	Subject    string   `json:"subject,omitempty"`
+	CC         []string `json:"cc,omitempty"`
 }
 
 func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStatus, error) {
@@ -340,10 +482,20 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 
 	inReplyTo, references, subject := h.buildReplyContext(ctx, msg)
 
+	cc, ccErr := h.copyListForURN(ctx, msg.Channel(), msg.URN())
+	if ccErr != nil {
+		logrus.WithFields(logrus.Fields{
+			"channel_uuid": msg.Channel().UUID().String(),
+			"msg_id":       msg.ID(),
+		}).WithError(ccErr).Warn("email cc lookup failed")
+		return status, nil
+	}
+
 	payload := moPayload{
 		UUID:        msg.UUID(),
 		From:        senderEmail,
 		To:          realAddressFromURNPath(msg.URN().Path()),
+		CC:          cc,
 		Subject:     subject,
 		Body:        msg.Text(),
 		Attachments: attachments,
@@ -386,7 +538,7 @@ func (h *handler) SendMsg(ctx context.Context, msg courier.Msg) (courier.MsgStat
 		// subsequent send that resolves us as parent can reuse subject and
 		// extend References — without this, the next turn falls back to the
 		// body-derived subject and starts a new thread in most clients
-		if emailMeta := buildOutboundThreadMetadata(inReplyTo, references, subject); emailMeta != nil {
+		if emailMeta := buildOutboundThreadMetadata(inReplyTo, references, subject, cc); emailMeta != nil {
 			if merged := mergeEmailMetadata(msg.Metadata(), emailMeta); merged != nil {
 				status.SetMetadata(merged)
 			}
@@ -527,12 +679,15 @@ func parseEmailThreadMetadata(raw json.RawMessage) *emailThreadMetadata {
 // buildThreadMetadata writes for inbound. Subject is always stored when present
 // so a subsequent outbound that resolves this message as parent can reuse it
 // even when this send was not itself a reply.
-func buildOutboundThreadMetadata(inReplyTo string, references []string, subject string) json.RawMessage {
+func buildOutboundThreadMetadata(inReplyTo string, references []string, subject string, cc []string) json.RawMessage {
 	inReplyTo = normalizeMessageID(inReplyTo)
 	references = normalizeReferences(references)
 	subject = strings.TrimSpace(subject)
+	if len(cc) == 0 {
+		cc = nil
+	}
 
-	if inReplyTo == "" && len(references) == 0 && subject == "" {
+	if inReplyTo == "" && len(references) == 0 && subject == "" && len(cc) == 0 {
 		return nil
 	}
 
@@ -541,6 +696,7 @@ func buildOutboundThreadMetadata(inReplyTo string, references []string, subject 
 			InReplyTo:  inReplyTo,
 			References: references,
 			Subject:    subject,
+			CC:         cc,
 		},
 	})
 	if err != nil {

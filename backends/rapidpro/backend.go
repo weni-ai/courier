@@ -1099,6 +1099,19 @@ func (b *backend) LookupLastMsgWithExternalID(ctx context.Context, channel couri
 	return GetLastMsgWithExternalID(ctx, b, dbChannel.ID(), string(urn.Identity()))
 }
 
+// LookupLastMsgByContactURN returns the latest visible message on the channel
+// for the contact URN, including rows with an empty external_id.
+func (b *backend) LookupLastMsgByContactURN(ctx context.Context, channel courier.Channel, urn urns.URN) (courier.Msg, error) {
+	if urn == urns.NilURN {
+		return nil, courier.ErrMsgNotFound
+	}
+	dbChannel, ok := channel.(*DBChannel)
+	if !ok {
+		return nil, fmt.Errorf("LookupLastMsgByContactURN requires a *DBChannel, got %T", channel)
+	}
+	return GetLastMsgByContactURN(ctx, b, dbChannel.ID(), string(urn.Identity()))
+}
+
 func (b *backend) GetProjectUUIDFromChannelUUID(ctx context.Context, channelUUID courier.ChannelUUID) (string, error) {
 	return getProjectUUIDFromChannelUUID(ctx, b.db, channelUUID.String())
 }

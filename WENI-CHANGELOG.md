@@ -1,6 +1,10 @@
+1.82.0
+----------
+ * feat: send WAC handover context to Nexus on control_passed
+
 1.81.0
 ----------
- * feat: write an empty inbound message when a WAC control_passed leaves pending conversation context, so Mailroom delivers the context without waiting for the contact to write (deduplicated per channel, URN and timestamp in Redis)
+ * feat: email channel support for messages with cc, handle in copy participants reply, and handle channel send message to in copy participants.
 
 1.80.0
 ----------

@@ -1,6 +1,6 @@
-Unreleased
+1.81.0
 ----------
- * feat: keep a copy author's reply on the thread contact, prefix the body with their address, and send the accumulated cc list to email-proxy. Deploy email-proxy first so it accepts cc.
+ * feat: email channel support for messages with cc, handle in copy participants reply, and handle channel send message to in copy participants.
 
 1.80.0
 ----------

@@ -932,6 +932,157 @@ func TestSendingTokenRefreshSaveFailure(t *testing.T) {
 	}
 }
 
+// ---- redaction and logs ----
+
+func TestRedactAuthorizationHeader(t *testing.T) {
+	tcs := []struct {
+		label string
+		dump  string
+		want  string
+	}{
+		{"bearer", "POST /send HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer abc\r\nContent-Type: application/json\r\n\r\n{\"a\":1}",
+			"POST /send HTTP/1.1\r\nHost: x\r\nAuthorization: [REDACTED]\r\nContent-Type: application/json\r\n\r\n{\"a\":1}"},
+		{"non bearer", "GET / HTTP/1.1\r\nAuthorization: Basic dGVzdDp0ZXN0\r\nAccept: */*\r\n\r\n",
+			"GET / HTTP/1.1\r\nAuthorization: [REDACTED]\r\nAccept: */*\r\n\r\n"},
+		{"lower case name", "GET / HTTP/1.1\r\nauthorization: Bearer abc\r\n\r\n", "GET / HTTP/1.1\r\nauthorization: [REDACTED]\r\n\r\n"},
+		{"upper case name", "GET / HTTP/1.1\r\nAUTHORIZATION: Bearer abc\r\n\r\n", "GET / HTTP/1.1\r\nAUTHORIZATION: [REDACTED]\r\n\r\n"},
+		{"lf endings", "GET / HTTP/1.1\nAuthorization: Bearer abc\nAccept: */*\n", "GET / HTTP/1.1\nAuthorization: [REDACTED]\nAccept: */*\n"},
+		{"other headers untouched", "GET / HTTP/1.1\r\nX-Authorization-Hint: keep\r\nAuthorization: Bearer abc\r\n\r\n",
+			"GET / HTTP/1.1\r\nX-Authorization-Hint: keep\r\nAuthorization: [REDACTED]\r\n\r\n"},
+		{"no header", "GET / HTTP/1.1\r\nAccept: */*\r\n\r\n", "GET / HTTP/1.1\r\nAccept: */*\r\n\r\n"},
+		{"empty", "", ""},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.label, func(t *testing.T) {
+			assert.Equal(t, tc.want, redactAuthorizationHeader(tc.dump))
+		})
+	}
+}
+
+var fixtureSecrets = []string{fixtureAccessToken1, fixtureAccessToken2, fixtureRefreshToken, fixtureClientSecret}
+
+func assertSendLogsRedacted(t *testing.T, status courier.MsgStatus, wantPartnerLogs int) {
+	t.Helper()
+
+	partnerLogs := 0
+	for _, log := range status.Logs() {
+		for _, secret := range fixtureSecrets {
+			assert.NotContains(t, log.Request, secret)
+			assert.NotContains(t, log.Response, secret)
+			assert.NotContains(t, log.Error, secret)
+			assert.NotContains(t, log.URL, secret)
+		}
+
+		if log.Description == tokenRefreshLogDescription {
+			assert.Empty(t, log.Request)
+			assert.Empty(t, log.Response)
+			continue
+		}
+		partnerLogs++
+		assert.Contains(t, log.Request, "Authorization: [REDACTED]")
+	}
+	assert.Equal(t, wantPartnerLogs, partnerLogs)
+}
+
+func TestSendingTokenRefreshSendLogs(t *testing.T) {
+	t.Run("both attempts of a replayed part", func(t *testing.T) {
+		stub := newStubServer(t, []stubResponse{{401, `{"error":"expired"}`}, {200, `{"status":"success"}`}}, stubResponse{200, tokenOK.Body})
+		setup := stubSetup(stub)
+		setup.statusCodes = []int{401}
+
+		status, err := sendDirect(t, setup.channel(), "Hello")
+		require.NoError(t, err)
+		assertSendLogsRedacted(t, status, 2)
+	})
+
+	t.Run("every attachment part", func(t *testing.T) {
+		stub := newStubServer(t, []stubResponse{{200, `{"status":"success"}`}}, stubResponse{200, tokenOK.Body})
+		setup := stubSetup(stub)
+		setup.expired = true
+		setup.extra = map[string]interface{}{configExpiresIn: pastExpiry, configSendAttachmentInParts: "true"}
+
+		status, err := sendDirect(t, setup.channel(), "Hello", "image/jpeg:https://foo.bar/1.jpg", "image/jpeg:https://foo.bar/2.jpg")
+		require.NoError(t, err)
+		assertSendLogsRedacted(t, status, 3)
+	})
+
+	t.Run("refresh disabled with a static send_authorization", func(t *testing.T) {
+		stub := newStubServer(t, []stubResponse{{200, `{"status":"success"}`}}, stubResponse{200, tokenOK.Body})
+		setup := stubSetup(stub)
+		setup.extra = map[string]interface{}{configTokenRefreshEnabled: "false"}
+
+		status, err := sendDirect(t, setup.channel(), "Hello")
+		require.NoError(t, err)
+		assertSendLogsRedacted(t, status, 1)
+
+		_, tokenCalls, auth := stub.counts()
+		assert.Equal(t, 0, tokenCalls)
+		assert.Equal(t, []string{bearer(fixtureAccessToken1)}, auth, "the request on the wire is unchanged")
+	})
+}
+
+func TestSendingTokenRefreshAppLogs(t *testing.T) {
+	logs := CaptureLogs(t)
+
+	tokenEntries := func() []*logrus.Entry {
+		var entries []*logrus.Entry
+		for _, entry := range logs.Entries() {
+			if entry.Data["event"] == logEventTokenRefresh {
+				entries = append(entries, entry)
+			}
+		}
+		return entries
+	}
+
+	// proactive refresh succeeds, then the partner matches and the replay refresh succeeds
+	stub := newStubServer(t, []stubResponse{{401, `{"error":"expired"}`}, {200, `{"status":"success"}`}}, stubResponse{200, tokenOK.Body})
+	setup := stubSetup(stub)
+	setup.statusCodes = []int{401}
+	setup.expired = true
+	setup.extra = map[string]interface{}{configExpiresIn: pastExpiry}
+	_, err := sendDirect(t, setup.channel(), "Hello text")
+	require.NoError(t, err)
+
+	// a failed token call
+	failing := newStubServer(t, []stubResponse{{200, `{"status":"success"}`}}, stubResponse{500, "boom " + fixtureClientSecret})
+	failSetup := stubSetup(failing)
+	failSetup.expired = true
+	failSetup.extra = map[string]interface{}{configExpiresIn: pastExpiry}
+	_, err = sendDirect(t, failSetup.channel(), "Hello text")
+	require.NoError(t, err)
+
+	entries := tokenEntries()
+	require.Len(t, entries, 3)
+
+	for _, entry := range entries {
+		assert.Equal(t, "externalv2", entry.Data["comp"])
+		assert.Equal(t, testChannelUUID, entry.Data["channel_uuid"])
+		assert.NotEmpty(t, entry.Data["msg_uuid"])
+		assert.Contains(t, entry.Data, "status_code")
+		assert.Contains(t, entry.Data, "elapsed")
+	}
+
+	assert.Equal(t, tokenTriggerExpired, entries[0].Data["trigger"])
+	assert.Equal(t, tokenOutcomeOK, entries[0].Data["outcome"])
+	assert.Equal(t, logrus.InfoLevel, entries[0].Level)
+	assert.NotContains(t, entries[0].Data, "reason")
+
+	assert.Equal(t, tokenTriggerMatch, entries[1].Data["trigger"])
+	assert.Equal(t, tokenOutcomeOK, entries[1].Data["outcome"])
+
+	assert.Equal(t, tokenTriggerExpired, entries[2].Data["trigger"])
+	assert.Equal(t, tokenOutcomeFailed, entries[2].Data["outcome"])
+	assert.Equal(t, tokenFailureStatus5xx, entries[2].Data["reason"])
+	assert.Equal(t, logrus.WarnLevel, entries[2].Level)
+
+	for _, line := range logs.Lines(t) {
+		for _, forbidden := range append([]string{testURNPath, "Hello text", "grant_type"}, fixtureSecrets...) {
+			assert.NotContains(t, line, forbidden)
+		}
+	}
+}
+
 // BenchmarkHandler runs benchmarks on our handler
 func BenchmarkHandler(b *testing.B) {
 	RunChannelBenchmarks(b, testChannels, newHandler(), handleTestCases)

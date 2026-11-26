@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
@@ -43,17 +44,33 @@ const (
 )
 
 const (
+	// redactedHeaderValue replaces the Authorization value in every E2 partner send log, so a live token is never stored
+	redactedHeaderValue = "[REDACTED]"
+
 	logComp                  = "externalv2"
+	logEventTokenRefresh     = "token_refresh"
 	logEventTokenRefreshSave = "token_refresh_save"
+	logMessageTokenRefresh   = "token refresh attempt"
 	logMessageTokenSaveError = "error saving refreshed token in channel config"
 
 	tokenTriggerExpired = "expired"
 	tokenTriggerMatch   = "match"
+	tokenOutcomeOK      = "ok"
+	tokenOutcomeFailed  = "failed"
 )
 
 var contentTypeMappings = map[string]string{
 	contentURLEncoded: "application/x-www-form-urlencoded",
 	contentJSON:       "application/json",
+}
+
+// authorizationHeaderPattern matches an Authorization header line of a request dump, in any letter case, up to the end
+// of the line, so line endings and the rest of the dump are untouched
+var authorizationHeaderPattern = regexp.MustCompile(`(?im)^(authorization:[ \t]*)[^\r\n]*`)
+
+// redactAuthorizationHeader replaces the value of every Authorization header line with redactedHeaderValue
+func redactAuthorizationHeader(dump string) string {
+	return authorizationHeaderPattern.ReplaceAllString(dump, "${1}"+redactedHeaderValue)
 }
 
 // tokenAuth is the OAuth2 state of one SendMsg, shared by all its parts. It lives only in memory for the call: the
@@ -521,7 +538,7 @@ func (h *handler) sendMsgPart(ctx context.Context, msg courier.Msg, auth *tokenA
 		rr, err = utils.MakeHTTPRequest(req)
 
 		// record our status and log
-		log = courier.NewChannelLogFromRR(logDescription, msg.Channel(), msg.ID(), rr).WithError("Message Send Error", err)
+		log = newPartnerSendLog(logDescription, msg, rr).WithError("Message Send Error", err)
 		status.AddLog(log)
 
 		// matches runs even when MakeHTTPRequest returned an error: a 401 comes with both
@@ -554,6 +571,14 @@ func (h *handler) sendMsgPart(ctx context.Context, msg courier.Msg, auth *tokenA
 	return status, nil
 }
 
+// newPartnerSendLog builds the partner send log from a copy of the response whose request dump has the Authorization
+// value redacted. The request on the wire is unchanged: only what is stored changes.
+func newPartnerSendLog(description string, msg courier.Msg, rr *utils.RequestResponse) *courier.ChannelLog {
+	redacted := *rr
+	redacted.Request = redactAuthorizationHeader(rr.Request)
+	return courier.NewChannelLogFromRR(description, msg.Channel(), msg.ID(), &redacted)
+}
+
 // partnerResponseError is the error of a partner response that matched the refresh rules. A matching 2xx status has no
 // error from MakeHTTPRequest, but the part still failed.
 func partnerResponseError(err error, rr *utils.RequestResponse) error {
@@ -564,10 +589,11 @@ func partnerResponseError(err error, rr *utils.RequestResponse) error {
 }
 
 // refreshAccessToken calls the token endpoint for one SendMsg. The Token Refresh log is added to the part's status for
-// every attempt. On success the shared auth state is updated, so the replay and the next parts use the new token.
+// every attempt. On success the shared auth state is updated and the new values are saved in the channel config.
 func (h *handler) refreshAccessToken(ctx context.Context, msg courier.Msg, auth *tokenAuth, status courier.MsgStatus, trigger string) error {
 	result, tokenLog, err := requestAccessToken(msg.Channel(), msg.ID(), auth.options, auth.refreshToken)
 	status.AddLog(tokenLog)
+	logTokenAttempt(msg, trigger, tokenLog, err)
 	if err != nil {
 		return err
 	}
@@ -575,6 +601,31 @@ func (h *handler) refreshAccessToken(ctx context.Context, msg courier.Msg, auth 
 	auth.apply(result)
 	h.persistRefreshedToken(ctx, msg, auth)
 	return nil
+}
+
+// logTokenAttempt writes one application log per token attempt. Fields only, never interpolated text, and never a
+// URN, message text, body or credential.
+func logTokenAttempt(msg courier.Msg, trigger string, tokenLog *courier.ChannelLog, err error) {
+	fields := logrus.Fields{
+		"comp":         logComp,
+		"channel_uuid": msg.Channel().UUID().String(),
+		"msg_uuid":     msg.UUID().String(),
+		"event":        logEventTokenRefresh,
+		"trigger":      trigger,
+		"status_code":  tokenLog.StatusCode,
+		"elapsed":      tokenLog.Elapsed,
+	}
+
+	if err == nil {
+		fields["outcome"] = tokenOutcomeOK
+		logrus.WithFields(fields).Info(logMessageTokenRefresh)
+		return
+	}
+
+	// the log error is the fixed failure reason, never the raw error
+	fields["outcome"] = tokenOutcomeFailed
+	fields["reason"] = tokenLog.Error
+	logrus.WithFields(fields).Warn(logMessageTokenRefresh)
 }
 
 func cloneChannelConfig(channel courier.Channel) map[string]interface{} {
